@@ -144,3 +144,47 @@ pub async fn delete(
 
     Ok(())
 }
+
+pub async fn suspend(
+    project_id: &str,
+    branch_id: &str,
+    endpoint_id: &str,
+    format: OutputFormat,
+    api_host: Option<String>,
+) -> Result<()> {
+    let client = get_client(api_host)?;
+    
+    let endpoint = client
+        .endpoints(project_id, branch_id)
+        .suspend(endpoint_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to suspend endpoint: {}", e))?;
+
+    println!("{}", "✓ Endpoint suspended successfully!".green().bold());
+    println!();
+    output::print_endpoint(&endpoint, format)?;
+
+    Ok(())
+}
+
+pub async fn start(
+    project_id: &str,
+    branch_id: &str,
+    endpoint_id: &str,
+    format: OutputFormat,
+    api_host: Option<String>,
+) -> Result<()> {
+    let client = get_client(api_host)?;
+    
+    let endpoint = client
+        .endpoints(project_id, branch_id)
+        .start(endpoint_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to start endpoint: {}", e))?;
+
+    println!("{}", "✓ Endpoint started successfully!".green().bold());
+    println!();
+    output::print_endpoint(&endpoint, format)?;
+
+    Ok(())
+}

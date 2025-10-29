@@ -303,6 +303,16 @@ enum EndpointAction {
         /// Endpoint ID
         id: String,
     },
+    /// Suspend an endpoint
+    Suspend {
+        /// Endpoint ID
+        id: String,
+    },
+    /// Start an endpoint
+    Start {
+        /// Endpoint ID
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -398,6 +408,12 @@ async fn main() -> anyhow::Result<()> {
             }
             EndpointAction::Delete { id } => {
                 commands::endpoints::delete(&project_id, &branch_id, &id, cli.api_host).await?
+            }
+            EndpointAction::Suspend { id } => {
+                commands::endpoints::suspend(&project_id, &branch_id, &id, cli.format, cli.api_host).await?
+            }
+            EndpointAction::Start { id } => {
+                commands::endpoints::start(&project_id, &branch_id, &id, cli.format, cli.api_host).await?
             }
         },
         Commands::Operations { project_id, action } => match action {
