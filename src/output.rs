@@ -257,6 +257,33 @@ pub fn print_endpoints_table(endpoints: &[seren::Endpoint]) {
     println!("{table}");
 }
 
+pub fn print_endpoint(endpoint: &seren::Endpoint, format: OutputFormat) -> anyhow::Result<()> {
+    match format {
+        OutputFormat::Json => print_json(endpoint)?,
+        OutputFormat::Table => {
+            let mut table = Table::new();
+            table
+                .load_preset(UTF8_FULL)
+                .set_content_arrangement(ContentArrangement::Dynamic);
+
+            table.add_row(vec![Cell::new("Field").fg(Color::Green), Cell::new("Value").fg(Color::Green)]);
+            table.add_row(vec!["ID", &endpoint.id]);
+            table.add_row(vec!["Name", &endpoint.name]);
+            table.add_row(vec!["Branch ID", &endpoint.branch_id]);
+            table.add_row(vec!["Status", &endpoint.status]);
+            table.add_row(vec!["Compute Unit", &endpoint.compute_unit]);
+            table.add_row(vec!["Autoscaling Min", &endpoint.autoscaling_min.to_string()]);
+            table.add_row(vec!["Autoscaling Max", &endpoint.autoscaling_max.to_string()]);
+            table.add_row(vec!["Suspend Timeout", &format!("{} seconds", endpoint.suspend_timeout_seconds)]);
+            table.add_row(vec!["Connection String", &endpoint.connection_string]);
+            table.add_row(vec!["Created At", &endpoint.created_at]);
+
+            println!("{table}");
+        }
+    }
+    Ok(())
+}
+
 // Connection String
 pub fn print_connection_string(response: &seren::ConnectionStringResponse, format: OutputFormat) -> anyhow::Result<()> {
     match format {
@@ -274,4 +301,93 @@ pub fn print_connection_string(response: &seren::ConnectionStringResponse, forma
         }
     }
     Ok(())
+}
+
+// Operations
+pub fn print_operations_table(operations: &[seren::Operation]) {
+    if operations.is_empty() {
+        println!("No operations found");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("ID").fg(Color::Green),
+        Cell::new("Type").fg(Color::Green),
+        Cell::new("Resource Type").fg(Color::Green),
+        Cell::new("Resource ID").fg(Color::Green),
+        Cell::new("Status").fg(Color::Green),
+        Cell::new("Progress").fg(Color::Green),
+        Cell::new("Created").fg(Color::Green),
+    ]);
+
+    for operation in operations {
+        table.add_row(vec![
+            Cell::new(&operation.id),
+            Cell::new(&operation.operation_type),
+            Cell::new(&operation.resource_type),
+            Cell::new(&operation.resource_id),
+            Cell::new(&operation.status),
+            Cell::new(&format!("{}%", operation.progress)),
+            Cell::new(&operation.created_at),
+        ]);
+    }
+
+    println!("{table}");
+}
+
+// User
+pub fn print_user(user: &seren::User) -> anyhow::Result<()> {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.add_row(vec![Cell::new("Field").fg(Color::Green), Cell::new("Value").fg(Color::Green)]);
+    table.add_row(vec!["ID", &user.id]);
+    table.add_row(vec!["Email", &user.email]);
+    table.add_row(vec!["Name", &user.name]);
+    if let Some(avatar) = &user.avatar_url {
+        table.add_row(vec!["Avatar URL", avatar]);
+    }
+    table.add_row(vec!["Status", &user.status]);
+    table.add_row(vec!["Created At", &user.created_at]);
+
+    println!("{table}");
+    Ok(())
+}
+
+// Organizations
+pub fn print_organizations_table(organizations: &[seren::Organization]) {
+    if organizations.is_empty() {
+        println!("No organizations found");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("ID").fg(Color::Green),
+        Cell::new("Name").fg(Color::Green),
+        Cell::new("Slug").fg(Color::Green),
+        Cell::new("Created").fg(Color::Green),
+    ]);
+
+    for org in organizations {
+        table.add_row(vec![
+            Cell::new(&org.id),
+            Cell::new(&org.name),
+            Cell::new(&org.slug),
+            Cell::new(&org.created_at),
+        ]);
+    }
+
+    println!("{table}");
 }

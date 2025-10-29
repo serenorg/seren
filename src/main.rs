@@ -45,6 +45,10 @@ enum Commands {
         #[command(subcommand)]
         action: AuthAction,
     },
+    /// Get current user information
+    Me,
+    /// List organizations
+    Organizations,
     /// Manage projects
     Projects {
         #[command(subcommand)]
@@ -97,6 +101,15 @@ enum Commands {
         
         #[command(subcommand)]
         action: EndpointAction,
+    },
+    /// Manage operations
+    Operations {
+        /// Project ID
+        #[arg(long)]
+        project_id: String,
+        
+        #[command(subcommand)]
+        action: OperationAction,
     },
 }
 
@@ -246,11 +259,39 @@ enum RoleAction {
 enum EndpointAction {
     /// List all endpoints
     List,
+    /// Create a new endpoint
+    Create {
+        /// Endpoint name
+        #[arg(long)]
+        name: String,
+        
+        /// Compute unit (e.g., small, medium, large)
+        #[arg(long)]
+        compute_unit: Option<String>,
+        
+        /// Minimum autoscaling compute units
+        #[arg(long)]
+        autoscaling_min: Option<i32>,
+        
+        /// Maximum autoscaling compute units
+        #[arg(long)]
+        autoscaling_max: Option<i32>,
+        
+        /// Suspend timeout in seconds
+        #[arg(long)]
+        suspend_timeout: Option<i32>,
+    },
     /// Delete an endpoint
     Delete {
         /// Endpoint ID
         id: String,
     },
+}
+
+#[derive(Subcommand)]
+enum OperationAction {
+    /// List all operations for a project
+    List,
 }
 
 #[tokio::main]
@@ -263,6 +304,12 @@ async fn main() -> anyhow::Result<()> {
                 commands::auth::login().await?
             }
         },
+        Commands::Me => {
+            commands::auth::me(cli.format, cli.api_host).await?
+        }
+        Commands::Organizations => {
+            commands::auth::organizations(cli.format, cli.api_host).await?
+        }
         Commands::Projects { action } => match action {
             ProjectAction::List => commands::projects::list(cli.format, cli.api_host).await?,
             ProjectAction::Get { id } => commands::projects::get(&id, cli.format, cli.api_host).await?,
@@ -326,8 +373,16 @@ async fn main() -> anyhow::Result<()> {
             EndpointAction::List => {
                 commands::endpoints::list(&project_id, &branch_id, cli.format, cli.api_host).await?
             }
+            EndpointAction::Create { name, compute_unit, autoscaling_min, autoscaling_max, suspend_timeout } => {
+                commands::endpoints::create(&project_id, &branch_id, &name, compute_unit, autoscaling_min, autoscaling_max, suspend_timeout, cli.format, cli.api_host).await?
+            }
             EndpointAction::Delete { id } => {
                 commands::endpoints::delete(&project_id, &branch_id, &id, cli.api_host).await?
+            }
+        },
+        Commands::Operations { project_id, action } => match action {
+            OperationAction::List => {
+                commands::operations::list(&project_id, cli.format, cli.api_host).await?
             }
         },
     }

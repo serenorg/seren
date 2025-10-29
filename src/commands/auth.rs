@@ -3,6 +3,8 @@ use colored::Colorize;
 use std::io::{self, Write};
 
 use crate::config::Config;
+use crate::output;
+use crate::OutputFormat;
 
 pub async fn login() -> Result<()> {
     println!("{}", "Seren CLI Authentication".bold().green());
@@ -71,4 +73,42 @@ fn mask_api_key(key: &str) -> String {
     let prefix = &key[..7]; // "seren_"
     let suffix = &key[key.len() - 4..];
     format!("{}...{}", prefix, suffix)
+}
+
+pub async fn me(format: OutputFormat, api_host: Option<String>) -> Result<()> {
+    let config = Config::load()?;
+    
+    let mut client_config = seren::ClientConfig::new(config.api_key);
+    if let Some(base_url) = api_host {
+        client_config = client_config.with_base_url(base_url);
+    }
+    
+    let client = seren::Client::new(client_config)?;
+    let user = client.me().await?;
+    
+    match format {
+        OutputFormat::Json => output::print_json(&user)?,
+        OutputFormat::Table => output::print_user(&user)?,
+    }
+    
+    Ok(())
+}
+
+pub async fn organizations(format: OutputFormat, api_host: Option<String>) -> Result<()> {
+    let config = Config::load()?;
+    
+    let mut client_config = seren::ClientConfig::new(config.api_key);
+    if let Some(base_url) = api_host {
+        client_config = client_config.with_base_url(base_url);
+    }
+    
+    let client = seren::Client::new(client_config)?;
+    let orgs = client.organizations().await?;
+    
+    match format {
+        OutputFormat::Json => output::print_json(&orgs)?,
+        OutputFormat::Table => output::print_organizations_table(&orgs),
+    }
+    
+    Ok(())
 }

@@ -38,6 +38,50 @@ pub async fn list(
     Ok(())
 }
 
+pub async fn create(
+    project_id: &str,
+    branch_id: &str,
+    name: &str,
+    compute_unit: Option<String>,
+    autoscaling_min: Option<i32>,
+    autoscaling_max: Option<i32>,
+    suspend_timeout: Option<i32>,
+    format: OutputFormat,
+    api_host: Option<String>,
+) -> Result<()> {
+    let client = get_client(api_host)?;
+    
+    let mut request = seren::CreateEndpointRequest::new(name);
+    
+    if let Some(unit) = compute_unit {
+        request = request.with_compute_unit(unit);
+    }
+    
+    if let Some(min) = autoscaling_min {
+        let max = autoscaling_max.unwrap_or(min);
+        request = request.with_autoscaling(min, max);
+    } else if let Some(max) = autoscaling_max {
+        request = request.with_autoscaling(1, max);
+    }
+    
+    if let Some(timeout) = suspend_timeout {
+        request.suspend_timeout_seconds = Some(timeout);
+    }
+    
+    let endpoint = client
+        .endpoints(project_id, branch_id)
+        .create(request)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to create endpoint: {}", e))?;
+
+    match format {
+        OutputFormat::Json => output::print_json(&endpoint)?,
+        OutputFormat::Table => output::print_endpoint(&endpoint, format)?,
+    }
+
+    Ok(())
+}
+
 pub async fn delete(
     project_id: &str,
     branch_id: &str,
