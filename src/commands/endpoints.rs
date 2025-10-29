@@ -1,0 +1,63 @@
+use anyhow::Result;
+use colored::Colorize;
+use seren::{Client, ClientConfig};
+
+use crate::{config::Config, output, OutputFormat};
+
+fn get_client(api_host: Option<String>) -> Result<Client> {
+    let config = Config::load()?;
+    
+    let mut client_config = ClientConfig::new(config.api_key);
+    
+    if let Some(host) = api_host {
+        client_config = client_config.with_base_url(host);
+    }
+    
+    Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
+}
+
+pub async fn list(
+    project_id: &str,
+    branch_id: &str,
+    format: OutputFormat,
+    api_host: Option<String>,
+) -> Result<()> {
+    let client = get_client(api_host)?;
+    
+    let endpoints = client
+        .endpoints(project_id, branch_id)
+        .list()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to list endpoints: {}", e))?;
+
+    match format {
+        OutputFormat::Json => output::print_json(&endpoints)?,
+        OutputFormat::Table => output::print_endpoints_table(&endpoints),
+    }
+
+    Ok(())
+}
+
+pub async fn delete(
+    project_id: &str,
+    branch_id: &str,
+    endpoint_id: &str,
+    api_host: Option<String>,
+) -> Result<()> {
+    let client = get_client(api_host)?;
+    
+    client
+        .endpoints(project_id, branch_id)
+        .delete(endpoint_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to delete endpoint: {}", e))?;
+
+    println!(
+        "{}",
+        format!("✓ Endpoint {} deleted successfully!", endpoint_id)
+            .green()
+            .bold()
+    );
+
+    Ok(())
+}

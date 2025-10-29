@@ -1,6 +1,6 @@
 use anyhow::Result;
 use colored::Colorize;
-use seren::{Client, ClientConfig, CreateProjectRequest};
+use seren::{Client, ClientConfig, CreateProjectRequest, UpdateProjectRequest};
 
 use crate::{config::Config, output, OutputFormat};
 
@@ -49,7 +49,7 @@ pub async fn get(id: &str, format: OutputFormat, api_host: Option<String>) -> Re
 
 pub async fn create(
     name: &str,
-    org_id: &str,
+    _org_id: &str,
     format: OutputFormat,
     api_host: Option<String>,
 ) -> Result<()> {
@@ -57,7 +57,6 @@ pub async fn create(
     
     let request = CreateProjectRequest {
         name: name.to_string(),
-        organization_id: org_id.to_string(),
     };
 
     let project = client
@@ -67,6 +66,31 @@ pub async fn create(
         .map_err(|e| anyhow::anyhow!("Failed to create project: {}", e))?;
 
     println!("{}", "✓ Project created successfully!".green().bold());
+    println!();
+    output::print_project(&project, format)?;
+
+    Ok(())
+}
+
+pub async fn update(
+    id: &str,
+    name: &str,
+    format: OutputFormat,
+    api_host: Option<String>,
+) -> Result<()> {
+    let client = get_client(api_host)?;
+    
+    let request = UpdateProjectRequest {
+        name: name.to_string(),
+    };
+
+    let project = client
+        .projects()
+        .update(id, request)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to update project: {}", e))?;
+
+    println!("{}", "✓ Project updated successfully!".green().bold());
     println!();
     output::print_project(&project, format)?;
 
