@@ -82,6 +82,45 @@ pub async fn create(
     Ok(())
 }
 
+pub async fn update(
+    project_id: &str,
+    branch_id: &str,
+    endpoint_id: &str,
+    autoscaling_min: Option<i32>,
+    autoscaling_max: Option<i32>,
+    suspend_timeout: Option<i32>,
+    format: OutputFormat,
+    api_host: Option<String>,
+) -> Result<()> {
+    let client = get_client(api_host)?;
+    
+    let mut request = seren::UpdateEndpointRequest::new();
+    
+    if let Some(min) = autoscaling_min {
+        request = request.autoscaling_min(min);
+    }
+    
+    if let Some(max) = autoscaling_max {
+        request = request.autoscaling_max(max);
+    }
+    
+    if let Some(timeout) = suspend_timeout {
+        request = request.suspend_timeout(timeout);
+    }
+    
+    let endpoint = client
+        .endpoints(project_id, branch_id)
+        .update(endpoint_id, request)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to update endpoint: {}", e))?;
+
+    println!("{}", "✓ Endpoint updated successfully!".green().bold());
+    println!();
+    output::print_endpoint(&endpoint, format)?;
+
+    Ok(())
+}
+
 pub async fn delete(
     project_id: &str,
     branch_id: &str,

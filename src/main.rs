@@ -281,6 +281,23 @@ enum EndpointAction {
         #[arg(long)]
         suspend_timeout: Option<i32>,
     },
+    /// Update an endpoint
+    Update {
+        /// Endpoint ID
+        id: String,
+        
+        /// Minimum autoscaling compute units
+        #[arg(long)]
+        autoscaling_min: Option<i32>,
+        
+        /// Maximum autoscaling compute units
+        #[arg(long)]
+        autoscaling_max: Option<i32>,
+        
+        /// Suspend timeout in seconds
+        #[arg(long)]
+        suspend_timeout: Option<i32>,
+    },
     /// Delete an endpoint
     Delete {
         /// Endpoint ID
@@ -375,6 +392,9 @@ async fn main() -> anyhow::Result<()> {
             }
             EndpointAction::Create { name, compute_unit, autoscaling_min, autoscaling_max, suspend_timeout } => {
                 commands::endpoints::create(&project_id, &branch_id, &name, compute_unit, autoscaling_min, autoscaling_max, suspend_timeout, cli.format, cli.api_host).await?
+            }
+            EndpointAction::Update { id, autoscaling_min, autoscaling_max, suspend_timeout } => {
+                commands::endpoints::update(&project_id, &branch_id, &id, autoscaling_min, autoscaling_max, suspend_timeout, cli.format, cli.api_host).await?
             }
             EndpointAction::Delete { id } => {
                 commands::endpoints::delete(&project_id, &branch_id, &id, cli.api_host).await?
