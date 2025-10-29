@@ -111,6 +111,15 @@ enum Commands {
         #[command(subcommand)]
         action: OperationAction,
     },
+    /// Manage IP allow lists
+    IpAllowList {
+        /// Project ID
+        #[arg(long)]
+        project_id: String,
+        
+        #[command(subcommand)]
+        action: IpAllowListAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -319,6 +328,32 @@ enum EndpointAction {
 enum OperationAction {
     /// List all operations for a project
     List,
+    /// Get a specific operation by ID
+    Get {
+        /// Operation ID
+        id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum IpAllowListAction {
+    /// List IP allow list entries
+    List,
+    /// Add IP to allow list
+    Add {
+        /// IP address or CIDR range
+        #[arg(long)]
+        ip_address: String,
+        
+        /// Optional description
+        #[arg(long)]
+        description: Option<String>,
+    },
+    /// Remove IP from allow list
+    Remove {
+        /// IP allow list entry ID
+        id: String,
+    },
 }
 
 #[tokio::main]
@@ -419,6 +454,20 @@ async fn main() -> anyhow::Result<()> {
         Commands::Operations { project_id, action } => match action {
             OperationAction::List => {
                 commands::operations::list(&project_id, cli.format, cli.api_host).await?
+            }
+            OperationAction::Get { id } => {
+                commands::operations::get(&project_id, &id, cli.format, cli.api_host).await?
+            }
+        },
+        Commands::IpAllowList { project_id, action } => match action {
+            IpAllowListAction::List => {
+                commands::ip_allow_lists::list(&project_id, cli.format, cli.api_host).await?
+            }
+            IpAllowListAction::Add { ip_address, description } => {
+                commands::ip_allow_lists::add(&project_id, &ip_address, description.clone(), cli.format, cli.api_host).await?
+            }
+            IpAllowListAction::Remove { id } => {
+                commands::ip_allow_lists::remove(&project_id, &id, cli.api_host).await?
             }
         },
     }

@@ -391,3 +391,34 @@ pub fn print_organizations_table(organizations: &[seren::Organization]) {
 
     println!("{table}");
 }
+
+// IP Allow Lists
+pub fn print_ip_allow_lists_table(ips: &[seren::IpAllowList]) {
+    if ips.is_empty() {
+        println!("No IP addresses in allow list");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("ID").fg(Color::Green),
+        Cell::new("IP Address").fg(Color::Green),
+        Cell::new("Description").fg(Color::Green),
+        Cell::new("Created").fg(Color::Green),
+    ]);
+
+    for ip in ips {
+        table.add_row(vec![
+            Cell::new(&ip.id),
+            Cell::new(&ip.ip_address),
+            Cell::new(ip.description.as_deref().unwrap_or("-")),
+            Cell::new(&ip.created_at),
+        ]);
+    }
+
+    println!("{table}");
+}
