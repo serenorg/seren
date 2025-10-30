@@ -188,3 +188,64 @@ pub async fn start(
 
     Ok(())
 }
+
+pub async fn health(
+    project_id: &str,
+    branch_id: &str,
+    endpoint_id: &str,
+    format: OutputFormat,
+    api_host: Option<String>,
+) -> Result<()> {
+    let client = get_client(api_host)?;
+    
+    let health = client
+        .endpoints(project_id, branch_id)
+        .health(endpoint_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get endpoint health: {}", e))?;
+
+    match format {
+        OutputFormat::Json => output::print_json(&health)?,
+        OutputFormat::Table => {
+            println!("Endpoint Health Status:");
+            println!("  Status: {}", health.status);
+            println!("  Replicas: {}", health.replicas);
+            println!("  Ready Replicas: {}", health.ready_replicas);
+            println!("  Available Replicas: {}", health.available_replicas);
+            println!("  Unavailable Replicas: {}", health.unavailable_replicas);
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn metrics(
+    project_id: &str,
+    branch_id: &str,
+    endpoint_id: &str,
+    format: OutputFormat,
+    api_host: Option<String>,
+) -> Result<()> {
+    let client = get_client(api_host)?;
+    
+    let metrics = client
+        .endpoints(project_id, branch_id)
+        .metrics(endpoint_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get endpoint metrics: {}", e))?;
+
+    match format {
+        OutputFormat::Json => output::print_json(&metrics)?,
+        OutputFormat::Table => {
+            println!("Endpoint Resource Metrics:");
+            println!("  Pod Count: {}", metrics.pod_count);
+            println!("  CPU Request: {} millicores", metrics.cpu_request_millicores);
+            println!("  Memory Request: {} bytes ({:.2} MB)", 
+                metrics.memory_request_bytes, 
+                metrics.memory_request_bytes as f64 / 1024.0 / 1024.0
+            );
+        }
+    }
+
+    Ok(())
+}

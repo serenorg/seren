@@ -340,6 +340,16 @@ enum EndpointAction {
         /// Endpoint ID
         id: String,
     },
+    /// Get endpoint health status
+    Health {
+        /// Endpoint ID
+        id: String,
+    },
+    /// Get endpoint resource metrics
+    Metrics {
+        /// Endpoint ID
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -488,6 +498,12 @@ async fn main() -> anyhow::Result<()> {
             }
             EndpointAction::Start { id } => {
                 commands::endpoints::start(&project_id, &branch_id, &id, cli.format, cli.api_host).await?
+            }
+            EndpointAction::Health { id } => {
+                commands::endpoints::health(&project_id, &branch_id, &id, cli.format, cli.api_host).await?
+            }
+            EndpointAction::Metrics { id } => {
+                commands::endpoints::metrics(&project_id, &branch_id, &id, cli.format, cli.api_host).await?
             }
         },
         Commands::Operations { project_id, action } => match action {
