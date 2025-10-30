@@ -6,13 +6,13 @@ use crate::{config::Config, output, OutputFormat};
 
 fn get_client(api_host: Option<String>) -> Result<Client> {
     let config = Config::load()?;
-    
+
     let mut client_config = ClientConfig::new(config.api_key);
-    
+
     if let Some(host) = api_host {
         client_config = client_config.with_base_url(host);
     }
-    
+
     Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
 }
 
@@ -23,7 +23,7 @@ pub async fn list(
     api_host: Option<String>,
 ) -> Result<()> {
     let client = get_client(api_host)?;
-    
+
     let endpoints = client
         .endpoints(project_id, branch_id)
         .list()
@@ -50,24 +50,24 @@ pub async fn create(
     api_host: Option<String>,
 ) -> Result<()> {
     let client = get_client(api_host)?;
-    
+
     let mut request = seren::CreateEndpointRequest::new(name);
-    
+
     if let Some(unit) = compute_unit {
         request = request.with_compute_unit(unit);
     }
-    
+
     if let Some(min) = autoscaling_min {
         let max = autoscaling_max.unwrap_or(min);
         request = request.with_autoscaling(min, max);
     } else if let Some(max) = autoscaling_max {
         request = request.with_autoscaling(1, max);
     }
-    
+
     if let Some(timeout) = suspend_timeout {
         request.suspend_timeout_seconds = Some(timeout);
     }
-    
+
     let endpoint = client
         .endpoints(project_id, branch_id)
         .create(request)
@@ -93,21 +93,21 @@ pub async fn update(
     api_host: Option<String>,
 ) -> Result<()> {
     let client = get_client(api_host)?;
-    
+
     let mut request = seren::UpdateEndpointRequest::new();
-    
+
     if let Some(min) = autoscaling_min {
         request = request.autoscaling_min(min);
     }
-    
+
     if let Some(max) = autoscaling_max {
         request = request.autoscaling_max(max);
     }
-    
+
     if let Some(timeout) = suspend_timeout {
         request = request.suspend_timeout(timeout);
     }
-    
+
     let endpoint = client
         .endpoints(project_id, branch_id)
         .update(endpoint_id, request)
@@ -128,7 +128,7 @@ pub async fn delete(
     api_host: Option<String>,
 ) -> Result<()> {
     let client = get_client(api_host)?;
-    
+
     client
         .endpoints(project_id, branch_id)
         .delete(endpoint_id)
@@ -153,7 +153,7 @@ pub async fn suspend(
     api_host: Option<String>,
 ) -> Result<()> {
     let client = get_client(api_host)?;
-    
+
     let endpoint = client
         .endpoints(project_id, branch_id)
         .suspend(endpoint_id)
@@ -175,7 +175,7 @@ pub async fn start(
     api_host: Option<String>,
 ) -> Result<()> {
     let client = get_client(api_host)?;
-    
+
     let endpoint = client
         .endpoints(project_id, branch_id)
         .start(endpoint_id)
@@ -197,7 +197,7 @@ pub async fn health(
     api_host: Option<String>,
 ) -> Result<()> {
     let client = get_client(api_host)?;
-    
+
     let health = client
         .endpoints(project_id, branch_id)
         .health(endpoint_id)
@@ -227,7 +227,7 @@ pub async fn metrics(
     api_host: Option<String>,
 ) -> Result<()> {
     let client = get_client(api_host)?;
-    
+
     let metrics = client
         .endpoints(project_id, branch_id)
         .metrics(endpoint_id)
@@ -239,9 +239,13 @@ pub async fn metrics(
         OutputFormat::Table => {
             println!("Endpoint Resource Metrics:");
             println!("  Pod Count: {}", metrics.pod_count);
-            println!("  CPU Request: {} millicores", metrics.cpu_request_millicores);
-            println!("  Memory Request: {} bytes ({:.2} MB)", 
-                metrics.memory_request_bytes, 
+            println!(
+                "  CPU Request: {} millicores",
+                metrics.cpu_request_millicores
+            );
+            println!(
+                "  Memory Request: {} bytes ({:.2} MB)",
+                metrics.memory_request_bytes,
                 metrics.memory_request_bytes as f64 / 1024.0 / 1024.0
             );
         }

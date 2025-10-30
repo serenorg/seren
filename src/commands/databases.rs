@@ -6,13 +6,13 @@ use crate::{config::Config, output, OutputFormat};
 
 fn get_client(api_host: Option<String>) -> Result<Client> {
     let config = Config::load()?;
-    
+
     let mut client_config = ClientConfig::new(config.api_key);
-    
+
     if let Some(host) = api_host {
         client_config = client_config.with_base_url(host);
     }
-    
+
     Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
 }
 
@@ -23,7 +23,7 @@ pub async fn list(
     api_host: Option<String>,
 ) -> Result<()> {
     let client = get_client(api_host)?;
-    
+
     let databases = client
         .databases(project_id, branch_id)
         .list()
@@ -47,7 +47,7 @@ pub async fn create(
     api_host: Option<String>,
 ) -> Result<()> {
     let client = get_client(api_host)?;
-    
+
     let request = CreateDatabaseRequest {
         name: name.to_string(),
         owner_name: owner.map(|s| s.to_string()),
@@ -73,7 +73,7 @@ pub async fn delete(
     api_host: Option<String>,
 ) -> Result<()> {
     let client = get_client(api_host)?;
-    
+
     client
         .databases(project_id, branch_id)
         .delete(database_id)

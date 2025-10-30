@@ -3,30 +3,35 @@ use colored::Colorize;
 
 use crate::{config::ContextConfig, output, OutputFormat};
 
-pub async fn set(
-    project_id: Option<String>,
-    org_id: Option<String>,
-) -> Result<()> {
+pub async fn set(project_id: Option<String>, org_id: Option<String>) -> Result<()> {
     let mut context = ContextConfig::load()?;
-    
+
     if let Some(pid) = project_id {
         context.project_id = Some(pid.clone());
-        println!("{}", format!("✓ Set default project_id to {}", pid).green().bold());
+        println!(
+            "{}",
+            format!("✓ Set default project_id to {}", pid)
+                .green()
+                .bold()
+        );
     }
-    
+
     if let Some(oid) = org_id {
         context.org_id = Some(oid.clone());
-        println!("{}", format!("✓ Set default org_id to {}", oid).green().bold());
+        println!(
+            "{}",
+            format!("✓ Set default org_id to {}", oid).green().bold()
+        );
     }
-    
+
     context.save()?;
-    
+
     Ok(())
 }
 
 pub async fn show(format: OutputFormat) -> Result<()> {
     let context = ContextConfig::load()?;
-    
+
     match format {
         OutputFormat::Json => output::print_json(&context)?,
         OutputFormat::Table => {
@@ -43,7 +48,7 @@ pub async fn show(format: OutputFormat) -> Result<()> {
             }
         }
     }
-    
+
     Ok(())
 }
 

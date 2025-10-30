@@ -6,13 +6,13 @@ use crate::{config::Config, output, OutputFormat};
 
 fn get_client(api_host: Option<String>) -> Result<Client> {
     let config = Config::load()?;
-    
+
     let mut client_config = ClientConfig::new(config.api_key);
-    
+
     if let Some(host) = api_host {
         client_config = client_config.with_base_url(host);
     }
-    
+
     Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
 }
 
@@ -23,7 +23,7 @@ pub async fn list(
     api_host: Option<String>,
 ) -> Result<()> {
     let client = get_client(api_host)?;
-    
+
     let roles = client
         .roles(project_id, branch_id)
         .list()
@@ -46,7 +46,7 @@ pub async fn create(
     api_host: Option<String>,
 ) -> Result<()> {
     let client = get_client(api_host)?;
-    
+
     let request = CreateRoleRequest {
         name: name.to_string(),
     };
@@ -59,12 +59,17 @@ pub async fn create(
 
     println!("{}", "✓ Role created successfully!".green().bold());
     println!();
-    
+
     // Show password prominently
-    println!("{}", "IMPORTANT: Save this password - it cannot be retrieved later!".yellow().bold());
+    println!(
+        "{}",
+        "IMPORTANT: Save this password - it cannot be retrieved later!"
+            .yellow()
+            .bold()
+    );
     println!("{}: {}", "Password".bold(), role.password.bright_cyan());
     println!();
-    
+
     output::print_role_with_password(&role, format)?;
 
     Ok(())
@@ -77,7 +82,7 @@ pub async fn delete(
     api_host: Option<String>,
 ) -> Result<()> {
     let client = get_client(api_host)?;
-    
+
     client
         .roles(project_id, branch_id)
         .delete(role_id)
@@ -103,7 +108,7 @@ pub async fn reset_password(
     api_host: Option<String>,
 ) -> Result<()> {
     let client = get_client(api_host)?;
-    
+
     let request = ResetRolePasswordRequest {
         password: password.to_string(),
     };
@@ -116,12 +121,16 @@ pub async fn reset_password(
 
     println!("{}", "✓ Password reset successfully!".green().bold());
     println!();
-    
+
     match format {
         OutputFormat::Json => output::print_json(&response)?,
         OutputFormat::Table => {
             println!("{}: {}", "Role ID".bold(), response.role_id);
-            println!("{}: {}", "New Password".bold(), response.password.bright_cyan());
+            println!(
+                "{}: {}",
+                "New Password".bold(),
+                response.password.bright_cyan()
+            );
         }
     }
 

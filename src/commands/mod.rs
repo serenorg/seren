@@ -7,3 +7,4 @@ pub mod ip_allow_lists;
 pub mod operations;
 pub mod projects;
 pub mod roles;
+pub mod vpc;
