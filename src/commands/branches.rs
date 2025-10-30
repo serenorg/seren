@@ -1,6 +1,6 @@
 use anyhow::Result;
 use colored::Colorize;
-use seren::{Client, ClientConfig, CreateBranchRequest, RenameBranchRequest, SetBranchExpirationRequest, SchemaDiffRequest};
+use seren::{Client, ClientConfig, CreateBranchRequest, RenameBranchRequest, SetBranchExpirationRequest, SchemaDiffRequest, RestoreBranchRequest, RestoreSource, PointInTime};
 
 use crate::{config::Config, output, OutputFormat};
 
@@ -219,4 +219,110 @@ pub async fn schema_diff(
     output::print_schema_diff(&diff, format)?;
     
     Ok(())
+}
+
+pub async fn reset(
+    project_id: &str,
+    branch_id: &str,
+    api_host: Option<String>,
+) -> Result<()> {
+    let client = get_client(api_host)?;
+    
+    match client.branches(project_id).reset(branch_id).await {
+        Ok(branch) => {
+            println!("{}", format!("✓ Branch {} reset to parent successfully!", branch.name).green().bold());
+            Ok(())
+        }
+        Err(e) => {
+            if e.to_string().contains("Not implemented") || e.to_string().contains("501") {
+                eprintln!("{}", "⚠ Branch reset feature is not yet implemented".yellow().bold());
+                eprintln!();
+                eprintln!("This feature requires SerenDB Write-Ahead Log (WAL) integration.");
+                eprintln!("When available, it will reset the branch to its parent's latest state,");
+                eprintln!("discarding all local changes.");
+                eprintln!();
+                eprintln!("Coming soon!");
+                std::process::exit(1);
+            } else {
+                Err(anyhow::anyhow!("Failed to reset branch: {}", e))
+            }
+        }
+    }
+}
+
+pub async fn restore(
+    project_id: &str,
+    branch_id: &str,
+    source: &str,
+    preserve_under_name: &str,
+    timestamp: Option<&str>,
+    lsn: Option<&str>,
+    api_host: Option<String>,
+) -> Result<()> {
+    let client = get_client(api_host)?;
+    
+    // Parse restore source
+    let restore_source = if source == "^self" {
+        // Restore from own history - requires timestamp or LSN
+        let point_in_time = if let Some(ts) = timestamp {
+            PointInTime::Timestamp { timestamp: ts.to_string() }
+        } else if let Some(l) = lsn {
+            PointInTime::Lsn { lsn: l.to_string() }
+        } else {
+            return Err(anyhow::anyhow!("Restoring from ^self requires either --timestamp or --lsn"));
+        };
+        RestoreSource::SelfHistory { point_in_time }
+    } else if source == "^parent" {
+        // Restore from parent - timestamp/LSN optional
+        let point_in_time = if let Some(ts) = timestamp {
+            Some(PointInTime::Timestamp { timestamp: ts.to_string() })
+        } else if let Some(l) = lsn {
+            Some(PointInTime::Lsn { lsn: l.to_string() })
+        } else {
+            None
+        };
+        RestoreSource::Parent { point_in_time }
+    } else {
+        // Restore from specific branch - timestamp/LSN optional
+        let point_in_time = if let Some(ts) = timestamp {
+            Some(PointInTime::Timestamp { timestamp: ts.to_string() })
+        } else if let Some(l) = lsn {
+            Some(PointInTime::Lsn { lsn: l.to_string() })
+        } else {
+            None
+        };
+        RestoreSource::Branch {
+            source_branch_id: source.to_string(),
+            point_in_time,
+        }
+    };
+    
+    let request = RestoreBranchRequest {
+        source: restore_source,
+        preserve_under_name: preserve_under_name.to_string(),
+    };
+    
+    match client.branches(project_id).restore(branch_id, request).await {
+        Ok(response) => {
+            println!("{}", "✓ Branch restored successfully!".green().bold());
+            println!();
+            println!("Restored branch: {}", response.branch.name);
+            println!("Backup branch: {}", response.backup_branch.name);
+            Ok(())
+        }
+        Err(e) => {
+            if e.to_string().contains("Not implemented") || e.to_string().contains("501") {
+                eprintln!("{}", "⚠ Branch restore feature is not yet implemented".yellow().bold());
+                eprintln!();
+                eprintln!("This feature requires SerenDB Write-Ahead Log (WAL) integration.");
+                eprintln!("When available, it will support point-in-time recovery using timestamps or LSN,");
+                eprintln!("with automatic backup branch creation.");
+                eprintln!();
+                eprintln!("Coming soon!");
+                std::process::exit(1);
+            } else {
+                Err(anyhow::anyhow!("Failed to restore branch: {}", e))
+            }
+        }
+    }
 }

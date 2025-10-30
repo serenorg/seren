@@ -258,6 +258,32 @@ enum BranchAction {
         #[arg(long)]
         database: Option<String>,
     },
+    /// Reset a branch to its parent's latest state
+    Reset {
+        /// Branch ID to reset
+        id: String,
+    },
+    /// Restore a branch to a point in time
+    Restore {
+        /// Branch ID to restore
+        id: String,
+        
+        /// Source to restore from (^self, ^parent, or branch ID)
+        #[arg(long)]
+        source: String,
+        
+        /// Name for the backup branch created during restore
+        #[arg(long)]
+        preserve_under_name: String,
+        
+        /// Point-in-time timestamp (RFC3339 format)
+        #[arg(long)]
+        timestamp: Option<String>,
+        
+        /// Log Sequence Number (LSN) for point-in-time recovery
+        #[arg(long)]
+        lsn: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -482,6 +508,12 @@ async fn main() -> anyhow::Result<()> {
             }
             BranchAction::SchemaDiff { base_branch_id, compare_branch_id, database } => {
                 commands::branches::schema_diff(&project_id, &base_branch_id, &compare_branch_id, database.as_deref(), cli.format, cli.api_host).await?
+            }
+            BranchAction::Reset { id } => {
+                commands::branches::reset(&project_id, &id, cli.api_host).await?
+            }
+            BranchAction::Restore { id, source, preserve_under_name, timestamp, lsn } => {
+                commands::branches::restore(&project_id, &id, &source, &preserve_under_name, timestamp.as_deref(), lsn.as_deref(), cli.api_host).await?
             }
         },
         Commands::Databases { project_id, branch_id, action } => match action {
