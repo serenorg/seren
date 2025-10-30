@@ -885,13 +885,13 @@ async fn main() -> anyhow::Result<()> {
         },
         Commands::IpAllowList { project_id, action } => match action {
             IpAllowListAction::List => {
-                commands::ip_allow_lists::list(&project_id, cli.format, cli.api_host).await?
+                commands::ip_allow::list(&project_id, cli.format, cli.api_host).await?
             }
             IpAllowListAction::Add {
                 ip_address,
                 description,
             } => {
-                commands::ip_allow_lists::add(
+                commands::ip_allow::add(
                     &project_id,
                     &ip_address,
                     description.clone(),
@@ -901,10 +901,10 @@ async fn main() -> anyhow::Result<()> {
                 .await?
             }
             IpAllowListAction::Remove { id } => {
-                commands::ip_allow_lists::remove(&project_id, &id, cli.api_host).await?
+                commands::ip_allow::remove(&project_id, &id, cli.api_host).await?
             }
             IpAllowListAction::Reset { ips } => {
-                commands::ip_allow_lists::reset(&project_id, &ips, cli.format, cli.api_host).await?
+                commands::ip_allow::reset(&project_id, &ips, cli.format, cli.api_host).await?
             }
         },
         Commands::SetContext { action } => match action {
