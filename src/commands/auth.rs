@@ -34,7 +34,7 @@ pub async fn login() -> Result<()> {
     println!();
     println!("{}", "✓ Successfully authenticated!".green().bold());
     println!();
-    println!("Try running: serenctl projects list");
+    println!("Try running: seren projects list");
 
     Ok(())
 }
@@ -52,7 +52,7 @@ pub async fn status() -> Result<()> {
         }
         Err(_) => {
             println!("{}", "✗ Not authenticated".red().bold());
-            println!("Run 'serenctl auth login' to authenticate");
+            println!("Run 'seren auth login' to authenticate");
         }
     }
 

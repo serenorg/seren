@@ -1,17 +1,17 @@
-# serenctl
+# seren-cli
 
 Command-line interface for Seren database management.
 
 ## Overview
 
-`serenctl` is the official CLI tool for managing Seren databases, projects, and resources. Built in Rust for maximum performance and reliability.
+`seren` is the official CLI tool for managing Seren databases, projects, and resources. Built in Rust for maximum performance and reliability.
 
 ## Architecture
 
-This project uses a Cargo workspace with two crates:
+This project is a standalone CLI tool that uses the `seren` SDK (seren-api).
 
-- **`seren-api`**: Rust SDK for the Seren API (can be used independently)
-- **`serenctl`**: CLI binary that uses the SDK
+- **`seren-api`**: Rust SDK for the Seren API (separate repository)
+- **`seren-cli`**: CLI binary that uses the SDK (this repository)
 
 This separation allows the API client to be reused in other Rust projects, integrations, or tools.
 
@@ -23,12 +23,12 @@ This separation allows the API client to be reused in other Rust projects, integ
 cargo build --release
 ```
 
-The binary will be at `target/release/serenctl`.
+The binary will be at `target/release/seren`.
 
 ### Install Locally
 
 ```bash
-cargo install --path crates/serenctl
+cargo install --path .
 ```
 
 ## Quick Start
@@ -36,7 +36,7 @@ cargo install --path crates/serenctl
 ### 1. Authenticate
 
 ```bash
-serenctl auth login
+seren auth login
 ```
 
 You'll be prompted for your API key. Get one at: https://app.seren.com/settings/api-keys
@@ -44,13 +44,13 @@ You'll be prompted for your API key. Get one at: https://app.seren.com/settings/
 ### 2. List Projects
 
 ```bash
-serenctl projects list
+seren projects list
 ```
 
 ### 3. Create a Project
 
 ```bash
-serenctl projects create --name "My Project" --org "org-123"
+seren projects create --name "My Project" --org "org-123"
 ```
 
 ## Commands
@@ -59,29 +59,29 @@ serenctl projects create --name "My Project" --org "org-123"
 
 ```bash
 # Login with API key
-serenctl auth login
+seren auth login
 
 # Check authentication status
-serenctl auth status
+seren auth status
 
 # Logout (remove credentials)
-serenctl auth logout
+seren auth logout
 ```
 
 ### Projects
 
 ```bash
 # List all projects
-serenctl projects list
+seren projects list
 
 # Get project details
-serenctl projects get <project-id>
+seren projects get <project-id>
 
 # Create a new project
-serenctl projects create --name "Project Name" --org "org-id"
+seren projects create --name "Project Name" --org "org-id"
 
 # Delete a project
-serenctl projects delete <project-id>
+seren projects delete <project-id>
 ```
 
 ## Global Flags
@@ -92,8 +92,8 @@ serenctl projects delete <project-id>
 Example:
 
 ```bash
-serenctl projects list --output json
-serenctl projects list --api-host http://localhost:3000/api/v1
+seren projects list --output json
+seren projects list --api-host http://localhost:3000/api/v1
 ```
 
 ## Configuration
@@ -104,16 +104,16 @@ Credentials are stored at:
 
 ## Using the Rust SDK
 
-The `seren-api` crate can be used independently in your Rust projects:
+The `seren` SDK can be used independently in your Rust projects:
 
 ```toml
 [dependencies]
-seren-api = { path = "../serenctl/crates/seren-api" }
-# Or when published: seren-api = "0.1"
+seren = { path = "../seren-api" }
+# Or when published: seren = "0.1"
 ```
 
 ```rust
-use seren_api::{Client, ClientConfig};
+use seren::{Client, ClientConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

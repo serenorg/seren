@@ -23,7 +23,7 @@ impl std::str::FromStr for OutputFormat {
 }
 
 #[derive(Parser)]
-#[command(name = "serenctl")]
+#[command(name = "seren")]
 #[command(about = "CLI tool for Seren database management", long_about = None)]
 struct Cli {
     #[command(subcommand)]

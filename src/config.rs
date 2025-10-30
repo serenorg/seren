@@ -27,7 +27,7 @@ impl Config {
         
         if !path.exists() {
             anyhow::bail!(
-                "Not authenticated. Run 'serenctl auth login' first.\nConfig path: {}",
+                "Not authenticated. Run 'seren auth login' first.\nConfig path: {}",
                 path.display()
             );
         }
