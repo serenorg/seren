@@ -136,6 +136,9 @@ pub async fn set_default(project_id: &str, branch_id: &str, api_host: Option<Str
 pub async fn connection_string(
     project_id: &str,
     branch_id: &str,
+    pooled: bool,
+    prisma: bool,
+    ssl: Option<&str>,
     format: OutputFormat,
     api_host: Option<String>,
 ) -> Result<()> {
@@ -147,7 +150,7 @@ pub async fn connection_string(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get connection string: {}", e))?;
 
-    output::print_connection_string(&response, format)?;
+    output::print_connection_string(&response, pooled, prisma, ssl, format)?;
 
     Ok(())
 }

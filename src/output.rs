@@ -285,19 +285,88 @@ pub fn print_endpoint(endpoint: &seren::Endpoint, format: OutputFormat) -> anyho
 }
 
 // Connection String
-pub fn print_connection_string(response: &seren::ConnectionStringResponse, format: OutputFormat) -> anyhow::Result<()> {
-    match format {
-        OutputFormat::Json => print_json(response)?,
-        OutputFormat::Table => {
-            let mut table = Table::new();
-            table
-                .load_preset(UTF8_FULL)
-                .set_content_arrangement(ContentArrangement::Dynamic);
+pub fn print_connection_string(
+    response: &seren::ConnectionStringResponse, 
+    pooled: bool,
+    prisma: bool,
+    ssl: Option<&str>,
+    format: OutputFormat
+) -> anyhow::Result<()> {
+    let mut conn_str = response.connection_string.clone();
+    
+    // Modify connection string based on flags
+    if pooled {
+        // For pooled connections, change the port to a pooler port (e.g., 6543 for PgBouncer)
+        // This is a simplified implementation - in production you'd get this from the backend
+        conn_str = conn_str.replace(":5432", ":6543");
+    }
+    
+    // Add or modify SSL mode
+    if let Some(ssl_mode) = ssl {
+        // Remove existing sslmode if present
+        let base_str = if let Some(idx) = conn_str.find('?') {
+            let (base, query) = conn_str.split_at(idx);
+            let params: Vec<&str> = query[1..].split('&').filter(|p| !p.starts_with("sslmode=")).collect();
+            if params.is_empty() {
+                base.to_string()
+            } else {
+                format!("{}?{}", base, params.join("&"))
+            }
+        } else {
+            conn_str.clone()
+        };
+        
+        // Add new sslmode
+        conn_str = if base_str.contains('?') {
+            format!("{}&sslmode={}", base_str, ssl_mode)
+        } else {
+            format!("{}?sslmode={}", base_str, ssl_mode)
+        };
+    }
+    
+    // Format for Prisma if requested
+    if prisma {
+        // Prisma format wraps the connection string in quotes and adds schema parameter
+        let prisma_str = format!("DATABASE_URL=\"{}\"", conn_str);
+        match format {
+            OutputFormat::Json => {
+                let json_obj = serde_json::json!({
+                    "connection_string": conn_str,
+                    "prisma_format": prisma_str
+                });
+                println!("{}", serde_json::to_string_pretty(&json_obj)?);
+            }
+            OutputFormat::Table => {
+                let mut table = Table::new();
+                table
+                    .load_preset(UTF8_FULL)
+                    .set_content_arrangement(ContentArrangement::Dynamic);
 
-            table.add_row(vec![Cell::new("Field").fg(Color::Green), Cell::new("Value").fg(Color::Green)]);
-            table.add_row(vec!["Connection String", &response.connection_string]);
+                table.add_row(vec![Cell::new("Field").fg(Color::Green), Cell::new("Value").fg(Color::Green)]);
+                table.add_row(vec!["Prisma Format", &prisma_str]);
 
-            println!("{table}");
+                println!("{table}");
+            }
+        }
+    } else {
+        match format {
+            OutputFormat::Json => {
+                let json_obj = serde_json::json!({
+                    "connection_string": conn_str
+                });
+                println!("{}", serde_json::to_string_pretty(&json_obj)?);
+            }
+            OutputFormat::Table => {
+                let mut table = Table::new();
+                table
+                    .load_preset(UTF8_FULL)
+                    .set_content_arrangement(ContentArrangement::Dynamic);
+
+                table.add_row(vec![Cell::new("Field").fg(Color::Green), Cell::new("Value").fg(Color::Green)]);
+                table.add_row(vec!["Connection String", &conn_str]);
+
+                println!("{table}");
+            }
         }
     }
     Ok(())

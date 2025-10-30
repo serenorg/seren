@@ -218,6 +218,18 @@ enum BranchAction {
     ConnectionString {
         /// Branch ID
         id: String,
+        
+        /// Use pooled connection (PgBouncer)
+        #[arg(long)]
+        pooled: bool,
+        
+        /// Format for Prisma ORM
+        #[arg(long)]
+        prisma: bool,
+        
+        /// SSL mode (require, prefer, disable)
+        #[arg(long)]
+        ssl: Option<String>,
     },
     /// Set branch expiration
     SetExpiration {
@@ -448,8 +460,8 @@ async fn main() -> anyhow::Result<()> {
             BranchAction::SetDefault { id } => {
                 commands::branches::set_default(&project_id, &id, cli.api_host).await?
             }
-            BranchAction::ConnectionString { id } => {
-                commands::branches::connection_string(&project_id, &id, cli.format, cli.api_host).await?
+            BranchAction::ConnectionString { id, pooled, prisma, ssl } => {
+                commands::branches::connection_string(&project_id, &id, pooled, prisma, ssl.as_deref(), cli.format, cli.api_host).await?
             }
             BranchAction::SetExpiration { id, expires_at, no_expiration } => {
                 commands::branches::set_expiration(&project_id, &id, expires_at.as_deref(), no_expiration, cli.format, cli.api_host).await?
