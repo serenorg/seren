@@ -120,6 +120,11 @@ enum Commands {
         #[command(subcommand)]
         action: IpAllowListAction,
     },
+    /// Manage CLI context (default project and org)
+    SetContext {
+        #[command(subcommand)]
+        action: ContextAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -369,6 +374,24 @@ enum IpAllowListAction {
     },
 }
 
+#[derive(Subcommand)]
+enum ContextAction {
+    /// Set default project or organization
+    Set {
+        /// Default project ID
+        #[arg(long)]
+        project_id: Option<String>,
+        
+        /// Default organization ID
+        #[arg(long)]
+        org_id: Option<String>,
+    },
+    /// Show current context
+    Show,
+    /// Clear context
+    Clear,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -485,6 +508,17 @@ async fn main() -> anyhow::Result<()> {
             }
             IpAllowListAction::Remove { id } => {
                 commands::ip_allow_lists::remove(&project_id, &id, cli.api_host).await?
+            }
+        },
+        Commands::SetContext { action } => match action {
+            ContextAction::Set { project_id, org_id } => {
+                commands::context::set(project_id, org_id).await?
+            }
+            ContextAction::Show => {
+                commands::context::show(cli.format).await?
+            }
+            ContextAction::Clear => {
+                commands::context::clear().await?
             }
         },
     }
