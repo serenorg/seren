@@ -1,6 +1,6 @@
 use anyhow::Result;
 use colored::Colorize;
-use seren::{Client, ClientConfig, CreateBranchRequest, RenameBranchRequest, SetBranchExpirationRequest};
+use seren::{Client, ClientConfig, CreateBranchRequest, RenameBranchRequest, SetBranchExpirationRequest, SchemaDiffRequest};
 
 use crate::{config::Config, output, OutputFormat};
 
@@ -191,6 +191,32 @@ pub async fn set_expiration(
     }
     println!();
     output::print_branch(&branch, format)?;
+    
+    Ok(())
+}
+
+pub async fn schema_diff(
+    project_id: &str,
+    base_branch_id: &str,
+    compare_branch_id: &str,
+    database: Option<&str>,
+    format: OutputFormat,
+    api_host: Option<String>,
+) -> Result<()> {
+    let client = get_client(api_host)?;
+    
+    let mut request = SchemaDiffRequest::new(base_branch_id, compare_branch_id);
+    if let Some(db) = database {
+        request = request.with_database(db);
+    }
+    
+    let diff = client
+        .branches(project_id)
+        .schema_diff(request)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get schema diff: {}", e))?;
+    
+    output::print_schema_diff(&diff, format)?;
     
     Ok(())
 }

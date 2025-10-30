@@ -1,4 +1,5 @@
 use comfy_table::{presets::UTF8_FULL, Cell, Color, ContentArrangement, Table};
+use colored::Colorize;
 use serde::Serialize;
 
 use crate::OutputFormat;
@@ -490,4 +491,73 @@ pub fn print_ip_allow_lists_table(ips: &[seren::IpAllowList]) {
     }
 
     println!("{table}");
+}
+
+// Schema Diff
+pub fn print_schema_diff(diff: &seren::SchemaDiff, format: OutputFormat) -> anyhow::Result<()> {
+    match format {
+        OutputFormat::Json => print_json(diff)?,
+        OutputFormat::Table => {
+            use seren::{SchemaDifference, TableChange};
+            
+            println!();
+            println!("{}", format!("Schema Diff: {} → {}", diff.base_branch_id, diff.compare_branch_id).bold());
+            println!();
+            
+            if diff.differences.is_empty() {
+                println!("{}", "✓ No schema differences found".green());
+                return Ok(());
+            }
+            
+            println!("{}", format!("Found {} difference(s):", diff.differences.len()).yellow());
+            println!();
+            
+            for difference in &diff.differences {
+                match difference {
+                    SchemaDifference::TableAdded { table_name, schema_name } => {
+                        println!("{} {}", "+".green().bold(), format!("Table added: {}.{}", schema_name, table_name).green());
+                    }
+                    SchemaDifference::TableRemoved { table_name, schema_name } => {
+                        println!("{} {}", "-".red().bold(), format!("Table removed: {}.{}", schema_name, table_name).red());
+                    }
+                    SchemaDifference::TableModified { table_name, schema_name, changes } => {
+                        println!("{} {}", "~".yellow().bold(), format!("Table modified: {}.{}", schema_name, table_name).yellow());
+                        for change in changes {
+                            match change {
+                                TableChange::ColumnAdded { column_name, data_type, is_nullable } => {
+                                    let nullable = if *is_nullable { "NULL" } else { "NOT NULL" };
+                                    println!("  {} Column added: {} {} {}", "+".green(), column_name, data_type, nullable);
+                                }
+                                TableChange::ColumnRemoved { column_name, data_type } => {
+                                    println!("  {} Column removed: {} {}", "-".red(), column_name, data_type);
+                                }
+                                TableChange::ColumnModified { column_name, old_type, new_type, nullable_changed } => {
+                                    println!("  {} Column modified: {}", "~".yellow(), column_name);
+                                    println!("    Type: {} → {}", old_type, new_type);
+                                    if let Some(nullable) = nullable_changed {
+                                        println!("    Nullable: {}", if *nullable { "now NULL" } else { "now NOT NULL" });
+                                    }
+                                }
+                                TableChange::IndexAdded { index_name, is_unique, columns } => {
+                                    let unique = if *is_unique { "UNIQUE " } else { "" };
+                                    println!("  {} {}Index added: {} on ({})", "+".green(), unique, index_name, columns.join(", "));
+                                }
+                                TableChange::IndexRemoved { index_name } => {
+                                    println!("  {} Index removed: {}", "-".red(), index_name);
+                                }
+                                TableChange::ConstraintAdded { constraint_name, constraint_type } => {
+                                    println!("  {} Constraint added: {} ({})", "+".green(), constraint_name, constraint_type);
+                                }
+                                TableChange::ConstraintRemoved { constraint_name, constraint_type } => {
+                                    println!("  {} Constraint removed: {} ({})", "-".red(), constraint_name, constraint_type);
+                                }
+                            }
+                        }
+                    }
+                }
+                println!();
+            }
+        }
+    }
+    Ok(())
 }

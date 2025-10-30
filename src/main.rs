@@ -244,6 +244,20 @@ enum BranchAction {
         #[arg(long)]
         no_expiration: bool,
     },
+    /// Compare schemas between two branches
+    SchemaDiff {
+        /// Base branch ID to compare from
+        #[arg(long)]
+        base_branch_id: String,
+        
+        /// Compare branch ID to compare to
+        #[arg(long)]
+        compare_branch_id: String,
+        
+        /// Database name (defaults to 'postgres')
+        #[arg(long)]
+        database: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -465,6 +479,9 @@ async fn main() -> anyhow::Result<()> {
             }
             BranchAction::SetExpiration { id, expires_at, no_expiration } => {
                 commands::branches::set_expiration(&project_id, &id, expires_at.as_deref(), no_expiration, cli.format, cli.api_host).await?
+            }
+            BranchAction::SchemaDiff { base_branch_id, compare_branch_id, database } => {
+                commands::branches::schema_diff(&project_id, &base_branch_id, &compare_branch_id, database.as_deref(), cli.format, cli.api_host).await?
             }
         },
         Commands::Databases { project_id, branch_id, action } => match action {
