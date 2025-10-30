@@ -1,6 +1,6 @@
 use anyhow::Result;
 use colored::Colorize;
-use seren::{Client, ClientConfig, CreateBranchRequest, RenameBranchRequest};
+use seren::{Client, ClientConfig, CreateBranchRequest, RenameBranchRequest, SetBranchExpirationRequest};
 
 use crate::{config::Config, output, OutputFormat};
 
@@ -149,5 +149,45 @@ pub async fn connection_string(
 
     output::print_connection_string(&response, format)?;
 
+    Ok(())
+}
+
+pub async fn set_expiration(
+    project_id: &str,
+    branch_id: &str,
+    expires_at: Option<&str>,
+    no_expiration: bool,
+    format: OutputFormat,
+    api_host: Option<String>,
+) -> Result<()> {
+    let client = get_client(api_host)?;
+    
+    // Build the request
+    let expires_at_value = if no_expiration {
+        None
+    } else if let Some(exp) = expires_at {
+        Some(exp.to_string())
+    } else {
+        return Err(anyhow::anyhow!("Must provide either --expires-at or --no-expiration"));
+    };
+    
+    let request = SetBranchExpirationRequest {
+        expires_at: expires_at_value,
+    };
+    
+    let branch = client
+        .branches(project_id)
+        .set_expiration(branch_id, request)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to set branch expiration: {}", e))?;
+    
+    if no_expiration {
+        println!("{}", format!("✓ Branch {} expiration removed successfully!", branch_id).green().bold());
+    } else {
+        println!("{}", format!("✓ Branch {} expiration set successfully!", branch_id).green().bold());
+    }
+    println!();
+    output::print_branch(&branch, format)?;
+    
     Ok(())
 }

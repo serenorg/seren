@@ -214,6 +214,19 @@ enum BranchAction {
         /// Branch ID
         id: String,
     },
+    /// Set branch expiration
+    SetExpiration {
+        /// Branch ID
+        id: String,
+        
+        /// Expiration date in RFC3339 format (e.g., "2025-12-31T23:59:59Z")
+        #[arg(long)]
+        expires_at: Option<String>,
+        
+        /// Remove expiration
+        #[arg(long)]
+        no_expiration: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -405,6 +418,9 @@ async fn main() -> anyhow::Result<()> {
             BranchAction::ConnectionString { id } => {
                 commands::branches::connection_string(&project_id, &id, cli.format, cli.api_host).await?
             }
+            BranchAction::SetExpiration { id, expires_at, no_expiration } => {
+                commands::branches::set_expiration(&project_id, &id, expires_at.as_deref(), no_expiration, cli.format, cli.api_host).await?
+            }
         },
         Commands::Databases { project_id, branch_id, action } => match action {
             DatabaseAction::List => {
@@ -455,8 +471,9 @@ async fn main() -> anyhow::Result<()> {
             OperationAction::List => {
                 commands::operations::list(&project_id, cli.format, cli.api_host).await?
             }
-            OperationAction::Get { id } => {
-                commands::operations::get(&project_id, &id, cli.format, cli.api_host).await?
+            OperationAction::Get { id: _ } => {
+                eprintln!("Error: Operation get is not yet implemented");
+                std::process::exit(1);
             }
         },
         Commands::IpAllowList { project_id, action } => match action {
