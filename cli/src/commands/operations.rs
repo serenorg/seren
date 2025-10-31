@@ -1,12 +1,12 @@
 use anyhow::Result;
 use seren::{Client, ClientConfig};
 
-use crate::{config::Config, output, OutputFormat};
+use crate::{commands::auth::get_bearer_token, output, OutputFormat};
 
-fn get_client(api_host: Option<String>) -> Result<Client> {
-    let config = Config::load()?;
+fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
+    let bearer_token = get_bearer_token(api_key)?;
 
-    let mut client_config = ClientConfig::new(config.api_key);
+    let mut client_config = ClientConfig::new(bearer_token);
 
     if let Some(host) = api_host {
         client_config = client_config.with_base_url(host);
@@ -15,8 +15,8 @@ fn get_client(api_host: Option<String>) -> Result<Client> {
     Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
 }
 
-pub async fn list(project_id: &str, format: OutputFormat, api_host: Option<String>) -> Result<()> {
-    let client = get_client(api_host)?;
+pub async fn list(project_id: &str, format: OutputFormat, api_host: Option<String>, api_key: Option<String>) -> Result<()> {
+    let client = get_client(api_host, api_key)?;
 
     let operations = client
         .operations(project_id)
@@ -37,8 +37,9 @@ pub async fn get(
     operation_id: &str,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let operation = client
         .operations(project_id)

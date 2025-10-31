@@ -2,12 +2,12 @@ use anyhow::Result;
 use colored::Colorize;
 use seren::{Client, ClientConfig, CreateProjectRequest, UpdateProjectRequest};
 
-use crate::{config::Config, output, OutputFormat};
+use crate::{commands::auth::get_bearer_token, output, OutputFormat};
 
-fn get_client(api_host: Option<String>) -> Result<Client> {
-    let config = Config::load()?;
+fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
+    let bearer_token = get_bearer_token(api_key)?;
 
-    let mut client_config = ClientConfig::new(config.api_key);
+    let mut client_config = ClientConfig::new(bearer_token);
 
     if let Some(host) = api_host {
         client_config = client_config.with_base_url(host);
@@ -16,8 +16,8 @@ fn get_client(api_host: Option<String>) -> Result<Client> {
     Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
 }
 
-pub async fn list(format: OutputFormat, api_host: Option<String>) -> Result<()> {
-    let client = get_client(api_host)?;
+pub async fn list(format: OutputFormat, api_host: Option<String>, api_key: Option<String>) -> Result<()> {
+    let client = get_client(api_host, api_key)?;
 
     let projects = client
         .projects()
@@ -33,8 +33,8 @@ pub async fn list(format: OutputFormat, api_host: Option<String>) -> Result<()> 
     Ok(())
 }
 
-pub async fn get(id: &str, format: OutputFormat, api_host: Option<String>) -> Result<()> {
-    let client = get_client(api_host)?;
+pub async fn get(id: &str, format: OutputFormat, api_host: Option<String>, api_key: Option<String>) -> Result<()> {
+    let client = get_client(api_host, api_key)?;
 
     let project = client
         .projects()
@@ -58,8 +58,9 @@ pub async fn create(
     compute_unit_max: Option<i32>,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let request = CreateProjectRequest {
         name: name.to_string(),
@@ -96,8 +97,9 @@ pub async fn update(
     compute_unit_max: Option<i32>,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     if name.is_none()
         && block_public_connections.is_none()
@@ -133,8 +135,8 @@ pub async fn update(
     Ok(())
 }
 
-pub async fn delete(id: &str, api_host: Option<String>) -> Result<()> {
-    let client = get_client(api_host)?;
+pub async fn delete(id: &str, api_host: Option<String>, api_key: Option<String>) -> Result<()> {
+    let client = get_client(api_host, api_key)?;
 
     client
         .projects()

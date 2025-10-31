@@ -7,12 +7,12 @@ use seren::{
 };
 use uuid::Uuid;
 
-use crate::{config::Config, output, OutputFormat};
+use crate::{commands::auth::get_bearer_token, output, OutputFormat};
 
-fn get_client(api_host: Option<String>) -> Result<Client> {
-    let config = Config::load()?;
+fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
+    let bearer_token = get_bearer_token(api_key)?;
 
-    let mut client_config = ClientConfig::new(config.api_key);
+    let mut client_config = ClientConfig::new(bearer_token);
 
     if let Some(host) = api_host {
         client_config = client_config.with_base_url(host);
@@ -21,8 +21,8 @@ fn get_client(api_host: Option<String>) -> Result<Client> {
     Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
 }
 
-pub async fn list(project_id: &str, format: OutputFormat, api_host: Option<String>) -> Result<()> {
-    let client = get_client(api_host)?;
+pub async fn list(project_id: &str, format: OutputFormat, api_host: Option<String>, api_key: Option<String>) -> Result<()> {
+    let client = get_client(api_host, api_key)?;
 
     let branches = client
         .branches(project_id)
@@ -43,8 +43,9 @@ pub async fn get(
     branch_id: &str,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let branch = client
         .branches(project_id)
@@ -63,8 +64,9 @@ pub async fn create(
     parent: Option<&str>,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let parent_branch_id = parent
         .map(|value| {
@@ -91,8 +93,8 @@ pub async fn create(
     Ok(())
 }
 
-pub async fn delete(project_id: &str, branch_id: &str, api_host: Option<String>) -> Result<()> {
-    let client = get_client(api_host)?;
+pub async fn delete(project_id: &str, branch_id: &str, api_host: Option<String>, api_key: Option<String>) -> Result<()> {
+    let client = get_client(api_host, api_key)?;
 
     client
         .branches(project_id)
@@ -116,8 +118,9 @@ pub async fn rename(
     name: &str,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let request = RenameBranchRequest {
         name: name.to_string(),
@@ -140,8 +143,9 @@ pub async fn set_default(
     project_id: &str,
     branch_id: &str,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     client
         .branches(project_id)
@@ -167,8 +171,9 @@ pub async fn connection_string(
     ssl: Option<&str>,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let response = client
         .branches(project_id)
@@ -188,8 +193,9 @@ pub async fn set_expiration(
     no_expiration: bool,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     // Build the request
     let expires_at_value = if no_expiration {
@@ -243,8 +249,9 @@ pub async fn schema_diff(
     database: Option<&str>,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let mut request = SchemaDiffRequest::new(base_branch_id, compare_branch_id);
     if let Some(db) = database {
@@ -279,8 +286,8 @@ pub async fn schema_diff(
     }
 }
 
-pub async fn reset(project_id: &str, branch_id: &str, api_host: Option<String>) -> Result<()> {
-    let client = get_client(api_host)?;
+pub async fn reset(project_id: &str, branch_id: &str, api_host: Option<String>, api_key: Option<String>) -> Result<()> {
+    let client = get_client(api_host, api_key)?;
 
     match client.branches(project_id).reset(branch_id).await {
         Ok(branch) => {
@@ -322,8 +329,9 @@ pub async fn restore(
     timestamp: Option<&str>,
     lsn: Option<&str>,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let parse_timestamp = |ts: &str| -> Result<DateTime<Utc>> {
         Ok(DateTime::parse_from_rfc3339(ts)

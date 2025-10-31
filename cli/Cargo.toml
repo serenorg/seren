@@ -24,3 +24,11 @@ comfy-table = { workspace = true }
 colored = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
+rpassword = "7.3"
+reqwest = { version = "0.11", features = ["json"] }
+oauth2 = "4.4"
+url = "2.5"
+base64 = "0.21"
+sha2 = "0.10"
+rand = "0.8"
+open = "5.0"

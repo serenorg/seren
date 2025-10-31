@@ -2,12 +2,12 @@ use anyhow::Result;
 use colored::Colorize;
 use seren::{Client, ClientConfig, CreateRoleRequest, ResetRolePasswordRequest};
 
-use crate::{config::Config, output, OutputFormat};
+use crate::{commands::auth::get_bearer_token, output, OutputFormat};
 
-fn get_client(api_host: Option<String>) -> Result<Client> {
-    let config = Config::load()?;
+fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
+    let bearer_token = get_bearer_token(api_key)?;
 
-    let mut client_config = ClientConfig::new(config.api_key);
+    let mut client_config = ClientConfig::new(bearer_token);
 
     if let Some(host) = api_host {
         client_config = client_config.with_base_url(host);
@@ -21,8 +21,9 @@ pub async fn list(
     branch_id: &str,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let roles = client
         .roles(project_id, branch_id)
@@ -44,8 +45,9 @@ pub async fn create(
     name: &str,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let request = CreateRoleRequest {
         name: name.to_string(),
@@ -80,8 +82,9 @@ pub async fn delete(
     branch_id: &str,
     role_id: &str,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     client
         .roles(project_id, branch_id)
@@ -106,8 +109,9 @@ pub async fn reset_password(
     password: &str,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let request = ResetRolePasswordRequest {
         password: password.to_string(),

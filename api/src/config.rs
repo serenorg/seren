@@ -1,12 +1,23 @@
 use crate::error::{Error, Result};
 
+/// Default API base URL
+/// 
+/// Automatically selected based on build profile:
+/// - Debug builds (`cargo build`): http://localhost:3000
+/// - Release builds (`cargo build --release`): https://api.serendb.com
+const DEFAULT_API_HOST: &str = if cfg!(debug_assertions) {
+    "http://localhost:3000"
+} else {
+    "https://api.serendb.com"
+};
+
 /// Configuration for the Seren API client
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
     /// API key for authentication (format: seren_...)
     pub api_key: String,
 
-    /// Base URL for the API (default: https://api.seren.com)
+    /// Base URL for the API (default: set at compile-time via build profile)
     pub base_url: String,
 
     /// Request timeout in seconds (default: 60)
@@ -21,7 +32,7 @@ impl ClientConfig {
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
             api_key: api_key.into(),
-            base_url: "http://localhost:3000/api/v1".to_string(), // TODO: Change to production URL
+            base_url: format!("{}/api/v1", DEFAULT_API_HOST),
             timeout_seconds: 60,
             user_agent: format!("seren-api-rust/{}", env!("CARGO_PKG_VERSION")),
         }

@@ -5,12 +5,12 @@ use seren::{
 };
 use uuid::Uuid;
 
-use crate::{config::Config, output, OutputFormat};
+use crate::{commands::auth::get_bearer_token, output, OutputFormat};
 
-fn get_client(api_host: Option<String>) -> Result<Client> {
-    let config = Config::load()?;
+fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
+    let bearer_token = get_bearer_token(api_key)?;
 
-    let mut client_config = ClientConfig::new(config.api_key);
+    let mut client_config = ClientConfig::new(bearer_token);
 
     if let Some(host) = api_host {
         client_config = client_config.with_base_url(host);
@@ -24,8 +24,9 @@ pub async fn endpoint_list(
     region: Option<String>,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
     let endpoints = client
         .organization_vpc_endpoints(org_id)
         .list(region.as_deref())
@@ -47,8 +48,9 @@ pub async fn endpoint_create(
     label: Option<String>,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let request = CreateOrganizationVpcEndpointRequest {
         region: region.to_string(),
@@ -77,8 +79,9 @@ pub async fn endpoint_get(
     endpoint_id: &str,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let endpoint = client
         .organization_vpc_endpoints(org_id)
@@ -98,8 +101,9 @@ pub async fn endpoint_remove(
     org_id: &str,
     endpoint_id: &str,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     client
         .organization_vpc_endpoints(org_id)
@@ -121,8 +125,9 @@ pub async fn project_list(
     project_id: &str,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let assignments = client
         .project_vpc_endpoints(project_id)
@@ -144,8 +149,9 @@ pub async fn project_assign(
     label: Option<String>,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let request = AssignProjectVpcEndpointRequest {
         vpc_endpoint_id: Uuid::parse_str(vpc_endpoint_id)
@@ -173,8 +179,9 @@ pub async fn project_remove(
     project_id: &str,
     assignment_id: &str,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     client
         .project_vpc_endpoints(project_id)

@@ -2,12 +2,12 @@ use anyhow::Result;
 use colored::Colorize;
 use seren::{Client, ClientConfig};
 
-use crate::{config::Config, output, OutputFormat};
+use crate::{commands::auth::get_bearer_token, output, OutputFormat};
 
-fn get_client(api_host: Option<String>) -> Result<Client> {
-    let config = Config::load()?;
+fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
+    let bearer_token = get_bearer_token(api_key)?;
 
-    let mut client_config = ClientConfig::new(config.api_key);
+    let mut client_config = ClientConfig::new(bearer_token);
 
     if let Some(host) = api_host {
         client_config = client_config.with_base_url(host);
@@ -21,8 +21,9 @@ pub async fn list(
     branch_id: &str,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let endpoints = client
         .endpoints(project_id, branch_id)
@@ -48,8 +49,9 @@ pub async fn create(
     suspend_timeout: Option<i32>,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let mut request = seren::CreateEndpointRequest {
         name: name.to_string(),
@@ -100,8 +102,9 @@ pub async fn update(
     suspend_timeout: Option<i32>,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let mut request = seren::UpdateEndpointRequest {
         autoscaling_min: None,
@@ -141,8 +144,9 @@ pub async fn delete(
     branch_id: &str,
     endpoint_id: &str,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     client
         .endpoints(project_id, branch_id)
@@ -166,8 +170,9 @@ pub async fn suspend(
     endpoint_id: &str,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let endpoint = client
         .endpoints(project_id, branch_id)
@@ -188,8 +193,9 @@ pub async fn start(
     endpoint_id: &str,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let endpoint = client
         .endpoints(project_id, branch_id)
@@ -210,8 +216,9 @@ pub async fn health(
     endpoint_id: &str,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let health = client
         .endpoints(project_id, branch_id)
@@ -240,8 +247,9 @@ pub async fn metrics(
     endpoint_id: &str,
     format: OutputFormat,
     api_host: Option<String>,
+    api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host)?;
+    let client = get_client(api_host, api_key)?;
 
     let metrics = client
         .endpoints(project_id, branch_id)
