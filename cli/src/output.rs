@@ -639,7 +639,7 @@ pub fn print_organizations_table(organizations: &[seren::Organization]) {
 }
 
 // IP Allow Lists
-pub fn print_ip_allow_lists_table(ips: &[seren::IpAllowList]) {
+pub fn print_ip_allow_list_table(ips: &[seren::IpAllowList]) {
     if ips.is_empty() {
         println!("No IP addresses in allow list");
         return;

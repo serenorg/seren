@@ -29,7 +29,7 @@ pub async fn list(project_id: &str, format: OutputFormat, api_host: Option<Strin
 
     match format {
         OutputFormat::Json => output::print_json(&ips)?,
-        OutputFormat::Table => output::print_ip_allow_lists_table(&ips),
+        OutputFormat::Table => output::print_ip_allow_list_table(&ips),
     }
 
     Ok(())
@@ -63,7 +63,7 @@ pub async fn add(
 
     match format {
         OutputFormat::Json => output::print_json(&ip)?,
-        OutputFormat::Table => output::print_ip_allow_lists_table(&[ip]),
+        OutputFormat::Table => output::print_ip_allow_list_table(&[ip]),
     }
 
     Ok(())
@@ -126,7 +126,7 @@ pub async fn reset(
 
     match format {
         OutputFormat::Json => output::print_json(&updated)?,
-        OutputFormat::Table => output::print_ip_allow_lists_table(&updated),
+        OutputFormat::Table => output::print_ip_allow_list_table(&updated),
     }
 
     Ok(())
