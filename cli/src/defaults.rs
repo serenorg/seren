@@ -1,9 +1,9 @@
 /// Default configuration values
-/// 
+///
 /// These values are automatically selected based on build profile:
 /// - Debug builds (`cargo build`): Use localhost:3000 (developer-friendly)
 /// - Release builds (`cargo build --release`): Use production URLs (api.serendb.com)
-/// 
+///
 /// Runtime overrides are available via:
 /// - `SEREN_API_HOST` environment variable
 /// - `--api-host` command-line flag

@@ -22,18 +22,18 @@
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 }
- 
- mod client;
- mod config;
- mod error;
- mod models;
- 
- pub use client::Client;
- pub use config::ClientConfig;
- pub use error::{Error, Result};
- pub use models::*;
- 
- // Re-export commonly used types
- pub mod prelude {
-     pub use crate::{Client, ClientConfig, Error, Result};
- }
+
+mod client;
+mod config;
+mod error;
+mod models;
+
+pub use client::Client;
+pub use config::ClientConfig;
+pub use error::{Error, Result};
+pub use models::*;
+
+// Re-export commonly used types
+pub mod prelude {
+    pub use crate::{Client, ClientConfig, Error, Result};
+}

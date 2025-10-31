@@ -149,6 +149,21 @@ impl Client {
         .await
     }
 
+    /// Internal helper to perform GET requests with query parameters
+    async fn get_with_query<T: DeserializeOwned, Q: Serialize>(
+        &self,
+        path: &str,
+        query: &Q,
+    ) -> Result<T> {
+        let url = format!("{}{}", self.config.base_url, path);
+
+        self.request_with_retry(|| async {
+            let response = self.http.get(&url).query(query).send().await?;
+            self.handle_response(response).await
+        })
+        .await
+    }
+
     /// Internal method to make POST requests with retry logic
     async fn post<T: DeserializeOwned, B: Serialize>(&self, path: &str, body: &B) -> Result<T> {
         let url = format!("{}{}", self.config.base_url, path);
@@ -321,6 +336,17 @@ impl ProjectsClient<'_> {
     pub async fn delete(&self, id: &str) -> Result<()> {
         self.client.delete(&format!("/projects/{}", id)).await
     }
+
+    /// Retrieve a project-level connection URI
+    pub async fn connection_uri(
+        &self,
+        id: &str,
+        query: ProjectConnectionUriQuery,
+    ) -> Result<ProjectConnectionUriResponse> {
+        self.client
+            .get_with_query(&format!("/projects/{}/connection_uri", id), &query)
+            .await
+    }
 }
 
 /// Client for branch-related operations
@@ -348,7 +374,7 @@ impl BranchesClient<'_> {
     }
 
     /// Create a new branch
-    pub async fn create(&self, request: CreateBranchRequest) -> Result<Branch> {
+    pub async fn create(&self, request: CreateBranchRequest) -> Result<BranchCreationResult> {
         self.client
             .post(&format!("/projects/{}/branches", self.project_id), &request)
             .await

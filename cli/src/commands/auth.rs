@@ -42,10 +42,9 @@ async fn login_oauth() -> Result<()> {
     println!();
 
     // Get OAuth host from runtime env var or use compile-time default
-    let oauth_host = std::env::var("SEREN_OAUTH_HOST")
-        .unwrap_or_else(|_| DEFAULT_OAUTH_HOST.to_string());
-    let api_host = std::env::var("SEREN_API_HOST")
-        .unwrap_or_else(|_| DEFAULT_API_HOST.to_string());
+    let oauth_host =
+        std::env::var("SEREN_OAUTH_HOST").unwrap_or_else(|_| DEFAULT_OAUTH_HOST.to_string());
+    let api_host = std::env::var("SEREN_API_HOST").unwrap_or_else(|_| DEFAULT_API_HOST.to_string());
 
     // Start local server to receive OAuth callback
     let listener = TcpListener::bind("127.0.0.1:0")?;
@@ -111,9 +110,7 @@ async fn login_oauth() -> Result<()> {
     // Calculate expiration timestamp
     let expires_at = token_result
         .expires_in()
-        .map(|duration| {
-            chrono::Utc::now().timestamp() + duration.as_secs() as i64
-        })
+        .map(|duration| chrono::Utc::now().timestamp() + duration.as_secs() as i64)
         .unwrap_or_else(|| chrono::Utc::now().timestamp() + 900); // Default 15 minutes
 
     // Verify token works by calling /me endpoint
@@ -149,8 +146,7 @@ async fn login_api_key() -> Result<()> {
 
     // Verify the API key by making a test request to the API
     println!("Verifying API key...");
-    let api_host = std::env::var("SEREN_API_HOST")
-        .unwrap_or_else(|_| DEFAULT_API_HOST.to_string());
+    let api_host = std::env::var("SEREN_API_HOST").unwrap_or_else(|_| DEFAULT_API_HOST.to_string());
     verify_token(&api_key, &api_host).await?;
 
     let config = Config::from_api_key(api_key);
@@ -288,7 +284,11 @@ fn mask_api_key(key: &str) -> String {
     format!("{}...{}", prefix, suffix)
 }
 
-pub async fn me(format: OutputFormat, api_host: Option<String>, api_key: Option<String>) -> Result<()> {
+pub async fn me(
+    format: OutputFormat,
+    api_host: Option<String>,
+    api_key: Option<String>,
+) -> Result<()> {
     let bearer_token = get_bearer_token(api_key)?;
 
     let mut client_config = seren::ClientConfig::new(bearer_token);
@@ -307,7 +307,11 @@ pub async fn me(format: OutputFormat, api_host: Option<String>, api_key: Option<
     Ok(())
 }
 
-pub async fn organizations(format: OutputFormat, api_host: Option<String>, api_key: Option<String>) -> Result<()> {
+pub async fn organizations(
+    format: OutputFormat,
+    api_host: Option<String>,
+    api_key: Option<String>,
+) -> Result<()> {
     let bearer_token = get_bearer_token(api_key)?;
 
     let mut client_config = seren::ClientConfig::new(bearer_token);
@@ -335,7 +339,7 @@ pub fn get_bearer_token(api_key_override: Option<String>) -> Result<String> {
 
     // Priority 2: Stored credentials
     let config = Config::load()?;
-    
+
     config
         .get_bearer_token()
         .map(|s| s.to_string())

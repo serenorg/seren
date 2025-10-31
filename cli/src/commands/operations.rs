@@ -15,7 +15,12 @@ fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Clien
     Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
 }
 
-pub async fn list(project_id: &str, format: OutputFormat, api_host: Option<String>, api_key: Option<String>) -> Result<()> {
+pub async fn list(
+    project_id: &str,
+    format: OutputFormat,
+    api_host: Option<String>,
+    api_key: Option<String>,
+) -> Result<()> {
     let client = get_client(api_host, api_key)?;
 
     let operations = client

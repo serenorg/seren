@@ -554,7 +554,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateBranchRequest"
+                "$ref": "#/components/schemas/ControlPlaneCreateBranchPayload"
               }
             }
           },
@@ -566,7 +566,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CreateBranchResponse"
+                  "$ref": "#/components/schemas/BranchCreationResult"
                 }
               }
             }
@@ -1938,6 +1938,102 @@
         ]
       }
     },
+    "/api/projects/{project_id}/connection_uri": {
+      "get": {
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Retrieve a connection URI for the project control plane endpoint",
+        "operationId": "get_project_connection_uri",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "branch_id",
+            "in": "query",
+            "description": "Branch ID to target (defaults to project's default branch)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "nullable": true
+            }
+          },
+          {
+            "name": "endpoint_id",
+            "in": "query",
+            "description": "Endpoint ID to target (defaults to first endpoint in branch)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "nullable": true
+            }
+          },
+          {
+            "name": "database_name",
+            "in": "query",
+            "description": "Database name override (currently ignored)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "role_name",
+            "in": "query",
+            "description": "Role name override (currently ignored)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "pooled",
+            "in": "query",
+            "description": "Return pooled connection (currently ignored)",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Connection URI retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectConnectionUriResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Project, branch, or endpoint not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/projects/{project_id}/ip-allow": {
       "get": {
         "tags": [
@@ -2482,9 +2578,14 @@
           "timeline_id",
           "created_by",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "protected",
+          "archived"
         ],
         "properties": {
+          "archived": {
+            "type": "boolean"
+          },
           "created_at": {
             "$ref": "#/components/schemas/OffsetDateTime"
           },
@@ -2517,6 +2618,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "init_source": {
+            "type": "string",
+            "nullable": true
+          },
           "name": {
             "type": "string"
           },
@@ -2525,15 +2630,49 @@
             "format": "uuid",
             "nullable": true
           },
+          "parent_lsn": {
+            "type": "string",
+            "nullable": true
+          },
+          "parent_timestamp": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OffsetDateTime"
+              }
+            ],
+            "nullable": true
+          },
           "project_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "protected": {
+            "type": "boolean"
           },
           "timeline_id": {
             "type": "string"
           },
           "updated_at": {
             "$ref": "#/components/schemas/OffsetDateTime"
+          }
+        }
+      },
+      "BranchCreationResult": {
+        "type": "object",
+        "description": "Response wrapper returned when branch creation provisions auxiliary resources",
+        "required": [
+          "branch"
+        ],
+        "properties": {
+          "branch": {
+            "$ref": "#/components/schemas/CreateBranchResponse"
+          },
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CreateEndpointResponse"
+            },
+            "nullable": true
           }
         }
       },
@@ -2588,6 +2727,18 @@
           }
         }
       },
+      "BranchEndpointRequest": {
+        "type": "object",
+        "properties": {
+          "endpoint_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "settings": {
+            "nullable": true
+          }
+        }
+      },
       "ConnectionStringResponse": {
         "type": "object",
         "description": "Response for connection string",
@@ -2607,12 +2758,45 @@
           "name"
         ],
         "properties": {
+          "add_endpoint": {
+            "type": "boolean"
+          },
+          "archived": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BranchEndpointRequest"
+            }
+          },
+          "init_source": {
+            "type": "string",
+            "nullable": true
+          },
           "name": {
             "type": "string"
           },
           "parent_branch_id": {
             "type": "string",
             "format": "uuid",
+            "nullable": true
+          },
+          "parent_lsn": {
+            "type": "string",
+            "nullable": true
+          },
+          "parent_timestamp": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OffsetDateTime"
+              }
+            ],
+            "nullable": true
+          },
+          "protected": {
+            "type": "boolean",
             "nullable": true
           }
         }
@@ -2625,15 +2809,24 @@
           "name",
           "project_id",
           "timeline_id",
-          "created_at"
+          "created_at",
+          "protected",
+          "archived"
         ],
         "properties": {
+          "archived": {
+            "type": "boolean"
+          },
           "created_at": {
             "$ref": "#/components/schemas/OffsetDateTime"
           },
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "init_source": {
+            "type": "string",
+            "nullable": true
           },
           "name": {
             "type": "string"
@@ -2643,9 +2836,24 @@
             "format": "uuid",
             "nullable": true
           },
+          "parent_lsn": {
+            "type": "string",
+            "nullable": true
+          },
+          "parent_timestamp": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OffsetDateTime"
+              }
+            ],
+            "nullable": true
+          },
           "project_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "protected": {
+            "type": "boolean"
           },
           "timeline_id": {
             "type": "string"
@@ -3444,6 +3652,44 @@
           },
           "updated_at": {
             "$ref": "#/components/schemas/OffsetDateTime"
+          }
+        }
+      },
+      "ProjectConnectionUriQuery": {
+        "type": "object",
+        "properties": {
+          "branch_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "database_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "endpoint_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "pooled": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "role_name": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "ProjectConnectionUriResponse": {
+        "type": "object",
+        "required": [
+          "uri"
+        ],
+        "properties": {
+          "uri": {
+            "type": "string"
           }
         }
       },

@@ -1,6 +1,9 @@
 use anyhow::Result;
 use colored::Colorize;
-use seren::{Client, ClientConfig, CreateProjectRequest, UpdateProjectRequest};
+use seren::{
+    Client, ClientConfig, CreateProjectRequest, ProjectConnectionUriQuery, UpdateProjectRequest,
+};
+use uuid::Uuid;
 
 use crate::{commands::auth::get_bearer_token, output, OutputFormat};
 
@@ -16,7 +19,11 @@ fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Clien
     Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
 }
 
-pub async fn list(format: OutputFormat, api_host: Option<String>, api_key: Option<String>) -> Result<()> {
+pub async fn list(
+    format: OutputFormat,
+    api_host: Option<String>,
+    api_key: Option<String>,
+) -> Result<()> {
     let client = get_client(api_host, api_key)?;
 
     let projects = client
@@ -33,7 +40,12 @@ pub async fn list(format: OutputFormat, api_host: Option<String>, api_key: Optio
     Ok(())
 }
 
-pub async fn get(id: &str, format: OutputFormat, api_host: Option<String>, api_key: Option<String>) -> Result<()> {
+pub async fn get(
+    id: &str,
+    format: OutputFormat,
+    api_host: Option<String>,
+    api_key: Option<String>,
+) -> Result<()> {
     let client = get_client(api_host, api_key)?;
 
     let project = client
@@ -150,6 +162,48 @@ pub async fn delete(id: &str, api_host: Option<String>, api_key: Option<String>)
             .green()
             .bold()
     );
+
+    Ok(())
+}
+
+pub async fn connection_uri(
+    id: &str,
+    branch_id: Option<&str>,
+    endpoint_id: Option<&str>,
+    database: Option<&str>,
+    role: Option<&str>,
+    pooled: bool,
+    prisma: bool,
+    ssl: Option<&str>,
+    format: OutputFormat,
+    api_host: Option<String>,
+    api_key: Option<String>,
+) -> Result<()> {
+    let client = get_client(api_host, api_key)?;
+
+    let query = ProjectConnectionUriQuery {
+        branch_id: branch_id
+            .map(|value| {
+                Uuid::parse_str(value).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))
+            })
+            .transpose()?,
+        endpoint_id: endpoint_id
+            .map(|value| {
+                Uuid::parse_str(value).map_err(|e| anyhow::anyhow!("Invalid endpoint ID: {}", e))
+            })
+            .transpose()?,
+        database_name: database.map(|s| s.to_string()),
+        role_name: role.map(|s| s.to_string()),
+        pooled: if pooled { Some(true) } else { None },
+    };
+
+    let response = client
+        .projects()
+        .connection_uri(id, query)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to fetch connection URI: {}", e))?;
+
+    output::print_project_connection_uri(&response, pooled, prisma, ssl, format)?;
 
     Ok(())
 }

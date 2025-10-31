@@ -1,8 +1,7 @@
 use std::{collections::HashSet, env, fs, path::PathBuf};
 
 use openapiv3::{
-    ReferenceOr, Schema, SchemaData, SchemaKind, StringFormat, StringType,
-    VariantOrUnknownOrEmpty,
+    ReferenceOr, Schema, SchemaData, SchemaKind, StringFormat, StringType, VariantOrUnknownOrEmpty,
 };
 use progenitor::{GenerationSettings, InterfaceStyle};
 
@@ -101,7 +100,9 @@ fn main() -> anyhow::Result<()> {
     let tokens = generator.generate_tokens(&spec)?;
 
     let mut syntax: syn::File = syn::parse2(tokens)?;
-    syntax.items.retain(|item| matches!(item, syn::Item::Mod(m) if m.ident == "types"));
+    syntax
+        .items
+        .retain(|item| matches!(item, syn::Item::Mod(m) if m.ident == "types"));
 
     let formatted = prettyplease::unparse(&syntax);
 

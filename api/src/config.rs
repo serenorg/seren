@@ -1,7 +1,7 @@
 use crate::error::{Error, Result};
 
 /// Default API base URL
-/// 
+///
 /// Automatically selected based on build profile:
 /// - Debug builds (`cargo build`): http://localhost:3000
 /// - Release builds (`cargo build --release`): https://api.serendb.com

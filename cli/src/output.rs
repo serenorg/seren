@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use crate::OutputFormat;
 
-pub fn print_json<T: Serialize>(data: &T) -> anyhow::Result<()> {
+pub fn print_json<T: Serialize + ?Sized>(data: &T) -> anyhow::Result<()> {
     let json = serde_json::to_string_pretty(data)?;
     println!("{}", json);
     Ok(())
@@ -79,7 +79,10 @@ pub fn print_project(project: &seren::Project, format: OutputFormat) -> anyhow::
             table.add_row(vec![Cell::new("Region"), Cell::new(&project.region)]);
             table.add_row(vec![
                 Cell::new("Compute Units"),
-                Cell::new(format!("{}-{}", project.compute_unit_min, project.compute_unit_max)),
+                Cell::new(format!(
+                    "{}-{}",
+                    project.compute_unit_min, project.compute_unit_max
+                )),
             ]);
             table.add_row(vec![
                 Cell::new("Block Public Connections"),
@@ -89,7 +92,10 @@ pub fn print_project(project: &seren::Project, format: OutputFormat) -> anyhow::
                 Cell::new("Block VPC Connections"),
                 Cell::new(project.block_vpc_connections.to_string()),
             ]);
-            table.add_row(vec![Cell::new("HIPAA"), Cell::new(project.hipaa.to_string())]);
+            table.add_row(vec![
+                Cell::new("HIPAA"),
+                Cell::new(project.hipaa.to_string()),
+            ]);
             table.add_row(vec![
                 Cell::new("Protected Branches Only"),
                 Cell::new(project.protected_branches_only.to_string()),
@@ -126,6 +132,8 @@ pub fn print_branches_table(branches: &[seren::Branch]) {
         Cell::new("Name").fg(Color::Green),
         Cell::new("Project ID").fg(Color::Green),
         Cell::new("Timeline ID").fg(Color::Green),
+        Cell::new("Protected").fg(Color::Green),
+        Cell::new("Archived").fg(Color::Green),
         Cell::new("Created").fg(Color::Green),
     ]);
 
@@ -135,6 +143,8 @@ pub fn print_branches_table(branches: &[seren::Branch]) {
             Cell::new(&branch.name),
             Cell::new(branch.project_id.to_string()),
             Cell::new(&branch.timeline_id),
+            Cell::new(if branch.protected { "Yes" } else { "No" }),
+            Cell::new(if branch.archived { "Yes" } else { "No" }),
             Cell::new(branch.created_at.to_rfc3339()),
         ]);
     }
@@ -161,9 +171,35 @@ pub fn print_branch(branch: &seren::Branch, format: OutputFormat) -> anyhow::Res
                 Cell::new("Project ID"),
                 Cell::new(branch.project_id.to_string()),
             ]);
-            table.add_row(vec![Cell::new("Timeline ID"), Cell::new(&branch.timeline_id)]);
+            table.add_row(vec![
+                Cell::new("Timeline ID"),
+                Cell::new(&branch.timeline_id),
+            ]);
             if let Some(parent) = &branch.parent_branch_id {
-                table.add_row(vec![Cell::new("Parent Branch ID"), Cell::new(parent.to_string())]);
+                table.add_row(vec![
+                    Cell::new("Parent Branch ID"),
+                    Cell::new(parent.to_string()),
+                ]);
+            }
+            table.add_row(vec![
+                Cell::new("Protected"),
+                Cell::new(if branch.protected { "Yes" } else { "No" }),
+            ]);
+            table.add_row(vec![
+                Cell::new("Archived"),
+                Cell::new(if branch.archived { "Yes" } else { "No" }),
+            ]);
+            if let Some(source) = &branch.init_source {
+                table.add_row(vec![Cell::new("Init Source"), Cell::new(source)]);
+            }
+            if let Some(lsn) = &branch.parent_lsn {
+                table.add_row(vec![Cell::new("Parent LSN"), Cell::new(lsn)]);
+            }
+            if let Some(ts) = branch.parent_timestamp {
+                table.add_row(vec![
+                    Cell::new("Parent Timestamp"),
+                    Cell::new(ts.to_rfc3339()),
+                ]);
             }
             table.add_row(vec![
                 Cell::new("Created At"),
@@ -355,7 +391,10 @@ pub fn print_endpoint(endpoint: &seren::Endpoint, format: OutputFormat) -> anyho
                 Cell::new(endpoint.branch_id.to_string()),
             ]);
             table.add_row(vec![Cell::new("Status"), Cell::new(&endpoint.status)]);
-            table.add_row(vec![Cell::new("Compute Unit"), Cell::new(&endpoint.compute_unit)]);
+            table.add_row(vec![
+                Cell::new("Compute Unit"),
+                Cell::new(&endpoint.compute_unit),
+            ]);
             table.add_row(vec![
                 "Autoscaling Min",
                 &endpoint.autoscaling_min.to_string(),
@@ -368,7 +407,10 @@ pub fn print_endpoint(endpoint: &seren::Endpoint, format: OutputFormat) -> anyho
                 "Suspend Timeout",
                 &format!("{} seconds", endpoint.suspend_timeout_seconds),
             ]);
-            table.add_row(vec![Cell::new("Connection String"), Cell::new(&endpoint.connection_string)]);
+            table.add_row(vec![
+                Cell::new("Connection String"),
+                Cell::new(&endpoint.connection_string),
+            ]);
             table.add_row(vec![
                 Cell::new("Created At"),
                 Cell::new(endpoint.created_at.to_rfc3339()),
@@ -477,6 +519,57 @@ pub fn print_connection_string(
     Ok(())
 }
 
+pub fn print_project_connection_uri(
+    response: &seren::ProjectConnectionUriResponse,
+    pooled: bool,
+    prisma: bool,
+    ssl: Option<&str>,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
+    let wrapper = seren::ConnectionStringResponse {
+        connection_string: response.uri.clone(),
+    };
+    print_connection_string(&wrapper, pooled, prisma, ssl, format)
+}
+
+pub fn print_created_endpoints(
+    endpoints: &[seren::CreateEndpointResponse],
+    format: OutputFormat,
+) -> anyhow::Result<()> {
+    match format {
+        OutputFormat::Json => print_json(endpoints)?,
+        OutputFormat::Table => {
+            let mut table = Table::new();
+            table
+                .load_preset(UTF8_FULL)
+                .set_content_arrangement(ContentArrangement::Dynamic);
+
+            table.set_header(vec![
+                Cell::new("ID").fg(Color::Green),
+                Cell::new("Name").fg(Color::Green),
+                Cell::new("Status").fg(Color::Green),
+                Cell::new("Compute Unit").fg(Color::Green),
+                Cell::new("Connection String").fg(Color::Green),
+            ]);
+
+            for endpoint in endpoints {
+                table.add_row(vec![
+                    Cell::new(endpoint.id.to_string()),
+                    Cell::new(&endpoint.name),
+                    Cell::new(&endpoint.status),
+                    Cell::new(&endpoint.compute_unit),
+                    Cell::new(&endpoint.connection_string),
+                ]);
+            }
+
+            println!("{}", "Provisioned Endpoints".green().bold());
+            println!("{table}");
+        }
+    }
+
+    Ok(())
+}
+
 // Operations
 pub fn print_operations_table(operations: &[seren::Operation]) {
     if operations.is_empty() {
@@ -528,8 +621,14 @@ pub fn print_operation(operation: &seren::Operation, format: OutputFormat) -> an
                 Cell::new("Value").fg(Color::Green),
             ]);
             table.add_row(vec![Cell::new("ID"), Cell::new(operation.id.to_string())]);
-            table.add_row(vec![Cell::new("Type"), Cell::new(&operation.operation_type)]);
-            table.add_row(vec![Cell::new("Resource Type"), Cell::new(&operation.resource_type)]);
+            table.add_row(vec![
+                Cell::new("Type"),
+                Cell::new(&operation.operation_type),
+            ]);
+            table.add_row(vec![
+                Cell::new("Resource Type"),
+                Cell::new(&operation.resource_type),
+            ]);
             table.add_row(vec![
                 Cell::new("Resource ID"),
                 Cell::new(operation.resource_id.to_string()),

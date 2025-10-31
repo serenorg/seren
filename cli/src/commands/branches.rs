@@ -1,9 +1,11 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use colored::Colorize;
+use serde_json::{Map, Value};
 use seren::{
-    Client, ClientConfig, CreateBranchRequest, PointInTime, RenameBranchRequest,
-    RestoreBranchRequest, RestoreSource, SchemaDiffRequest, SetBranchExpirationRequest,
+    BranchEndpointRequest, Client, ClientConfig, CreateBranchRequest, PointInTime,
+    RenameBranchRequest, RestoreBranchRequest, RestoreSource, SchemaDiffRequest,
+    SetBranchExpirationRequest,
 };
 use uuid::Uuid;
 
@@ -21,7 +23,12 @@ fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Clien
     Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
 }
 
-pub async fn list(project_id: &str, format: OutputFormat, api_host: Option<String>, api_key: Option<String>) -> Result<()> {
+pub async fn list(
+    project_id: &str,
+    format: OutputFormat,
+    api_host: Option<String>,
+    api_key: Option<String>,
+) -> Result<()> {
     let client = get_client(api_host, api_key)?;
 
     let branches = client
@@ -62,6 +69,14 @@ pub async fn create(
     project_id: &str,
     name: &str,
     parent: Option<&str>,
+    protected: bool,
+    archived: bool,
+    init_source: Option<&str>,
+    parent_lsn: Option<&str>,
+    parent_timestamp: Option<&str>,
+    add_endpoint: bool,
+    endpoint_type: Option<&str>,
+    endpoint_settings: &[String],
     format: OutputFormat,
     api_host: Option<String>,
     api_key: Option<String>,
@@ -70,30 +85,87 @@ pub async fn create(
 
     let parent_branch_id = parent
         .map(|value| {
-            Uuid::parse_str(value)
-                .map_err(|e| anyhow::anyhow!("Invalid parent branch ID: {}", e))
+            Uuid::parse_str(value).map_err(|e| anyhow::anyhow!("Invalid parent branch ID: {}", e))
         })
         .transpose()?;
+
+    let parent_timestamp = parent_timestamp
+        .map(|value| {
+            DateTime::parse_from_rfc3339(value)
+                .map(|dt| dt.with_timezone(&Utc))
+                .map_err(|e| anyhow::anyhow!("Invalid parent timestamp: {}", e))
+        })
+        .transpose()?;
+
+    let endpoint_settings_value = if endpoint_settings.is_empty() {
+        None
+    } else {
+        let mut map = Map::new();
+        for entry in endpoint_settings {
+            let (key, value) = entry.split_once('=').ok_or_else(|| {
+                anyhow::anyhow!("Invalid endpoint setting '{}'. Use key=value.", entry)
+            })?;
+            map.insert(key.to_string(), Value::String(value.to_string()));
+        }
+        Some(Value::Object(map))
+    };
+
+    let auto_endpoint =
+        add_endpoint || endpoint_type.is_some() || endpoint_settings_value.is_some();
+    let mut endpoints = Vec::new();
+    if auto_endpoint {
+        endpoints.push(BranchEndpointRequest {
+            endpoint_type: endpoint_type
+                .map(|s| s.to_string())
+                .or_else(|| Some("read_write".to_string())),
+            settings: endpoint_settings_value,
+        });
+    }
 
     let request = CreateBranchRequest {
         name: name.to_string(),
         parent_branch_id,
+        protected: Some(protected),
+        archived: Some(archived),
+        init_source: init_source.map(|s| s.to_string()),
+        parent_lsn: parent_lsn.map(|s| s.to_string()),
+        parent_timestamp,
+        add_endpoint: auto_endpoint.then_some(true),
+        endpoints,
     };
 
-    let branch = client
+    let creation = client
         .branches(project_id)
         .create(request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create branch: {}", e))?;
 
+    let branch = client
+        .branches(project_id)
+        .get(&creation.branch.id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to fetch branch details: {}", e))?;
+
     println!("{}", "✓ Branch created successfully!".green().bold());
     println!();
     output::print_branch(&branch, format)?;
 
+    if let Some(endpoints) = creation.endpoints.as_ref() {
+        if !endpoints.is_empty() {
+            println!();
+            output::print_created_endpoints(endpoints, format)?;
+        }
+    }
+
     Ok(())
 }
 
-pub async fn delete(project_id: &str, branch_id: &str, api_host: Option<String>, api_key: Option<String>) -> Result<()> {
+pub async fn delete(
+    project_id: &str,
+    branch_id: &str,
+    api_host: Option<String>,
+    api_key: Option<String>,
+) -> Result<()> {
     let client = get_client(api_host, api_key)?;
 
     client
@@ -286,7 +358,12 @@ pub async fn schema_diff(
     }
 }
 
-pub async fn reset(project_id: &str, branch_id: &str, api_host: Option<String>, api_key: Option<String>) -> Result<()> {
+pub async fn reset(
+    project_id: &str,
+    branch_id: &str,
+    api_host: Option<String>,
+    api_key: Option<String>,
+) -> Result<()> {
     let client = get_client(api_host, api_key)?;
 
     match client.branches(project_id).reset(branch_id).await {
@@ -339,15 +416,16 @@ pub async fn restore(
             .with_timezone(&Utc))
     };
 
-    let parse_point_in_time = |timestamp: Option<&str>, lsn: Option<&str>| -> Result<Option<PointInTime>> {
-        if let Some(ts) = timestamp {
-            Ok(Some(PointInTime::Timestamp(parse_timestamp(ts)?)))
-        } else if let Some(lsn_value) = lsn {
-            Ok(Some(PointInTime::Lsn(lsn_value.to_string())))
-        } else {
-            Ok(None)
-        }
-    };
+    let parse_point_in_time =
+        |timestamp: Option<&str>, lsn: Option<&str>| -> Result<Option<PointInTime>> {
+            if let Some(ts) = timestamp {
+                Ok(Some(PointInTime::Timestamp(parse_timestamp(ts)?)))
+            } else if let Some(lsn_value) = lsn {
+                Ok(Some(PointInTime::Lsn(lsn_value.to_string())))
+            } else {
+                Ok(None)
+            }
+        };
 
     let restore_source = if source == "^self" {
         let point_in_time = parse_point_in_time(timestamp, lsn)?.ok_or_else(|| {
