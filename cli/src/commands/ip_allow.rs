@@ -44,9 +44,12 @@ pub async fn add(
 ) -> Result<()> {
     let client = get_client(api_host)?;
 
-    let mut request = AddIpAllowListRequest::new(ip_address);
+    let mut request = AddIpAllowListRequest {
+        ip_address: ip_address.to_string(),
+        description: None,
+    };
     if let Some(desc) = description {
-        request = request.with_description(desc);
+        request.description = Some(desc);
     }
 
     let ip = client

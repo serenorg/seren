@@ -1,37 +1,35 @@
-[package]
-name = "seren-cli"
-version = "0.1.0"
+[workspace]
+members = [
+    "cli",
+    "api",
+]
+resolver = "2"
+
+[workspace.package]
 edition = "2021"
-authors = ["Seren Team"]
 license = "MIT"
-description = "CLI tool for Seren database management"
-repository = "https://github.com/seren/seren-cli"
+authors = ["Seren Team"]
+version = "0.1.0"
 
-[[bin]]
-name = "seren"
-path = "src/main.rs"
-
-[dependencies]
-# Seren SDK (standalone crate)
-seren = { path = "../seren-api" }
-# Note: When published to crates.io, use:
-# seren = "0.1"
-
-# Async runtime
-tokio = { version = "1", features = ["full"] }
-
-# CLI parsing
-clap = { version = "4", features = ["derive", "env"] }
-
-# Error handling
+[workspace.dependencies]
 anyhow = "1"
-
-# Config and paths
-dirs = "5"
-toml = "0.8"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-
-# Terminal output
+base62 = "2"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
 comfy-table = "7"
 colored = "2"
+dirs = "5"
+futures = "0.3"
+progenitor = "0.5"
+progenitor-client = "0.5"
+prettyplease = "0.2"
+regress = "0.7"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+syn = { version = "2", default-features = false, features = ["full"] }
+tokio = { version = "1", features = ["full"] }
+toml = "0.8"
+uuid = { version = "1", features = ["serde", "v4"] }
+openapiv3 = "2"
+thiserror = "1"

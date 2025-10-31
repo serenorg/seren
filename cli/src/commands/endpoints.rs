@@ -51,21 +51,30 @@ pub async fn create(
 ) -> Result<()> {
     let client = get_client(api_host)?;
 
-    let mut request = seren::CreateEndpointRequest::new(name);
+    let mut request = seren::CreateEndpointRequest {
+        name: name.to_string(),
+        compute_unit: compute_unit.clone(),
+        autoscaling_min: None,
+        autoscaling_max: None,
+        pooler_enabled: None,
+        pooler_mode: None,
+        suspend_timeout_seconds: suspend_timeout,
+    };
 
-    if let Some(unit) = compute_unit {
-        request = request.with_compute_unit(unit);
-    }
-
-    if let Some(min) = autoscaling_min {
-        let max = autoscaling_max.unwrap_or(min);
-        request = request.with_autoscaling(min, max);
-    } else if let Some(max) = autoscaling_max {
-        request = request.with_autoscaling(1, max);
-    }
-
-    if let Some(timeout) = suspend_timeout {
-        request.suspend_timeout_seconds = Some(timeout);
+    match (autoscaling_min, autoscaling_max) {
+        (Some(min), Some(max)) => {
+            request.autoscaling_min = Some(min);
+            request.autoscaling_max = Some(max);
+        }
+        (Some(min), None) => {
+            request.autoscaling_min = Some(min);
+            request.autoscaling_max = Some(min);
+        }
+        (None, Some(max)) => {
+            request.autoscaling_min = Some(1);
+            request.autoscaling_max = Some(max);
+        }
+        (None, None) => {}
     }
 
     let endpoint = client
@@ -94,18 +103,24 @@ pub async fn update(
 ) -> Result<()> {
     let client = get_client(api_host)?;
 
-    let mut request = seren::UpdateEndpointRequest::new();
+    let mut request = seren::UpdateEndpointRequest {
+        autoscaling_min: None,
+        autoscaling_max: None,
+        pooler_enabled: None,
+        pooler_mode: None,
+        suspend_timeout_seconds: None,
+    };
 
     if let Some(min) = autoscaling_min {
-        request = request.autoscaling_min(min);
+        request.autoscaling_min = Some(min);
     }
 
     if let Some(max) = autoscaling_max {
-        request = request.autoscaling_max(max);
+        request.autoscaling_max = Some(max);
     }
 
     if let Some(timeout) = suspend_timeout {
-        request = request.suspend_timeout(timeout);
+        request.suspend_timeout_seconds = Some(timeout);
     }
 
     let endpoint = client

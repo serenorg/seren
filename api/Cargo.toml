@@ -1,0 +1,32 @@
+[package]
+name = "seren"
+version = "0.1.0"
+edition = "2021"
+authors = ["Seren Team"]
+license = "MIT"
+description = "Rust SDK for the Seren API - Programmatic access to Seren database management"
+repository = "https://github.com/seren/seren"
+keywords = ["seren", "database", "sdk", "api"]
+categories = ["api-bindings", "database"]
+readme = "README.md"
+
+[dependencies]
+tokio = { workspace = true }
+reqwest = { workspace = true, default-features = false }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+base62 = { workspace = true }
+futures = { workspace = true }
+progenitor-client = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+regress = { workspace = true }
+
+[build-dependencies]
+anyhow = { workspace = true }
+progenitor = { workspace = true }
+prettyplease = { workspace = true }
+syn = { workspace = true }
+serde_json = { workspace = true }
+openapiv3 = { workspace = true }

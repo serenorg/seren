@@ -1,9 +1,11 @@
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use colored::Colorize;
 use seren::{
     Client, ClientConfig, CreateBranchRequest, PointInTime, RenameBranchRequest,
     RestoreBranchRequest, RestoreSource, SchemaDiffRequest, SetBranchExpirationRequest,
 };
+use uuid::Uuid;
 
 use crate::{config::Config, output, OutputFormat};
 
@@ -64,9 +66,16 @@ pub async fn create(
 ) -> Result<()> {
     let client = get_client(api_host)?;
 
+    let parent_branch_id = parent
+        .map(|value| {
+            Uuid::parse_str(value)
+                .map_err(|e| anyhow::anyhow!("Invalid parent branch ID: {}", e))
+        })
+        .transpose()?;
+
     let request = CreateBranchRequest {
         name: name.to_string(),
-        parent_branch_id: parent.map(|s| s.to_string()),
+        parent_branch_id,
     };
 
     let branch = client
@@ -186,7 +195,10 @@ pub async fn set_expiration(
     let expires_at_value = if no_expiration {
         None
     } else if let Some(exp) = expires_at {
-        Some(exp.to_string())
+        let parsed = DateTime::parse_from_rfc3339(exp)
+            .map_err(|e| anyhow::anyhow!("Invalid expiration timestamp: {}", e))?
+            .with_timezone(&Utc);
+        Some(parsed)
     } else {
         return Err(anyhow::anyhow!(
             "Must provide either --expires-at or --no-expiration"
@@ -313,47 +325,37 @@ pub async fn restore(
 ) -> Result<()> {
     let client = get_client(api_host)?;
 
-    // Parse restore source
+    let parse_timestamp = |ts: &str| -> Result<DateTime<Utc>> {
+        Ok(DateTime::parse_from_rfc3339(ts)
+            .map_err(|e| anyhow::anyhow!("Invalid timestamp: {}", e))?
+            .with_timezone(&Utc))
+    };
+
+    let parse_point_in_time = |timestamp: Option<&str>, lsn: Option<&str>| -> Result<Option<PointInTime>> {
+        if let Some(ts) = timestamp {
+            Ok(Some(PointInTime::Timestamp(parse_timestamp(ts)?)))
+        } else if let Some(lsn_value) = lsn {
+            Ok(Some(PointInTime::Lsn(lsn_value.to_string())))
+        } else {
+            Ok(None)
+        }
+    };
+
     let restore_source = if source == "^self" {
-        // Restore from own history - requires timestamp or LSN
-        let point_in_time = if let Some(ts) = timestamp {
-            PointInTime::Timestamp {
-                timestamp: ts.to_string(),
-            }
-        } else if let Some(l) = lsn {
-            PointInTime::Lsn { lsn: l.to_string() }
-        } else {
-            return Err(anyhow::anyhow!(
-                "Restoring from ^self requires either --timestamp or --lsn"
-            ));
-        };
-        RestoreSource::SelfHistory { point_in_time }
+        let point_in_time = parse_point_in_time(timestamp, lsn)?.ok_or_else(|| {
+            anyhow::anyhow!("Restoring from ^self requires either --timestamp or --lsn")
+        })?;
+        RestoreSource::Self_ { point_in_time }
     } else if source == "^parent" {
-        // Restore from parent - timestamp/LSN optional
-        let point_in_time = if let Some(ts) = timestamp {
-            Some(PointInTime::Timestamp {
-                timestamp: ts.to_string(),
-            })
-        } else if let Some(l) = lsn {
-            Some(PointInTime::Lsn { lsn: l.to_string() })
-        } else {
-            None
-        };
+        let point_in_time = parse_point_in_time(timestamp, lsn)?;
         RestoreSource::Parent { point_in_time }
     } else {
-        // Restore from specific branch - timestamp/LSN optional
-        let point_in_time = if let Some(ts) = timestamp {
-            Some(PointInTime::Timestamp {
-                timestamp: ts.to_string(),
-            })
-        } else if let Some(l) = lsn {
-            Some(PointInTime::Lsn { lsn: l.to_string() })
-        } else {
-            None
-        };
+        let point_in_time = parse_point_in_time(timestamp, lsn)?;
+        let source_branch_id = Uuid::parse_str(source)
+            .map_err(|e| anyhow::anyhow!("Invalid source branch ID: {}", e))?;
         RestoreSource::Branch {
-            source_branch_id: source.to_string(),
             point_in_time,
+            source_branch_id,
         }
     };
 

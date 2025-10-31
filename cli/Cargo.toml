@@ -1,0 +1,26 @@
+[package]
+name = "seren-cli"
+version = "0.1.0"
+edition = "2021"
+authors = ["Seren Team"]
+license = "MIT"
+description = "CLI tool for Seren database management"
+repository = "https://github.com/seren/seren-cli"
+
+[[bin]]
+name = "seren"
+path = "src/main.rs"
+
+[dependencies]
+seren = { path = "../api" }
+tokio = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+dirs = { workspace = true }
+toml = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+comfy-table = { workspace = true }
+colored = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }

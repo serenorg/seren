@@ -1,8 +1,8 @@
 use clap::{Parser, Subcommand};
 
 mod commands;
-mod config;
-mod output;
+pub mod config;
+pub mod output;
 
 #[derive(Debug, Clone, Copy)]
 pub enum OutputFormat {

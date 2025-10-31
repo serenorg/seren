@@ -35,7 +35,7 @@ pub fn print_projects_table(projects: &[seren::Project]) {
     for project in projects {
         let cu_range = format!("{}-{}", project.compute_unit_min, project.compute_unit_max);
         table.add_row(vec![
-            Cell::new(&project.id),
+            Cell::new(project.id.to_string()),
             Cell::new(&project.name),
             Cell::new(&project.region),
             Cell::new(cu_range),
@@ -50,7 +50,7 @@ pub fn print_projects_table(projects: &[seren::Project]) {
                 "No"
             }),
             Cell::new(if project.hipaa { "Yes" } else { "No" }),
-            Cell::new(&project.created_at),
+            Cell::new(project.created_at.to_rfc3339()),
         ]);
     }
 
@@ -70,29 +70,38 @@ pub fn print_project(project: &seren::Project, format: OutputFormat) -> anyhow::
                 Cell::new("Field").fg(Color::Green),
                 Cell::new("Value").fg(Color::Green),
             ]);
-            table.add_row(vec!["ID", &project.id]);
-            table.add_row(vec!["Name", &project.name]);
-            table.add_row(vec!["Organization ID", &project.organization_id]);
-            table.add_row(vec!["Region", &project.region]);
+            table.add_row(vec![Cell::new("ID"), Cell::new(project.id.to_string())]);
+            table.add_row(vec![Cell::new("Name"), Cell::new(&project.name)]);
             table.add_row(vec![
-                "Compute Units",
-                &format!("{}-{}", project.compute_unit_min, project.compute_unit_max),
+                Cell::new("Organization ID"),
+                Cell::new(project.organization_id.to_string()),
+            ]);
+            table.add_row(vec![Cell::new("Region"), Cell::new(&project.region)]);
+            table.add_row(vec![
+                Cell::new("Compute Units"),
+                Cell::new(format!("{}-{}", project.compute_unit_min, project.compute_unit_max)),
             ]);
             table.add_row(vec![
-                "Block Public Connections",
-                &project.block_public_connections.to_string(),
+                Cell::new("Block Public Connections"),
+                Cell::new(project.block_public_connections.to_string()),
             ]);
             table.add_row(vec![
-                "Block VPC Connections",
-                &project.block_vpc_connections.to_string(),
+                Cell::new("Block VPC Connections"),
+                Cell::new(project.block_vpc_connections.to_string()),
             ]);
-            table.add_row(vec!["HIPAA", &project.hipaa.to_string()]);
+            table.add_row(vec![Cell::new("HIPAA"), Cell::new(project.hipaa.to_string())]);
             table.add_row(vec![
-                "Protected Branches Only",
-                &project.protected_branches_only.to_string(),
+                Cell::new("Protected Branches Only"),
+                Cell::new(project.protected_branches_only.to_string()),
             ]);
-            table.add_row(vec!["Created At", &project.created_at]);
-            table.add_row(vec!["Updated At", &project.updated_at]);
+            table.add_row(vec![
+                Cell::new("Created At"),
+                Cell::new(project.created_at.to_rfc3339()),
+            ]);
+            table.add_row(vec![
+                Cell::new("Updated At"),
+                Cell::new(project.updated_at.to_rfc3339()),
+            ]);
 
             println!("{table}");
         }
@@ -122,11 +131,11 @@ pub fn print_branches_table(branches: &[seren::Branch]) {
 
     for branch in branches {
         table.add_row(vec![
-            Cell::new(&branch.id),
+            Cell::new(branch.id.to_string()),
             Cell::new(&branch.name),
-            Cell::new(&branch.project_id),
+            Cell::new(branch.project_id.to_string()),
             Cell::new(&branch.timeline_id),
-            Cell::new(&branch.created_at),
+            Cell::new(branch.created_at.to_rfc3339()),
         ]);
     }
 
@@ -146,14 +155,20 @@ pub fn print_branch(branch: &seren::Branch, format: OutputFormat) -> anyhow::Res
                 Cell::new("Field").fg(Color::Green),
                 Cell::new("Value").fg(Color::Green),
             ]);
-            table.add_row(vec!["ID", &branch.id]);
-            table.add_row(vec!["Name", &branch.name]);
-            table.add_row(vec!["Project ID", &branch.project_id]);
-            table.add_row(vec!["Timeline ID", &branch.timeline_id]);
+            table.add_row(vec![Cell::new("ID"), Cell::new(branch.id.to_string())]);
+            table.add_row(vec![Cell::new("Name"), Cell::new(&branch.name)]);
+            table.add_row(vec![
+                Cell::new("Project ID"),
+                Cell::new(branch.project_id.to_string()),
+            ]);
+            table.add_row(vec![Cell::new("Timeline ID"), Cell::new(&branch.timeline_id)]);
             if let Some(parent) = &branch.parent_branch_id {
-                table.add_row(vec!["Parent Branch ID", parent]);
+                table.add_row(vec![Cell::new("Parent Branch ID"), Cell::new(parent.to_string())]);
             }
-            table.add_row(vec!["Created At", &branch.created_at]);
+            table.add_row(vec![
+                Cell::new("Created At"),
+                Cell::new(branch.created_at.to_rfc3339()),
+            ]);
 
             println!("{table}");
         }
@@ -182,10 +197,10 @@ pub fn print_databases_table(databases: &[seren::DatabaseWithOwner]) {
 
     for db in databases {
         table.add_row(vec![
-            Cell::new(&db.id),
+            Cell::new(db.id.to_string()),
             Cell::new(&db.name),
             Cell::new(db.owner_name.as_deref().unwrap_or("-")),
-            Cell::new(&db.created_at),
+            Cell::new(db.created_at.to_rfc3339()),
         ]);
     }
 
@@ -205,10 +220,16 @@ pub fn print_database(database: &seren::Database, format: OutputFormat) -> anyho
                 Cell::new("Field").fg(Color::Green),
                 Cell::new("Value").fg(Color::Green),
             ]);
-            table.add_row(vec!["ID", &database.id]);
-            table.add_row(vec!["Name", &database.name]);
-            table.add_row(vec!["Branch ID", &database.branch_id]);
-            table.add_row(vec!["Created At", &database.created_at]);
+            table.add_row(vec![Cell::new("ID"), Cell::new(database.id.to_string())]);
+            table.add_row(vec![Cell::new("Name"), Cell::new(&database.name)]);
+            table.add_row(vec![
+                Cell::new("Branch ID"),
+                Cell::new(database.branch_id.to_string()),
+            ]);
+            table.add_row(vec![
+                Cell::new("Created At"),
+                Cell::new(database.created_at.to_rfc3339()),
+            ]);
 
             println!("{table}");
         }
@@ -237,10 +258,10 @@ pub fn print_roles_table(roles: &[seren::Role]) {
 
     for role in roles {
         table.add_row(vec![
-            Cell::new(&role.id),
+            Cell::new(role.id.to_string()),
             Cell::new(&role.name),
             Cell::new(if role.protected { "Yes" } else { "No" }),
-            Cell::new(&role.created_at),
+            Cell::new(role.created_at.to_rfc3339()),
         ]);
     }
 
@@ -263,11 +284,17 @@ pub fn print_role_with_password(
                 Cell::new("Field").fg(Color::Green),
                 Cell::new("Value").fg(Color::Green),
             ]);
-            table.add_row(vec!["ID", &role.id]);
-            table.add_row(vec!["Name", &role.name]);
-            table.add_row(vec!["Branch ID", &role.branch_id]);
-            table.add_row(vec!["Password", &role.password]);
-            table.add_row(vec!["Created At", &role.created_at]);
+            table.add_row(vec![Cell::new("ID"), Cell::new(role.id.to_string())]);
+            table.add_row(vec![Cell::new("Name"), Cell::new(&role.name)]);
+            table.add_row(vec![
+                Cell::new("Branch ID"),
+                Cell::new(role.branch_id.to_string()),
+            ]);
+            table.add_row(vec![Cell::new("Password"), Cell::new(&role.password)]);
+            table.add_row(vec![
+                Cell::new("Created At"),
+                Cell::new(role.created_at.to_rfc3339()),
+            ]);
 
             println!("{table}");
         }
@@ -297,7 +324,7 @@ pub fn print_endpoints_table(endpoints: &[seren::Endpoint]) {
 
     for endpoint in endpoints {
         table.add_row(vec![
-            Cell::new(&endpoint.id),
+            Cell::new(endpoint.id.to_string()),
             Cell::new(&endpoint.name),
             Cell::new(&endpoint.status),
             Cell::new(&endpoint.compute_unit),
@@ -321,11 +348,14 @@ pub fn print_endpoint(endpoint: &seren::Endpoint, format: OutputFormat) -> anyho
                 Cell::new("Field").fg(Color::Green),
                 Cell::new("Value").fg(Color::Green),
             ]);
-            table.add_row(vec!["ID", &endpoint.id]);
-            table.add_row(vec!["Name", &endpoint.name]);
-            table.add_row(vec!["Branch ID", &endpoint.branch_id]);
-            table.add_row(vec!["Status", &endpoint.status]);
-            table.add_row(vec!["Compute Unit", &endpoint.compute_unit]);
+            table.add_row(vec![Cell::new("ID"), Cell::new(endpoint.id.to_string())]);
+            table.add_row(vec![Cell::new("Name"), Cell::new(&endpoint.name)]);
+            table.add_row(vec![
+                Cell::new("Branch ID"),
+                Cell::new(endpoint.branch_id.to_string()),
+            ]);
+            table.add_row(vec![Cell::new("Status"), Cell::new(&endpoint.status)]);
+            table.add_row(vec![Cell::new("Compute Unit"), Cell::new(&endpoint.compute_unit)]);
             table.add_row(vec![
                 "Autoscaling Min",
                 &endpoint.autoscaling_min.to_string(),
@@ -338,8 +368,11 @@ pub fn print_endpoint(endpoint: &seren::Endpoint, format: OutputFormat) -> anyho
                 "Suspend Timeout",
                 &format!("{} seconds", endpoint.suspend_timeout_seconds),
             ]);
-            table.add_row(vec!["Connection String", &endpoint.connection_string]);
-            table.add_row(vec!["Created At", &endpoint.created_at]);
+            table.add_row(vec![Cell::new("Connection String"), Cell::new(&endpoint.connection_string)]);
+            table.add_row(vec![
+                Cell::new("Created At"),
+                Cell::new(endpoint.created_at.to_rfc3339()),
+            ]);
 
             println!("{table}");
         }
@@ -412,7 +445,7 @@ pub fn print_connection_string(
                     Cell::new("Field").fg(Color::Green),
                     Cell::new("Value").fg(Color::Green),
                 ]);
-                table.add_row(vec!["Prisma Format", &prisma_str]);
+                table.add_row(vec![Cell::new("Prisma Format"), Cell::new(&prisma_str)]);
 
                 println!("{table}");
             }
@@ -435,7 +468,7 @@ pub fn print_connection_string(
                     Cell::new("Field").fg(Color::Green),
                     Cell::new("Value").fg(Color::Green),
                 ]);
-                table.add_row(vec!["Connection String", &conn_str]);
+                table.add_row(vec![Cell::new("Connection String"), Cell::new(&conn_str)]);
 
                 println!("{table}");
             }
@@ -468,13 +501,13 @@ pub fn print_operations_table(operations: &[seren::Operation]) {
 
     for operation in operations {
         table.add_row(vec![
-            Cell::new(&operation.id),
+            Cell::new(operation.id.to_string()),
             Cell::new(&operation.operation_type),
             Cell::new(&operation.resource_type),
-            Cell::new(&operation.resource_id),
+            Cell::new(operation.resource_id.to_string()),
             Cell::new(&operation.status),
             Cell::new(&format!("{}%", operation.progress)),
-            Cell::new(&operation.created_at),
+            Cell::new(operation.created_at.to_rfc3339()),
         ]);
     }
 
@@ -494,20 +527,41 @@ pub fn print_operation(operation: &seren::Operation, format: OutputFormat) -> an
                 Cell::new("Field").fg(Color::Green),
                 Cell::new("Value").fg(Color::Green),
             ]);
-            table.add_row(vec!["ID", &operation.id]);
-            table.add_row(vec!["Type", &operation.operation_type]);
-            table.add_row(vec!["Resource Type", &operation.resource_type]);
-            table.add_row(vec!["Resource ID", &operation.resource_id]);
-            table.add_row(vec!["Status", &operation.status]);
-            table.add_row(vec!["Progress", &format!("{}%", operation.progress)]);
-            table.add_row(vec!["Created By", &operation.created_by]);
-            table.add_row(vec!["Created At", &operation.created_at]);
-            table.add_row(vec!["Updated At", &operation.updated_at]);
+            table.add_row(vec![Cell::new("ID"), Cell::new(operation.id.to_string())]);
+            table.add_row(vec![Cell::new("Type"), Cell::new(&operation.operation_type)]);
+            table.add_row(vec![Cell::new("Resource Type"), Cell::new(&operation.resource_type)]);
+            table.add_row(vec![
+                Cell::new("Resource ID"),
+                Cell::new(operation.resource_id.to_string()),
+            ]);
+            table.add_row(vec![Cell::new("Status"), Cell::new(&operation.status)]);
+            table.add_row(vec![
+                Cell::new("Progress"),
+                Cell::new(format!("{}%", operation.progress)),
+            ]);
+            table.add_row(vec![
+                Cell::new("Created By"),
+                Cell::new(operation.created_by.to_string()),
+            ]);
+            table.add_row(vec![
+                Cell::new("Created At"),
+                Cell::new(operation.created_at.to_rfc3339()),
+            ]);
+            table.add_row(vec![
+                Cell::new("Updated At"),
+                Cell::new(operation.updated_at.to_rfc3339()),
+            ]);
             if let Some(started_at) = &operation.started_at {
-                table.add_row(vec!["Started At", started_at]);
+                table.add_row(vec![
+                    Cell::new("Started At"),
+                    Cell::new(started_at.to_rfc3339()),
+                ]);
             }
             if let Some(completed_at) = &operation.completed_at {
-                table.add_row(vec!["Completed At", completed_at]);
+                table.add_row(vec![
+                    Cell::new("Completed At"),
+                    Cell::new(completed_at.to_rfc3339()),
+                ]);
             }
             if let Some(error) = &operation.error_message {
                 table.add_row(vec!["Error", error]);
@@ -534,14 +588,20 @@ pub fn print_user(user: &seren::User) -> anyhow::Result<()> {
         Cell::new("Field").fg(Color::Green),
         Cell::new("Value").fg(Color::Green),
     ]);
-    table.add_row(vec!["ID", &user.id]);
-    table.add_row(vec!["Email", &user.email]);
-    table.add_row(vec!["Name", &user.name]);
+    table.add_row(vec![Cell::new("ID"), Cell::new(user.id.to_string())]);
+    table.add_row(vec![Cell::new("Email"), Cell::new(&user.email)]);
+    table.add_row(vec![Cell::new("Name"), Cell::new(&user.name)]);
     if let Some(avatar) = &user.avatar_url {
-        table.add_row(vec!["Avatar URL", avatar]);
+        table.add_row(vec![Cell::new("Avatar URL"), Cell::new(avatar)]);
     }
-    table.add_row(vec!["Status", &user.status]);
-    table.add_row(vec!["Created At", &user.created_at]);
+    table.add_row(vec![
+        Cell::new("Status"),
+        Cell::new(format!("{:?}", user.status)),
+    ]);
+    table.add_row(vec![
+        Cell::new("Created At"),
+        Cell::new(user.created_at.to_rfc3339()),
+    ]);
 
     println!("{table}");
     Ok(())
@@ -666,12 +726,12 @@ pub fn print_project_vpc_endpoints_table(assignments: &[seren::ProjectVpcEndpoin
 
     for assignment in assignments {
         table.add_row(vec![
-            Cell::new(&assignment.id),
+            Cell::new(assignment.id.to_string()),
             Cell::new(&assignment.endpoint_id),
             Cell::new(&assignment.region),
             Cell::new(assignment.label.as_deref().unwrap_or("-")),
             Cell::new(assignment.endpoint_label.as_deref().unwrap_or("-")),
-            Cell::new(&assignment.updated_at),
+            Cell::new(assignment.updated_at.to_rfc3339()),
         ]);
     }
 

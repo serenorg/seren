@@ -3,6 +3,7 @@ use colored::Colorize;
 use seren::{
     AssignProjectVpcEndpointRequest, Client, ClientConfig, CreateOrganizationVpcEndpointRequest,
 };
+use uuid::Uuid;
 
 use crate::{config::Config, output, OutputFormat};
 
@@ -147,7 +148,8 @@ pub async fn project_assign(
     let client = get_client(api_host)?;
 
     let request = AssignProjectVpcEndpointRequest {
-        vpc_endpoint_id: vpc_endpoint_id.to_string(),
+        vpc_endpoint_id: Uuid::parse_str(vpc_endpoint_id)
+            .map_err(|e| anyhow::anyhow!("Invalid VPC endpoint ID: {}", e))?,
         label,
     };
 
