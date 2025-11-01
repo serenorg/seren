@@ -19,11 +19,11 @@ pub const DEFAULT_API_HOST: &str = if cfg!(debug_assertions) {
 
 /// Default OAuth host URL
 /// - Debug builds: http://localhost:3000
-/// - Release builds: https://oauth.serendb.com
+/// - Release builds: https://api.serendb.com
 pub const DEFAULT_OAUTH_HOST: &str = if cfg!(debug_assertions) {
     "http://localhost:3000"
 } else {
-    "https://oauth.serendb.com"
+    "https://api.serendb.com"
 };
 
 /// Default OAuth client ID (same for all builds)
