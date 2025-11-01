@@ -89,12 +89,21 @@ impl Config {
 
     /// Save config to disk with secure permissions
     pub fn save(&self) -> Result<()> {
+        let path = self.write_to_disk()?;
+        println!("✓ Credentials saved to {}", path.display());
+        Ok(())
+    }
+
+    pub fn save_silent(&self) -> Result<()> {
+        self.write_to_disk().map(|_| ())
+    }
+
+    fn write_to_disk(&self) -> Result<PathBuf> {
         let path = Self::config_path()?;
         let contents = toml::to_string_pretty(self).context("Could not serialize config")?;
 
         fs::write(&path, contents).context("Could not write config file")?;
 
-        // Set secure permissions on credentials file (0o600)
         #[cfg(unix)]
         {
             let metadata = fs::metadata(&path)?;
@@ -103,9 +112,7 @@ impl Config {
             fs::set_permissions(&path, permissions)?;
         }
 
-        println!("✓ Credentials saved to {}", path.display());
-
-        Ok(())
+        Ok(path)
     }
 
     /// Delete config file

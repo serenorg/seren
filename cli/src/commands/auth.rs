@@ -1,9 +1,10 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
 use oauth2::{
-    basic::BasicClient, reqwest::async_http_client, AuthUrl, AuthorizationCode, ClientId,
-    CsrfToken, PkceCodeChallenge, RedirectUrl, Scope, TokenResponse, TokenUrl,
+    basic::BasicClient, reqwest::async_http_client, AuthType, AuthUrl, AuthorizationCode,
+    ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope, TokenResponse, TokenUrl,
 };
+use serde::Deserialize;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpListener;
 use url::Url;
@@ -36,6 +37,8 @@ pub async fn login() -> Result<()> {
     }
 }
 
+const TOKEN_REFRESH_SKEW_SECONDS: i64 = 60;
+
 async fn login_oauth() -> Result<()> {
     println!();
     println!("{}", "Starting OAuth login flow...".bold());
@@ -52,12 +55,16 @@ async fn login_oauth() -> Result<()> {
     let redirect_url = format!("http://127.0.0.1:{}/callback", local_addr.port());
 
     // Set up OAuth client
+    let client_id = std::env::var("SEREN_CLIENT_ID")
+        .unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
+
     let client = BasicClient::new(
-        ClientId::new(DEFAULT_CLIENT_ID.to_string()),
+        ClientId::new(client_id.clone()),
         None,
-        AuthUrl::new(format!("{}/api/auth/authorize", oauth_host))?,
-        Some(TokenUrl::new(format!("{}/api/auth/token", oauth_host))?),
+        AuthUrl::new(format!("{}/api/oauth2/authorize", oauth_host))?,
+        Some(TokenUrl::new(format!("{}/api/oauth2/token", oauth_host))?),
     )
+    .set_auth_type(AuthType::RequestBody)
     .set_redirect_uri(RedirectUrl::new(redirect_url.clone())?);
 
     // Generate PKCE challenge
@@ -106,6 +113,10 @@ async fn login_oauth() -> Result<()> {
         .refresh_token()
         .map(|t| t.secret().to_string())
         .unwrap_or_default();
+
+    if refresh_token.is_empty() {
+        anyhow::bail!("OAuth response did not include a refresh token; please contact support");
+    }
 
     // Calculate expiration timestamp
     let expires_at = token_result
@@ -289,7 +300,7 @@ pub async fn me(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let bearer_token = get_bearer_token(api_key)?;
+    let bearer_token = get_bearer_token(api_key).await?;
 
     let mut client_config = seren::ClientConfig::new(bearer_token);
     if let Some(base_url) = api_host {
@@ -312,7 +323,7 @@ pub async fn organizations(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let bearer_token = get_bearer_token(api_key)?;
+    let bearer_token = get_bearer_token(api_key).await?;
 
     let mut client_config = seren::ClientConfig::new(bearer_token);
     if let Some(base_url) = api_host {
@@ -331,17 +342,101 @@ pub async fn organizations(
 }
 
 /// Helper to get bearer token with priority: CLI flag > env var > config file
-pub fn get_bearer_token(api_key_override: Option<String>) -> Result<String> {
+pub async fn get_bearer_token(api_key_override: Option<String>) -> Result<String> {
     // Priority 1: --api-key flag or SEREN_API_KEY env var (handled by clap)
     if let Some(key) = api_key_override {
         return Ok(key);
     }
 
     // Priority 2: Stored credentials
-    let config = Config::load()?;
+    let mut config = Config::load()?;
+    maybe_refresh_oauth_token(&mut config).await?;
 
     config
         .get_bearer_token()
         .map(|s| s.to_string())
         .context("No valid authentication token found")
+}
+
+#[derive(Debug, Deserialize)]
+struct OAuthTokenResponse {
+    access_token: String,
+    token_type: Option<String>,
+    expires_in: i64,
+    refresh_token: Option<String>,
+}
+
+async fn maybe_refresh_oauth_token(config: &mut Config) -> Result<()> {
+    let Some(expires_at) = config.expires_at else {
+        return Ok(());
+    };
+
+    let Some(refresh_token) = config
+        .refresh_token
+        .as_ref()
+        .filter(|token| !token.is_empty())
+        .cloned()
+    else {
+        return Ok(());
+    };
+
+    let now = chrono::Utc::now().timestamp();
+    if expires_at - TOKEN_REFRESH_SKEW_SECONDS > now {
+        return Ok(());
+    }
+
+    let oauth_host = std::env::var("SEREN_OAUTH_HOST")
+        .unwrap_or_else(|_| DEFAULT_OAUTH_HOST.to_string());
+    let client_id = std::env::var("SEREN_CLIENT_ID")
+        .unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
+
+    let refreshed = request_token_refresh(&oauth_host, &client_id, &refresh_token).await?;
+
+    let expires_at = chrono::Utc::now().timestamp() + refreshed.expires_in;
+    let refresh_token = refreshed
+        .refresh_token
+        .ok_or_else(|| anyhow::anyhow!("Refresh response missing new refresh_token"))?;
+
+    config.access_token = Some(refreshed.access_token);
+    config.refresh_token = Some(refresh_token);
+    config.expires_at = Some(expires_at);
+    config.save_silent()?;
+
+    Ok(())
+}
+
+async fn request_token_refresh(
+    oauth_host: &str,
+    client_id: &str,
+    refresh_token: &str,
+) -> Result<OAuthTokenResponse> {
+    let base = oauth_host.trim_end_matches('/');
+    let token_url = format!("{}/api/oauth2/token", base);
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(token_url)
+        .form(&[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("client_id", client_id),
+        ])
+        .send()
+        .await
+        .context("Failed to contact OAuth token endpoint")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!(
+            "Token refresh failed ({}): {}",
+            status,
+            body.trim()
+        );
+    }
+
+    response
+        .json::<OAuthTokenResponse>()
+        .await
+        .context("Failed to parse OAuth token response")
 }
