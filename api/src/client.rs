@@ -321,7 +321,7 @@ impl ProjectsClient<'_> {
     }
 
     /// Create a new project
-    pub async fn create(&self, request: CreateProjectRequest) -> Result<Project> {
+    pub async fn create(&self, request: CreateProjectRequest) -> Result<CreateProjectResponse> {
         self.client.post("/projects", &request).await
     }
 

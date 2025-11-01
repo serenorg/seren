@@ -3,10 +3,10 @@ use crate::error::{Error, Result};
 /// Default API base URL
 ///
 /// Automatically selected based on build profile:
-/// - Debug builds (`cargo build`): http://localhost:3000
+/// - Debug builds (`cargo build`): http://localhost:8080
 /// - Release builds (`cargo build --release`): https://api.serendb.com
 const DEFAULT_API_HOST: &str = if cfg!(debug_assertions) {
-    "http://localhost:3000"
+    "http://localhost:8080"
 } else {
     "https://api.serendb.com"
 };
@@ -32,7 +32,7 @@ impl ClientConfig {
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
             api_key: api_key.into(),
-            base_url: format!("{}/api/v1", DEFAULT_API_HOST),
+            base_url: format!("{}/api", DEFAULT_API_HOST),
             timeout_seconds: 60,
             user_agent: format!("seren-api-rust/{}", env!("CARGO_PKG_VERSION")),
         }
@@ -52,7 +52,12 @@ impl ClientConfig {
 
     /// Validate the API key format
     pub fn validate(&self) -> Result<()> {
-        if !self.api_key.starts_with("seren_") {
+        // Accept either API keys (seren_...) or OAuth bearer tokens (JWT format)
+        // JWT tokens have 3 parts separated by dots
+        let is_api_key = self.api_key.starts_with("seren_");
+        let is_jwt = self.api_key.matches('.').count() == 2 && !self.api_key.is_empty();
+        
+        if !is_api_key && !is_jwt {
             return Err(Error::InvalidApiKey);
         }
         Ok(())

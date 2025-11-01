@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
+use jiff::Timestamp;
 use oauth2::{
     basic::BasicClient, reqwest::async_http_client, AuthType, AuthUrl, AuthorizationCode,
     ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope, TokenResponse, TokenUrl,
@@ -121,8 +122,8 @@ async fn login_oauth() -> Result<()> {
     // Calculate expiration timestamp
     let expires_at = token_result
         .expires_in()
-        .map(|duration| chrono::Utc::now().timestamp() + duration.as_secs() as i64)
-        .unwrap_or_else(|| chrono::Utc::now().timestamp() + 900); // Default 15 minutes
+        .map(|duration| Timestamp::now().as_second() + duration.as_secs() as i64)
+        .unwrap_or_else(|| Timestamp::now().as_second() + 900); // Default 15 minutes
 
     // Verify token works by calling /me endpoint
     println!("Verifying authentication...");
@@ -253,13 +254,14 @@ pub async fn status() -> Result<()> {
             } else if config.access_token.is_some() {
                 println!("Auth Type: OAuth");
                 if let Some(expires_at) = config.expires_at {
-                    let expires = chrono::DateTime::from_timestamp(expires_at, 0)
-                        .unwrap_or_else(|| chrono::Utc::now());
-                    let now = chrono::Utc::now();
+                    let expires = Timestamp::from_second(expires_at)
+                        .unwrap_or_else(|_| Timestamp::now());
+                    let now = Timestamp::now();
 
                     if expires > now {
-                        let duration = expires - now;
-                        println!("Token expires in: {} minutes", duration.num_minutes());
+                        let duration = expires.duration_since(now);
+                        let minutes = duration.as_secs() / 60;
+                        println!("Token expires in: {} minutes", minutes);
                     } else {
                         println!("{}", "Token expired".yellow());
                     }
@@ -380,7 +382,7 @@ async fn maybe_refresh_oauth_token(config: &mut Config) -> Result<()> {
         return Ok(());
     };
 
-    let now = chrono::Utc::now().timestamp();
+    let now = Timestamp::now().as_second();
     if expires_at - TOKEN_REFRESH_SKEW_SECONDS > now {
         return Ok(());
     }
@@ -392,7 +394,7 @@ async fn maybe_refresh_oauth_token(config: &mut Config) -> Result<()> {
 
     let refreshed = request_token_refresh(&oauth_host, &client_id, &refresh_token).await?;
 
-    let expires_at = chrono::Utc::now().timestamp() + refreshed.expires_in;
+    let expires_at = Timestamp::now().as_second() + refreshed.expires_in;
     let refresh_token = refreshed
         .refresh_token
         .ok_or_else(|| anyhow::anyhow!("Refresh response missing new refresh_token"))?;

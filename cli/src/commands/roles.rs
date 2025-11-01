@@ -4,7 +4,7 @@ use seren::{Client, ClientConfig, CreateRoleRequest, ResetRolePasswordRequest};
 
 use crate::{commands::auth::get_bearer_token, output, OutputFormat};
 
-fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
+async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
     let bearer_token = get_bearer_token(api_key).await?;
 
     let mut client_config = ClientConfig::new(bearer_token);
@@ -23,7 +23,7 @@ pub async fn list(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let roles = client
         .roles(project_id, branch_id)
@@ -47,7 +47,7 @@ pub async fn create(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let request = CreateRoleRequest {
         name: name.to_string(),
@@ -84,7 +84,7 @@ pub async fn delete(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     client
         .roles(project_id, branch_id)
@@ -111,7 +111,7 @@ pub async fn reset_password(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let request = ResetRolePasswordRequest {
         password: password.to_string(),

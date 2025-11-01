@@ -14,12 +14,12 @@ version = "0.1.0"
 [workspace.dependencies]
 anyhow = "1"
 base62 = "2"
-chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 comfy-table = "7"
 colored = "2"
 dirs = "5"
 futures = "0.3"
+jiff = { version = "0.2.15", features = ["serde"] }
 progenitor = "0.5"
 progenitor-client = "0.5"
 prettyplease = "0.2"

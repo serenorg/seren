@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{commands::auth::get_bearer_token, output, OutputFormat};
 
-fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
+async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
     let bearer_token = get_bearer_token(api_key).await?;
 
     let mut client_config = ClientConfig::new(bearer_token);
@@ -24,7 +24,7 @@ pub async fn list(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let projects = client
         .projects()
@@ -46,7 +46,7 @@ pub async fn get(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let project = client
         .projects()
@@ -72,7 +72,7 @@ pub async fn create(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let request = CreateProjectRequest {
         name: name.to_string(),
@@ -93,7 +93,7 @@ pub async fn create(
 
     println!("{}", "✓ Project created successfully!".green().bold());
     println!();
-    output::print_project(&project, format)?;
+    output::print_create_project_response(&project, format)?;
 
     Ok(())
 }
@@ -111,7 +111,7 @@ pub async fn update(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     if name.is_none()
         && block_public_connections.is_none()
@@ -148,7 +148,7 @@ pub async fn update(
 }
 
 pub async fn delete(id: &str, api_host: Option<String>, api_key: Option<String>) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     client
         .projects()
@@ -179,7 +179,7 @@ pub async fn connection_uri(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let query = ProjectConnectionUriQuery {
         branch_id: branch_id

@@ -85,9 +85,17 @@ fn main() -> anyhow::Result<()> {
 
     let mut settings = GenerationSettings::default();
     settings.with_interface(InterfaceStyle::Positional);
+    
+    // Replace chrono DateTime with jiff Timestamp for date-time format
+    settings.with_replacement(
+        "chrono::DateTime<chrono::offset::Utc>",
+        "::jiff::Timestamp",
+        std::iter::empty::<progenitor::TypeImpl>(),
+    );
+    
     settings.with_replacement(
         "OffsetDateTime",
-        "::chrono::DateTime::<::chrono::Utc>",
+        "::jiff::Timestamp",
         std::iter::empty::<progenitor::TypeImpl>(),
     );
     settings.with_replacement(
@@ -105,6 +113,11 @@ fn main() -> anyhow::Result<()> {
         .retain(|item| matches!(item, syn::Item::Mod(m) if m.ident == "types"));
 
     let formatted = prettyplease::unparse(&syntax);
+
+    // Replace chrono with jiff in the generated code
+    let formatted = formatted
+        .replace("chrono::DateTime<chrono::offset::Utc>", "::jiff::Timestamp")
+        .replace("Option<chrono::DateTime<chrono::offset::Utc>>", "Option<::jiff::Timestamp>");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     fs::create_dir_all(&out_dir)?;

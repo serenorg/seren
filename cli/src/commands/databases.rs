@@ -4,7 +4,7 @@ use seren::{Client, ClientConfig, CreateDatabaseRequest};
 
 use crate::{commands::auth::get_bearer_token, output, OutputFormat};
 
-fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
+async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
     let bearer_token = get_bearer_token(api_key).await?;
 
     let mut client_config = ClientConfig::new(bearer_token);
@@ -23,7 +23,7 @@ pub async fn list(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let databases = client
         .databases(project_id, branch_id)
@@ -48,7 +48,7 @@ pub async fn create(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let request = CreateDatabaseRequest {
         name: name.to_string(),
@@ -75,7 +75,7 @@ pub async fn delete(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     client
         .databases(project_id, branch_id)

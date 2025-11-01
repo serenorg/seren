@@ -3,7 +3,7 @@ use seren::{Client, ClientConfig};
 
 use crate::{commands::auth::get_bearer_token, output, OutputFormat};
 
-fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
+async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
     let bearer_token = get_bearer_token(api_key).await?;
 
     let mut client_config = ClientConfig::new(bearer_token);
@@ -21,7 +21,7 @@ pub async fn list(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let operations = client
         .operations(project_id)
@@ -44,7 +44,7 @@ pub async fn get(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let operation = client
         .operations(project_id)

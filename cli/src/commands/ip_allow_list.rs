@@ -6,7 +6,7 @@ use seren::{
 
 use crate::{commands::auth::get_bearer_token, output, OutputFormat};
 
-fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
+async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
     let bearer_token = get_bearer_token(api_key).await?;
 
     let mut client_config = ClientConfig::new(bearer_token);
@@ -24,7 +24,7 @@ pub async fn list(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let ips = client
         .ip_allow(project_id)
@@ -48,7 +48,7 @@ pub async fn add(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let mut request = AddIpAllowListRequest {
         ip_address: ip_address.to_string(),
@@ -81,7 +81,7 @@ pub async fn remove(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     client
         .ip_allow(project_id)
@@ -106,7 +106,7 @@ pub async fn reset(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let entries: Vec<ResetIpAllowListEntry> = ips
         .iter()

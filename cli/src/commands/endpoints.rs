@@ -4,7 +4,7 @@ use seren::{Client, ClientConfig};
 
 use crate::{commands::auth::get_bearer_token, output, OutputFormat};
 
-fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
+async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
     let bearer_token = get_bearer_token(api_key).await?;
 
     let mut client_config = ClientConfig::new(bearer_token);
@@ -23,7 +23,7 @@ pub async fn list(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let endpoints = client
         .endpoints(project_id, branch_id)
@@ -51,7 +51,7 @@ pub async fn create(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let mut request = seren::CreateEndpointRequest {
         name: name.to_string(),
@@ -104,7 +104,7 @@ pub async fn update(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let mut request = seren::UpdateEndpointRequest {
         autoscaling_min: None,
@@ -146,7 +146,7 @@ pub async fn delete(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     client
         .endpoints(project_id, branch_id)
@@ -172,7 +172,7 @@ pub async fn suspend(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let endpoint = client
         .endpoints(project_id, branch_id)
@@ -195,7 +195,7 @@ pub async fn start(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let endpoint = client
         .endpoints(project_id, branch_id)
@@ -218,7 +218,7 @@ pub async fn health(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let health = client
         .endpoints(project_id, branch_id)
@@ -249,7 +249,7 @@ pub async fn metrics(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let metrics = client
         .endpoints(project_id, branch_id)

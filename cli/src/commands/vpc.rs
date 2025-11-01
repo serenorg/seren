@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{commands::auth::get_bearer_token, output, OutputFormat};
 
-fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
+async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
     let bearer_token = get_bearer_token(api_key).await?;
 
     let mut client_config = ClientConfig::new(bearer_token);
@@ -26,7 +26,7 @@ pub async fn endpoint_list(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
     let endpoints = client
         .organization_vpc_endpoints(org_id)
         .list(region.as_deref())
@@ -50,7 +50,7 @@ pub async fn endpoint_create(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let request = CreateOrganizationVpcEndpointRequest {
         region: region.to_string(),
@@ -81,7 +81,7 @@ pub async fn endpoint_get(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let endpoint = client
         .organization_vpc_endpoints(org_id)
@@ -103,7 +103,7 @@ pub async fn endpoint_remove(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     client
         .organization_vpc_endpoints(org_id)
@@ -127,7 +127,7 @@ pub async fn project_list(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let assignments = client
         .project_vpc_endpoints(project_id)
@@ -151,7 +151,7 @@ pub async fn project_assign(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let request = AssignProjectVpcEndpointRequest {
         vpc_endpoint_id: Uuid::parse_str(vpc_endpoint_id)
@@ -181,7 +181,7 @@ pub async fn project_remove(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     client
         .project_vpc_endpoints(project_id)

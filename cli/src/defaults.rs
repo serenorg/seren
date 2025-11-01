@@ -9,10 +9,10 @@
 /// - `--api-host` command-line flag
 
 /// Default API host URL
-/// - Debug builds: http://localhost:3000
+/// - Debug builds: http://localhost:8080
 /// - Release builds: https://api.serendb.com
 pub const DEFAULT_API_HOST: &str = if cfg!(debug_assertions) {
-    "http://localhost:3000"
+    "http://localhost:8080"
 } else {
     "https://api.serendb.com"
 };

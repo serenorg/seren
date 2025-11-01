@@ -1,5 +1,6 @@
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
+use std::str::FromStr;
 use colored::Colorize;
 use serde_json::{Map, Value};
 use seren::{
@@ -11,7 +12,7 @@ use uuid::Uuid;
 
 use crate::{commands::auth::get_bearer_token, output, OutputFormat};
 
-fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
+async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
     let bearer_token = get_bearer_token(api_key).await?;
 
     let mut client_config = ClientConfig::new(bearer_token);
@@ -29,7 +30,7 @@ pub async fn list(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let branches = client
         .branches(project_id)
@@ -52,7 +53,7 @@ pub async fn get(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let branch = client
         .branches(project_id)
@@ -81,7 +82,7 @@ pub async fn create(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let parent_branch_id = parent
         .map(|value| {
@@ -91,8 +92,7 @@ pub async fn create(
 
     let parent_timestamp = parent_timestamp
         .map(|value| {
-            DateTime::parse_from_rfc3339(value)
-                .map(|dt| dt.with_timezone(&Utc))
+            Timestamp::from_str(value)
                 .map_err(|e| anyhow::anyhow!("Invalid parent timestamp: {}", e))
         })
         .transpose()?;
@@ -166,7 +166,7 @@ pub async fn delete(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     client
         .branches(project_id)
@@ -192,7 +192,7 @@ pub async fn rename(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let request = RenameBranchRequest {
         name: name.to_string(),
@@ -217,7 +217,7 @@ pub async fn set_default(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     client
         .branches(project_id)
@@ -245,7 +245,7 @@ pub async fn connection_string(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let response = client
         .branches(project_id)
@@ -267,15 +267,14 @@ pub async fn set_expiration(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     // Build the request
     let expires_at_value = if no_expiration {
         None
     } else if let Some(exp) = expires_at {
-        let parsed = DateTime::parse_from_rfc3339(exp)
-            .map_err(|e| anyhow::anyhow!("Invalid expiration timestamp: {}", e))?
-            .with_timezone(&Utc);
+        let parsed = Timestamp::from_str(exp)
+            .map_err(|e| anyhow::anyhow!("Invalid expiration timestamp: {}", e))?;
         Some(parsed)
     } else {
         return Err(anyhow::anyhow!(
@@ -323,7 +322,7 @@ pub async fn schema_diff(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     let mut request = SchemaDiffRequest::new(base_branch_id, compare_branch_id);
     if let Some(db) = database {
@@ -364,7 +363,7 @@ pub async fn reset(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
     match client.branches(project_id).reset(branch_id).await {
         Ok(branch) => {
@@ -408,12 +407,11 @@ pub async fn restore(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key)?;
+    let client = get_client(api_host, api_key).await?;
 
-    let parse_timestamp = |ts: &str| -> Result<DateTime<Utc>> {
-        Ok(DateTime::parse_from_rfc3339(ts)
-            .map_err(|e| anyhow::anyhow!("Invalid timestamp: {}", e))?
-            .with_timezone(&Utc))
+    let parse_timestamp = |ts: &str| -> Result<Timestamp> {
+        Timestamp::from_str(ts)
+            .map_err(|e| anyhow::anyhow!("Invalid timestamp: {}", e))
     };
 
     let parse_point_in_time =

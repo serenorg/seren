@@ -50,7 +50,7 @@ pub fn print_projects_table(projects: &[seren::Project]) {
                 "No"
             }),
             Cell::new(if project.hipaa { "Yes" } else { "No" }),
-            Cell::new(project.created_at.to_rfc3339()),
+            Cell::new(project.created_at.to_string()),
         ]);
     }
 
@@ -102,11 +102,68 @@ pub fn print_project(project: &seren::Project, format: OutputFormat) -> anyhow::
             ]);
             table.add_row(vec![
                 Cell::new("Created At"),
-                Cell::new(project.created_at.to_rfc3339()),
+                Cell::new(project.created_at.to_string()),
             ]);
             table.add_row(vec![
                 Cell::new("Updated At"),
-                Cell::new(project.updated_at.to_rfc3339()),
+                Cell::new(project.updated_at.to_string()),
+            ]);
+
+            println!("{table}");
+        }
+    }
+    Ok(())
+}
+
+pub fn print_create_project_response(
+    response: &seren::CreateProjectResponse,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
+    match format {
+        OutputFormat::Json => print_json(response)?,
+        OutputFormat::Table => {
+            let mut table = Table::new();
+            table
+                .load_preset(UTF8_FULL)
+                .set_content_arrangement(ContentArrangement::Dynamic);
+
+            table.add_row(vec![
+                Cell::new("Field").fg(Color::Green),
+                Cell::new("Value").fg(Color::Green),
+            ]);
+            table.add_row(vec![Cell::new("ID"), Cell::new(response.id.to_string())]);
+            table.add_row(vec![Cell::new("Name"), Cell::new(&response.name)]);
+            table.add_row(vec![
+                Cell::new("Organization ID"),
+                Cell::new(response.organization_id.to_string()),
+            ]);
+            table.add_row(vec![Cell::new("Region"), Cell::new(&response.region)]);
+            table.add_row(vec![
+                Cell::new("Compute Units"),
+                Cell::new(format!(
+                    "{}-{}",
+                    response.compute_unit_min, response.compute_unit_max
+                )),
+            ]);
+            table.add_row(vec![
+                Cell::new("Block Public Connections"),
+                Cell::new(response.block_public_connections.to_string()),
+            ]);
+            table.add_row(vec![
+                Cell::new("Block VPC Connections"),
+                Cell::new(response.block_vpc_connections.to_string()),
+            ]);
+            table.add_row(vec![
+                Cell::new("HIPAA"),
+                Cell::new(response.hipaa.to_string()),
+            ]);
+            table.add_row(vec![
+                Cell::new("Protected Branches Only"),
+                Cell::new(response.protected_branches_only.to_string()),
+            ]);
+            table.add_row(vec![
+                Cell::new("Created At"),
+                Cell::new(response.created_at.to_string()),
             ]);
 
             println!("{table}");
@@ -145,7 +202,7 @@ pub fn print_branches_table(branches: &[seren::Branch]) {
             Cell::new(&branch.timeline_id),
             Cell::new(if branch.protected { "Yes" } else { "No" }),
             Cell::new(if branch.archived { "Yes" } else { "No" }),
-            Cell::new(branch.created_at.to_rfc3339()),
+            Cell::new(branch.created_at.to_string()),
         ]);
     }
 
@@ -198,12 +255,12 @@ pub fn print_branch(branch: &seren::Branch, format: OutputFormat) -> anyhow::Res
             if let Some(ts) = branch.parent_timestamp {
                 table.add_row(vec![
                     Cell::new("Parent Timestamp"),
-                    Cell::new(ts.to_rfc3339()),
+                    Cell::new(ts.to_string()),
                 ]);
             }
             table.add_row(vec![
                 Cell::new("Created At"),
-                Cell::new(branch.created_at.to_rfc3339()),
+                Cell::new(branch.created_at.to_string()),
             ]);
 
             println!("{table}");
@@ -236,7 +293,7 @@ pub fn print_databases_table(databases: &[seren::DatabaseWithOwner]) {
             Cell::new(db.id.to_string()),
             Cell::new(&db.name),
             Cell::new(db.owner_name.as_deref().unwrap_or("-")),
-            Cell::new(db.created_at.to_rfc3339()),
+            Cell::new(db.created_at.to_string()),
         ]);
     }
 
@@ -264,7 +321,7 @@ pub fn print_database(database: &seren::Database, format: OutputFormat) -> anyho
             ]);
             table.add_row(vec![
                 Cell::new("Created At"),
-                Cell::new(database.created_at.to_rfc3339()),
+                Cell::new(database.created_at.to_string()),
             ]);
 
             println!("{table}");
@@ -297,7 +354,7 @@ pub fn print_roles_table(roles: &[seren::Role]) {
             Cell::new(role.id.to_string()),
             Cell::new(&role.name),
             Cell::new(if role.protected { "Yes" } else { "No" }),
-            Cell::new(role.created_at.to_rfc3339()),
+            Cell::new(role.created_at.to_string()),
         ]);
     }
 
@@ -329,7 +386,7 @@ pub fn print_role_with_password(
             table.add_row(vec![Cell::new("Password"), Cell::new(&role.password)]);
             table.add_row(vec![
                 Cell::new("Created At"),
-                Cell::new(role.created_at.to_rfc3339()),
+                Cell::new(role.created_at.to_string()),
             ]);
 
             println!("{table}");
@@ -413,7 +470,7 @@ pub fn print_endpoint(endpoint: &seren::Endpoint, format: OutputFormat) -> anyho
             ]);
             table.add_row(vec![
                 Cell::new("Created At"),
-                Cell::new(endpoint.created_at.to_rfc3339()),
+                Cell::new(endpoint.created_at.to_string()),
             ]);
 
             println!("{table}");
@@ -600,7 +657,7 @@ pub fn print_operations_table(operations: &[seren::Operation]) {
             Cell::new(operation.resource_id.to_string()),
             Cell::new(&operation.status),
             Cell::new(&format!("{}%", operation.progress)),
-            Cell::new(operation.created_at.to_rfc3339()),
+            Cell::new(operation.created_at.to_string()),
         ]);
     }
 
@@ -644,22 +701,22 @@ pub fn print_operation(operation: &seren::Operation, format: OutputFormat) -> an
             ]);
             table.add_row(vec![
                 Cell::new("Created At"),
-                Cell::new(operation.created_at.to_rfc3339()),
+                Cell::new(operation.created_at.to_string()),
             ]);
             table.add_row(vec![
                 Cell::new("Updated At"),
-                Cell::new(operation.updated_at.to_rfc3339()),
+                Cell::new(operation.updated_at.to_string()),
             ]);
             if let Some(started_at) = &operation.started_at {
                 table.add_row(vec![
                     Cell::new("Started At"),
-                    Cell::new(started_at.to_rfc3339()),
+                    Cell::new(started_at.to_string()),
                 ]);
             }
             if let Some(completed_at) = &operation.completed_at {
                 table.add_row(vec![
                     Cell::new("Completed At"),
-                    Cell::new(completed_at.to_rfc3339()),
+                    Cell::new(completed_at.to_string()),
                 ]);
             }
             if let Some(error) = &operation.error_message {
@@ -699,7 +756,7 @@ pub fn print_user(user: &seren::User) -> anyhow::Result<()> {
     ]);
     table.add_row(vec![
         Cell::new("Created At"),
-        Cell::new(user.created_at.to_rfc3339()),
+        Cell::new(user.created_at.to_string()),
     ]);
 
     println!("{table}");
@@ -830,7 +887,7 @@ pub fn print_project_vpc_endpoints_table(assignments: &[seren::ProjectVpcEndpoin
             Cell::new(&assignment.region),
             Cell::new(assignment.label.as_deref().unwrap_or("-")),
             Cell::new(assignment.endpoint_label.as_deref().unwrap_or("-")),
-            Cell::new(assignment.updated_at.to_rfc3339()),
+            Cell::new(assignment.updated_at.to_string()),
         ]);
     }
 

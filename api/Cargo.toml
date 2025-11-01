@@ -19,7 +19,7 @@ thiserror = { workspace = true }
 base62 = { workspace = true }
 futures = { workspace = true }
 progenitor-client = { workspace = true }
-chrono = { workspace = true }
+jiff = { workspace = true }
 uuid = { workspace = true }
 regress = { workspace = true }
 
