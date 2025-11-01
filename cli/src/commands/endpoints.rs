@@ -87,7 +87,7 @@ pub async fn create(
 
     match format {
         OutputFormat::Json => output::print_json(&endpoint)?,
-        OutputFormat::Table => output::print_endpoint(&endpoint, format)?,
+        OutputFormat::Table => output::print_create_endpoint_response(&endpoint, format)?,
     }
 
     Ok(())

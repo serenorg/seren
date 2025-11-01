@@ -510,7 +510,7 @@ impl EndpointsClient<'_> {
     }
 
     /// Create a new endpoint
-    pub async fn create(&self, request: CreateEndpointRequest) -> Result<Endpoint> {
+    pub async fn create(&self, request: CreateEndpointRequest) -> Result<CreateEndpointResponse> {
         self.client
             .post(
                 &format!(

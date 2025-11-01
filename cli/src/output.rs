@@ -479,6 +479,48 @@ pub fn print_endpoint(endpoint: &seren::Endpoint, format: OutputFormat) -> anyho
     Ok(())
 }
 
+pub fn print_create_endpoint_response(
+    response: &seren::CreateEndpointResponse,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
+    match format {
+        OutputFormat::Json => print_json(response)?,
+        OutputFormat::Table => {
+            let mut table = Table::new();
+            table
+                .load_preset(UTF8_FULL)
+                .set_content_arrangement(ContentArrangement::Dynamic);
+
+            table.add_row(vec![
+                Cell::new("Field").fg(Color::Green),
+                Cell::new("Value").fg(Color::Green),
+            ]);
+            table.add_row(vec![Cell::new("ID"), Cell::new(response.id.to_string())]);
+            table.add_row(vec![Cell::new("Name"), Cell::new(&response.name)]);
+            table.add_row(vec![
+                Cell::new("Branch ID"),
+                Cell::new(response.branch_id.to_string()),
+            ]);
+            table.add_row(vec![Cell::new("Status"), Cell::new(&response.status)]);
+            table.add_row(vec![
+                Cell::new("Compute Unit"),
+                Cell::new(&response.compute_unit),
+            ]);
+            table.add_row(vec![
+                Cell::new("Connection String"),
+                Cell::new(&response.connection_string),
+            ]);
+            table.add_row(vec![
+                Cell::new("Created At"),
+                Cell::new(response.created_at.to_string()),
+            ]);
+
+            println!("{table}");
+        }
+    }
+    Ok(())
+}
+
 // Connection String
 pub fn print_connection_string(
     response: &seren::ConnectionStringResponse,
