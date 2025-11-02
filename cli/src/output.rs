@@ -698,7 +698,7 @@ pub fn print_operations_table(operations: &[seren::Operation]) {
             Cell::new(&operation.resource_type),
             Cell::new(operation.resource_id.to_string()),
             Cell::new(&operation.status),
-            Cell::new(&format!("{}%", operation.progress)),
+            Cell::new(format!("{}%", operation.progress)),
             Cell::new(operation.created_at.to_string()),
         ]);
     }
@@ -826,10 +826,10 @@ pub fn print_organizations_table(organizations: &[seren::Organization]) {
 
     for org in organizations {
         table.add_row(vec![
-            Cell::new(&org.id),
+            Cell::new(org.id),
             Cell::new(&org.name),
             Cell::new(&org.slug),
-            Cell::new(&org.created_at),
+            Cell::new(org.created_at),
         ]);
     }
 
@@ -857,10 +857,10 @@ pub fn print_ip_allow_list_table(ips: &[seren::IpAllowList]) {
 
     for ip in ips {
         table.add_row(vec![
-            Cell::new(&ip.id),
+            Cell::new(ip.id),
             Cell::new(&ip.ip_address),
             Cell::new(ip.description.as_deref().unwrap_or("-")),
-            Cell::new(&ip.created_at),
+            Cell::new(ip.created_at),
         ]);
     }
 
@@ -890,12 +890,12 @@ pub fn print_org_vpc_endpoints_table(endpoints: &[seren::OrganizationVpcEndpoint
 
     for endpoint in endpoints {
         table.add_row(vec![
-            Cell::new(&endpoint.id),
+            Cell::new(endpoint.id),
             Cell::new(&endpoint.endpoint_id),
             Cell::new(&endpoint.region),
             Cell::new(endpoint.label.as_deref().unwrap_or("-")),
             Cell::new(&endpoint.state),
-            Cell::new(&endpoint.updated_at),
+            Cell::new(endpoint.updated_at),
         ]);
     }
 

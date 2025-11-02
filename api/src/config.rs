@@ -56,7 +56,7 @@ impl ClientConfig {
         // JWT tokens have 3 parts separated by dots
         let is_api_key = self.api_key.starts_with("seren_");
         let is_jwt = self.api_key.matches('.').count() == 2 && !self.api_key.is_empty();
-        
+
         if !is_api_key && !is_jwt {
             return Err(Error::InvalidApiKey);
         }

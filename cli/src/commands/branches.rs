@@ -1,13 +1,13 @@
 use anyhow::Result;
-use jiff::Timestamp;
-use std::str::FromStr;
 use colored::Colorize;
+use jiff::Timestamp;
 use serde_json::{Map, Value};
 use seren::{
     BranchEndpointRequest, Client, ClientConfig, CreateBranchRequest, PointInTime,
     RenameBranchRequest, RestoreBranchRequest, RestoreSource, SchemaDiffRequest,
     SetBranchExpirationRequest,
 };
+use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::{commands::auth::get_bearer_token, output, OutputFormat};
@@ -410,8 +410,7 @@ pub async fn restore(
     let client = get_client(api_host, api_key).await?;
 
     let parse_timestamp = |ts: &str| -> Result<Timestamp> {
-        Timestamp::from_str(ts)
-            .map_err(|e| anyhow::anyhow!("Invalid timestamp: {}", e))
+        Timestamp::from_str(ts).map_err(|e| anyhow::anyhow!("Invalid timestamp: {}", e))
     };
 
     let parse_point_in_time =

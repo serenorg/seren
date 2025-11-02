@@ -9,7 +9,7 @@ fn collect_refs(value: &serde_json::Value, acc: &mut HashSet<String>) {
     match value {
         serde_json::Value::Object(map) => {
             if let Some(serde_json::Value::String(reference)) = map.get("$ref") {
-                if let Some(name) = reference.split('/').last() {
+                if let Some(name) = reference.split('/').next_back() {
                     acc.insert(name.to_string());
                 }
             }
@@ -85,14 +85,14 @@ fn main() -> anyhow::Result<()> {
 
     let mut settings = GenerationSettings::default();
     settings.with_interface(InterfaceStyle::Positional);
-    
+
     // Replace chrono DateTime with jiff Timestamp for date-time format
     settings.with_replacement(
         "chrono::DateTime<chrono::offset::Utc>",
         "::jiff::Timestamp",
         std::iter::empty::<progenitor::TypeImpl>(),
     );
-    
+
     settings.with_replacement(
         "OffsetDateTime",
         "::jiff::Timestamp",
@@ -117,7 +117,10 @@ fn main() -> anyhow::Result<()> {
     // Replace chrono with jiff in the generated code
     let formatted = formatted
         .replace("chrono::DateTime<chrono::offset::Utc>", "::jiff::Timestamp")
-        .replace("Option<chrono::DateTime<chrono::offset::Utc>>", "Option<::jiff::Timestamp>");
+        .replace(
+            "Option<chrono::DateTime<chrono::offset::Utc>>",
+            "Option<::jiff::Timestamp>",
+        );
 
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     fs::create_dir_all(&out_dir)?;

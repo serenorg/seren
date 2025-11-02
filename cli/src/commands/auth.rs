@@ -2,8 +2,8 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use jiff::Timestamp;
 use oauth2::{
-    basic::BasicClient, reqwest::async_http_client, AuthType, AuthUrl, AuthorizationCode,
-    ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope, TokenResponse, TokenUrl,
+    basic::BasicClient, reqwest::async_http_client, AuthType, AuthUrl, AuthorizationCode, ClientId,
+    CsrfToken, PkceCodeChallenge, RedirectUrl, Scope, TokenResponse, TokenUrl,
 };
 use serde::Deserialize;
 use std::io::{self, BufRead, BufReader, Write};
@@ -56,8 +56,8 @@ async fn login_oauth() -> Result<()> {
     let redirect_url = format!("http://127.0.0.1:{}/callback", local_addr.port());
 
     // Set up OAuth client
-    let client_id = std::env::var("SEREN_CLIENT_ID")
-        .unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
+    let client_id =
+        std::env::var("SEREN_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
 
     let client = BasicClient::new(
         ClientId::new(client_id.clone()),
@@ -254,8 +254,8 @@ pub async fn status() -> Result<()> {
             } else if config.access_token.is_some() {
                 println!("Auth Type: OAuth");
                 if let Some(expires_at) = config.expires_at {
-                    let expires = Timestamp::from_second(expires_at)
-                        .unwrap_or_else(|_| Timestamp::now());
+                    let expires =
+                        Timestamp::from_second(expires_at).unwrap_or_else(|_| Timestamp::now());
                     let now = Timestamp::now();
 
                     if expires > now {
@@ -387,10 +387,10 @@ async fn maybe_refresh_oauth_token(config: &mut Config) -> Result<()> {
         return Ok(());
     }
 
-    let oauth_host = std::env::var("SEREN_OAUTH_HOST")
-        .unwrap_or_else(|_| DEFAULT_OAUTH_HOST.to_string());
-    let client_id = std::env::var("SEREN_CLIENT_ID")
-        .unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
+    let oauth_host =
+        std::env::var("SEREN_OAUTH_HOST").unwrap_or_else(|_| DEFAULT_OAUTH_HOST.to_string());
+    let client_id =
+        std::env::var("SEREN_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
 
     let refreshed = request_token_refresh(&oauth_host, &client_id, &refresh_token).await?;
 
@@ -430,11 +430,7 @@ async fn request_token_refresh(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        anyhow::bail!(
-            "Token refresh failed ({}): {}",
-            status,
-            body.trim()
-        );
+        anyhow::bail!("Token refresh failed ({}): {}", status, body.trim());
     }
 
     response
