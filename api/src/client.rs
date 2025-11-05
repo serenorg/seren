@@ -138,6 +138,16 @@ impl Client {
         self.get("/organizations").await
     }
 
+    /// Get project-scoped endpoint client (project-level routes)
+    pub fn project_endpoints(&self, project_id: impl Into<String>) -> ProjectEndpointsClient {
+        ProjectEndpointsClient::new(self.clone(), project_id.into())
+    }
+
+    /// Manage organization API keys
+    pub fn organization_api_keys(&self, organization_id: impl Into<String>) -> OrganizationApiKeysClient {
+        OrganizationApiKeysClient::new(self.clone(), organization_id.into())
+    }
+
     /// Internal method to make GET requests with retry logic
     async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
         let url = format!("{}{}", self.config.base_url, path);
@@ -636,6 +646,43 @@ impl DatabasesClient<'_> {
             ))
             .await
     }
+
+    /// Get a database by name
+    pub async fn get_by_name(&self, database_name: &str) -> Result<DatabaseWithOwner> {
+        self.client
+            .get(&format!(
+                "/projects/{}/branches/{}/databases/{}",
+                self.project_id, self.branch_id, database_name
+            ))
+            .await
+    }
+
+    /// Update a database owner by database name
+    pub async fn update_owner_by_name(
+        &self,
+        database_name: &str,
+        request: UpdateDatabaseRequest,
+    ) -> Result<DatabaseWithOwner> {
+        self.client
+            .patch(
+                &format!(
+                    "/projects/{}/branches/{}/databases/{}",
+                    self.project_id, self.branch_id, database_name
+                ),
+                &request,
+            )
+            .await
+    }
+
+    /// Delete a database by name
+    pub async fn delete_by_name(&self, database_name: &str) -> Result<()> {
+        self.client
+            .delete(&format!(
+                "/projects/{}/branches/{}/databases/{}",
+                self.project_id, self.branch_id, database_name
+            ))
+            .await
+    }
 }
 
 /// Client for role-related operations
@@ -690,6 +737,43 @@ impl RolesClient<'_> {
                 &format!(
                     "/projects/{}/branches/{}/roles/{}/reset_password",
                     self.project_id, self.branch_id, role_id
+                ),
+                &request,
+            )
+            .await
+    }
+
+    /// Get a role by name
+    pub async fn get_by_name(&self, role_name: &str) -> Result<RoleInfo> {
+        self.client
+            .get(&format!(
+                "/projects/{}/branches/{}/roles/{}",
+                self.project_id, self.branch_id, role_name
+            ))
+            .await
+    }
+
+    /// Delete a role by name
+    pub async fn delete_by_name(&self, role_name: &str) -> Result<()> {
+        self.client
+            .delete(&format!(
+                "/projects/{}/branches/{}/roles/{}",
+                self.project_id, self.branch_id, role_name
+            ))
+            .await
+    }
+
+    /// Reset a role's password by name
+    pub async fn reset_password_by_name(
+        &self,
+        role_name: &str,
+        request: ResetRolePasswordRequest,
+    ) -> Result<ResetRolePasswordResponse> {
+        self.client
+            .post(
+                &format!(
+                    "/projects/{}/branches/{}/roles/{}/reset_password",
+                    self.project_id, self.branch_id, role_name
                 ),
                 &request,
             )
@@ -855,6 +939,127 @@ impl ProjectVpcEndpointsClient {
             .delete(&format!(
                 "/api/projects/{}/vpc-endpoints/{}",
                 self.project_id, assignment_id
+            ))
+            .await
+    }
+}
+
+/// Client for project-level endpoint operations (project-scoped routes)
+pub struct ProjectEndpointsClient {
+    client: Client,
+    project_id: String,
+}
+
+impl ProjectEndpointsClient {
+    fn new(client: Client, project_id: String) -> Self {
+        Self { client, project_id }
+    }
+
+    /// List all endpoints for a project
+    pub async fn list(&self) -> Result<Vec<Endpoint>> {
+        self.client
+            .get(&format!("/api/projects/{}/endpoints", self.project_id))
+            .await
+    }
+
+    /// Update an endpoint by id
+    pub async fn update(&self, endpoint_id: &str, request: UpdateEndpointRequest) -> Result<Endpoint> {
+        self.client
+            .patch(
+                &format!("/api/projects/{}/endpoints/{}", self.project_id, endpoint_id),
+                &request,
+            )
+            .await
+    }
+
+    /// Delete an endpoint by id
+    pub async fn delete(&self, endpoint_id: &str) -> Result<()> {
+        self.client
+            .delete(&format!(
+                "/api/projects/{}/endpoints/{}",
+                self.project_id, endpoint_id
+            ))
+            .await
+    }
+
+    /// Suspend an endpoint by id
+    pub async fn suspend(&self, endpoint_id: &str) -> Result<Endpoint> {
+        self.client
+            .post(
+                &format!(
+                    "/api/projects/{}/endpoints/{}/suspend",
+                    self.project_id, endpoint_id
+                ),
+                &serde_json::json!({}),
+            )
+            .await
+    }
+
+    /// Start an endpoint by id
+    pub async fn start(&self, endpoint_id: &str) -> Result<Endpoint> {
+        self.client
+            .post(
+                &format!(
+                    "/api/projects/{}/endpoints/{}/start",
+                    self.project_id, endpoint_id
+                ),
+                &serde_json::json!({}),
+            )
+            .await
+    }
+
+    /// Restart an endpoint by id
+    pub async fn restart(&self, endpoint_id: &str) -> Result<EndpointStatusResponse> {
+        self.client
+            .post(
+                &format!(
+                    "/api/projects/{}/endpoints/{}/restart",
+                    self.project_id, endpoint_id
+                ),
+                &serde_json::json!({}),
+            )
+            .await
+    }
+}
+
+/// Client for organization API keys
+pub struct OrganizationApiKeysClient {
+    client: Client,
+    organization_id: String,
+}
+
+impl OrganizationApiKeysClient {
+    fn new(client: Client, organization_id: String) -> Self {
+        Self { client, organization_id }
+    }
+
+    /// Create a new API key for an organization
+    pub async fn create(&self, name: &str, expires_in_days: Option<i64>) -> Result<ApiKeyCreated> {
+        let body = serde_json::json!({
+            "name": name,
+            "expires_in_days": expires_in_days,
+        });
+        self.client
+            .post(
+                &format!("/api/organizations/{}/api_keys", self.organization_id),
+                &body,
+            )
+            .await
+    }
+
+    /// List API keys for an organization (current user)
+    pub async fn list(&self) -> Result<Vec<ApiKeyResponse>> {
+        self.client
+            .get(&format!("/api/organizations/{}/api_keys", self.organization_id))
+            .await
+    }
+
+    /// Revoke an API key by id
+    pub async fn revoke(&self, key_id: &str) -> Result<()> {
+        self.client
+            .delete(&format!(
+                "/api/organizations/{}/api_keys/{}",
+                self.organization_id, key_id
             ))
             .await
     }

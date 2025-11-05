@@ -421,7 +421,7 @@ pub fn print_endpoints_table(endpoints: &[seren::Endpoint]) {
             Cell::new(&endpoint.name),
             Cell::new(&endpoint.status),
             Cell::new(&endpoint.compute_unit),
-            Cell::new(&endpoint.connection_string),
+            Cell::new(endpoint.connection_string.as_deref().unwrap_or("")),
         ]);
     }
 
@@ -466,7 +466,7 @@ pub fn print_endpoint(endpoint: &seren::Endpoint, format: OutputFormat) -> anyho
             ]);
             table.add_row(vec![
                 Cell::new("Connection String"),
-                Cell::new(&endpoint.connection_string),
+                Cell::new(endpoint.connection_string.as_deref().unwrap_or("")),
             ]);
             table.add_row(vec![
                 Cell::new("Created At"),
@@ -508,7 +508,7 @@ pub fn print_create_endpoint_response(
             ]);
             table.add_row(vec![
                 Cell::new("Connection String"),
-                Cell::new(&response.connection_string),
+                Cell::new(response.connection_string.as_deref().unwrap_or("")),
             ]);
             table.add_row(vec![
                 Cell::new("Created At"),
@@ -657,7 +657,7 @@ pub fn print_created_endpoints(
                     Cell::new(&endpoint.name),
                     Cell::new(&endpoint.status),
                     Cell::new(&endpoint.compute_unit),
-                    Cell::new(&endpoint.connection_string),
+                    Cell::new(endpoint.connection_string.as_deref().unwrap_or("")),
                 ]);
             }
 
