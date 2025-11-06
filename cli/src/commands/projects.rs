@@ -72,6 +72,16 @@ pub async fn create(
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
+    // Validate region against supported list (UI/Backend aligned)
+    const ALLOWED_REGIONS: &[&str] = &["us-east-1"]; // temporarily restricted for cost control
+    if !ALLOWED_REGIONS.contains(&region) {
+        let list = ALLOWED_REGIONS.join(", ");
+        return Err(anyhow::anyhow!(
+            "Unsupported region '{}'. Allowed: {}",
+            region, list
+        ));
+    }
+
     let client = get_client(api_host, api_key).await?;
 
     let request = CreateProjectRequest {
