@@ -4477,27 +4477,14 @@
       },
       "ConnectionStringResponse": {
         "type": "object",
-        "description": "Response for connection strings (multiple variants).",
+        "description": "Response for a single, canonical connection string. The backend prefers SerenDB proxy-based connection strings when proxy configuration is available, and falls back to direct compute connection strings only when the proxy is not configured.",
+        "required": [
+          "connection_string"
+        ],
         "properties": {
-          "compute": {
+          "connection_string": {
             "type": "string",
-            "description": "Direct compute connection string (no pooling).",
-            "nullable": true
-          },
-          "compute_pooled": {
-            "type": "string",
-            "description": "Direct compute connection string with per-endpoint pooling (pgbouncer on compute, if enabled).",
-            "nullable": true
-          },
-          "proxy": {
-            "type": "string",
-            "description": "SerenDB proxy connection string (recommended for most clients).",
-            "nullable": true
-          },
-          "proxy_pooled": {
-            "type": "string",
-            "description": "SerenDB proxy connection string intended for pooled usage (currently same as `proxy` until differentiated).",
-            "nullable": true
+            "description": "Fully resolved PostgreSQL connection string (proxy preferred)."
           }
         }
       },

@@ -536,34 +536,13 @@ pub fn print_create_endpoint_response(
 // Connection String
 pub fn print_connection_string(
     response: &seren::ConnectionStringResponse,
-    pooled: bool,
+    _pooled: bool,
     prisma: bool,
     ssl: Option<&str>,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
-    // Choose direct/pooled connection strings from response:
-    // - Prefer proxy-based strings (recommended)
-    // - Fall back to compute-based strings when proxy is not configured.
-    let pick_direct = || {
-        response
-            .proxy
-            .clone()
-            .or_else(|| response.compute.clone())
-            .or_else(|| response.proxy_pooled.clone())
-            .or_else(|| response.compute_pooled.clone())
-            .unwrap_or_default()
-    };
-    let pick_pooled = || {
-        response
-            .proxy_pooled
-            .clone()
-            .or_else(|| response.compute_pooled.clone())
-            .or_else(|| response.proxy.clone())
-            .or_else(|| response.compute.clone())
-    };
-
-    let mut direct = pick_direct();
-    let mut pooled_str = pick_pooled();
+    // Start from the single canonical connection string returned by the API.
+    let mut active = response.connection_string.clone();
 
     // Helper to apply / replace sslmode in a DSN.
     let apply_ssl = |s: &str, ssl_mode: &str| -> String {
@@ -591,21 +570,10 @@ pub fn print_connection_string(
         }
     };
 
-    // Add or modify SSL mode on both variants
+    // Apply SSL override on the single active DSN.
     if let Some(ssl_mode) = ssl {
-        direct = apply_ssl(&direct, ssl_mode);
-        if let Some(ref pooled_val) = pooled_str {
-            pooled_str = Some(apply_ssl(pooled_val, ssl_mode));
-        }
+        active = apply_ssl(&active, ssl_mode);
     }
-
-    // Active connection is chosen based on the pooled flag when possible.
-    let pooled_flag = pooled;
-    let active = if pooled_flag && pooled_str.is_some() {
-        pooled_str.clone().unwrap_or_else(|| direct.clone())
-    } else {
-        direct.clone()
-    };
 
     // Format for Prisma if requested
     if prisma {
@@ -614,9 +582,7 @@ pub fn print_connection_string(
         match format {
             OutputFormat::Json => {
                 let json_obj = serde_json::json!({
-                    "direct": direct,
-                    "pooled": pooled_str,
-                    "active": active,
+                    "connection_string": active,
                     "prisma_format": prisma_str
                 });
                 println!("{}", serde_json::to_string_pretty(&json_obj)?);
@@ -632,18 +598,13 @@ pub fn print_connection_string(
                     Cell::new("Value").fg(Color::Green),
                 ]);
                 table.add_row(vec![
-                    Cell::new("Active Mode"),
-                    Cell::new(if pooled_flag && pooled_str.is_some() {
-                        "Pooled"
-                    } else {
-                        "Direct"
-                    }),
+                    Cell::new("Connection String"),
+                    Cell::new(&active),
                 ]);
-                table.add_row(vec![Cell::new("Direct"), Cell::new(&direct)]);
-                if let Some(ref pooled_val) = pooled_str {
-                    table.add_row(vec![Cell::new("Pooled"), Cell::new(pooled_val)]);
-                }
-                table.add_row(vec![Cell::new("Prisma Format"), Cell::new(&prisma_str)]);
+                table.add_row(vec![
+                    Cell::new("Prisma Format"),
+                    Cell::new(&prisma_str),
+                ]);
 
                 println!("{table}");
             }
@@ -652,9 +613,7 @@ pub fn print_connection_string(
         match format {
             OutputFormat::Json => {
                 let json_obj = serde_json::json!({
-                    "direct": direct,
-                    "pooled": pooled_str,
-                    "active": active
+                    "connection_string": active
                 });
                 println!("{}", serde_json::to_string_pretty(&json_obj)?);
             }
@@ -669,17 +628,9 @@ pub fn print_connection_string(
                     Cell::new("Value").fg(Color::Green),
                 ]);
                 table.add_row(vec![
-                    Cell::new("Active Mode"),
-                    Cell::new(if pooled_flag && pooled_str.is_some() {
-                        "Pooled"
-                    } else {
-                        "Direct"
-                    }),
+                    Cell::new("Connection String"),
+                    Cell::new(&active),
                 ]);
-                table.add_row(vec![Cell::new("Direct"), Cell::new(&direct)]);
-                if let Some(ref pooled_val) = pooled_str {
-                    table.add_row(vec![Cell::new("Pooled"), Cell::new(pooled_val)]);
-                }
 
                 println!("{table}");
             }
@@ -696,10 +647,7 @@ pub fn print_project_connection_uri(
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     let wrapper = seren::ConnectionStringResponse {
-        compute: Some(response.uri.clone()),
-        compute_pooled: None,
-        proxy: None,
-        proxy_pooled: None,
+        connection_string: response.uri.clone(),
     };
     print_connection_string(&wrapper, pooled, prisma, ssl, format)
 }
