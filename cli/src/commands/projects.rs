@@ -78,7 +78,8 @@ pub async fn create(
         let list = ALLOWED_REGIONS.join(", ");
         return Err(anyhow::anyhow!(
             "Unsupported region '{}'. Allowed: {}",
-            region, list
+            region,
+            list
         ));
     }
 

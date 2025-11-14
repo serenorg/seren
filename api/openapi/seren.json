@@ -1176,6 +1176,16 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "pooled",
+            "in": "query",
+            "description": "Return pooled connection (default: false)",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "nullable": true
+            }
           }
         ],
         "responses": {
@@ -2891,6 +2901,69 @@
         ]
       }
     },
+    "/api/projects/{project_id}/branches/{branch_id}/roles/{role_name}/reveal_password": {
+      "get": {
+        "tags": [
+          "Roles"
+        ],
+        "summary": "Reveal password for a role by name (SerenDB-compatible endpoint)",
+        "operationId": "reveal_role_password",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "branch_id",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "role_name",
+            "in": "path",
+            "description": "Role name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role password revealed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResetRolePasswordResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Role or branch not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/projects/{project_id}/branches/{branch_id}/set-default": {
       "post": {
         "tags": [
@@ -4299,7 +4372,8 @@
             "type": "boolean"
           },
           "timeline_id": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           },
           "updated_at": {
             "type": "string",
@@ -4343,6 +4417,7 @@
           },
           "ancestor_timeline_id": {
             "type": "string",
+            "format": "uuid",
             "nullable": true
           },
           "branch_id": {
@@ -4373,7 +4448,8 @@
             "type": "string"
           },
           "timeline_id": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -4391,13 +4467,27 @@
       },
       "ConnectionStringResponse": {
         "type": "object",
-        "description": "Response for connection string",
-        "required": [
-          "connection_string"
-        ],
+        "description": "Response for connection strings (multiple variants).",
         "properties": {
-          "connection_string": {
-            "type": "string"
+          "compute": {
+            "type": "string",
+            "description": "Direct compute connection string (no pooling).",
+            "nullable": true
+          },
+          "compute_pooled": {
+            "type": "string",
+            "description": "Direct compute connection string with per-endpoint pooling (pgbouncer on compute, if enabled).",
+            "nullable": true
+          },
+          "proxy": {
+            "type": "string",
+            "description": "SerenDB proxy connection string (recommended for most clients).",
+            "nullable": true
+          },
+          "proxy_pooled": {
+            "type": "string",
+            "description": "SerenDB proxy connection string intended for pooled usage (currently same as `proxy` until differentiated).",
+            "nullable": true
           }
         }
       },
@@ -4501,7 +4591,8 @@
             "type": "boolean"
           },
           "timeline_id": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -4606,6 +4697,14 @@
             "type": "string"
           },
           "connection_string": {
+            "type": "string",
+            "nullable": true
+          },
+          "connection_string_direct": {
+            "type": "string",
+            "nullable": true
+          },
+          "connection_string_pooled": {
             "type": "string",
             "nullable": true
           },
@@ -4758,7 +4857,8 @@
             "type": "string"
           },
           "tenant_id": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -4910,6 +5010,10 @@
           "updated_at"
         ],
         "properties": {
+          "admin_password_plaintext": {
+            "type": "string",
+            "nullable": true
+          },
           "autoscaling_max": {
             "type": "integer",
             "format": "int32"
@@ -4927,6 +5031,14 @@
             "type": "string"
           },
           "connection_string": {
+            "type": "string",
+            "nullable": true
+          },
+          "connection_string_direct": {
+            "type": "string",
+            "nullable": true
+          },
+          "connection_string_pooled": {
             "type": "string",
             "nullable": true
           },
@@ -4975,6 +5087,10 @@
           },
           "name": {
             "type": "string"
+          },
+          "owner_password_plaintext": {
+            "type": "string",
+            "nullable": true
           },
           "pg_address": {
             "type": "string",
@@ -5368,7 +5484,8 @@
             "type": "string"
           },
           "tenant_id": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           },
           "updated_at": {
             "type": "string",
@@ -5723,8 +5840,16 @@
             "type": "string",
             "nullable": true
           },
+          "password_plaintext": {
+            "type": "string",
+            "nullable": true
+          },
           "protected": {
             "type": "boolean"
+          },
+          "scram_secret": {
+            "type": "string",
+            "nullable": true
           },
           "updated_at": {
             "type": "string",

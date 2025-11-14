@@ -141,6 +141,48 @@ cargo build
 cargo run -- projects list
 ```
 
+#### Connection strings (direct vs pooled)
+
+The `branches connection-string` command now returns both direct and pooled
+connection strings, backed by the SerenDB proxy:
+
+```bash
+# Direct proxy connection string (recommended default)
+seren branches connection-string <branch-id>
+
+# Pooled proxy connection string (PgBouncer via SerenDB proxy)
+seren branches connection-string <branch-id> --pooled
+
+# JSON output with both variants
+seren branches connection-string <branch-id> --format json
+```
+
+In table output, the CLI shows:
+
+- `Active Mode`: which DSN is currently selected (Direct or Pooled)
+- `Direct`: direct connection string (typically via SerenDB proxy)
+- `Pooled`: pooled connection string when available (via PgBouncer/proxy)
+
+Flags:
+
+- `--pooled`: prefer the pooled DSN when printing the “active” connection
+- `--ssl=<mode>`: override `sslmode` (e.g. `require`, `disable`)
+- `--prisma`: emit a Prisma-style `DATABASE_URL="..."` using the active DSN
+
+Example JSON output:
+
+```bash
+seren branches connection-string <branch-id> --format json
+```
+
+```json
+{
+  "direct": "postgresql://user:password@ep-radiant-sirius-a1b2c3d4.c-1.us-east-1.dev.serendb.com:5432/mydb?sslmode=require&channel_binding=require",
+  "pooled": "postgresql://user:password@ep-radiant-sirius-a1b2c3d4-pooler.c-1.us-east-1.dev.serendb.com:5432/mydb?sslmode=require&channel_binding=require",
+  "active": "postgresql://user:password@ep-radiant-sirius-a1b2c3d4.c-1.us-east-1.dev.serendb.com:5432/mydb?sslmode=require&channel_binding=require"
+}
+```
+
 ### Test
 
 ```bash

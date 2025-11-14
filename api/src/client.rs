@@ -144,7 +144,10 @@ impl Client {
     }
 
     /// Manage organization API keys
-    pub fn organization_api_keys(&self, organization_id: impl Into<String>) -> OrganizationApiKeysClient {
+    pub fn organization_api_keys(
+        &self,
+        organization_id: impl Into<String>,
+    ) -> OrganizationApiKeysClient {
         OrganizationApiKeysClient::new(self.clone(), organization_id.into())
     }
 
@@ -423,14 +426,42 @@ impl BranchesClient<'_> {
         Ok(())
     }
 
-    /// Get connection string for a branch
+    /// Get connection string for a branch (legacy convenience wrapper).
+    ///
+    /// By default, returns a direct compute connection string without
+    /// explicitly requesting proxy or pooling options.
     pub async fn connection_string(&self, branch_id: &str) -> Result<ConnectionStringResponse> {
-        self.client
-            .get(&format!(
-                "/projects/{}/branches/{}/connection-string",
-                self.project_id, branch_id
-            ))
+        self.connection_string_with_options(branch_id, None, None)
             .await
+    }
+
+    /// Get connection string for a branch with explicit options.
+    ///
+    /// - `pooled`: when `Some(true)`, request a pooled connection string.
+    /// - `via_proxy`: when `Some(true)`, request a SerenDB proxy-based connection string.
+    pub async fn connection_string_with_options(
+        &self,
+        branch_id: &str,
+        pooled: Option<bool>,
+        via_proxy: Option<bool>,
+    ) -> Result<ConnectionStringResponse> {
+        let mut url = format!(
+            "/projects/{}/branches/{}/connection-string",
+            self.project_id, branch_id
+        );
+
+        let mut sep = '?';
+        if let Some(p) = pooled {
+            url.push(sep);
+            url.push_str(&format!("pooled={}", p));
+            sep = '&';
+        }
+        if let Some(proxy) = via_proxy {
+            url.push(sep);
+            url.push_str(&format!("proxy={}", proxy));
+        }
+
+        self.client.get(&url).await
     }
 
     /// Set branch expiration
@@ -963,10 +994,17 @@ impl ProjectEndpointsClient {
     }
 
     /// Update an endpoint by id
-    pub async fn update(&self, endpoint_id: &str, request: UpdateEndpointRequest) -> Result<Endpoint> {
+    pub async fn update(
+        &self,
+        endpoint_id: &str,
+        request: UpdateEndpointRequest,
+    ) -> Result<Endpoint> {
         self.client
             .patch(
-                &format!("/api/projects/{}/endpoints/{}", self.project_id, endpoint_id),
+                &format!(
+                    "/api/projects/{}/endpoints/{}",
+                    self.project_id, endpoint_id
+                ),
                 &request,
             )
             .await
@@ -1030,7 +1068,10 @@ pub struct OrganizationApiKeysClient {
 
 impl OrganizationApiKeysClient {
     fn new(client: Client, organization_id: String) -> Self {
-        Self { client, organization_id }
+        Self {
+            client,
+            organization_id,
+        }
     }
 
     /// Create a new API key for an organization
@@ -1050,7 +1091,10 @@ impl OrganizationApiKeysClient {
     /// List API keys for an organization (current user)
     pub async fn list(&self) -> Result<Vec<ApiKeyResponse>> {
         self.client
-            .get(&format!("/api/organizations/{}/api_keys", self.organization_id))
+            .get(&format!(
+                "/api/organizations/{}/api_keys",
+                self.organization_id
+            ))
             .await
     }
 

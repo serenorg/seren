@@ -412,16 +412,21 @@ pub fn print_endpoints_table(endpoints: &[seren::Endpoint]) {
         Cell::new("Name").fg(Color::Green),
         Cell::new("Status").fg(Color::Green),
         Cell::new("Compute Unit").fg(Color::Green),
-        Cell::new("Connection String").fg(Color::Green),
+        Cell::new("Connection String (Direct)").fg(Color::Green),
     ]);
 
     for endpoint in endpoints {
+        let conn_str = endpoint
+            .connection_string_direct
+            .as_deref()
+            .or_else(|| endpoint.connection_string.as_deref())
+            .unwrap_or("");
         table.add_row(vec![
             Cell::new(endpoint.id.to_string()),
             Cell::new(&endpoint.name),
             Cell::new(&endpoint.status),
             Cell::new(&endpoint.compute_unit),
-            Cell::new(endpoint.connection_string.as_deref().unwrap_or("")),
+            Cell::new(conn_str),
         ]);
     }
 
@@ -464,10 +469,12 @@ pub fn print_endpoint(endpoint: &seren::Endpoint, format: OutputFormat) -> anyho
                 "Suspend Timeout",
                 &format!("{} seconds", endpoint.suspend_timeout_seconds),
             ]);
-            table.add_row(vec![
-                Cell::new("Connection String"),
-                Cell::new(endpoint.connection_string.as_deref().unwrap_or("")),
-            ]);
+            let conn_str = endpoint
+                .connection_string_direct
+                .as_deref()
+                .or_else(|| endpoint.connection_string.as_deref())
+                .unwrap_or("");
+            table.add_row(vec![Cell::new("Connection String"), Cell::new(conn_str)]);
             table.add_row(vec![
                 Cell::new("Created At"),
                 Cell::new(endpoint.created_at.to_string()),
@@ -529,49 +536,82 @@ pub fn print_connection_string(
     ssl: Option<&str>,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
-    let mut conn_str = response.connection_string.clone();
+    // Choose direct/pooled connection strings from response:
+    // - Prefer proxy-based strings (recommended)
+    // - Fall back to compute-based strings when proxy is not configured.
+    let pick_direct = || {
+        response
+            .proxy
+            .clone()
+            .or_else(|| response.compute.clone())
+            .or_else(|| response.proxy_pooled.clone())
+            .or_else(|| response.compute_pooled.clone())
+            .unwrap_or_default()
+    };
+    let pick_pooled = || {
+        response
+            .proxy_pooled
+            .clone()
+            .or_else(|| response.compute_pooled.clone())
+            .or_else(|| response.proxy.clone())
+            .or_else(|| response.compute.clone())
+    };
 
-    // Modify connection string based on flags
-    if pooled {
-        // For pooled connections, change the port to a pooler port (e.g., 6543 for PgBouncer)
-        // This is a simplified implementation - in production you'd get this from the backend
-        conn_str = conn_str.replace(":5432", ":6543");
-    }
+    let mut direct = pick_direct();
+    let mut pooled_str = pick_pooled();
 
-    // Add or modify SSL mode
-    if let Some(ssl_mode) = ssl {
-        // Remove existing sslmode if present
-        let base_str = if let Some(idx) = conn_str.find('?') {
-            let (base, query) = conn_str.split_at(idx);
+    // Helper to apply / replace sslmode in a DSN.
+    let apply_ssl = |s: &str, ssl_mode: &str| -> String {
+        if let Some(idx) = s.find('?') {
+            let (base, query) = s.split_at(idx);
             let params: Vec<&str> = query[1..]
                 .split('&')
                 .filter(|p| !p.starts_with("sslmode="))
                 .collect();
-            if params.is_empty() {
+            let base_str = if params.is_empty() {
                 base.to_string()
             } else {
                 format!("{}?{}", base, params.join("&"))
-            }
-        } else {
-            conn_str.clone()
-        };
+            };
 
-        // Add new sslmode
-        conn_str = if base_str.contains('?') {
-            format!("{}&sslmode={}", base_str, ssl_mode)
+            if base_str.contains('?') {
+                format!("{}&sslmode={}", base_str, ssl_mode)
+            } else {
+                format!("{}?sslmode={}", base_str, ssl_mode)
+            }
+        } else if s.is_empty() {
+            s.to_string()
         } else {
-            format!("{}?sslmode={}", base_str, ssl_mode)
-        };
+            format!("{}?sslmode={}", s, ssl_mode)
+        }
+    };
+
+    // Add or modify SSL mode on both variants
+    if let Some(ssl_mode) = ssl {
+        direct = apply_ssl(&direct, ssl_mode);
+        if let Some(ref pooled_val) = pooled_str {
+            pooled_str = Some(apply_ssl(pooled_val, ssl_mode));
+        }
     }
+
+    // Active connection is chosen based on the pooled flag when possible.
+    let pooled_flag = pooled;
+    let active = if pooled_flag && pooled_str.is_some() {
+        pooled_str.clone().unwrap_or_else(|| direct.clone())
+    } else {
+        direct.clone()
+    };
 
     // Format for Prisma if requested
     if prisma {
         // Prisma format wraps the connection string in quotes and adds schema parameter
-        let prisma_str = format!("DATABASE_URL=\"{}\"", conn_str);
+        let prisma_str = format!("DATABASE_URL=\"{}\"", active);
         match format {
             OutputFormat::Json => {
                 let json_obj = serde_json::json!({
-                    "connection_string": conn_str,
+                    "direct": direct,
+                    "pooled": pooled_str,
+                    "active": active,
                     "prisma_format": prisma_str
                 });
                 println!("{}", serde_json::to_string_pretty(&json_obj)?);
@@ -586,6 +626,18 @@ pub fn print_connection_string(
                     Cell::new("Field").fg(Color::Green),
                     Cell::new("Value").fg(Color::Green),
                 ]);
+                table.add_row(vec![
+                    Cell::new("Active Mode"),
+                    Cell::new(if pooled_flag && pooled_str.is_some() {
+                        "Pooled"
+                    } else {
+                        "Direct"
+                    }),
+                ]);
+                table.add_row(vec![Cell::new("Direct"), Cell::new(&direct)]);
+                if let Some(ref pooled_val) = pooled_str {
+                    table.add_row(vec![Cell::new("Pooled"), Cell::new(pooled_val)]);
+                }
                 table.add_row(vec![Cell::new("Prisma Format"), Cell::new(&prisma_str)]);
 
                 println!("{table}");
@@ -595,7 +647,9 @@ pub fn print_connection_string(
         match format {
             OutputFormat::Json => {
                 let json_obj = serde_json::json!({
-                    "connection_string": conn_str
+                    "direct": direct,
+                    "pooled": pooled_str,
+                    "active": active
                 });
                 println!("{}", serde_json::to_string_pretty(&json_obj)?);
             }
@@ -609,7 +663,18 @@ pub fn print_connection_string(
                     Cell::new("Field").fg(Color::Green),
                     Cell::new("Value").fg(Color::Green),
                 ]);
-                table.add_row(vec![Cell::new("Connection String"), Cell::new(&conn_str)]);
+                table.add_row(vec![
+                    Cell::new("Active Mode"),
+                    Cell::new(if pooled_flag && pooled_str.is_some() {
+                        "Pooled"
+                    } else {
+                        "Direct"
+                    }),
+                ]);
+                table.add_row(vec![Cell::new("Direct"), Cell::new(&direct)]);
+                if let Some(ref pooled_val) = pooled_str {
+                    table.add_row(vec![Cell::new("Pooled"), Cell::new(pooled_val)]);
+                }
 
                 println!("{table}");
             }
@@ -626,7 +691,10 @@ pub fn print_project_connection_uri(
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     let wrapper = seren::ConnectionStringResponse {
-        connection_string: response.uri.clone(),
+        compute: Some(response.uri.clone()),
+        compute_pooled: None,
+        proxy: None,
+        proxy_pooled: None,
     };
     print_connection_string(&wrapper, pooled, prisma, ssl, format)
 }

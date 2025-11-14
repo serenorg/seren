@@ -249,7 +249,7 @@ pub async fn connection_string(
 
     let response = client
         .branches(project_id)
-        .connection_string(branch_id)
+        .connection_string_with_options(branch_id, Some(pooled), Some(true))
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get connection string: {}", e))?;
 
