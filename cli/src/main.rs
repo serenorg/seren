@@ -342,6 +342,10 @@ enum BranchAction {
         /// Branch ID
         id: String,
 
+        /// PostgreSQL role/username to embed in the connection string (default: serendb_owner)
+        #[arg(long)]
+        role: Option<String>,
+
         /// Use pooled connection (PgBouncer)
         #[arg(long)]
         pooled: bool,
@@ -844,6 +848,7 @@ async fn main() -> anyhow::Result<()> {
             }
             BranchAction::ConnectionString {
                 id,
+                role,
                 pooled,
                 prisma,
                 ssl,
@@ -854,6 +859,7 @@ async fn main() -> anyhow::Result<()> {
                     pooled,
                     prisma,
                     ssl.as_deref(),
+                    role.as_deref(),
                     cli.format,
                     cli.api_host.clone(),
                     cli.api_key.clone(),

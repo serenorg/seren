@@ -241,6 +241,7 @@ pub async fn connection_string(
     pooled: bool,
     prisma: bool,
     ssl: Option<&str>,
+    role: Option<&str>,
     format: OutputFormat,
     api_host: Option<String>,
     api_key: Option<String>,
@@ -249,7 +250,7 @@ pub async fn connection_string(
 
     let response = client
         .branches(project_id)
-        .connection_string_with_options(branch_id, Some(pooled), Some(true))
+        .connection_string_with_options(branch_id, Some(pooled), role)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get connection string: {}", e))?;
 

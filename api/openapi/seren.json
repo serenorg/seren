@@ -1186,6 +1186,16 @@
               "type": "boolean",
               "nullable": true
             }
+          },
+          {
+            "name": "role",
+            "in": "query",
+            "description": "PostgreSQL role/username to use (default: serendb_owner)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
           }
         ],
         "responses": {

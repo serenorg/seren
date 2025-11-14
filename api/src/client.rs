@@ -428,8 +428,9 @@ impl BranchesClient<'_> {
 
     /// Get connection string for a branch (legacy convenience wrapper).
     ///
-    /// By default, returns a direct compute connection string without
-    /// explicitly requesting proxy or pooling options.
+    /// By default, returns a connection string for the default
+    /// `serendb_owner` role. The backend prefers SerenDB proxy-based
+    /// connection strings when proxy configuration is available.
     pub async fn connection_string(&self, branch_id: &str) -> Result<ConnectionStringResponse> {
         self.connection_string_with_options(branch_id, None, None)
             .await
@@ -438,12 +439,12 @@ impl BranchesClient<'_> {
     /// Get connection string for a branch with explicit options.
     ///
     /// - `pooled`: when `Some(true)`, request a pooled connection string.
-    /// - `via_proxy`: when `Some(true)`, request a SerenDB proxy-based connection string.
+    /// - `role`: optional PostgreSQL role/username to embed in the DSN (defaults to `serendb_owner`).
     pub async fn connection_string_with_options(
         &self,
         branch_id: &str,
         pooled: Option<bool>,
-        via_proxy: Option<bool>,
+        role: Option<&str>,
     ) -> Result<ConnectionStringResponse> {
         let mut url = format!(
             "/projects/{}/branches/{}/connection-string",
@@ -456,9 +457,10 @@ impl BranchesClient<'_> {
             url.push_str(&format!("pooled={}", p));
             sep = '&';
         }
-        if let Some(proxy) = via_proxy {
+        if let Some(role_name) = role {
             url.push(sep);
-            url.push_str(&format!("proxy={}", proxy));
+            url.push_str("role=");
+            url.push_str(role_name);
         }
 
         self.client.get(&url).await
