@@ -513,9 +513,14 @@ pub fn print_create_endpoint_response(
                 Cell::new("Compute Unit"),
                 Cell::new(&response.compute_unit),
             ]);
+            let conn_str = response
+                .connection_string_direct
+                .as_deref()
+                .or_else(|| response.connection_string.as_deref())
+                .unwrap_or("");
             table.add_row(vec![
                 Cell::new("Connection String"),
-                Cell::new(response.connection_string.as_deref().unwrap_or("")),
+                Cell::new(conn_str),
             ]);
             table.add_row(vec![
                 Cell::new("Created At"),
