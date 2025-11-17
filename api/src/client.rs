@@ -151,6 +151,21 @@ impl Client {
         OrganizationApiKeysClient::new(self.clone(), organization_id.into())
     }
 
+    /// Manage invoices and billing
+    pub fn invoices(&self) -> InvoicesClient {
+        InvoicesClient::new(self.clone())
+    }
+
+    /// Get usage and billing information for an organization
+    pub fn usage(&self, organization_id: impl Into<String>) -> UsageClient {
+        UsageClient::new(self.clone(), organization_id.into())
+    }
+
+    /// Manage agentic database billing (x402)
+    pub fn billing(&self) -> BillingClient {
+        BillingClient::new(self.clone())
+    }
+
     /// Internal method to make GET requests with retry logic
     async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
         let url = format!("{}{}", self.config.base_url, path);
@@ -1108,5 +1123,149 @@ impl OrganizationApiKeysClient {
                 self.organization_id, key_id
             ))
             .await
+    }
+}
+
+// Invoices Client
+
+pub struct InvoicesClient {
+    client: Client,
+}
+
+impl InvoicesClient {
+    fn new(client: Client) -> Self {
+        Self { client }
+    }
+
+    /// Generate monthly invoices for all organizations
+    pub async fn generate(
+        &self,
+        year: i32,
+        month: u8,
+    ) -> Result<GenerateInvoicesResponse> {
+        let body = GenerateInvoicesRequest { year, month };
+        self.client
+            .post("/api/billing/invoices/generate", &body)
+            .await
+    }
+
+    /// Get invoice details with line items
+    pub async fn get(&self, invoice_id: &str) -> Result<Invoice> {
+        self.client
+            .get(&format!("/api/billing/invoices/{}", invoice_id))
+            .await
+    }
+
+    /// Issue a draft invoice
+    pub async fn issue(&self, invoice_id: &str) -> Result<()> {
+        self.client
+            .post(&format!("/api/billing/invoices/{}/issue", invoice_id), &())
+            .await
+    }
+}
+
+// Usage Client
+
+pub struct UsageClient {
+    client: Client,
+    organization_id: String,
+}
+
+impl UsageClient {
+    fn new(client: Client, organization_id: String) -> Self {
+        Self {
+            client,
+            organization_id,
+        }
+    }
+
+    /// Get usage summary for an organization
+    pub async fn summary(
+        &self,
+        start_date: Option<&str>,
+        end_date: Option<&str>,
+    ) -> Result<Vec<UsageSummary>> {
+        let mut query = vec![];
+        if let Some(start) = start_date {
+            query.push(("start_date", start));
+        }
+        if let Some(end) = end_date {
+            query.push(("end_date", end));
+        }
+
+        let path = format!("/api/billing/usage/{}", self.organization_id);
+        if query.is_empty() {
+            self.client.get(&path).await
+        } else {
+            self.client.get_with_query(&path, &query).await
+        }
+    }
+}
+
+// Billing Client (Agentic/x402)
+
+pub struct BillingClient {
+    client: Client,
+}
+
+impl BillingClient {
+    fn new(client: Client) -> Self {
+        Self { client }
+    }
+
+    /// Validate an x402 JWT token
+    pub async fn validate_token(&self, token: &str) -> Result<ValidateTokenResponse> {
+        let body = ValidateTokenRequest {
+            token: token.to_string(),
+        };
+        self.client
+            .post("/api/agentic/databases/validate-token", &body)
+            .await
+    }
+
+    /// Get balance for an endpoint
+    pub async fn get_balance(&self, endpoint_id: &str) -> Result<BalanceResponse> {
+        self.client
+            .get(&format!(
+                "/api/agentic/databases/{}/balance",
+                endpoint_id
+            ))
+            .await
+    }
+
+    /// Deduct balance for a query
+    pub async fn deduct_balance(
+        &self,
+        endpoint_id: &str,
+        amount: f64,
+        query_hash: &str,
+        timestamp: u64,
+    ) -> Result<DeductBalanceResponse> {
+        let body = DeductBalanceRequest {
+            endpoint_id: endpoint_id.to_string(),
+            amount,
+            query_hash: query_hash.to_string(),
+            timestamp,
+        };
+        self.client.post("/api/billing/deduct", &body).await
+    }
+
+    /// Refund a transaction
+    pub async fn refund_transaction(
+        &self,
+        endpoint_id: &str,
+        transaction_id: &str,
+        amount: f64,
+        reason: &str,
+        timestamp: u64,
+    ) -> Result<RefundTransactionResponse> {
+        let body = RefundTransactionRequest {
+            endpoint_id: endpoint_id.to_string(),
+            transaction_id: transaction_id.to_string(),
+            amount,
+            reason: reason.to_string(),
+            timestamp,
+        };
+        self.client.post("/api/billing/refund", &body).await
     }
 }

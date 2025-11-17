@@ -116,3 +116,116 @@ pub struct EndpointMetrics {
     pub cpu_request_millicores: i64,
     pub memory_request_bytes: i64,
 }
+
+// Billing and Invoice types
+
+/// Request to generate monthly invoices
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenerateInvoicesRequest {
+    pub year: i32,
+    pub month: u8,
+}
+
+/// Response from generating invoices
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenerateInvoicesResponse {
+    pub invoice_ids: Vec<String>,
+    pub count: usize,
+}
+
+/// Invoice details with line items
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Invoice {
+    pub id: String,
+    pub organization_id: String,
+    pub invoice_number: String,
+    pub period_start: String,
+    pub period_end: String,
+    pub subtotal_usd: f64,
+    pub tax_usd: f64,
+    pub total_usd: f64,
+    pub status: String,
+    pub line_items: Vec<InvoiceLineItem>,
+}
+
+/// Individual line item on an invoice
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InvoiceLineItem {
+    pub description: String,
+    pub line_type: String,
+    pub quantity: f64,
+    pub unit_price: f64,
+    pub amount_usd: f64,
+}
+
+/// Usage summary for a project
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageSummary {
+    pub organization_id: String,
+    pub project_id: String,
+    pub period_start: String,
+    pub period_end: String,
+    pub compute_hours_small: f64,
+    pub compute_hours_medium: f64,
+    pub compute_hours_large: f64,
+    pub compute_hours_xlarge: f64,
+    pub storage_gb_avg: f64,
+    pub pitr_gb_avg: f64,
+    pub compute_cost_usd: f64,
+    pub storage_cost_usd: f64,
+    pub total_cost_usd: f64,
+}
+
+/// Endpoint balance for agentic billing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BalanceResponse {
+    pub balance: f64,
+    pub endpoint_id: String,
+}
+
+/// Request to validate x402 token
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidateTokenRequest {
+    pub token: String,
+}
+
+/// Response from validating x402 token
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidateTokenResponse {
+    pub endpoint_id: String,
+    pub balance: f64,
+    pub expires_at: u64,
+}
+
+/// Request to deduct balance
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeductBalanceRequest {
+    pub endpoint_id: String,
+    pub amount: f64,
+    pub query_hash: String,
+    pub timestamp: u64,
+}
+
+/// Response from deducting balance
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeductBalanceResponse {
+    pub new_balance: f64,
+    pub transaction_id: String,
+}
+
+/// Request to refund a transaction
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RefundTransactionRequest {
+    pub endpoint_id: String,
+    pub transaction_id: String,
+    pub amount: f64,
+    pub reason: String,
+    pub timestamp: u64,
+}
+
+/// Response from refunding a transaction
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RefundTransactionResponse {
+    pub new_balance: f64,
+    pub refund_id: String,
+}

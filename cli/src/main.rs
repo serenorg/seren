@@ -135,6 +135,11 @@ enum Commands {
         #[command(subcommand)]
         action: VpcAction,
     },
+    /// Manage billing and invoices
+    Billing {
+        #[command(subcommand)]
+        action: BillingAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -661,6 +666,54 @@ enum VpcProjectAction {
     Remove {
         /// Assignment ID
         assignment_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum BillingAction {
+    /// Generate monthly invoices for all organizations
+    GenerateInvoices {
+        /// Year (e.g., 2024)
+        #[arg(long)]
+        year: i32,
+        
+        /// Month (1-12)
+        #[arg(long)]
+        month: u8,
+    },
+    /// Get invoice details
+    GetInvoice {
+        /// Invoice ID
+        invoice_id: String,
+    },
+    /// Issue a draft invoice
+    IssueInvoice {
+        /// Invoice ID
+        invoice_id: String,
+    },
+    /// Get usage summary for an organization
+    GetUsage {
+        /// Organization ID
+        #[arg(long)]
+        organization_id: String,
+        
+        /// Start date (YYYY-MM-DD)
+        #[arg(long)]
+        start_date: Option<String>,
+        
+        /// End date (YYYY-MM-DD)
+        #[arg(long)]
+        end_date: Option<String>,
+    },
+    /// Validate an x402 JWT token
+    ValidateToken {
+        /// Token to validate
+        token: String,
+    },
+    /// Get endpoint balance
+    GetBalance {
+        /// Endpoint ID
+        endpoint_id: String,
     },
 }
 
@@ -1278,6 +1331,68 @@ async fn main() -> anyhow::Result<()> {
                     .await?
                 }
             },
+        },
+        Commands::Billing { action } => match action {
+            BillingAction::GenerateInvoices { year, month } => {
+                commands::billing::generate_invoices(
+                    year,
+                    month,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            BillingAction::GetInvoice { invoice_id } => {
+                commands::billing::get_invoice(
+                    &invoice_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            BillingAction::IssueInvoice { invoice_id } => {
+                commands::billing::issue_invoice(
+                    &invoice_id,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            BillingAction::GetUsage {
+                organization_id,
+                start_date,
+                end_date,
+            } => {
+                commands::billing::get_usage(
+                    &organization_id,
+                    start_date.as_deref(),
+                    end_date.as_deref(),
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            BillingAction::ValidateToken { token } => {
+                commands::billing::validate_token(
+                    &token,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            BillingAction::GetBalance { endpoint_id } => {
+                commands::billing::get_balance(
+                    &endpoint_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
         },
     }
 
