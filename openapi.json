@@ -1245,7 +1245,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ControlPlaneCreateBranchPayload"
+                "$ref": "#/components/schemas/CreateBranchRequest"
               }
             }
           },
@@ -3894,7 +3894,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/crate.models.ip_allow_list.IpAllowList"
+                    "$ref": "#/components/schemas/IpAllowList"
                   }
                 }
               }
@@ -3947,7 +3947,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/crate.models.ip_allow_list.IpAllowList"
+                  "$ref": "#/components/schemas/IpAllowList"
                 }
               }
             }
@@ -4009,7 +4009,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/crate.models.ip_allow_list.IpAllowList"
+                    "$ref": "#/components/schemas/IpAllowList"
                   }
                 }
               }
@@ -4849,6 +4849,23 @@
           }
         }
       },
+      "CreateApiKeyRequest": {
+        "type": "object",
+        "description": "Request to create a new API key",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "expires_in_days": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "CreateBranchRequest": {
         "type": "object",
         "description": "Request to create a new branch",
@@ -5282,6 +5299,31 @@
           },
           "password": {
             "type": "string"
+          }
+        }
+      },
+      "DataOrganizationsResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Organization"
+            }
+          }
+        }
+      },
+      "DataUserResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UserResponse"
           }
         }
       },
@@ -5790,6 +5832,7 @@
           "resource_id",
           "status",
           "progress",
+          "metadata",
           "created_by",
           "created_at",
           "updated_at"
@@ -5817,11 +5860,7 @@
             "format": "uuid"
           },
           "metadata": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/sqlx.types.JsonValue"
-              }
-            ],
+            "type": "object",
             "nullable": true
           },
           "operation_type": {
