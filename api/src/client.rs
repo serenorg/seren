@@ -1213,6 +1213,11 @@ impl BillingClient {
         Self { client }
     }
 
+    /// Get high-level billing and metering health from the Seren control plane.
+    pub async fn health(&self) -> Result<BillingHealthResponse> {
+        self.client.get("/api/billing/health").await
+    }
+
     /// Validate an x402 JWT token
     pub async fn validate_token(&self, token: &str) -> Result<ValidateTokenResponse> {
         let body = ValidateTokenRequest {

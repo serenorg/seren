@@ -148,7 +148,7 @@ pub async fn get_usage(
                 println!("\n  Project: {}", summary.project_id);
                 println!("  Period:  {} to {}", summary.period_start, summary.period_end);
                 println!("\n  Compute Hours:");
-                println!("    Small:    {:.2} hrs (${:.2})", summary.compute_hours_small, summary.compute_hours_small * 0.12);
+                println!("    Small:    {:.2} hrs", summary.compute_hours_small);
                 println!("    Medium:   {:.2} hrs", summary.compute_hours_medium);
                 println!("    Large:    {:.2} hrs", summary.compute_hours_large);
                 println!("    XLarge:   {:.2} hrs", summary.compute_hours_xlarge);
@@ -218,6 +218,55 @@ pub async fn get_balance(
             println!("{}", "Endpoint Balance".bold());
             println!("  Endpoint ID: {}", response.endpoint_id);
             println!("  Balance:     ${:.4}", response.balance);
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn get_health(
+    format: OutputFormat,
+    api_host: Option<String>,
+    api_key: Option<String>,
+) -> Result<()> {
+    let client = get_client(api_host, api_key).await?;
+
+    let health = client
+        .billing()
+        .health()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get billing health: {}", e))?;
+
+    match format {
+        OutputFormat::Json => output::print_json(&health)?,
+        OutputFormat::Table => {
+            println!("{}", "Billing Health".bold());
+            println!(
+                "  Daily aggregation: {}",
+                if health.daily_aggregation_ok {
+                    "OK"
+                } else {
+                    "Attention"
+                }
+            );
+            println!(
+                "  Last daily run: {}",
+                health
+                    .last_daily_aggregation_run_utc
+                    .as_deref()
+                    .unwrap_or("never")
+            );
+            println!(
+                "  Daily aggregation failures: {}",
+                health.daily_aggregation_failures_total
+            );
+
+            if !health.jobs.is_empty() {
+                println!("\n  Job failures (since last restart):");
+                for job in &health.jobs {
+                    println!("    {}: {}", job.job, job.failures_total);
+                }
+            }
         }
     }
 

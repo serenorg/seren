@@ -553,6 +553,137 @@
         ]
       }
     },
+    "/api/organizations/{organization_id}/plan": {
+      "get": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "GET /api/organizations/:org_id/plan",
+        "description": "Get the current plan for an organization",
+        "operationId": "get_organization_plan",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization plan retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationPlanWithDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Organization or plan not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "POST /api/organizations/:org_id/plan",
+        "description": "Upgrade or downgrade an organization's plan",
+        "operationId": "change_organization_plan",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePlanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Plan changed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationPlanWithDetails"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "404": {
+            "description": "Organization or plan not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/organizations/{organization_id}/quota": {
+      "get": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "GET /api/organizations/:org_id/quota",
+        "description": "Get current quota usage for an organization",
+        "operationId": "get_quota_usage",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Quota usage retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaUsage"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Organization or plan not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/api/organizations/{organization_id}/vpc-endpoints": {
       "get": {
         "tags": [
@@ -972,6 +1103,74 @@
             "bearer_auth": []
           }
         ]
+      }
+    },
+    "/api/plans": {
+      "get": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "GET /api/plans",
+        "description": "List all available subscription plans",
+        "operationId": "list_plans",
+        "responses": {
+          "200": {
+            "description": "Plans retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Plan"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/plans/{plan_id}": {
+      "get": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "GET /api/plans/:plan_id",
+        "description": "Get details of a specific plan",
+        "operationId": "get_plan",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "description": "Plan ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Plan retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Plan not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
       }
     },
     "/api/projects": {
@@ -4836,6 +5035,23 @@
           }
         }
       },
+      "ChangePlanRequest": {
+        "type": "object",
+        "description": "Request to upgrade/downgrade an organization's plan",
+        "required": [
+          "plan_id"
+        ],
+        "properties": {
+          "plan_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stripe_payment_method_id": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "ConnectionStringResponse": {
         "type": "object",
         "description": "Response for a single, canonical connection string.\n\nThe backend always prefers SerenDB proxy-based connection strings when\nproxy configuration is available, and falls back to direct compute\nconnection strings only when the proxy is not configured.",
@@ -5946,6 +6162,92 @@
           }
         }
       },
+      "OrganizationPlan": {
+        "type": "object",
+        "description": "OrganizationPlan tracks which plan an organization is currently on",
+        "required": [
+          "id",
+          "organization_id",
+          "plan_id",
+          "started_at",
+          "is_trial",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "cancellation_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelled_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "cancelled_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ends_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_trial": {
+            "type": "boolean"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "stripe_subscription_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "trial_ends_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OrganizationPlanWithDetails": {
+        "type": "object",
+        "description": "Response type that includes both the plan and organization_plan details",
+        "required": [
+          "organization_plan",
+          "plan"
+        ],
+        "properties": {
+          "organization_plan": {
+            "$ref": "#/components/schemas/OrganizationPlan"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/Plan"
+          }
+        }
+      },
       "OrganizationVpcEndpoint": {
         "type": "object",
         "required": [
@@ -5986,6 +6288,138 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "Plan": {
+        "type": "object",
+        "description": "Plan represents a subscription tier (Free, Launch, Scale)",
+        "required": [
+          "id",
+          "name",
+          "display_name",
+          "price_monthly",
+          "max_compute_units",
+          "max_branches_per_project",
+          "support_level",
+          "ip_allowlist_enabled",
+          "vpc_enabled",
+          "sso_enabled",
+          "audit_logs_enabled",
+          "monitoring_enabled",
+          "is_active",
+          "sort_order",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "audit_logs_enabled": {
+            "type": "boolean"
+          },
+          "compute_hours_quota": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "compute_price_per_cu_hour": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data_transfer_price_per_gb": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ip_allowlist_enabled": {
+            "type": "boolean"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "max_branches_per_project": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "max_compute_units": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "max_databases_per_branch": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "max_endpoints_per_branch": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "max_projects": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "monitoring_enabled": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pitr_price_per_gb_month": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_monthly": {
+            "type": "string"
+          },
+          "scale_to_zero_delay_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "sla_uptime_percent": {
+            "type": "string",
+            "nullable": true
+          },
+          "sort_order": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "sso_enabled": {
+            "type": "boolean"
+          },
+          "storage_gb_quota": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "storage_price_per_gb_month": {
+            "type": "string",
+            "nullable": true
+          },
+          "support_level": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "vpc_enabled": {
+            "type": "boolean"
           }
         }
       },
@@ -6243,6 +6677,123 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "QuotaCheckResult": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "Operation allowed",
+            "enum": [
+              "Allowed"
+            ]
+          },
+          {
+            "type": "object",
+            "required": [
+              "QuotaExceeded"
+            ],
+            "properties": {
+              "QuotaExceeded": {
+                "type": "object",
+                "description": "Operation would exceed quota",
+                "required": [
+                  "quota_type",
+                  "current",
+                  "limit",
+                  "message"
+                ],
+                "properties": {
+                  "current": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "quota_type": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "string",
+            "description": "No plan found for organization",
+            "enum": [
+              "NoPlanFound"
+            ]
+          }
+        ],
+        "description": "Enum for quota check results"
+      },
+      "QuotaUsage": {
+        "type": "object",
+        "description": "Quota usage summary for an organization",
+        "required": [
+          "organization_id",
+          "plan",
+          "current_storage_gb",
+          "current_compute_hours",
+          "current_projects",
+          "current_branches",
+          "is_over_storage_quota",
+          "is_over_compute_quota",
+          "is_over_projects_quota"
+        ],
+        "properties": {
+          "compute_hours_usage_percent": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "current_branches": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "current_compute_hours": {
+            "type": "number",
+            "format": "double"
+          },
+          "current_projects": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "current_storage_gb": {
+            "type": "number",
+            "format": "double"
+          },
+          "is_over_compute_quota": {
+            "type": "boolean"
+          },
+          "is_over_projects_quota": {
+            "type": "boolean"
+          },
+          "is_over_storage_quota": {
+            "type": "boolean"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/Plan"
+          },
+          "projects_usage_percent": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "storage_usage_percent": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
           }
         }
       },
@@ -6897,6 +7448,10 @@
     {
       "name": "billing",
       "description": "x402 billing and metering endpoints"
+    },
+    {
+      "name": "Plans",
+      "description": "Subscription plans and quota management"
     }
   ]
 }

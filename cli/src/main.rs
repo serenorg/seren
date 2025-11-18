@@ -715,6 +715,8 @@ enum BillingAction {
         /// Endpoint ID
         endpoint_id: String,
     },
+    /// Get billing pipeline health
+    Health,
 }
 
 #[tokio::main]
@@ -1387,6 +1389,14 @@ async fn main() -> anyhow::Result<()> {
             BillingAction::GetBalance { endpoint_id } => {
                 commands::billing::get_balance(
                     &endpoint_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            BillingAction::Health => {
+                commands::billing::get_health(
                     cli.format,
                     cli.api_host.clone(),
                     cli.api_key.clone(),

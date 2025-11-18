@@ -176,6 +176,23 @@ pub struct UsageSummary {
     pub total_cost_usd: f64,
 }
 
+/// Billing job health for a single background job.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BillingJobHealth {
+    pub job: String,
+    pub failures_total: u64,
+}
+
+/// High-level billing health summary from Seren Core.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BillingHealthResponse {
+    pub last_daily_aggregation_run_utc: Option<String>,
+    pub daily_aggregation_ok: bool,
+    pub has_recent_daily_run: bool,
+    pub daily_aggregation_failures_total: u64,
+    pub jobs: Vec<BillingJobHealth>,
+}
+
 /// Endpoint balance for agentic billing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BalanceResponse {
