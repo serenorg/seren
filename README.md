@@ -211,6 +211,21 @@ cargo clippy
 - **Tables**: comfy-table
 - **Colors**: colored
 
+## Commit Conventions
+
+This workspace uses **Conventional Commits** for git history quality.
+
+- Commit messages must follow:
+  - `type(scope): description`
+  - Example: `feat(cli): add billing health command`
+- A shared `commit-msg` hook is provided in `.githooks/commit-msg`.
+
+To enable the hook locally:
+
+```bash
+git config core.hooksPath .githooks
+```
+
 ## License
 
 MIT
