@@ -130,6 +130,11 @@ enum Commands {
         #[command(subcommand)]
         action: ContextAction,
     },
+    /// Manage environment files and connection strings
+    Env {
+        #[command(subcommand)]
+        action: EnvAction,
+    },
     /// Manage VPC endpoints
     Vpc {
         #[command(subcommand)]
@@ -590,6 +595,40 @@ enum ContextAction {
     Show,
     /// Clear context
     Clear,
+}
+
+#[derive(Subcommand)]
+enum EnvAction {
+    /// Initialize a .env file with a Seren connection string
+    Init {
+        /// Project ID (defaults to CLI context if not provided)
+        #[arg(long)]
+        project_id: Option<String>,
+
+        /// Branch ID to use for the connection
+        #[arg(long)]
+        branch_id: Option<String>,
+
+        /// Path to the .env file
+        #[arg(long, default_value = ".env")]
+        env: String,
+
+        /// Environment key to write
+        #[arg(long, default_value = "DATABASE_URL")]
+        key: String,
+
+        /// Request a pooled connection string
+        #[arg(long, action = ArgAction::SetTrue)]
+        pooled: bool,
+
+        /// Write Prisma-style format (DATABASE_URL="...")
+        #[arg(long, action = ArgAction::SetTrue)]
+        prisma: bool,
+
+        /// Non-interactive mode (do not prompt; error instead)
+        #[arg(long, action = ArgAction::SetTrue)]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1333,6 +1372,31 @@ async fn main() -> anyhow::Result<()> {
                     .await?
                 }
             },
+        },
+        Commands::Env { action } => match action {
+            EnvAction::Init {
+                project_id,
+                branch_id,
+                env,
+                key,
+                pooled,
+                prisma,
+                yes,
+            } => {
+                commands::env::init(
+                    project_id,
+                    branch_id,
+                    &env,
+                    &key,
+                    pooled,
+                    prisma,
+                    yes,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
         },
         Commands::Billing { action } => match action {
             BillingAction::GenerateInvoices { year, month } => {

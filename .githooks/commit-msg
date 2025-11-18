@@ -1,0 +1,56 @@
+#!/bin/bash
+
+# Shared commit-msg hook for Seren CLI/API
+# Enforces:
+# 1. Conventional commit format
+# 2. No references to "claude" or "claude code"
+
+COMMIT_MSG_FILE=$1
+COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
+
+# Check for Claude references (case insensitive)
+if echo "$COMMIT_MSG" | grep -qi "claude"; then
+    echo "❌ Error: Commit message must not contain 'claude' or 'claude code'"
+    echo ""
+    echo "Please remove any references to Claude from your commit message."
+    exit 1
+fi
+
+# Extract first line for conventional commit check
+FIRST_LINE=$(echo "$COMMIT_MSG" | head -n 1)
+
+# Conventional commit pattern: type(optional-scope): description
+# Valid types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+CONVENTIONAL_COMMIT_PATTERN="^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?!?: .{1,}"
+
+if ! echo "$FIRST_LINE" | grep -qE "$CONVENTIONAL_COMMIT_PATTERN"; then
+    echo "❌ Error: Commit message must follow conventional commit format"
+    echo ""
+    echo "Format: <type>(<optional-scope>): <description>"
+    echo ""
+    echo "Valid types:"
+    echo "  feat:     A new feature"
+    echo "  fix:      A bug fix"
+    echo "  docs:     Documentation only changes"
+    echo "  style:    Code style changes (formatting, missing semi colons, etc)"
+    echo "  refactor: Code change that neither fixes a bug nor adds a feature"
+    echo "  perf:     Performance improvement"
+    echo "  test:     Adding missing tests or correcting existing tests"
+    echo "  build:    Changes that affect the build system or dependencies"
+    echo "  ci:       Changes to CI configuration files and scripts"
+    echo "  chore:    Other changes that don't modify src or test files"
+    echo "  revert:   Reverts a previous commit"
+    echo ""
+    echo "Examples:"
+    echo "  feat(cli): add billing health command"
+    echo "  fix(api): handle invalid usage summary response"
+    echo "  docs: update README with CLI usage examples"
+    echo ""
+    echo "Your commit message:"
+    echo "  $FIRST_LINE"
+    exit 1
+fi
+
+# All checks passed
+exit 0
+

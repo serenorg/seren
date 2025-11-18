@@ -53,6 +53,14 @@ seren projects list
 seren projects create --name "My Project" --org "org-123"
 ```
 
+### 4. Initialize a local `.env`
+
+```bash
+seren env init --project-id <project-id> --branch-id <branch-id>
+```
+
+This writes a `DATABASE_URL` entry into `.env` (by default), using a pooled, TLS-enabled connection string suitable for local development. Use `--env`, `--key`, `--pooled`, `--prisma`, and `--yes` for advanced workflows.
+
 ## Commands
 
 ### Authentication
