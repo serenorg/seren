@@ -138,31 +138,7 @@ pub async fn get_usage(
     match format {
         OutputFormat::Json => output::print_json(&usage)?,
         OutputFormat::Table => {
-            if usage.is_empty() {
-                println!("No usage data found for the specified period");
-                return Ok(());
-            }
-
-            println!("{}", "Usage Summary".bold());
-            for summary in &usage {
-                println!("\n  Project: {}", summary.project_id);
-                println!("  Period:  {} to {}", summary.period_start, summary.period_end);
-                println!("\n  Compute Hours:");
-                println!("    Small:    {:.2} hrs", summary.compute_hours_small);
-                println!("    Medium:   {:.2} hrs", summary.compute_hours_medium);
-                println!("    Large:    {:.2} hrs", summary.compute_hours_large);
-                println!("    XLarge:   {:.2} hrs", summary.compute_hours_xlarge);
-                println!("\n  Storage:");
-                println!("    Data:     {:.2} GB", summary.storage_gb_avg);
-                println!("    PITR:     {:.2} GB", summary.pitr_gb_avg);
-                println!("\n  Costs:");
-                println!("    Compute:  ${:.2}", summary.compute_cost_usd);
-                println!("    Storage:  ${:.2}", summary.storage_cost_usd);
-                println!("    Total:    {}", format!("${:.2}", summary.total_cost_usd).bold());
-            }
-
-            let total_cost: f64 = usage.iter().map(|u| u.total_cost_usd).sum();
-            println!("\n{}", format!("Total Cost: ${:.2}", total_cost).green().bold());
+            output::print_usage_summaries_table(&usage);
         }
     }
 
@@ -240,33 +216,7 @@ pub async fn get_health(
     match format {
         OutputFormat::Json => output::print_json(&health)?,
         OutputFormat::Table => {
-            println!("{}", "Billing Health".bold());
-            println!(
-                "  Daily aggregation: {}",
-                if health.daily_aggregation_ok {
-                    "OK"
-                } else {
-                    "Attention"
-                }
-            );
-            println!(
-                "  Last daily run: {}",
-                health
-                    .last_daily_aggregation_run_utc
-                    .as_deref()
-                    .unwrap_or("never")
-            );
-            println!(
-                "  Daily aggregation failures: {}",
-                health.daily_aggregation_failures_total
-            );
-
-            if !health.jobs.is_empty() {
-                println!("\n  Job failures (since last restart):");
-                for job in &health.jobs {
-                    println!("    {}: {}", job.job, job.failures_total);
-                }
-            }
+            output::print_billing_health_table(&health);
         }
     }
 

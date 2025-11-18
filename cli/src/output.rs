@@ -300,6 +300,130 @@ pub fn print_databases_table(databases: &[seren::DatabaseWithOwner]) {
     println!("{table}");
 }
 
+// Billing: usage summaries
+pub fn print_usage_summaries_table(summaries: &[seren::UsageSummary]) {
+    if summaries.is_empty() {
+        println!("No usage data found for the specified period");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("Project ID").fg(Color::Green),
+        Cell::new("Period").fg(Color::Green),
+        Cell::new("Compute (hrs)").fg(Color::Green),
+        Cell::new("Storage (GB)").fg(Color::Green),
+        Cell::new("PITR (GB)").fg(Color::Green),
+        Cell::new("Compute $").fg(Color::Green),
+        Cell::new("Storage $").fg(Color::Green),
+        Cell::new("Total $").fg(Color::Green),
+    ]);
+
+    let mut grand_total = 0.0f64;
+
+    for summary in summaries {
+        let compute_hours_total = summary.compute_hours_small
+            + summary.compute_hours_medium
+            + summary.compute_hours_large
+            + summary.compute_hours_xlarge;
+
+        grand_total += summary.total_cost_usd;
+
+        table.add_row(vec![
+            Cell::new(&summary.project_id),
+            Cell::new(format!("{} → {}", summary.period_start, summary.period_end)),
+            Cell::new(format!("{:.2}", compute_hours_total)),
+            Cell::new(format!("{:.2}", summary.storage_gb_avg)),
+            Cell::new(format!("{:.2}", summary.pitr_gb_avg)),
+            Cell::new(format!("{:.2}", summary.compute_cost_usd)),
+            Cell::new(format!("{:.2}", summary.storage_cost_usd)),
+            Cell::new(format!("{:.2}", summary.total_cost_usd)),
+        ]);
+    }
+
+    println!("{}", "Usage Summary".bold());
+    println!("{table}");
+    println!(
+        "\n{}",
+        format!("Total Cost: ${:.2}", grand_total)
+            .green()
+            .bold()
+    );
+}
+
+// Billing: health summary
+pub fn print_billing_health_table(health: &seren::BillingHealthResponse) {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("Field").fg(Color::Green),
+        Cell::new("Value").fg(Color::Green),
+    ]);
+
+    table.add_row(vec![
+        Cell::new("Daily aggregation"),
+        Cell::new(if health.daily_aggregation_ok {
+            "OK"
+        } else {
+            "Attention"
+        }),
+    ]);
+    table.add_row(vec![
+        Cell::new("Last daily run"),
+        Cell::new(
+            health
+                .last_daily_aggregation_run_utc
+                .as_deref()
+                .unwrap_or("never"),
+        ),
+    ]);
+    table.add_row(vec![
+        Cell::new("Has recent daily run"),
+        Cell::new(if health.has_recent_daily_run {
+            "Yes"
+        } else {
+            "No"
+        }),
+    ]);
+    table.add_row(vec![
+        Cell::new("Daily aggregation failures"),
+        Cell::new(health.daily_aggregation_failures_total.to_string()),
+    ]);
+
+    println!("{}", "Billing Health".bold());
+    println!("{table}");
+
+    if !health.jobs.is_empty() {
+        let mut jobs_table = Table::new();
+        jobs_table
+            .load_preset(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic);
+
+        jobs_table.set_header(vec![
+            Cell::new("Job").fg(Color::Green),
+            Cell::new("Failures").fg(Color::Green),
+        ]);
+
+        for job in &health.jobs {
+            jobs_table.add_row(vec![
+                Cell::new(&job.job),
+                Cell::new(job.failures_total.to_string()),
+            ]);
+        }
+
+        println!();
+        println!("{}", "Job Failures (since last restart)".bold());
+        println!("{jobs_table}");
+    }
+}
+
 pub fn print_database(database: &seren::Database, format: OutputFormat) -> anyhow::Result<()> {
     match format {
         OutputFormat::Json => print_json(database)?,
