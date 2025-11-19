@@ -167,6 +167,31 @@
         }
       }
     },
+    "/api/billing/health": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "GET /api/billing/health",
+        "description": "High-level billing and metering health summary for Seren Core",
+        "operationId": "get_billing_health",
+        "responses": {
+          "200": {
+            "description": "Billing health retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingHealthResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/api/billing/invoices/generate": {
       "post": {
         "tags": [
@@ -544,6 +569,276 @@
           },
           "404": {
             "description": "API key not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/organizations/{organization_id}/billing/endpoints/{endpoint_id}/events": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "GET /api/organizations/{organization_id}/billing/endpoints/{endpoint_id}/events",
+        "description": "Debug endpoint: show recent usage_events and compute_usage_events for an endpoint",
+        "operationId": "get_endpoint_billing_events",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "endpoint_id",
+            "in": "path",
+            "description": "Endpoint ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Billing events retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndpointBillingEventsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Endpoint not found for organization"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/organizations/{organization_id}/consumption": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "GET /api/organizations/{organization_id}/consumption",
+        "description": "Aggregated organization-level consumption over a billing window.",
+        "operationId": "get_organization_consumption",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "start_date",
+            "in": "query",
+            "description": "Optional ISO-8601 start date (YYYY-MM-DD), defaults to first day of current month.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "description": "Optional ISO-8601 end date (YYYY-MM-DD), defaults to today (UTC).",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization consumption retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationConsumption"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "User is not a member of the organization"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/organizations/{organization_id}/invites": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "GET /api/organizations/{organization_id}/invites",
+        "description": "List pending and historical organization invites.",
+        "operationId": "list_invites",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization invites retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrganizationInviteResponse"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "User is not allowed to view invites"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "POST /api/organizations/{organization_id}/invites",
+        "description": "Create a new organization invite and send an email via the configured mailer.",
+        "operationId": "create_invite",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrganizationInviteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Invite created and email sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationInviteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "User is not allowed to create invites"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/organizations/{organization_id}/members": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "GET /api/organizations/{organization_id}/members",
+        "description": "List organization members with basic user details.",
+        "operationId": "list_members",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization members retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrganizationMemberWithUser"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "User is not a member of the organization"
+          },
+          "500": {
+            "description": "Internal server error"
           }
         },
         "security": [
@@ -3755,6 +4050,77 @@
         ]
       }
     },
+    "/api/projects/{project_id}/consumption": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "GET /api/projects/{project_id}/consumption",
+        "description": "Aggregated project-level consumption (compute, storage, PITR, network) over a billing window.",
+        "operationId": "get_project_consumption",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "start_date",
+            "in": "query",
+            "description": "Optional ISO-8601 start date (YYYY-MM-DD), defaults to first day of current month.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "description": "Optional ISO-8601 end date (YYYY-MM-DD), defaults to today (UTC).",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project consumption retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectConsumption"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "User is not a member of the organization"
+          },
+          "404": {
+            "description": "Project not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/projects/{project_id}/endpoints": {
       "get": {
         "tags": [
@@ -4852,6 +5218,62 @@
           }
         }
       },
+      "BillingHealthResponse": {
+        "type": "object",
+        "description": "High-level billing health summary.",
+        "required": [
+          "daily_aggregation_ok",
+          "has_recent_daily_run",
+          "daily_aggregation_failures_total",
+          "jobs"
+        ],
+        "properties": {
+          "daily_aggregation_failures_total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total failures recorded for the daily aggregation job since process start.",
+            "minimum": 0
+          },
+          "daily_aggregation_ok": {
+            "type": "boolean",
+            "description": "True when we have a recent daily aggregation run and no known failures."
+          },
+          "has_recent_daily_run": {
+            "type": "boolean",
+            "description": "True when the last daily aggregation was within the expected window (<= 30h old)."
+          },
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BillingJobHealth"
+            },
+            "description": "Failure counters per billing job since process start."
+          },
+          "last_daily_aggregation_run_utc": {
+            "type": "string",
+            "description": "Last time daily_aggregated_usage was written, in UTC (RFC3339).",
+            "nullable": true
+          }
+        }
+      },
+      "BillingJobHealth": {
+        "type": "object",
+        "description": "Billing job health for a single background job.",
+        "required": [
+          "job",
+          "failures_total"
+        ],
+        "properties": {
+          "failures_total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "job": {
+            "type": "string"
+          }
+        }
+      },
       "Branch": {
         "type": "object",
         "description": "Branch represents a SerenDB timeline (database copy)",
@@ -4948,6 +5370,19 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "BranchCountResponse": {
+        "type": "object",
+        "description": "Branch count response",
+        "required": [
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -5052,6 +5487,22 @@
           }
         }
       },
+      "ComputeUsageEventDebugRecord": {
+        "type": "object",
+        "description": "Debug view: compute_usage_events entry for an endpoint",
+        "required": [
+          "event_type",
+          "event_time"
+        ],
+        "properties": {
+          "event_time": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          }
+        }
+      },
       "ConnectionStringResponse": {
         "type": "object",
         "description": "Response for a single, canonical connection string.\n\nThe backend always prefers SerenDB proxy-based connection strings when\nproxy configuration is available, and falls back to direct compute\nconnection strings only when the proxy is not configured.",
@@ -5062,6 +5513,147 @@
           "connection_string": {
             "type": "string",
             "description": "Fully resolved PostgreSQL connection string (proxy preferred)."
+          }
+        }
+      },
+      "ConsumptionPeriod": {
+        "type": "object",
+        "description": "ConsumptionPeriod represents usage metrics for a billing period",
+        "required": [
+          "id",
+          "project_id",
+          "organization_id",
+          "period_id",
+          "period_start",
+          "period_end",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "active_time_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "compute_time_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data_transfer_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "period_id": {
+            "type": "string"
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "synthetic_storage_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "written_data_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ConsumptionPeriodData": {
+        "type": "object",
+        "description": "ConsumptionPeriodData for API responses (simplified)",
+        "required": [
+          "period_id"
+        ],
+        "properties": {
+          "active_time_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "compute_time_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "data_transfer_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "period_id": {
+            "type": "string"
+          },
+          "synthetic_storage_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "written_data_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ConsumptionQueryParams": {
+        "type": "object",
+        "description": "Query parameters for consumption endpoints (reusing the billing usage pattern).",
+        "properties": {
+          "end_date": {
+            "type": "string",
+            "description": "Optional ISO-8601 end date (YYYY-MM-DD), defaults to today (UTC).",
+            "nullable": true
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Optional ISO-8601 start date (YYYY-MM-DD), defaults to first day of current month.",
+            "nullable": true
+          }
+        }
+      },
+      "ConsumptionSummary": {
+        "type": "object",
+        "description": "ConsumptionSummary represents aggregated usage for a period",
+        "properties": {
+          "active_time_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "compute_time_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "data_transfer_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "synthetic_storage_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "written_data_bytes": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -5337,6 +5929,24 @@
             "items": {
               "type": "string"
             },
+            "nullable": true
+          }
+        }
+      },
+      "CreateOrganizationInviteRequest": {
+        "type": "object",
+        "description": "Request body for creating an organization invite.",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address of the invitee."
+          },
+          "role": {
+            "type": "string",
+            "description": "Optional role for the invitee (defaults to member).",
             "nullable": true
           }
         }
@@ -5824,6 +6434,36 @@
           }
         }
       },
+      "EndpointBillingEventsResponse": {
+        "type": "object",
+        "description": "Combined debug response for an endpoint's billing events",
+        "required": [
+          "organization_id",
+          "endpoint_id",
+          "usage_events",
+          "compute_usage_events"
+        ],
+        "properties": {
+          "compute_usage_events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComputeUsageEventDebugRecord"
+            }
+          },
+          "endpoint_id": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": "string"
+          },
+          "usage_events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsageEventDebugRecord"
+            }
+          }
+        }
+      },
       "EndpointStatus": {
         "type": "string",
         "description": "Endpoint status enum",
@@ -6026,6 +6666,36 @@
           }
         }
       },
+      "LimitsResponse": {
+        "type": "object",
+        "description": "Limits response for API (simplified)",
+        "properties": {
+          "branches": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "compute_hours": {
+            "type": "number",
+            "format": "double"
+          },
+          "data_transfer_gb": {
+            "type": "number",
+            "format": "double"
+          },
+          "logical_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "projects": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "storage_gb": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "LsnByTimestampResponse": {
         "type": "object",
         "description": "Response for LSN by timestamp query",
@@ -6159,6 +6829,243 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "OrganizationConsumption": {
+        "type": "object",
+        "description": "OrganizationConsumption wraps organization-wide consumption",
+        "required": [
+          "organization_id",
+          "from",
+          "to",
+          "periods",
+          "current_month"
+        ],
+        "properties": {
+          "current_month": {
+            "$ref": "#/components/schemas/ConsumptionSummary"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConsumptionPeriodData"
+            }
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OrganizationInvite": {
+        "type": "object",
+        "description": "Organization invite row.",
+        "required": [
+          "id",
+          "organization_id",
+          "email",
+          "role",
+          "invited_by",
+          "token",
+          "expires_at",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "accepted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "email": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invited_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revoked_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "role": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OrganizationInviteResponse": {
+        "type": "object",
+        "description": "Response type for invites (token is not exposed over the API).",
+        "required": [
+          "id",
+          "organization_id",
+          "email",
+          "role",
+          "invited_by",
+          "expires_at",
+          "created_at"
+        ],
+        "properties": {
+          "accepted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "email": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invited_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revoked_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "OrganizationLimits": {
+        "type": "object",
+        "description": "Limits represents resource quotas for an organization",
+        "required": [
+          "id",
+          "organization_id",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "branches": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "compute_hours": {
+            "type": "number",
+            "format": "double"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data_transfer_gb": {
+            "type": "number",
+            "format": "double"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "logical_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "projects": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "storage_gb": {
+            "type": "number",
+            "format": "double"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OrganizationMemberWithUser": {
+        "type": "object",
+        "description": "Organization member with denormalized user fields for API responses.",
+        "required": [
+          "id",
+          "organization_id",
+          "user_id",
+          "email",
+          "role",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -6610,6 +7517,40 @@
         "properties": {
           "uri": {
             "type": "string"
+          }
+        }
+      },
+      "ProjectConsumption": {
+        "type": "object",
+        "description": "ProjectConsumption wraps consumption data for API responses",
+        "required": [
+          "project_id",
+          "from",
+          "to",
+          "periods",
+          "current_month"
+        ],
+        "properties": {
+          "current_month": {
+            "$ref": "#/components/schemas/ConsumptionSummary"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConsumptionPeriodData"
+            }
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -7206,6 +8147,42 @@
           }
         }
       },
+      "UpdateLimitsRequest": {
+        "type": "object",
+        "description": "Request to update organization limits",
+        "properties": {
+          "branches": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "compute_hours": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "data_transfer_gb": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "logical_size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "projects": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "storage_gb": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          }
+        }
+      },
       "UpdateProjectRequest": {
         "type": "object",
         "description": "Request to update a project",
@@ -7242,6 +8219,36 @@
           }
         }
       },
+      "UsageEventDebugRecord": {
+        "type": "object",
+        "description": "Debug view: usage_events entry for an endpoint",
+        "required": [
+          "event_type",
+          "quantity",
+          "unit",
+          "metadata",
+          "event_timestamp"
+        ],
+        "properties": {
+          "event_timestamp": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "string",
+            "description": "Raw JSON metadata as a string for debugging purposes."
+          },
+          "quantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "type": "string"
+          }
+        }
+      },
       "UsageQueryParams": {
         "type": "object",
         "properties": {
@@ -7260,6 +8267,8 @@
         "required": [
           "organization_id",
           "project_id",
+          "project_name",
+          "project_region",
           "period_start",
           "period_end",
           "compute_hours_small",
@@ -7310,6 +8319,14 @@
           "project_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "project_name": {
+            "type": "string",
+            "description": "Human-readable project name (denormalized for convenience)."
+          },
+          "project_region": {
+            "type": "string",
+            "description": "Cloud region for the project (e.g., aws-us-east-1)."
           },
           "storage_cost_usd": {
             "type": "number",

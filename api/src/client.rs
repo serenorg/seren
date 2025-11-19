@@ -138,6 +138,34 @@ impl Client {
         self.get("/organizations").await
     }
 
+    /// List members for a specific organization.
+    pub async fn organization_members(
+        &self,
+        organization_id: impl AsRef<str>,
+    ) -> Result<Vec<OrganizationMemberWithUser>> {
+        let path = format!("/organizations/{}/members", organization_id.as_ref());
+        self.get(&path).await
+    }
+
+    /// List invites for a specific organization.
+    pub async fn organization_invites(
+        &self,
+        organization_id: impl AsRef<str>,
+    ) -> Result<Vec<OrganizationInviteResponse>> {
+        let path = format!("/organizations/{}/invites", organization_id.as_ref());
+        self.get(&path).await
+    }
+
+    /// Create an organization invite.
+    pub async fn create_organization_invite(
+        &self,
+        organization_id: impl AsRef<str>,
+        request: &CreateOrganizationInviteRequest,
+    ) -> Result<OrganizationInviteResponse> {
+        let path = format!("/organizations/{}/invites", organization_id.as_ref());
+        self.post(&path, request).await
+    }
+
     /// Get project-scoped endpoint client (project-level routes)
     pub fn project_endpoints(&self, project_id: impl Into<String>) -> ProjectEndpointsClient {
         ProjectEndpointsClient::new(self.clone(), project_id.into())

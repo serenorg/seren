@@ -8,12 +8,7 @@ use comfy_table::{presets::UTF8_FULL, Cell, Color, ContentArrangement, Table};
 use serde::Serialize;
 use seren::{Client, ClientConfig};
 
-use crate::{
-    commands::auth::get_bearer_token,
-    config::ContextConfig,
-    output,
-    OutputFormat,
-};
+use crate::{commands::auth::get_bearer_token, config::ContextConfig, output, OutputFormat};
 
 async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
     let bearer_token = get_bearer_token(api_key).await?;
@@ -212,18 +207,9 @@ pub async fn init(
                 Cell::new("Value").fg(Color::Green),
             ]);
 
-            table.add_row(vec![
-                Cell::new("Project ID"),
-                Cell::new(&result.project_id),
-            ]);
-            table.add_row(vec![
-                Cell::new("Branch ID"),
-                Cell::new(&result.branch_id),
-            ]);
-            table.add_row(vec![
-                Cell::new("Env file"),
-                Cell::new(&result.env_path),
-            ]);
+            table.add_row(vec![Cell::new("Project ID"), Cell::new(&result.project_id)]);
+            table.add_row(vec![Cell::new("Branch ID"), Cell::new(&result.branch_id)]);
+            table.add_row(vec![Cell::new("Env file"), Cell::new(&result.env_path)]);
             table.add_row(vec![Cell::new("Env key"), Cell::new(&result.key)]);
             table.add_row(vec![
                 Cell::new("Pooled"),

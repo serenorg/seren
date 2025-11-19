@@ -7,6 +7,7 @@ pub mod endpoints;
 pub mod env;
 pub mod ip_allow_list;
 pub mod operations;
+pub mod organizations;
 pub mod projects;
 pub mod roles;
 pub mod vpc;

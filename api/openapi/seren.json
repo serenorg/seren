@@ -19,6 +19,83 @@
     }
   ],
   "paths": {
+    "/api/agentic/databases/validate-token": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "POST /api/agentic/databases/validate-token",
+        "description": "Validates an x402 JWT token and returns endpoint info and balance",
+        "operationId": "validate_x402_token",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Token validated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidateTokenResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or expired token"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agentic/databases/{endpoint_id}/balance": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "GET /api/agentic/databases/{endpoint_id}/balance",
+        "description": "Get current balance for an endpoint",
+        "operationId": "get_balance",
+        "parameters": [
+          {
+            "name": "endpoint_id",
+            "in": "path",
+            "description": "Endpoint ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Balance retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BalanceResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Endpoint not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/api/auth/me": {
       "get": {
         "tags": [
@@ -47,6 +124,282 @@
             "bearer_auth": []
           }
         ]
+      }
+    },
+    "/api/billing/deduct": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "POST /api/billing/deduct",
+        "description": "Deduct balance for a query",
+        "operationId": "deduct_balance",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeductBalanceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Balance deducted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeductBalanceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Insufficient balance"
+          },
+          "404": {
+            "description": "Endpoint not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/billing/health": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "GET /api/billing/health",
+        "description": "High-level billing and metering health summary for Seren Core",
+        "operationId": "get_billing_health",
+        "responses": {
+          "200": {
+            "description": "Billing health retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingHealthResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/billing/invoices/generate": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "POST /api/billing/invoices/generate",
+        "description": "Generate monthly invoices for all organizations",
+        "operationId": "generate_invoices",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateInvoicesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Invoices generated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateInvoicesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/billing/invoices/{id}": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "GET /api/billing/invoices/:id",
+        "description": "Get invoice details with line items",
+        "operationId": "get_invoice",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Invoice ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invoice retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Invoice not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/billing/invoices/{id}/issue": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "POST /api/billing/invoices/:id/issue",
+        "description": "Issue a draft invoice",
+        "operationId": "issue_invoice",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Invoice ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invoice issued successfully"
+          },
+          "404": {
+            "description": "Invoice not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/billing/refund": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "POST /api/billing/refund",
+        "description": "Refund a transaction",
+        "operationId": "refund_transaction",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefundTransactionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Refund processed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundTransactionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Transaction not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/billing/usage/{organization_id}": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "GET /api/billing/usage/:organization_id",
+        "description": "Get usage summary for an organization",
+        "operationId": "get_usage_summary",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Usage summary retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UsageSummary"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
       }
     },
     "/api/organizations": {
@@ -223,6 +576,407 @@
             "bearer_auth": []
           }
         ]
+      }
+    },
+    "/api/organizations/{organization_id}/billing/endpoints/{endpoint_id}/events": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "GET /api/organizations/{organization_id}/billing/endpoints/{endpoint_id}/events",
+        "description": "Debug endpoint: show recent usage_events and compute_usage_events for an endpoint",
+        "operationId": "get_endpoint_billing_events",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "endpoint_id",
+            "in": "path",
+            "description": "Endpoint ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Billing events retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndpointBillingEventsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Endpoint not found for organization"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/organizations/{organization_id}/consumption": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "GET /api/organizations/{organization_id}/consumption",
+        "description": "Aggregated organization-level consumption over a billing window.",
+        "operationId": "get_organization_consumption",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "start_date",
+            "in": "query",
+            "description": "Optional ISO-8601 start date (YYYY-MM-DD), defaults to first day of current month.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "description": "Optional ISO-8601 end date (YYYY-MM-DD), defaults to today (UTC).",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization consumption retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationConsumption"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "User is not a member of the organization"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/organizations/{organization_id}/invites": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "GET /api/organizations/{organization_id}/invites",
+        "description": "List pending and historical organization invites.",
+        "operationId": "list_invites",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization invites retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrganizationInviteResponse"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "User is not allowed to view invites"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "POST /api/organizations/{organization_id}/invites",
+        "description": "Create a new organization invite and send an email via the configured mailer.",
+        "operationId": "create_invite",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrganizationInviteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Invite created and email sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationInviteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "User is not allowed to create invites"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/organizations/{organization_id}/members": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "GET /api/organizations/{organization_id}/members",
+        "description": "List organization members with basic user details.",
+        "operationId": "list_members",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization members retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrganizationMemberWithUser"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "User is not a member of the organization"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/organizations/{organization_id}/plan": {
+      "get": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "GET /api/organizations/:org_id/plan",
+        "description": "Get the current plan for an organization",
+        "operationId": "get_organization_plan",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization plan retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationPlanWithDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Organization or plan not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "POST /api/organizations/:org_id/plan",
+        "description": "Upgrade or downgrade an organization's plan",
+        "operationId": "change_organization_plan",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePlanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Plan changed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationPlanWithDetails"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "404": {
+            "description": "Organization or plan not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/organizations/{organization_id}/quota": {
+      "get": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "GET /api/organizations/:org_id/quota",
+        "description": "Get current quota usage for an organization",
+        "operationId": "get_quota_usage",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Quota usage retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaUsage"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Organization or plan not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
       }
     },
     "/api/organizations/{organization_id}/vpc-endpoints": {
@@ -646,6 +1400,74 @@
         ]
       }
     },
+    "/api/plans": {
+      "get": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "GET /api/plans",
+        "description": "List all available subscription plans",
+        "operationId": "list_plans",
+        "responses": {
+          "200": {
+            "description": "Plans retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Plan"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/plans/{plan_id}": {
+      "get": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "GET /api/plans/:plan_id",
+        "description": "Get details of a specific plan",
+        "operationId": "get_plan",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "description": "Plan ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Plan retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Plan not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/api/projects": {
       "get": {
         "tags": [
@@ -917,7 +1739,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ControlPlaneCreateBranchPayload"
+                "$ref": "#/components/schemas/CreateBranchRequest"
               }
             }
           },
@@ -1155,6 +1977,7 @@
           "Branches"
         ],
         "summary": "Get connection string for a branch",
+        "description": "This endpoint prefers SerenDB proxy-based connection strings when proxy\nconfiguration is available. It falls back to direct compute connection\nstrings only when the proxy is not configured. Clients cannot disable\nproxy usage via this API.",
         "operationId": "get_connection_string",
         "parameters": [
           {
@@ -3227,6 +4050,77 @@
         ]
       }
     },
+    "/api/projects/{project_id}/consumption": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "GET /api/projects/{project_id}/consumption",
+        "description": "Aggregated project-level consumption (compute, storage, PITR, network) over a billing window.",
+        "operationId": "get_project_consumption",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "start_date",
+            "in": "query",
+            "description": "Optional ISO-8601 start date (YYYY-MM-DD), defaults to first day of current month.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "description": "Optional ISO-8601 end date (YYYY-MM-DD), defaults to today (UTC).",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project consumption retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectConsumption"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "User is not a member of the organization"
+          },
+          "404": {
+            "description": "Project not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/projects/{project_id}/endpoints": {
       "get": {
         "tags": [
@@ -3565,7 +4459,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/crate.models.ip_allow_list.IpAllowList"
+                    "$ref": "#/components/schemas/IpAllowList"
                   }
                 }
               }
@@ -3618,7 +4512,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/crate.models.ip_allow_list.IpAllowList"
+                  "$ref": "#/components/schemas/IpAllowList"
                 }
               }
             }
@@ -3680,7 +4574,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/crate.models.ip_allow_list.IpAllowList"
+                    "$ref": "#/components/schemas/IpAllowList"
                   }
                 }
               }
@@ -4308,6 +5202,78 @@
           }
         }
       },
+      "BalanceResponse": {
+        "type": "object",
+        "required": [
+          "balance",
+          "endpoint_id"
+        ],
+        "properties": {
+          "balance": {
+            "type": "number",
+            "format": "double"
+          },
+          "endpoint_id": {
+            "type": "string"
+          }
+        }
+      },
+      "BillingHealthResponse": {
+        "type": "object",
+        "description": "High-level billing health summary.",
+        "required": [
+          "daily_aggregation_ok",
+          "has_recent_daily_run",
+          "daily_aggregation_failures_total",
+          "jobs"
+        ],
+        "properties": {
+          "daily_aggregation_failures_total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total failures recorded for the daily aggregation job since process start.",
+            "minimum": 0
+          },
+          "daily_aggregation_ok": {
+            "type": "boolean",
+            "description": "True when we have a recent daily aggregation run and no known failures."
+          },
+          "has_recent_daily_run": {
+            "type": "boolean",
+            "description": "True when the last daily aggregation was within the expected window (<= 30h old)."
+          },
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BillingJobHealth"
+            },
+            "description": "Failure counters per billing job since process start."
+          },
+          "last_daily_aggregation_run_utc": {
+            "type": "string",
+            "description": "Last time daily_aggregated_usage was written, in UTC (RFC3339).",
+            "nullable": true
+          }
+        }
+      },
+      "BillingJobHealth": {
+        "type": "object",
+        "description": "Billing job health for a single background job.",
+        "required": [
+          "job",
+          "failures_total"
+        ],
+        "properties": {
+          "failures_total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "job": {
+            "type": "string"
+          }
+        }
+      },
       "Branch": {
         "type": "object",
         "description": "Branch represents a SerenDB timeline (database copy)",
@@ -4357,6 +5323,18 @@
             "type": "string",
             "nullable": true
           },
+          "is_primary": {
+            "type": "boolean"
+          },
+          "last_reset_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "logical_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
           "name": {
             "type": "string"
           },
@@ -4374,6 +5352,10 @@
             "format": "date-time",
             "nullable": true
           },
+          "physical_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
           "project_id": {
             "type": "string",
             "format": "uuid"
@@ -4388,6 +5370,19 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "BranchCountResponse": {
+        "type": "object",
+        "description": "Branch count response",
+        "required": [
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -4475,9 +5470,42 @@
           }
         }
       },
+      "ChangePlanRequest": {
+        "type": "object",
+        "description": "Request to upgrade/downgrade an organization's plan",
+        "required": [
+          "plan_id"
+        ],
+        "properties": {
+          "plan_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stripe_payment_method_id": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "ComputeUsageEventDebugRecord": {
+        "type": "object",
+        "description": "Debug view: compute_usage_events entry for an endpoint",
+        "required": [
+          "event_type",
+          "event_time"
+        ],
+        "properties": {
+          "event_time": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          }
+        }
+      },
       "ConnectionStringResponse": {
         "type": "object",
-        "description": "Response for a single, canonical connection string. The backend prefers SerenDB proxy-based connection strings when proxy configuration is available, and falls back to direct compute connection strings only when the proxy is not configured.",
+        "description": "Response for a single, canonical connection string.\n\nThe backend always prefers SerenDB proxy-based connection strings when\nproxy configuration is available, and falls back to direct compute\nconnection strings only when the proxy is not configured.",
         "required": [
           "connection_string"
         ],
@@ -4485,6 +5513,164 @@
           "connection_string": {
             "type": "string",
             "description": "Fully resolved PostgreSQL connection string (proxy preferred)."
+          }
+        }
+      },
+      "ConsumptionPeriod": {
+        "type": "object",
+        "description": "ConsumptionPeriod represents usage metrics for a billing period",
+        "required": [
+          "id",
+          "project_id",
+          "organization_id",
+          "period_id",
+          "period_start",
+          "period_end",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "active_time_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "compute_time_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data_transfer_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "period_id": {
+            "type": "string"
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "synthetic_storage_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "written_data_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ConsumptionPeriodData": {
+        "type": "object",
+        "description": "ConsumptionPeriodData for API responses (simplified)",
+        "required": [
+          "period_id"
+        ],
+        "properties": {
+          "active_time_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "compute_time_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "data_transfer_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "period_id": {
+            "type": "string"
+          },
+          "synthetic_storage_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "written_data_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ConsumptionQueryParams": {
+        "type": "object",
+        "description": "Query parameters for consumption endpoints (reusing the billing usage pattern).",
+        "properties": {
+          "end_date": {
+            "type": "string",
+            "description": "Optional ISO-8601 end date (YYYY-MM-DD), defaults to today (UTC).",
+            "nullable": true
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Optional ISO-8601 start date (YYYY-MM-DD), defaults to first day of current month.",
+            "nullable": true
+          }
+        }
+      },
+      "ConsumptionSummary": {
+        "type": "object",
+        "description": "ConsumptionSummary represents aggregated usage for a period",
+        "properties": {
+          "active_time_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "compute_time_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "data_transfer_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "synthetic_storage_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "written_data_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "CreateApiKeyRequest": {
+        "type": "object",
+        "description": "Request to create a new API key",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "expires_in_days": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
           }
         }
       },
@@ -4563,6 +5749,13 @@
             "type": "string",
             "nullable": true
           },
+          "is_primary": {
+            "type": "boolean"
+          },
+          "logical_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
           "name": {
             "type": "string"
           },
@@ -4579,6 +5772,10 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          },
+          "physical_size_bytes": {
+            "type": "integer",
+            "format": "int64"
           },
           "project_id": {
             "type": "string",
@@ -4736,6 +5933,24 @@
           }
         }
       },
+      "CreateOrganizationInviteRequest": {
+        "type": "object",
+        "description": "Request body for creating an organization invite.",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address of the invitee."
+          },
+          "role": {
+            "type": "string",
+            "description": "Optional role for the invitee (defaults to member).",
+            "nullable": true
+          }
+        }
+      },
       "CreateOrganizationVpcEndpointRequest": {
         "type": "object",
         "required": [
@@ -4821,6 +6036,10 @@
           "block_vpc_connections": {
             "type": "boolean"
           },
+          "branch_count": {
+            "type": "integer",
+            "format": "int32"
+          },
           "compute_unit_max": {
             "type": "integer",
             "format": "int32"
@@ -4847,11 +6066,18 @@
             "type": "string",
             "format": "uuid"
           },
+          "postgres_version": {
+            "type": "string"
+          },
           "protected_branches_only": {
             "type": "boolean"
           },
           "region": {
             "type": "string"
+          },
+          "storage_bytes": {
+            "type": "integer",
+            "format": "int64"
           },
           "tenant_id": {
             "type": "string",
@@ -4899,6 +6125,31 @@
           },
           "password": {
             "type": "string"
+          }
+        }
+      },
+      "DataOrganizationsResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Organization"
+            }
+          }
+        }
+      },
+      "DataUserResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UserResponse"
           }
         }
       },
@@ -4985,6 +6236,48 @@
           }
         }
       },
+      "DeductBalanceRequest": {
+        "type": "object",
+        "required": [
+          "endpoint_id",
+          "amount",
+          "query_hash",
+          "timestamp"
+        ],
+        "properties": {
+          "amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "endpoint_id": {
+            "type": "string"
+          },
+          "query_hash": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "DeductBalanceResponse": {
+        "type": "object",
+        "required": [
+          "new_balance",
+          "transaction_id"
+        ],
+        "properties": {
+          "new_balance": {
+            "type": "number",
+            "format": "double"
+          },
+          "transaction_id": {
+            "type": "string"
+          }
+        }
+      },
       "Endpoint": {
         "type": "object",
         "description": "Endpoint represents a compute instance for a branch",
@@ -5007,6 +6300,10 @@
           "updated_at"
         ],
         "properties": {
+          "active_time_seconds": {
+            "type": "number",
+            "format": "double"
+          },
           "admin_password_plaintext": {
             "type": "string",
             "nullable": true
@@ -5027,6 +6324,10 @@
           "compute_unit": {
             "type": "string"
           },
+          "connection_count": {
+            "type": "integer",
+            "format": "int32"
+          },
           "connection_string": {
             "type": "string",
             "nullable": true
@@ -5046,6 +6347,10 @@
           "created_by": {
             "type": "string",
             "format": "uuid"
+          },
+          "current_state": {
+            "type": "string",
+            "nullable": true
           },
           "deleted_at": {
             "type": "string",
@@ -5077,7 +6382,7 @@
             "type": "string",
             "nullable": true
           },
-          "last_activity_at": {
+          "last_active_at": {
             "type": "string",
             "format": "date-time",
             "nullable": true
@@ -5129,6 +6434,48 @@
           }
         }
       },
+      "EndpointBillingEventsResponse": {
+        "type": "object",
+        "description": "Combined debug response for an endpoint's billing events",
+        "required": [
+          "organization_id",
+          "endpoint_id",
+          "usage_events",
+          "compute_usage_events"
+        ],
+        "properties": {
+          "compute_usage_events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComputeUsageEventDebugRecord"
+            }
+          },
+          "endpoint_id": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": "string"
+          },
+          "usage_events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsageEventDebugRecord"
+            }
+          }
+        }
+      },
+      "EndpointStatus": {
+        "type": "string",
+        "description": "Endpoint status enum",
+        "enum": [
+          "creating",
+          "active",
+          "idle",
+          "suspended",
+          "error",
+          "deleting"
+        ]
+      },
       "EndpointStatusResponse": {
         "type": "object",
         "description": "Status response used by lifecycle endpoints",
@@ -5151,6 +6498,129 @@
           },
           "status": {
             "type": "string"
+          }
+        }
+      },
+      "GenerateInvoicesRequest": {
+        "type": "object",
+        "required": [
+          "year",
+          "month"
+        ],
+        "properties": {
+          "month": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "year": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "GenerateInvoicesResponse": {
+        "type": "object",
+        "required": [
+          "invoice_ids",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "invoice_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "InvoiceLineItemResponse": {
+        "type": "object",
+        "required": [
+          "description",
+          "line_type",
+          "quantity",
+          "unit_price",
+          "amount_usd"
+        ],
+        "properties": {
+          "amount_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "description": {
+            "type": "string"
+          },
+          "line_type": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit_price": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "InvoiceResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "organization_id",
+          "invoice_number",
+          "period_start",
+          "period_end",
+          "subtotal_usd",
+          "tax_usd",
+          "total_usd",
+          "status",
+          "line_items"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoice_number": {
+            "type": "string"
+          },
+          "line_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceLineItemResponse"
+            }
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "period_end": {
+            "type": "string"
+          },
+          "period_start": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "subtotal_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "tax_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "total_usd": {
+            "type": "number",
+            "format": "double"
           }
         }
       },
@@ -5196,6 +6666,36 @@
           }
         }
       },
+      "LimitsResponse": {
+        "type": "object",
+        "description": "Limits response for API (simplified)",
+        "properties": {
+          "branches": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "compute_hours": {
+            "type": "number",
+            "format": "double"
+          },
+          "data_transfer_gb": {
+            "type": "number",
+            "format": "double"
+          },
+          "logical_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "projects": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "storage_gb": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "LsnByTimestampResponse": {
         "type": "object",
         "description": "Response for LSN by timestamp query",
@@ -5218,6 +6718,7 @@
           "resource_id",
           "status",
           "progress",
+          "metadata",
           "created_by",
           "created_at",
           "updated_at"
@@ -5245,11 +6746,7 @@
             "format": "uuid"
           },
           "metadata": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/sqlx.types.JsonValue"
-              }
-            ],
+            "type": "object",
             "nullable": true
           },
           "operation_type": {
@@ -5335,6 +6832,329 @@
           }
         }
       },
+      "OrganizationConsumption": {
+        "type": "object",
+        "description": "OrganizationConsumption wraps organization-wide consumption",
+        "required": [
+          "organization_id",
+          "from",
+          "to",
+          "periods",
+          "current_month"
+        ],
+        "properties": {
+          "current_month": {
+            "$ref": "#/components/schemas/ConsumptionSummary"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConsumptionPeriodData"
+            }
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OrganizationInvite": {
+        "type": "object",
+        "description": "Organization invite row.",
+        "required": [
+          "id",
+          "organization_id",
+          "email",
+          "role",
+          "invited_by",
+          "token",
+          "expires_at",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "accepted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "email": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invited_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revoked_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "role": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OrganizationInviteResponse": {
+        "type": "object",
+        "description": "Response type for invites (token is not exposed over the API).",
+        "required": [
+          "id",
+          "organization_id",
+          "email",
+          "role",
+          "invited_by",
+          "expires_at",
+          "created_at"
+        ],
+        "properties": {
+          "accepted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "email": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invited_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revoked_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "OrganizationLimits": {
+        "type": "object",
+        "description": "Limits represents resource quotas for an organization",
+        "required": [
+          "id",
+          "organization_id",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "branches": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "compute_hours": {
+            "type": "number",
+            "format": "double"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data_transfer_gb": {
+            "type": "number",
+            "format": "double"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "logical_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "projects": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "storage_gb": {
+            "type": "number",
+            "format": "double"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OrganizationMemberWithUser": {
+        "type": "object",
+        "description": "Organization member with denormalized user fields for API responses.",
+        "required": [
+          "id",
+          "organization_id",
+          "user_id",
+          "email",
+          "role",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "OrganizationPlan": {
+        "type": "object",
+        "description": "OrganizationPlan tracks which plan an organization is currently on",
+        "required": [
+          "id",
+          "organization_id",
+          "plan_id",
+          "started_at",
+          "is_trial",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "cancellation_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelled_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "cancelled_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ends_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_trial": {
+            "type": "boolean"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "stripe_subscription_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "trial_ends_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OrganizationPlanWithDetails": {
+        "type": "object",
+        "description": "Response type that includes both the plan and organization_plan details",
+        "required": [
+          "organization_plan",
+          "plan"
+        ],
+        "properties": {
+          "organization_plan": {
+            "$ref": "#/components/schemas/OrganizationPlan"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/Plan"
+          }
+        }
+      },
       "OrganizationVpcEndpoint": {
         "type": "object",
         "required": [
@@ -5378,6 +7198,138 @@
           }
         }
       },
+      "Plan": {
+        "type": "object",
+        "description": "Plan represents a subscription tier (Free, Launch, Scale)",
+        "required": [
+          "id",
+          "name",
+          "display_name",
+          "price_monthly",
+          "max_compute_units",
+          "max_branches_per_project",
+          "support_level",
+          "ip_allowlist_enabled",
+          "vpc_enabled",
+          "sso_enabled",
+          "audit_logs_enabled",
+          "monitoring_enabled",
+          "is_active",
+          "sort_order",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "audit_logs_enabled": {
+            "type": "boolean"
+          },
+          "compute_hours_quota": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "compute_price_per_cu_hour": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data_transfer_price_per_gb": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ip_allowlist_enabled": {
+            "type": "boolean"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "max_branches_per_project": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "max_compute_units": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "max_databases_per_branch": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "max_endpoints_per_branch": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "max_projects": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "monitoring_enabled": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pitr_price_per_gb_month": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_monthly": {
+            "type": "string"
+          },
+          "scale_to_zero_delay_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "sla_uptime_percent": {
+            "type": "string",
+            "nullable": true
+          },
+          "sort_order": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "sso_enabled": {
+            "type": "boolean"
+          },
+          "storage_gb_quota": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "storage_price_per_gb_month": {
+            "type": "string",
+            "nullable": true
+          },
+          "support_level": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "vpc_enabled": {
+            "type": "boolean"
+          }
+        }
+      },
       "PointInTime": {
         "oneOf": [
           {
@@ -5408,6 +7360,14 @@
         ],
         "description": "Point in time specification (timestamp or LSN)"
       },
+      "PoolerMode": {
+        "type": "string",
+        "description": "Pooler mode enum",
+        "enum": [
+          "transaction",
+          "session"
+        ]
+      },
       "Project": {
         "type": "object",
         "description": "Project represents a SerenDB database instance",
@@ -5428,11 +7388,24 @@
           "compute_unit_max"
         ],
         "properties": {
+          "active_time_seconds": {
+            "type": "number",
+            "format": "double"
+          },
           "block_public_connections": {
             "type": "boolean"
           },
           "block_vpc_connections": {
             "type": "boolean"
+          },
+          "branch_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "compute_last_active_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
           },
           "compute_unit_max": {
             "type": "integer",
@@ -5450,6 +7423,14 @@
             "type": "string",
             "format": "uuid"
           },
+          "default_compute_size_max": {
+            "type": "number",
+            "format": "float"
+          },
+          "default_compute_size_min": {
+            "type": "number",
+            "format": "float"
+          },
           "deleted_at": {
             "type": "string",
             "format": "date-time",
@@ -5463,6 +7444,10 @@
           "hipaa": {
             "type": "boolean"
           },
+          "history_retention_seconds": {
+            "type": "integer",
+            "format": "int64"
+          },
           "id": {
             "type": "string",
             "format": "uuid"
@@ -5474,11 +7459,18 @@
             "type": "string",
             "format": "uuid"
           },
+          "postgres_version": {
+            "type": "string"
+          },
           "protected_branches_only": {
             "type": "boolean"
           },
           "region": {
             "type": "string"
+          },
+          "storage_bytes": {
+            "type": "integer",
+            "format": "int64"
           },
           "tenant_id": {
             "type": "string",
@@ -5525,6 +7517,40 @@
         "properties": {
           "uri": {
             "type": "string"
+          }
+        }
+      },
+      "ProjectConsumption": {
+        "type": "object",
+        "description": "ProjectConsumption wraps consumption data for API responses",
+        "required": [
+          "project_id",
+          "from",
+          "to",
+          "periods",
+          "current_month"
+        ],
+        "properties": {
+          "current_month": {
+            "$ref": "#/components/schemas/ConsumptionSummary"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConsumptionPeriodData"
+            }
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -5592,6 +7618,169 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "QuotaCheckResult": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "Operation allowed",
+            "enum": [
+              "Allowed"
+            ]
+          },
+          {
+            "type": "object",
+            "required": [
+              "QuotaExceeded"
+            ],
+            "properties": {
+              "QuotaExceeded": {
+                "type": "object",
+                "description": "Operation would exceed quota",
+                "required": [
+                  "quota_type",
+                  "current",
+                  "limit",
+                  "message"
+                ],
+                "properties": {
+                  "current": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "quota_type": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "string",
+            "description": "No plan found for organization",
+            "enum": [
+              "NoPlanFound"
+            ]
+          }
+        ],
+        "description": "Enum for quota check results"
+      },
+      "QuotaUsage": {
+        "type": "object",
+        "description": "Quota usage summary for an organization",
+        "required": [
+          "organization_id",
+          "plan",
+          "current_storage_gb",
+          "current_compute_hours",
+          "current_projects",
+          "current_branches",
+          "is_over_storage_quota",
+          "is_over_compute_quota",
+          "is_over_projects_quota"
+        ],
+        "properties": {
+          "compute_hours_usage_percent": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "current_branches": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "current_compute_hours": {
+            "type": "number",
+            "format": "double"
+          },
+          "current_projects": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "current_storage_gb": {
+            "type": "number",
+            "format": "double"
+          },
+          "is_over_compute_quota": {
+            "type": "boolean"
+          },
+          "is_over_projects_quota": {
+            "type": "boolean"
+          },
+          "is_over_storage_quota": {
+            "type": "boolean"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/Plan"
+          },
+          "projects_usage_percent": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "storage_usage_percent": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          }
+        }
+      },
+      "RefundTransactionRequest": {
+        "type": "object",
+        "required": [
+          "endpoint_id",
+          "transaction_id",
+          "amount",
+          "reason",
+          "timestamp"
+        ],
+        "properties": {
+          "amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "endpoint_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "transaction_id": {
+            "type": "string"
+          }
+        }
+      },
+      "RefundTransactionResponse": {
+        "type": "object",
+        "required": [
+          "new_balance",
+          "refund_id"
+        ],
+        "properties": {
+          "new_balance": {
+            "type": "number",
+            "format": "double"
+          },
+          "refund_id": {
+            "type": "string"
           }
         }
       },
@@ -5958,6 +8147,42 @@
           }
         }
       },
+      "UpdateLimitsRequest": {
+        "type": "object",
+        "description": "Request to update organization limits",
+        "properties": {
+          "branches": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "compute_hours": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "data_transfer_gb": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "logical_size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "projects": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "storage_gb": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          }
+        }
+      },
       "UpdateProjectRequest": {
         "type": "object",
         "description": "Request to update a project",
@@ -5994,6 +8219,129 @@
           }
         }
       },
+      "UsageEventDebugRecord": {
+        "type": "object",
+        "description": "Debug view: usage_events entry for an endpoint",
+        "required": [
+          "event_type",
+          "quantity",
+          "unit",
+          "metadata",
+          "event_timestamp"
+        ],
+        "properties": {
+          "event_timestamp": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "string",
+            "description": "Raw JSON metadata as a string for debugging purposes."
+          },
+          "quantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "type": "string"
+          }
+        }
+      },
+      "UsageQueryParams": {
+        "type": "object",
+        "properties": {
+          "end_date": {
+            "type": "string",
+            "nullable": true
+          },
+          "start_date": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "UsageSummary": {
+        "type": "object",
+        "required": [
+          "organization_id",
+          "project_id",
+          "project_name",
+          "project_region",
+          "period_start",
+          "period_end",
+          "compute_hours_small",
+          "compute_hours_medium",
+          "compute_hours_large",
+          "compute_hours_xlarge",
+          "storage_gb_avg",
+          "pitr_gb_avg",
+          "compute_cost_usd",
+          "storage_cost_usd",
+          "total_cost_usd"
+        ],
+        "properties": {
+          "compute_cost_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "compute_hours_large": {
+            "type": "number",
+            "format": "double"
+          },
+          "compute_hours_medium": {
+            "type": "number",
+            "format": "double"
+          },
+          "compute_hours_small": {
+            "type": "number",
+            "format": "double"
+          },
+          "compute_hours_xlarge": {
+            "type": "number",
+            "format": "double"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "period_end": {
+            "type": "string"
+          },
+          "period_start": {
+            "type": "string"
+          },
+          "pitr_gb_avg": {
+            "type": "number",
+            "format": "double"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "project_name": {
+            "type": "string",
+            "description": "Human-readable project name (denormalized for convenience)."
+          },
+          "project_region": {
+            "type": "string",
+            "description": "Cloud region for the project (e.g., aws-us-east-1)."
+          },
+          "storage_cost_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "storage_gb_avg": {
+            "type": "number",
+            "format": "double"
+          },
+          "total_cost_usd": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "UserResponse": {
         "type": "object",
         "description": "Combined user view for API responses",
@@ -6025,6 +8373,49 @@
           },
           "status": {
             "$ref": "#/components/schemas/UserStatus"
+          }
+        }
+      },
+      "UserStatus": {
+        "type": "string",
+        "description": "User status enum matching PostgreSQL enum",
+        "enum": [
+          "active",
+          "deleted",
+          "disabled",
+          "paused"
+        ]
+      },
+      "ValidateTokenRequest": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "ValidateTokenResponse": {
+        "type": "object",
+        "required": [
+          "endpoint_id",
+          "balance",
+          "expires_at"
+        ],
+        "properties": {
+          "balance": {
+            "type": "number",
+            "format": "double"
+          },
+          "endpoint_id": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       }
@@ -6070,6 +8461,14 @@
     {
       "name": "VPC",
       "description": "VPC endpoint management"
+    },
+    {
+      "name": "billing",
+      "description": "x402 billing and metering endpoints"
+    },
+    {
+      "name": "Plans",
+      "description": "Subscription plans and quota management"
     }
   ]
 }

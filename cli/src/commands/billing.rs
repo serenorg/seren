@@ -74,18 +74,26 @@ pub async fn get_invoice(
             println!("  ID:              {}", invoice.id);
             println!("  Number:          {}", invoice.invoice_number);
             println!("  Organization:    {}", invoice.organization_id);
-            println!("  Period:          {} to {}", invoice.period_start, invoice.period_end);
+            println!(
+                "  Period:          {} to {}",
+                invoice.period_start, invoice.period_end
+            );
             println!("  Status:          {}", invoice.status);
             println!("  Subtotal:        ${:.2}", invoice.subtotal_usd);
             println!("  Tax:             ${:.2}", invoice.tax_usd);
-            println!("  Total:           ${:.2}", invoice.total_usd.to_string().bold());
-            
+            println!(
+                "  Total:           ${:.2}",
+                invoice.total_usd.to_string().bold()
+            );
+
             if !invoice.line_items.is_empty() {
                 println!("\n{}", "Line Items".bold());
                 for item in &invoice.line_items {
                     println!("  {} ({})", item.description, item.line_type);
-                    println!("    Quantity: {:.2}, Unit Price: ${:.4}, Amount: ${:.2}",
-                        item.quantity, item.unit_price, item.amount_usd);
+                    println!(
+                        "    Quantity: {:.2}, Unit Price: ${:.4}, Amount: ${:.2}",
+                        item.quantity, item.unit_price, item.amount_usd
+                    );
                 }
             }
         }

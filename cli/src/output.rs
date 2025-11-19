@@ -363,9 +363,7 @@ pub fn print_usage_summaries_table(summaries: &[seren::UsageSummary]) {
     println!("{table}");
     println!(
         "\n{}",
-        format!("Total Cost: ${:.2}", grand_total)
-            .green()
-            .bold()
+        format!("Total Cost: ${:.2}", grand_total).green().bold()
     );
 }
 
@@ -656,10 +654,7 @@ pub fn print_create_endpoint_response(
                 .as_deref()
                 .or_else(|| response.connection_string.as_deref())
                 .unwrap_or("");
-            table.add_row(vec![
-                Cell::new("Connection String"),
-                Cell::new(conn_str),
-            ]);
+            table.add_row(vec![Cell::new("Connection String"), Cell::new(conn_str)]);
             table.add_row(vec![
                 Cell::new("Created At"),
                 Cell::new(response.created_at.to_string()),
@@ -735,14 +730,8 @@ pub fn print_connection_string(
                     Cell::new("Field").fg(Color::Green),
                     Cell::new("Value").fg(Color::Green),
                 ]);
-                table.add_row(vec![
-                    Cell::new("Connection String"),
-                    Cell::new(&active),
-                ]);
-                table.add_row(vec![
-                    Cell::new("Prisma Format"),
-                    Cell::new(&prisma_str),
-                ]);
+                table.add_row(vec![Cell::new("Connection String"), Cell::new(&active)]);
+                table.add_row(vec![Cell::new("Prisma Format"), Cell::new(&prisma_str)]);
 
                 println!("{table}");
             }
@@ -765,10 +754,7 @@ pub fn print_connection_string(
                     Cell::new("Field").fg(Color::Green),
                     Cell::new("Value").fg(Color::Green),
                 ]);
-                table.add_row(vec![
-                    Cell::new("Connection String"),
-                    Cell::new(&active),
-                ]);
+                table.add_row(vec![Cell::new("Connection String"), Cell::new(&active)]);
 
                 println!("{table}");
             }
@@ -924,7 +910,9 @@ pub fn print_operation(operation: &seren::Operation, format: OutputFormat) -> an
                 table.add_row(vec!["Error", error]);
             }
             if let Some(metadata) = &operation.metadata {
-                table.add_row(vec!["Metadata", &metadata.to_string()]);
+                let metadata_str =
+                    serde_json::to_string(&metadata).unwrap_or_else(|_| "<invalid>".to_string());
+                table.add_row(vec!["Metadata", &metadata_str]);
             }
 
             println!("{table}");

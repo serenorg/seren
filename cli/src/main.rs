@@ -54,6 +54,11 @@ enum Commands {
     Me,
     /// List organizations
     Organizations,
+    /// Manage organizations (members, invites)
+    Orgs {
+        #[command(subcommand)]
+        action: OrgAction,
+    },
     /// Manage projects
     Projects {
         #[command(subcommand)]
@@ -155,6 +160,34 @@ enum AuthAction {
     Status,
     /// Logout and remove stored credentials
     Logout,
+}
+
+#[derive(Subcommand)]
+enum OrgAction {
+    /// List members in an organization
+    Members {
+        /// Organization ID
+        #[arg(long)]
+        org_id: String,
+    },
+    /// List invites for an organization
+    Invites {
+        /// Organization ID
+        #[arg(long)]
+        org_id: String,
+    },
+    /// Create an invite for an organization
+    Invite {
+        /// Organization ID
+        #[arg(long)]
+        org_id: String,
+        /// Email address to invite
+        #[arg(long)]
+        email: String,
+        /// Role for the invited member (owner, admin, or member)
+        #[arg(long, default_value = "member")]
+        role: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -715,7 +748,7 @@ enum BillingAction {
         /// Year (e.g., 2024)
         #[arg(long)]
         year: i32,
-        
+
         /// Month (1-12)
         #[arg(long)]
         month: u8,
@@ -735,11 +768,11 @@ enum BillingAction {
         /// Organization ID
         #[arg(long)]
         organization_id: String,
-        
+
         /// Start date (YYYY-MM-DD)
         #[arg(long)]
         start_date: Option<String>,
-        
+
         /// End date (YYYY-MM-DD)
         #[arg(long)]
         end_date: Option<String>,
@@ -772,6 +805,41 @@ async fn main() -> anyhow::Result<()> {
         Commands::Organizations => {
             commands::auth::organizations(cli.format, cli.api_host, cli.api_key.clone()).await?
         }
+        Commands::Orgs { action } => match action {
+            OrgAction::Members { org_id } => {
+                commands::organizations::list_members(
+                    &org_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            OrgAction::Invites { org_id } => {
+                commands::organizations::list_invites(
+                    &org_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            OrgAction::Invite {
+                org_id,
+                email,
+                role,
+            } => {
+                commands::organizations::create_invite(
+                    &org_id,
+                    &email,
+                    &role,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+        },
         Commands::Projects { action } => match action {
             ProjectAction::List => {
                 commands::projects::list(cli.format, cli.api_host.clone(), cli.api_key.clone())
@@ -1460,12 +1528,8 @@ async fn main() -> anyhow::Result<()> {
                 .await?
             }
             BillingAction::Health => {
-                commands::billing::get_health(
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::billing::get_health(cli.format, cli.api_host.clone(), cli.api_key.clone())
+                    .await?
             }
         },
     }
