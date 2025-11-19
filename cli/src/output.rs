@@ -313,7 +313,8 @@ pub fn print_usage_summaries_table(summaries: &[seren::UsageSummary]) {
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     table.set_header(vec![
-        Cell::new("Project ID").fg(Color::Green),
+        Cell::new("Project").fg(Color::Green),
+        Cell::new("Region").fg(Color::Green),
         Cell::new("Period").fg(Color::Green),
         Cell::new("Compute (hrs)").fg(Color::Green),
         Cell::new("Storage (GB)").fg(Color::Green),
@@ -333,8 +334,21 @@ pub fn print_usage_summaries_table(summaries: &[seren::UsageSummary]) {
 
         grand_total += summary.total_cost_usd;
 
+        let project_label = if !summary.project_name.is_empty() {
+            summary.project_name.clone()
+        } else {
+            summary.project_id.clone()
+        };
+
+        let region_label = if summary.project_region.is_empty() {
+            "-".to_string()
+        } else {
+            summary.project_region.clone()
+        };
+
         table.add_row(vec![
-            Cell::new(&summary.project_id),
+            Cell::new(project_label),
+            Cell::new(region_label),
             Cell::new(format!("{} → {}", summary.period_start, summary.period_end)),
             Cell::new(format!("{:.2}", compute_hours_total)),
             Cell::new(format!("{:.2}", summary.storage_gb_avg)),

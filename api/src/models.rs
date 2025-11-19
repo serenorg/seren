@@ -163,6 +163,8 @@ pub struct InvoiceLineItem {
 pub struct UsageSummary {
     pub organization_id: String,
     pub project_id: String,
+    pub project_name: String,
+    pub project_region: String,
     pub period_start: String,
     pub period_end: String,
     pub compute_hours_small: f64,
