@@ -514,8 +514,8 @@ enum EndpointAction {
         #[arg(long)]
         name: String,
 
-        /// Compute unit (e.g., small, medium, large)
-        #[arg(long)]
+        /// Compute unit (small, medium, large, xlarge, 2xlarge, 4xlarge)
+        #[arg(long, value_parser = ["small", "medium", "large", "xlarge", "2xlarge", "4xlarge"])]
         compute_unit: Option<String>,
 
         /// Minimum autoscaling compute units
@@ -777,6 +777,17 @@ enum BillingAction {
         #[arg(long)]
         end_date: Option<String>,
     },
+    /// List payment methods for the authenticated user's primary organization
+    ListPaymentMethods,
+    /// Add a payment method using a Stripe PaymentMethod ID
+    AddPaymentMethod {
+        /// Stripe PaymentMethod ID (pm_...)
+        stripe_payment_method_id: String,
+
+        /// Set this payment method as the default
+        #[arg(long, default_value_t = true)]
+        default: bool,
+    },
     /// Validate an x402 JWT token
     ValidateToken {
         /// Token to validate
@@ -786,6 +797,11 @@ enum BillingAction {
     GetBalance {
         /// Endpoint ID
         endpoint_id: String,
+    },
+    /// Remove a stored payment method
+    RemovePaymentMethod {
+        /// Seren payment method ID (UUID)
+        id: String,
     },
     /// Get billing pipeline health
     Health,
@@ -1521,6 +1537,36 @@ async fn main() -> anyhow::Result<()> {
             BillingAction::GetBalance { endpoint_id } => {
                 commands::billing::get_balance(
                     &endpoint_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            BillingAction::ListPaymentMethods => {
+                commands::billing::list_payment_methods(
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            BillingAction::AddPaymentMethod {
+                stripe_payment_method_id,
+                default,
+            } => {
+                commands::billing::add_payment_method(
+                    &stripe_payment_method_id,
+                    default,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            BillingAction::RemovePaymentMethod { id } => {
+                commands::billing::remove_payment_method(
+                    &id,
                     cli.format,
                     cli.api_host.clone(),
                     cli.api_key.clone(),
