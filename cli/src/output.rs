@@ -33,7 +33,10 @@ pub fn print_projects_table(projects: &[seren::Project]) {
     ]);
 
     for project in projects {
-        let cu_range = format!("{}-{}", project.compute_unit_min, project.compute_unit_max);
+        let cu_range = format!(
+            "{}-{} (plan cap {})",
+            project.compute_unit_min, project.compute_unit_max, project.compute_unit_max
+        );
         table.add_row(vec![
             Cell::new(project.id.to_string()),
             Cell::new(&project.name),
@@ -80,8 +83,8 @@ pub fn print_project(project: &seren::Project, format: OutputFormat) -> anyhow::
             table.add_row(vec![
                 Cell::new("Compute Units"),
                 Cell::new(format!(
-                    "{}-{}",
-                    project.compute_unit_min, project.compute_unit_max
+                    "{}-{} (plan cap {})",
+                    project.compute_unit_min, project.compute_unit_max, project.compute_unit_max
                 )),
             ]);
             table.add_row(vec![
@@ -365,6 +368,59 @@ pub fn print_usage_summaries_table(summaries: &[seren::UsageSummary]) {
         "\n{}",
         format!("Total Cost: ${:.2}", grand_total).green().bold()
     );
+}
+
+// Billing: payment methods
+pub fn print_payment_methods_table(methods: &[crate::commands::billing::CliPaymentMethod]) {
+    if methods.is_empty() {
+        println!("No payment methods found.");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("Brand").fg(Color::Green),
+        Cell::new("Last4").fg(Color::Green),
+        Cell::new("Expires").fg(Color::Green),
+        Cell::new("Type").fg(Color::Green),
+        Cell::new("Default").fg(Color::Green),
+    ]);
+
+    for method in methods {
+        let brand = method
+            .card_brand
+            .as_deref()
+            .unwrap_or_else(|| match method.type_.as_str() {
+                "us_bank_account" => "Bank account",
+                _ => "Payment method",
+            });
+
+        let last4 = method
+            .card_last4
+            .as_deref()
+            .or_else(|| method.bank_last4.as_deref())
+            .unwrap_or("????");
+
+        let expires = match (method.card_exp_month, method.card_exp_year) {
+            (Some(m), Some(y)) => format!("{}/{}", m, y),
+            _ => "-".to_string(),
+        };
+
+        table.add_row(vec![
+            Cell::new(brand),
+            Cell::new(last4),
+            Cell::new(expires),
+            Cell::new(&method.type_),
+            Cell::new(if method.is_default { "Yes" } else { "" }),
+        ]);
+    }
+
+    println!("{}", "Payment Methods".bold());
+    println!("{table}");
 }
 
 // Billing: health summary
