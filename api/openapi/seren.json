@@ -96,6 +96,41 @@
         }
       }
     },
+    "/api/auth/forgot-password": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "POST /api/auth/forgot-password",
+        "description": "Request a password reset email",
+        "operationId": "forgot_password",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgotPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Password reset email sent if account exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataForgotPasswordResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        }
+      }
+    },
     "/api/auth/me": {
       "get": {
         "tags": [
@@ -124,6 +159,44 @@
             "bearer_auth": []
           }
         ]
+      }
+    },
+    "/api/auth/reset-password": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "POST /api/auth/reset-password",
+        "description": "Reset password using a valid token",
+        "operationId": "reset_password",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Password reset successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResetPasswordResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or expired token"
+          },
+          "404": {
+            "description": "Token not found"
+          }
+        }
       }
     },
     "/api/billing/deduct": {
@@ -301,6 +374,211 @@
             "description": "Internal server error"
           }
         }
+      }
+    },
+    "/api/billing/invoices/{id}/pay": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "POST /api/billing/invoices/:id/pay",
+        "description": "Create a payment intent for an invoice",
+        "operationId": "create_payment_intent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Invoice ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Payment intent created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatePaymentIntentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invoice not in payable state"
+          },
+          "404": {
+            "description": "Invoice not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/billing/invoices/{id}/payments": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "GET /api/billing/invoices/:id/payments",
+        "description": "Get payment history for an invoice",
+        "operationId": "get_payment_history",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Invoice ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Payment history retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentHistoryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Invoice not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/billing/payment-methods": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "GET /api/billing/payment-methods",
+        "description": "List payment methods for the organization",
+        "operationId": "list_payment_methods",
+        "responses": {
+          "200": {
+            "description": "Payment methods retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PaymentMethodResponse"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "POST /api/billing/payment-methods",
+        "description": "Add a payment method for the organization",
+        "operationId": "add_payment_method",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddPaymentMethodRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Payment method added",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddPaymentMethodResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/billing/payment-methods/{id}": {
+      "delete": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "DELETE /api/billing/payment-methods/{id}",
+        "description": "Remove a payment method from the organization",
+        "operationId": "delete_payment_method",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Payment method ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Payment method removed"
+          },
+          "404": {
+            "description": "Payment method not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
     "/api/billing/refund": {
@@ -1475,6 +1753,30 @@
         ],
         "summary": "List all projects for the authenticated user's organization",
         "operationId": "list_projects",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of items to return (default: 20, max: 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of items to skip (default: 0)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "List of projects",
@@ -5074,6 +5376,27 @@
           }
         ]
       }
+    },
+    "/api/webhooks/stripe": {
+      "post": {
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "POST /api/webhooks/stripe",
+        "description": "Handle Stripe webhook events",
+        "operationId": "handle_stripe_webhook",
+        "responses": {
+          "200": {
+            "description": "Webhook processed"
+          },
+          "400": {
+            "description": "Invalid webhook signature"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5093,6 +5416,36 @@
           "ip_address": {
             "type": "string",
             "description": "IP address or CIDR range (e.g., \"192.168.1.0/24\" or \"10.0.0.1\")"
+          }
+        }
+      },
+      "AddPaymentMethodRequest": {
+        "type": "object",
+        "required": [
+          "stripe_payment_method_id",
+          "set_as_default"
+        ],
+        "properties": {
+          "set_as_default": {
+            "type": "boolean"
+          },
+          "stripe_payment_method_id": {
+            "type": "string"
+          }
+        }
+      },
+      "AddPaymentMethodResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "message"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
           }
         }
       },
@@ -5970,6 +6323,30 @@
           }
         }
       },
+      "CreatePaymentIntentResponse": {
+        "type": "object",
+        "required": [
+          "payment_intent_id",
+          "client_secret",
+          "amount_usd",
+          "currency"
+        ],
+        "properties": {
+          "amount_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "client_secret": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "payment_intent_id": {
+            "type": "string"
+          }
+        }
+      },
       "CreateProjectRequest": {
         "type": "object",
         "description": "Request to create a new project",
@@ -5994,6 +6371,11 @@
           "compute_unit_min": {
             "type": "integer",
             "format": "int32",
+            "nullable": true
+          },
+          "enable_logical_replication": {
+            "type": "boolean",
+            "description": "Enable logical replication for this project. Sets wal_level=logical for all compute endpoints.\nOnce enabled, this cannot be disabled.",
             "nullable": true
           },
           "hipaa": {
@@ -6051,6 +6433,10 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "enable_logical_replication": {
+            "type": "boolean",
+            "description": "Whether logical replication is enabled for this project"
           },
           "hipaa": {
             "type": "boolean"
@@ -6128,6 +6514,17 @@
           }
         }
       },
+      "DataForgotPasswordResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ForgotPasswordResponse"
+          }
+        }
+      },
       "DataOrganizationsResponse": {
         "type": "object",
         "required": [
@@ -6139,6 +6536,17 @@
             "items": {
               "$ref": "#/components/schemas/Organization"
             }
+          }
+        }
+      },
+      "DataResetPasswordResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ResetPasswordResponse"
           }
         }
       },
@@ -6259,6 +6667,10 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "user_id": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -6304,8 +6716,14 @@
             "type": "number",
             "format": "double"
           },
-          "admin_password_plaintext": {
+          "admin_password_ciphertext": {
             "type": "string",
+            "format": "binary",
+            "nullable": true
+          },
+          "admin_password_nonce": {
+            "type": "string",
+            "format": "binary",
             "nullable": true
           },
           "autoscaling_max": {
@@ -6390,8 +6808,14 @@
           "name": {
             "type": "string"
           },
-          "owner_password_plaintext": {
+          "owner_password_ciphertext": {
             "type": "string",
+            "format": "binary",
+            "nullable": true
+          },
+          "owner_password_nonce": {
+            "type": "string",
+            "format": "binary",
             "nullable": true
           },
           "pg_address": {
@@ -6497,6 +6921,28 @@
             "type": "boolean"
           },
           "status": {
+            "type": "string"
+          }
+        }
+      },
+      "ForgotPasswordRequest": {
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          }
+        }
+      },
+      "ForgotPasswordResponse": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
             "type": "string"
           }
         }
@@ -6825,6 +7271,11 @@
           },
           "slug": {
             "type": "string"
+          },
+          "stripe_customer_id": {
+            "type": "string",
+            "description": "Stripe Customer ID for this organization (if billing is enabled).",
+            "nullable": true
           },
           "updated_at": {
             "type": "string",
@@ -7198,6 +7649,113 @@
           }
         }
       },
+      "PaymentHistoryResponse": {
+        "type": "object",
+        "required": [
+          "payments"
+        ],
+        "properties": {
+          "payments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentRecordResponse"
+            }
+          }
+        }
+      },
+      "PaymentMethodResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "type_",
+          "is_default"
+        ],
+        "properties": {
+          "bank_last4": {
+            "type": "string",
+            "nullable": true
+          },
+          "card_brand": {
+            "type": "string",
+            "nullable": true
+          },
+          "card_exp_month": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "card_exp_year": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "card_last4": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "type_": {
+            "type": "string"
+          }
+        }
+      },
+      "PaymentRecordResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "stripe_payment_intent_id",
+          "amount_usd",
+          "currency",
+          "status",
+          "attempted_at"
+        ],
+        "properties": {
+          "amount_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "attempted_at": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "failed_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "failure_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "failure_message": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "stripe_charge_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "stripe_payment_intent_id": {
+            "type": "string"
+          },
+          "succeeded_at": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "Plan": {
         "type": "object",
         "description": "Plan represents a subscription tier (Free, Launch, Scale)",
@@ -7316,6 +7874,11 @@
           },
           "storage_price_per_gb_month": {
             "type": "string",
+            "nullable": true
+          },
+          "stripe_price_id": {
+            "type": "string",
+            "description": "Stripe Price ID used for recurring subscriptions on this plan (for paid tiers).",
             "nullable": true
           },
           "support_level": {
@@ -7440,6 +8003,9 @@
             "type": "string",
             "format": "uuid",
             "nullable": true
+          },
+          "enable_logical_replication": {
+            "type": "boolean"
           },
           "hipaa": {
             "type": "boolean"
@@ -7765,6 +8331,10 @@
           },
           "transaction_id": {
             "type": "string"
+          },
+          "user_id": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -7837,6 +8407,32 @@
               "$ref": "#/components/schemas/ResetIpAllowListEntry"
             },
             "description": "Entries that should remain in the allow list after the reset.\nEmpty list means the allow list is cleared."
+          }
+        }
+      },
+      "ResetPasswordRequest": {
+        "type": "object",
+        "required": [
+          "token",
+          "new_password"
+        ],
+        "properties": {
+          "new_password": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "ResetPasswordResponse": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
           }
         }
       },
@@ -8022,12 +8618,14 @@
           "name": {
             "type": "string"
           },
-          "password_hash": {
+          "password_ciphertext": {
             "type": "string",
+            "format": "binary",
             "nullable": true
           },
-          "password_plaintext": {
+          "password_nonce": {
             "type": "string",
+            "format": "binary",
             "nullable": true
           },
           "protected": {
@@ -8203,6 +8801,11 @@
           "compute_unit_min": {
             "type": "integer",
             "format": "int32",
+            "nullable": true
+          },
+          "enable_logical_replication": {
+            "type": "boolean",
+            "description": "Enable logical replication for this project. Sets wal_level=logical for all compute endpoints.\nOnce enabled, this cannot be disabled. Enabling will suspend all active endpoints.",
             "nullable": true
           },
           "hipaa": {
@@ -8401,6 +9004,7 @@
         "type": "object",
         "required": [
           "endpoint_id",
+          "user_id",
           "balance",
           "expires_at"
         ],
@@ -8416,6 +9020,9 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "user_id": {
+            "type": "string"
           }
         }
       }
@@ -8465,6 +9072,10 @@
     {
       "name": "billing",
       "description": "x402 billing and metering endpoints"
+    },
+    {
+      "name": "payments",
+      "description": "Stripe payments and payment methods"
     },
     {
       "name": "Plans",

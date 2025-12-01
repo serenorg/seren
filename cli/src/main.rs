@@ -236,6 +236,10 @@ enum ProjectAction {
         /// Maximum compute units for default sizing
         #[arg(long)]
         compute_unit_max: Option<i32>,
+
+        /// Enable logical replication (sets wal_level=logical). Cannot be disabled once enabled.
+        #[arg(long)]
+        enable_logical_replication: Option<bool>,
     },
     /// Retrieve a project-level connection URI
     ConnectionUri {
@@ -302,6 +306,10 @@ enum ProjectAction {
         /// Maximum compute units
         #[arg(long)]
         compute_unit_max: Option<i32>,
+
+        /// Enable logical replication (sets wal_level=logical). Cannot be disabled once enabled.
+        #[arg(long)]
+        enable_logical_replication: Option<bool>,
     },
     /// Delete a project
     Delete {
@@ -874,6 +882,7 @@ async fn main() -> anyhow::Result<()> {
                 protected_branches_only,
                 compute_unit_min,
                 compute_unit_max,
+                enable_logical_replication,
                 ..
             } => {
                 commands::projects::create(
@@ -885,6 +894,7 @@ async fn main() -> anyhow::Result<()> {
                     protected_branches_only,
                     compute_unit_min,
                     compute_unit_max,
+                    enable_logical_replication,
                     cli.format,
                     cli.api_host.clone(),
                     cli.api_key.clone(),
@@ -900,6 +910,7 @@ async fn main() -> anyhow::Result<()> {
                 protected_branches_only,
                 compute_unit_min,
                 compute_unit_max,
+                enable_logical_replication,
             } => {
                 commands::projects::update(
                     &id,
@@ -910,6 +921,7 @@ async fn main() -> anyhow::Result<()> {
                     protected_branches_only,
                     compute_unit_min,
                     compute_unit_max,
+                    enable_logical_replication,
                     cli.format,
                     cli.api_host.clone(),
                     cli.api_key.clone(),

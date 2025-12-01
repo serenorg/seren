@@ -85,6 +85,8 @@ pub async fn create(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create endpoint: {}", e))?;
 
+    println!("{}", "✓ Endpoint created successfully!".green().bold());
+
     match format {
         OutputFormat::Json => output::print_json(&endpoint)?,
         OutputFormat::Table => output::print_create_endpoint_response(&endpoint, format)?,

@@ -68,6 +68,7 @@ pub async fn create(
     protected_branches_only: Option<bool>,
     compute_unit_min: Option<i32>,
     compute_unit_max: Option<i32>,
+    enable_logical_replication: Option<bool>,
     format: OutputFormat,
     api_host: Option<String>,
     api_key: Option<String>,
@@ -94,6 +95,7 @@ pub async fn create(
         protected_branches_only,
         compute_unit_min,
         compute_unit_max,
+        enable_logical_replication,
     };
 
     let project = client
@@ -118,6 +120,7 @@ pub async fn update(
     protected_branches_only: Option<bool>,
     compute_unit_min: Option<i32>,
     compute_unit_max: Option<i32>,
+    enable_logical_replication: Option<bool>,
     format: OutputFormat,
     api_host: Option<String>,
     api_key: Option<String>,
@@ -131,8 +134,24 @@ pub async fn update(
         && protected_branches_only.is_none()
         && compute_unit_min.is_none()
         && compute_unit_max.is_none()
+        && enable_logical_replication.is_none()
     {
         anyhow::bail!("Provide at least one field to update");
+    }
+
+    // Warn user about enabling logical replication
+    if enable_logical_replication == Some(true) {
+        println!(
+            "{}",
+            "Warning: Enabling logical replication will suspend all active endpoints."
+                .yellow()
+                .bold()
+        );
+        println!(
+            "{}",
+            "This action cannot be undone - logical replication cannot be disabled once enabled."
+                .yellow()
+        );
     }
 
     let request = UpdateProjectRequest {
@@ -143,6 +162,7 @@ pub async fn update(
         protected_branches_only,
         compute_unit_min,
         compute_unit_max,
+        enable_logical_replication,
     };
 
     let project = client
