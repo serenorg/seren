@@ -1,5 +1,6 @@
 use anyhow::Result;
 use seren::{Client, ClientConfig};
+use tokio::time::{sleep, Duration};
 
 use crate::{commands::auth::get_bearer_token, output, OutputFormat};
 
@@ -55,4 +56,44 @@ pub async fn get(
     output::print_operation(&operation, format)?;
 
     Ok(())
+}
+
+/// Poll an operation until it reaches a terminal state.
+pub async fn poll_operation(
+    client: &Client,
+    project_id: &str,
+    operation_id: &str,
+    timeout_secs: u64,
+) -> Result<seren::Operation> {
+    let start = std::time::Instant::now();
+
+    loop {
+        let op = client
+            .operations(project_id)
+            .get(operation_id)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get operation {operation_id}: {}", e))?;
+
+        let status = op.status.to_lowercase();
+        if matches!(status.as_str(), "completed" | "failed" | "cancelled") {
+            return if status == "completed" {
+                Ok(op)
+            } else {
+                Err(anyhow::anyhow!(
+                    "Operation {operation_id} ended with status {}: {}",
+                    op.status,
+                    op.error_message.unwrap_or_default()
+                ))
+            };
+        }
+
+        if start.elapsed() > Duration::from_secs(timeout_secs) {
+            return Err(anyhow::anyhow!(
+                "Operation {operation_id} did not complete within {}s",
+                timeout_secs
+            ));
+        }
+
+        sleep(Duration::from_secs(2)).await;
+    }
 }

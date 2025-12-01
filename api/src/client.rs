@@ -194,6 +194,36 @@ impl Client {
         BillingClient::new(self.clone())
     }
 
+    /// Manage user sessions
+    pub fn sessions(&self) -> SessionsClient {
+        SessionsClient::new(self.clone())
+    }
+
+    /// Manage webhooks for an organization
+    pub fn webhooks(&self, organization_id: impl Into<String>) -> WebhooksClient {
+        WebhooksClient::new(self.clone(), organization_id.into())
+    }
+
+    /// Manage audit logs for an organization
+    pub fn audit_logs(&self, organization_id: impl Into<String>) -> AuditLogsClient {
+        AuditLogsClient::new(self.clone(), organization_id.into())
+    }
+
+    /// Manage RBAC roles for an organization
+    pub fn rbac_roles(&self, organization_id: impl Into<String>) -> RbacRolesClient {
+        RbacRolesClient::new(self.clone(), organization_id.into())
+    }
+
+    /// Manage branch protection for a project
+    pub fn branch_protection(&self, project_id: impl Into<String>) -> BranchProtectionClient {
+        BranchProtectionClient::new(self.clone(), project_id.into())
+    }
+
+    /// Manage logical replication for a project
+    pub fn replication(&self, project_id: impl Into<String>) -> ReplicationClient {
+        ReplicationClient::new(self.clone(), project_id.into())
+    }
+
     /// Internal method to make GET requests with retry logic
     async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
         let url = format!("{}{}", self.config.base_url, path);
@@ -1166,11 +1196,7 @@ impl InvoicesClient {
     }
 
     /// Generate monthly invoices for all organizations
-    pub async fn generate(
-        &self,
-        year: i32,
-        month: u8,
-    ) -> Result<GenerateInvoicesResponse> {
+    pub async fn generate(&self, year: i32, month: u8) -> Result<GenerateInvoicesResponse> {
         let body = GenerateInvoicesRequest { year, month };
         self.client
             .post("/api/billing/invoices/generate", &body)
@@ -1259,10 +1285,7 @@ impl BillingClient {
     /// Get balance for an endpoint
     pub async fn get_balance(&self, endpoint_id: &str) -> Result<BalanceResponse> {
         self.client
-            .get(&format!(
-                "/api/agentic/databases/{}/balance",
-                endpoint_id
-            ))
+            .get(&format!("/api/agentic/databases/{}/balance", endpoint_id))
             .await
     }
 
@@ -1300,5 +1323,481 @@ impl BillingClient {
             timestamp,
         };
         self.client.post("/api/billing/refund", &body).await
+    }
+}
+
+/// Client for session management
+pub struct SessionsClient {
+    client: Client,
+}
+
+impl SessionsClient {
+    pub fn new(client: Client) -> Self {
+        Self { client }
+    }
+
+    /// List all active sessions for the current user
+    pub async fn list(&self) -> Result<Vec<SessionResponse>> {
+        self.client.get("/sessions").await
+    }
+
+    /// Revoke a specific session
+    pub async fn revoke(&self, session_id: &str) -> Result<()> {
+        self.client
+            .delete(&format!("/sessions/{}", session_id))
+            .await
+    }
+
+    /// Revoke all sessions except the specified one
+    pub async fn revoke_others(&self, keep_session_id: &str) -> Result<RevokeSessionResponse> {
+        self.client
+            .post(&format!("/sessions/{}/revoke-others", keep_session_id), &())
+            .await
+    }
+
+    /// Revoke all sessions (logout everywhere)
+    pub async fn revoke_all(&self) -> Result<RevokeSessionResponse> {
+        self.client.post("/sessions/revoke-all", &()).await
+    }
+}
+
+/// Client for webhook management
+pub struct WebhooksClient {
+    client: Client,
+    organization_id: String,
+}
+
+impl WebhooksClient {
+    pub fn new(client: Client, organization_id: String) -> Self {
+        Self {
+            client,
+            organization_id,
+        }
+    }
+
+    /// List all webhooks for the organization
+    pub async fn list(&self) -> Result<Vec<WebhookResponse>> {
+        self.client
+            .get(&format!("/organizations/{}/webhooks", self.organization_id))
+            .await
+    }
+
+    /// Get a specific webhook
+    pub async fn get(&self, webhook_id: &str) -> Result<WebhookResponse> {
+        self.client
+            .get(&format!(
+                "/organizations/{}/webhooks/{}",
+                self.organization_id, webhook_id
+            ))
+            .await
+    }
+
+    /// Create a new webhook
+    pub async fn create(&self, request: &CreateWebhookRequest) -> Result<WebhookCreatedResponse> {
+        self.client
+            .post(
+                &format!("/organizations/{}/webhooks", self.organization_id),
+                request,
+            )
+            .await
+    }
+
+    /// Update a webhook
+    pub async fn update(
+        &self,
+        webhook_id: &str,
+        request: &UpdateWebhookRequest,
+    ) -> Result<WebhookResponse> {
+        self.client
+            .patch(
+                &format!(
+                    "/organizations/{}/webhooks/{}",
+                    self.organization_id, webhook_id
+                ),
+                request,
+            )
+            .await
+    }
+
+    /// Delete a webhook
+    pub async fn delete(&self, webhook_id: &str) -> Result<()> {
+        self.client
+            .delete(&format!(
+                "/organizations/{}/webhooks/{}",
+                self.organization_id, webhook_id
+            ))
+            .await
+    }
+
+    /// Rotate webhook secret
+    pub async fn rotate_secret(&self, webhook_id: &str) -> Result<WebhookCreatedResponse> {
+        self.client
+            .post(
+                &format!(
+                    "/organizations/{}/webhooks/{}/rotate-secret",
+                    self.organization_id, webhook_id
+                ),
+                &(),
+            )
+            .await
+    }
+
+    /// List webhook deliveries
+    pub async fn list_deliveries(&self, webhook_id: &str) -> Result<Vec<WebhookDelivery>> {
+        self.client
+            .get(&format!(
+                "/organizations/{}/webhooks/{}/deliveries",
+                self.organization_id, webhook_id
+            ))
+            .await
+    }
+
+    /// List available event types
+    pub async fn list_event_types(&self) -> Result<Vec<String>> {
+        self.client.get("/webhooks/event-types").await
+    }
+}
+
+/// Client for audit log access
+pub struct AuditLogsClient {
+    client: Client,
+    organization_id: String,
+}
+
+impl AuditLogsClient {
+    pub fn new(client: Client, organization_id: String) -> Self {
+        Self {
+            client,
+            organization_id,
+        }
+    }
+
+    /// List audit logs for the organization
+    pub async fn list(
+        &self,
+        limit: Option<i32>,
+        offset: Option<i32>,
+    ) -> Result<AuditLogListResponse> {
+        let mut path = format!("/organizations/{}/audit-logs", self.organization_id);
+        let mut params = vec![];
+        if let Some(l) = limit {
+            params.push(format!("limit={}", l));
+        }
+        if let Some(o) = offset {
+            params.push(format!("offset={}", o));
+        }
+        if !params.is_empty() {
+            path.push('?');
+            path.push_str(&params.join("&"));
+        }
+        self.client.get(&path).await
+    }
+
+    /// Get a specific audit log entry
+    pub async fn get(&self, log_id: &str) -> Result<AuditLog> {
+        self.client
+            .get(&format!(
+                "/organizations/{}/audit-logs/{}",
+                self.organization_id, log_id
+            ))
+            .await
+    }
+}
+
+/// Client for RBAC role management (organization-level roles, distinct from database roles)
+pub struct RbacRolesClient {
+    client: Client,
+    organization_id: String,
+}
+
+impl RbacRolesClient {
+    pub fn new(client: Client, organization_id: String) -> Self {
+        Self {
+            client,
+            organization_id,
+        }
+    }
+
+    /// List all roles for the organization
+    pub async fn list(&self) -> Result<Vec<OrganizationRoleResponse>> {
+        self.client
+            .get(&format!("/organizations/{}/roles", self.organization_id))
+            .await
+    }
+
+    /// Get a specific role
+    pub async fn get(&self, role_id: &str) -> Result<OrganizationRoleResponse> {
+        self.client
+            .get(&format!(
+                "/organizations/{}/roles/{}",
+                self.organization_id, role_id
+            ))
+            .await
+    }
+
+    /// Create a new role
+    pub async fn create(
+        &self,
+        request: &CreateOrganizationRoleRequest,
+    ) -> Result<OrganizationRoleResponse> {
+        self.client
+            .post(
+                &format!("/organizations/{}/roles", self.organization_id),
+                request,
+            )
+            .await
+    }
+
+    /// Update a role
+    pub async fn update(
+        &self,
+        role_id: &str,
+        request: &UpdateOrganizationRoleRequest,
+    ) -> Result<OrganizationRoleResponse> {
+        self.client
+            .patch(
+                &format!("/organizations/{}/roles/{}", self.organization_id, role_id),
+                request,
+            )
+            .await
+    }
+
+    /// Delete a role
+    pub async fn delete(&self, role_id: &str) -> Result<()> {
+        self.client
+            .delete(&format!(
+                "/organizations/{}/roles/{}",
+                self.organization_id, role_id
+            ))
+            .await
+    }
+
+    /// Assign a role to a member
+    pub async fn assign(
+        &self,
+        member_id: &str,
+        request: &AssignOrganizationRoleRequest,
+    ) -> Result<()> {
+        self.client
+            .put(
+                &format!(
+                    "/organizations/{}/members/{}/role",
+                    self.organization_id, member_id
+                ),
+                request,
+            )
+            .await
+    }
+
+    /// List all available permissions
+    pub async fn list_permissions(&self) -> Result<Vec<OrganizationPermission>> {
+        self.client.get("/permissions").await
+    }
+
+    /// Get current user's permissions
+    pub async fn my_permissions(&self) -> Result<Vec<String>> {
+        self.client
+            .get(&format!(
+                "/organizations/{}/permissions/mine",
+                self.organization_id
+            ))
+            .await
+    }
+}
+
+/// Client for branch protection management
+pub struct BranchProtectionClient {
+    client: Client,
+    project_id: String,
+}
+
+impl BranchProtectionClient {
+    pub fn new(client: Client, project_id: String) -> Self {
+        Self { client, project_id }
+    }
+
+    /// List all branch protection rules for the project
+    pub async fn list(&self) -> Result<Vec<BranchProtectionResponse>> {
+        self.client
+            .get(&format!("/projects/{}/branch-protection", self.project_id))
+            .await
+    }
+
+    /// Get branch protection for a specific branch
+    pub async fn get(&self, branch_id: &str) -> Result<BranchProtectionResponse> {
+        self.client
+            .get(&format!(
+                "/projects/{}/branches/{}/protection",
+                self.project_id, branch_id
+            ))
+            .await
+    }
+
+    /// Create branch protection for a branch
+    pub async fn create(
+        &self,
+        branch_id: &str,
+        request: &CreateBranchProtectionRequest,
+    ) -> Result<BranchProtectionResponse> {
+        self.client
+            .post(
+                &format!(
+                    "/projects/{}/branches/{}/protection",
+                    self.project_id, branch_id
+                ),
+                request,
+            )
+            .await
+    }
+
+    /// Update branch protection
+    pub async fn update(
+        &self,
+        branch_id: &str,
+        request: &UpdateBranchProtectionRequest,
+    ) -> Result<BranchProtectionResponse> {
+        self.client
+            .patch(
+                &format!(
+                    "/projects/{}/branches/{}/protection",
+                    self.project_id, branch_id
+                ),
+                request,
+            )
+            .await
+    }
+
+    /// Delete branch protection
+    pub async fn delete(&self, branch_id: &str) -> Result<()> {
+        self.client
+            .delete(&format!(
+                "/projects/{}/branches/{}/protection",
+                self.project_id, branch_id
+            ))
+            .await
+    }
+}
+
+/// Client for logical replication management
+pub struct ReplicationClient {
+    client: Client,
+    project_id: String,
+}
+
+impl ReplicationClient {
+    pub fn new(client: Client, project_id: String) -> Self {
+        Self { client, project_id }
+    }
+
+    /// Get replication settings for the project
+    pub async fn get_settings(&self) -> Result<LogicalReplicationSettings> {
+        self.client
+            .get(&format!("/projects/{}/replication", self.project_id))
+            .await
+    }
+
+    /// Update replication settings
+    pub async fn update_settings(
+        &self,
+        request: &UpdateLogicalReplicationRequest,
+    ) -> Result<LogicalReplicationSettings> {
+        self.client
+            .patch(
+                &format!("/projects/{}/replication", self.project_id),
+                request,
+            )
+            .await
+    }
+
+    /// List publications for a branch
+    pub async fn list_publications(&self, branch_id: &str) -> Result<Vec<PublicationResponse>> {
+        self.client
+            .get(&format!(
+                "/projects/{}/branches/{}/publications",
+                self.project_id, branch_id
+            ))
+            .await
+    }
+
+    /// Create a publication
+    pub async fn create_publication(
+        &self,
+        branch_id: &str,
+        request: &CreatePublicationRequest,
+    ) -> Result<PublicationResponse> {
+        self.client
+            .post(
+                &format!(
+                    "/projects/{}/branches/{}/publications",
+                    self.project_id, branch_id
+                ),
+                request,
+            )
+            .await
+    }
+
+    /// Update a publication
+    pub async fn update_publication(
+        &self,
+        branch_id: &str,
+        publication_id: &str,
+        request: &UpdatePublicationRequest,
+    ) -> Result<PublicationResponse> {
+        self.client
+            .patch(
+                &format!(
+                    "/projects/{}/branches/{}/publications/{}",
+                    self.project_id, branch_id, publication_id
+                ),
+                request,
+            )
+            .await
+    }
+
+    /// Delete a publication
+    pub async fn delete_publication(&self, branch_id: &str, publication_id: &str) -> Result<()> {
+        self.client
+            .delete(&format!(
+                "/projects/{}/branches/{}/publications/{}",
+                self.project_id, branch_id, publication_id
+            ))
+            .await
+    }
+
+    /// List replication slots for a branch
+    pub async fn list_slots(&self, branch_id: &str) -> Result<Vec<ReplicationSlotResponse>> {
+        self.client
+            .get(&format!(
+                "/projects/{}/branches/{}/replication-slots",
+                self.project_id, branch_id
+            ))
+            .await
+    }
+
+    /// Create a replication slot
+    pub async fn create_slot(
+        &self,
+        branch_id: &str,
+        request: &CreateReplicationSlotRequest,
+    ) -> Result<ReplicationSlotResponse> {
+        self.client
+            .post(
+                &format!(
+                    "/projects/{}/branches/{}/replication-slots",
+                    self.project_id, branch_id
+                ),
+                request,
+            )
+            .await
+    }
+
+    /// Delete a replication slot
+    pub async fn delete_slot(&self, branch_id: &str, slot_id: &str) -> Result<()> {
+        self.client
+            .delete(&format!(
+                "/projects/{}/branches/{}/replication-slots/{}",
+                self.project_id, branch_id, slot_id
+            ))
+            .await
     }
 }

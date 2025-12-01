@@ -1,8 +1,15 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use colored::Colorize;
+use reqwest::Client as HttpClient;
+use serde::{Deserialize, Serialize};
 use seren::{Client, ClientConfig};
 
-use crate::{commands::auth::get_bearer_token, output, OutputFormat};
+use crate::{
+    commands::auth::get_bearer_token,
+    defaults::DEFAULT_API_HOST,
+    output,
+    OutputFormat,
+};
 
 async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
     let bearer_token = get_bearer_token(api_key).await?;
@@ -14,6 +21,31 @@ async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result
     }
 
     Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CliPaymentMethod {
+    pub id: String,
+    #[serde(rename = "type_")]
+    pub type_: String,
+    pub card_brand: Option<String>,
+    pub card_last4: Option<String>,
+    pub card_exp_month: Option<i32>,
+    pub card_exp_year: Option<i32>,
+    pub bank_last4: Option<String>,
+    pub is_default: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct CliAddPaymentMethodResponse {
+    id: String,
+    message: String,
+}
+
+fn resolve_api_host(api_host: Option<String>) -> String {
+    api_host
+        .or_else(|| std::env::var("SEREN_API_HOST").ok())
+        .unwrap_or_else(|| DEFAULT_API_HOST.to_string())
 }
 
 // Invoice commands
@@ -226,6 +258,155 @@ pub async fn get_health(
         OutputFormat::Table => {
             output::print_billing_health_table(&health);
         }
+    }
+
+    Ok(())
+}
+
+/// List saved payment methods for the authenticated user's primary organization.
+pub async fn list_payment_methods(
+    format: OutputFormat,
+    api_host: Option<String>,
+    api_key: Option<String>,
+) -> Result<()> {
+    let bearer_token = get_bearer_token(api_key).await?;
+    let base_url = resolve_api_host(api_host);
+    let base_url = base_url.trim_end_matches('/');
+
+    let url = format!("{}/api/billing/payment-methods", base_url);
+    let client = HttpClient::new();
+
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", bearer_token))
+        .send()
+        .await
+        .context("Failed to fetch payment methods")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to list payment methods ({}): {}",
+            status,
+            body
+        ));
+    }
+
+    let methods: Vec<CliPaymentMethod> = response
+        .json()
+        .await
+        .context("Failed to parse payment methods response")?;
+
+    match format {
+        OutputFormat::Json => output::print_json(&methods)?,
+        OutputFormat::Table => output::print_payment_methods_table(&methods),
+    }
+
+    Ok(())
+}
+
+/// Register an existing Stripe PaymentMethod ID with Seren as a billing method.
+pub async fn add_payment_method(
+    stripe_payment_method_id: &str,
+    set_default: bool,
+    format: OutputFormat,
+    api_host: Option<String>,
+    api_key: Option<String>,
+) -> Result<()> {
+    let bearer_token = get_bearer_token(api_key).await?;
+    let base_url = resolve_api_host(api_host);
+    let base_url = base_url.trim_end_matches('/');
+
+    let url = format!("{}/api/billing/payment-methods", base_url);
+    let client = HttpClient::new();
+
+    let body = serde_json::json!({
+        "stripe_payment_method_id": stripe_payment_method_id,
+        "set_as_default": set_default,
+    });
+
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", bearer_token))
+        .json(&body)
+        .send()
+        .await
+        .context("Failed to add payment method")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to add payment method ({}): {}",
+            status,
+            body_text
+        ));
+    }
+
+    let result: CliAddPaymentMethodResponse = response
+        .json()
+        .await
+        .context("Failed to parse add payment method response")?;
+
+    match format {
+        OutputFormat::Json => output::print_json(&result)?,
+        OutputFormat::Table => {
+            println!(
+                "{}",
+                "✓ Payment method added successfully".green().bold()
+            );
+            println!("  ID:      {}", result.id);
+            println!("  Message: {}", result.message);
+        }
+    }
+
+    Ok(())
+}
+
+/// Remove a stored payment method by its Seren payment_methods.id value.
+pub async fn remove_payment_method(
+    id: &str,
+    format: OutputFormat,
+    api_host: Option<String>,
+    api_key: Option<String>,
+) -> Result<()> {
+    let bearer_token = get_bearer_token(api_key).await?;
+    let base_url = resolve_api_host(api_host);
+    let base_url = base_url.trim_end_matches('/');
+
+    let url = format!("{}/api/billing/payment-methods/{}", base_url, id);
+    let client = HttpClient::new();
+
+    let response = client
+        .delete(&url)
+        .header("Authorization", format!("Bearer {}", bearer_token))
+        .send()
+        .await
+        .context("Failed to remove payment method")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to remove payment method ({}): {}",
+            status,
+            body_text
+        ));
+    }
+
+    if let OutputFormat::Json = format {
+        // No body for 204; return a simple JSON acknowledgement.
+        let payload = serde_json::json!({
+            "id": id,
+            "status": "removed",
+        });
+        output::print_json(&payload)?;
+    } else {
+        println!(
+            "{}",
+            "✓ Payment method removed successfully".green().bold()
+        );
     }
 
     Ok(())

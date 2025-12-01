@@ -150,6 +150,56 @@ enum Commands {
         #[command(subcommand)]
         action: BillingAction,
     },
+    /// Manage user sessions
+    Sessions {
+        #[command(subcommand)]
+        action: SessionAction,
+    },
+    /// Manage webhooks for an organization
+    Webhooks {
+        /// Organization ID
+        #[arg(long)]
+        org_id: String,
+
+        #[command(subcommand)]
+        action: WebhookAction,
+    },
+    /// View audit logs for an organization
+    AuditLogs {
+        /// Organization ID
+        #[arg(long)]
+        org_id: String,
+
+        #[command(subcommand)]
+        action: AuditLogAction,
+    },
+    /// Manage RBAC roles for an organization
+    Rbac {
+        /// Organization ID
+        #[arg(long)]
+        org_id: String,
+
+        #[command(subcommand)]
+        action: RbacAction,
+    },
+    /// Manage branch protection rules
+    BranchProtection {
+        /// Project ID
+        #[arg(long)]
+        project_id: String,
+
+        #[command(subcommand)]
+        action: BranchProtectionAction,
+    },
+    /// Manage logical replication
+    Replication {
+        /// Project ID
+        #[arg(long)]
+        project_id: String,
+
+        #[command(subcommand)]
+        action: ReplicationAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -813,6 +863,311 @@ enum BillingAction {
     },
     /// Get billing pipeline health
     Health,
+}
+
+#[derive(Subcommand)]
+enum SessionAction {
+    /// List all active sessions
+    List,
+    /// Revoke a specific session
+    Revoke {
+        /// Session ID to revoke
+        session_id: String,
+    },
+    /// Revoke all other sessions (keep current)
+    RevokeOthers {
+        /// Session ID to keep (usually your current session)
+        keep_session_id: String,
+    },
+    /// Revoke all sessions (logout everywhere)
+    RevokeAll,
+}
+
+#[derive(Subcommand)]
+enum WebhookAction {
+    /// List all webhooks
+    List,
+    /// Get a specific webhook
+    Get {
+        /// Webhook ID
+        webhook_id: String,
+    },
+    /// Create a new webhook
+    Create {
+        /// Webhook URL to receive events
+        #[arg(long)]
+        url: String,
+
+        /// Event types to subscribe to (comma-separated or multiple --event flags)
+        #[arg(long = "event", value_delimiter = ',')]
+        events: Vec<String>,
+
+        /// Whether the webhook is active (default: true)
+        #[arg(long, default_value_t = true)]
+        active: bool,
+    },
+    /// Update a webhook
+    Update {
+        /// Webhook ID
+        webhook_id: String,
+
+        /// New webhook URL
+        #[arg(long)]
+        url: Option<String>,
+
+        /// New event types (replaces existing)
+        #[arg(long = "event", value_delimiter = ',')]
+        events: Option<Vec<String>>,
+
+        /// Enable or disable the webhook
+        #[arg(long)]
+        active: Option<bool>,
+    },
+    /// Delete a webhook
+    Delete {
+        /// Webhook ID
+        webhook_id: String,
+    },
+    /// Rotate webhook secret
+    RotateSecret {
+        /// Webhook ID
+        webhook_id: String,
+    },
+    /// List webhook deliveries
+    Deliveries {
+        /// Webhook ID
+        webhook_id: String,
+    },
+    /// List available event types
+    EventTypes,
+}
+
+#[derive(Subcommand)]
+enum AuditLogAction {
+    /// List audit logs
+    List {
+        /// Maximum number of logs to return
+        #[arg(long, default_value_t = 50)]
+        limit: i32,
+
+        /// Offset for pagination
+        #[arg(long, default_value_t = 0)]
+        offset: i32,
+    },
+    /// Get a specific audit log entry
+    Get {
+        /// Audit log ID
+        log_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum RbacAction {
+    /// List all roles in the organization
+    ListRoles,
+    /// Get a specific role
+    GetRole {
+        /// Role ID
+        role_id: String,
+    },
+    /// Create a new role
+    CreateRole {
+        /// Role name
+        #[arg(long)]
+        name: String,
+
+        /// Role description
+        #[arg(long)]
+        description: Option<String>,
+
+        /// Permissions to grant (comma-separated or multiple --permission flags)
+        #[arg(long = "permission", value_delimiter = ',')]
+        permissions: Vec<String>,
+    },
+    /// Update a role
+    UpdateRole {
+        /// Role ID
+        role_id: String,
+
+        /// New role name
+        #[arg(long)]
+        name: Option<String>,
+
+        /// New description
+        #[arg(long)]
+        description: Option<String>,
+
+        /// New permissions (replaces existing)
+        #[arg(long = "permission", value_delimiter = ',')]
+        permissions: Option<Vec<String>>,
+    },
+    /// Delete a role
+    DeleteRole {
+        /// Role ID
+        role_id: String,
+    },
+    /// Assign a role to an organization member
+    AssignRole {
+        /// Member ID
+        #[arg(long)]
+        member_id: String,
+
+        /// Role ID to assign
+        #[arg(long)]
+        role_id: String,
+    },
+    /// List all available permissions
+    ListPermissions,
+    /// List your permissions in the organization
+    MyPermissions,
+}
+
+#[derive(Subcommand)]
+enum BranchProtectionAction {
+    /// List all branch protection rules for a project
+    List,
+    /// Get branch protection for a specific branch
+    Get {
+        /// Branch ID
+        branch_id: String,
+    },
+    /// Create branch protection for a branch
+    Create {
+        /// Branch ID
+        branch_id: String,
+
+        /// Prevent branch deletion
+        #[arg(long, default_value_t = true)]
+        prevent_deletion: bool,
+
+        /// Prevent branch reset
+        #[arg(long, default_value_t = true)]
+        prevent_reset: bool,
+
+        /// Require approval for changes
+        #[arg(long)]
+        require_approval: bool,
+
+        /// Roles that can bypass protection (comma-separated)
+        #[arg(long = "bypass-role", value_delimiter = ',')]
+        bypass_roles: Vec<String>,
+    },
+    /// Update branch protection
+    Update {
+        /// Branch ID
+        branch_id: String,
+
+        /// Prevent branch deletion
+        #[arg(long)]
+        prevent_deletion: Option<bool>,
+
+        /// Prevent branch reset
+        #[arg(long)]
+        prevent_reset: Option<bool>,
+
+        /// Require approval for changes
+        #[arg(long)]
+        require_approval: Option<bool>,
+
+        /// Roles that can bypass protection (replaces existing)
+        #[arg(long = "bypass-role", value_delimiter = ',')]
+        bypass_roles: Option<Vec<String>>,
+    },
+    /// Remove branch protection
+    Delete {
+        /// Branch ID
+        branch_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ReplicationAction {
+    /// Get logical replication settings for a project
+    Settings,
+    /// Enable logical replication (sets wal_level=logical, cannot be disabled)
+    Enable,
+    /// List publications for a branch
+    ListPublications {
+        /// Branch ID
+        #[arg(long)]
+        branch_id: String,
+    },
+    /// Create a publication
+    CreatePublication {
+        /// Branch ID
+        #[arg(long)]
+        branch_id: String,
+
+        /// Publication name
+        #[arg(long)]
+        name: String,
+
+        /// Tables to include (comma-separated)
+        #[arg(long = "table", value_delimiter = ',')]
+        tables: Vec<String>,
+
+        /// Publish all tables
+        #[arg(long)]
+        all_tables: bool,
+    },
+    /// Update a publication
+    UpdatePublication {
+        /// Branch ID
+        #[arg(long)]
+        branch_id: String,
+
+        /// Publication ID
+        #[arg(long)]
+        publication_id: String,
+
+        /// Tables to include (replaces existing)
+        #[arg(long = "table", value_delimiter = ',')]
+        tables: Option<Vec<String>>,
+
+        /// Publish all tables
+        #[arg(long)]
+        all_tables: Option<bool>,
+    },
+    /// Delete a publication
+    DeletePublication {
+        /// Branch ID
+        #[arg(long)]
+        branch_id: String,
+
+        /// Publication ID
+        #[arg(long)]
+        publication_id: String,
+    },
+    /// List replication slots for a branch
+    ListSlots {
+        /// Branch ID
+        #[arg(long)]
+        branch_id: String,
+    },
+    /// Create a replication slot
+    CreateSlot {
+        /// Branch ID
+        #[arg(long)]
+        branch_id: String,
+
+        /// Slot name
+        #[arg(long)]
+        name: String,
+
+        /// Output plugin (default: pgoutput)
+        #[arg(long)]
+        plugin: Option<String>,
+    },
+    /// Delete a replication slot
+    DeleteSlot {
+        /// Branch ID
+        #[arg(long)]
+        branch_id: String,
+
+        /// Slot ID
+        #[arg(long)]
+        slot_id: String,
+    },
 }
 
 #[tokio::main]
@@ -1588,6 +1943,424 @@ async fn main() -> anyhow::Result<()> {
             BillingAction::Health => {
                 commands::billing::get_health(cli.format, cli.api_host.clone(), cli.api_key.clone())
                     .await?
+            }
+        },
+        Commands::Sessions { action } => match action {
+            SessionAction::List => {
+                commands::sessions::list(cli.format, cli.api_host.clone(), cli.api_key.clone())
+                    .await?
+            }
+            SessionAction::Revoke { session_id } => {
+                commands::sessions::revoke(&session_id, cli.api_host.clone(), cli.api_key.clone())
+                    .await?
+            }
+            SessionAction::RevokeOthers { keep_session_id } => {
+                commands::sessions::revoke_others(
+                    &keep_session_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            SessionAction::RevokeAll => {
+                commands::sessions::revoke_all(
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+        },
+        Commands::Webhooks { org_id, action } => match action {
+            WebhookAction::List => {
+                commands::webhooks::list(
+                    &org_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            WebhookAction::Get { webhook_id } => {
+                commands::webhooks::get(
+                    &org_id,
+                    &webhook_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            WebhookAction::Create {
+                url,
+                events,
+                active,
+            } => {
+                commands::webhooks::create(
+                    &org_id,
+                    &url,
+                    events,
+                    active,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            WebhookAction::Update {
+                webhook_id,
+                url,
+                events,
+                active,
+            } => {
+                commands::webhooks::update(
+                    &org_id,
+                    &webhook_id,
+                    url,
+                    events,
+                    active,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            WebhookAction::Delete { webhook_id } => {
+                commands::webhooks::delete(
+                    &org_id,
+                    &webhook_id,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            WebhookAction::RotateSecret { webhook_id } => {
+                commands::webhooks::rotate_secret(
+                    &org_id,
+                    &webhook_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            WebhookAction::Deliveries { webhook_id } => {
+                commands::webhooks::list_deliveries(
+                    &org_id,
+                    &webhook_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            WebhookAction::EventTypes => {
+                commands::webhooks::list_event_types(
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+        },
+        Commands::AuditLogs { org_id, action } => match action {
+            AuditLogAction::List { limit, offset } => {
+                commands::audit_logs::list(
+                    &org_id,
+                    Some(limit),
+                    Some(offset),
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            AuditLogAction::Get { log_id } => {
+                commands::audit_logs::get(
+                    &org_id,
+                    &log_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+        },
+        Commands::Rbac { org_id, action } => match action {
+            RbacAction::ListRoles => {
+                commands::rbac::list_roles(
+                    &org_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            RbacAction::GetRole { role_id } => {
+                commands::rbac::get_role(
+                    &org_id,
+                    &role_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            RbacAction::CreateRole {
+                name,
+                description,
+                permissions,
+            } => {
+                commands::rbac::create_role(
+                    &org_id,
+                    &name,
+                    description,
+                    permissions,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            RbacAction::UpdateRole {
+                role_id,
+                name,
+                description,
+                permissions,
+            } => {
+                commands::rbac::update_role(
+                    &org_id,
+                    &role_id,
+                    name,
+                    description,
+                    permissions,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            RbacAction::DeleteRole { role_id } => {
+                commands::rbac::delete_role(
+                    &org_id,
+                    &role_id,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            RbacAction::AssignRole { member_id, role_id } => {
+                commands::rbac::assign_role(
+                    &org_id,
+                    &member_id,
+                    &role_id,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            RbacAction::ListPermissions => {
+                commands::rbac::list_permissions(
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            RbacAction::MyPermissions => {
+                commands::rbac::my_permissions(
+                    &org_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+        },
+        Commands::BranchProtection { project_id, action } => match action {
+            BranchProtectionAction::List => {
+                commands::branch_protection::list(
+                    &project_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            BranchProtectionAction::Get { branch_id } => {
+                commands::branch_protection::get(
+                    &project_id,
+                    &branch_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            BranchProtectionAction::Create {
+                branch_id,
+                prevent_deletion,
+                prevent_reset,
+                require_approval,
+                bypass_roles,
+            } => {
+                commands::branch_protection::create(
+                    &project_id,
+                    &branch_id,
+                    prevent_deletion,
+                    prevent_reset,
+                    require_approval,
+                    bypass_roles,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            BranchProtectionAction::Update {
+                branch_id,
+                prevent_deletion,
+                prevent_reset,
+                require_approval,
+                bypass_roles,
+            } => {
+                commands::branch_protection::update(
+                    &project_id,
+                    &branch_id,
+                    prevent_deletion,
+                    prevent_reset,
+                    require_approval,
+                    bypass_roles,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            BranchProtectionAction::Delete { branch_id } => {
+                commands::branch_protection::delete(
+                    &project_id,
+                    &branch_id,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+        },
+        Commands::Replication { project_id, action } => match action {
+            ReplicationAction::Settings => {
+                commands::replication::get_settings(
+                    &project_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            ReplicationAction::Enable => {
+                commands::replication::enable(
+                    &project_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            ReplicationAction::ListPublications { branch_id } => {
+                commands::replication::list_publications(
+                    &project_id,
+                    &branch_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            ReplicationAction::CreatePublication {
+                branch_id,
+                name,
+                tables,
+                all_tables,
+            } => {
+                commands::replication::create_publication(
+                    &project_id,
+                    &branch_id,
+                    &name,
+                    tables,
+                    all_tables,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            ReplicationAction::UpdatePublication {
+                branch_id,
+                publication_id,
+                tables,
+                all_tables,
+            } => {
+                commands::replication::update_publication(
+                    &project_id,
+                    &branch_id,
+                    &publication_id,
+                    tables,
+                    all_tables,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            ReplicationAction::DeletePublication {
+                branch_id,
+                publication_id,
+            } => {
+                commands::replication::delete_publication(
+                    &project_id,
+                    &branch_id,
+                    &publication_id,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            ReplicationAction::ListSlots { branch_id } => {
+                commands::replication::list_slots(
+                    &project_id,
+                    &branch_id,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            ReplicationAction::CreateSlot {
+                branch_id,
+                name,
+                plugin,
+            } => {
+                commands::replication::create_slot(
+                    &project_id,
+                    &branch_id,
+                    &name,
+                    plugin,
+                    cli.format,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
+            }
+            ReplicationAction::DeleteSlot { branch_id, slot_id } => {
+                commands::replication::delete_slot(
+                    &project_id,
+                    &branch_id,
+                    &slot_id,
+                    cli.api_host.clone(),
+                    cli.api_key.clone(),
+                )
+                .await?
             }
         },
     }

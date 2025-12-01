@@ -1139,6 +1139,341 @@ pub fn print_project_vpc_endpoints_table(assignments: &[seren::ProjectVpcEndpoin
     println!("{table}");
 }
 
+// Sessions
+pub fn print_sessions_table(sessions: &[seren::SessionResponse]) {
+    if sessions.is_empty() {
+        println!("No active sessions found");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("ID").fg(Color::Green),
+        Cell::new("Current").fg(Color::Green),
+        Cell::new("IP Address").fg(Color::Green),
+        Cell::new("Last Active").fg(Color::Green),
+        Cell::new("Expires").fg(Color::Green),
+    ]);
+
+    for session in sessions {
+        table.add_row(vec![
+            Cell::new(session.id.to_string()),
+            Cell::new(if session.is_current { "Yes" } else { "" }),
+            Cell::new(session.ip_address.as_deref().unwrap_or("-")),
+            Cell::new(session.last_active_at.to_string()),
+            Cell::new(session.expires_at.to_string()),
+        ]);
+    }
+
+    println!("{table}");
+}
+
+// Webhooks
+pub fn print_webhooks_table(webhooks: &[seren::WebhookResponse]) {
+    if webhooks.is_empty() {
+        println!("No webhooks configured");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("ID").fg(Color::Green),
+        Cell::new("URL").fg(Color::Green),
+        Cell::new("Events").fg(Color::Green),
+        Cell::new("Active").fg(Color::Green),
+        Cell::new("Created").fg(Color::Green),
+    ]);
+
+    for webhook in webhooks {
+        table.add_row(vec![
+            Cell::new(webhook.id.to_string()),
+            Cell::new(&webhook.url),
+            Cell::new(webhook.event_types.join(", ")),
+            Cell::new(if webhook.is_active { "Yes" } else { "No" }),
+            Cell::new(webhook.created_at.to_string()),
+        ]);
+    }
+
+    println!("{table}");
+}
+
+pub fn print_webhook_deliveries_table(deliveries: &[seren::WebhookDelivery]) {
+    if deliveries.is_empty() {
+        println!("No webhook deliveries found");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("ID").fg(Color::Green),
+        Cell::new("Event").fg(Color::Green),
+        Cell::new("Status").fg(Color::Green),
+        Cell::new("Attempts").fg(Color::Green),
+        Cell::new("Delivered").fg(Color::Green),
+    ]);
+
+    for delivery in deliveries {
+        let status = if delivery.success {
+            format!(
+                "{} ({})",
+                "Success".green(),
+                delivery.status_code.unwrap_or(0)
+            )
+        } else {
+            format!("{} ({})", "Failed".red(), delivery.status_code.unwrap_or(0))
+        };
+        table.add_row(vec![
+            Cell::new(delivery.id.to_string()),
+            Cell::new(&delivery.event_type),
+            Cell::new(status),
+            Cell::new(delivery.attempt_count.to_string()),
+            Cell::new(
+                delivery
+                    .delivered_at
+                    .map(|t| t.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+        ]);
+    }
+
+    println!("{table}");
+}
+
+// Audit Logs
+pub fn print_audit_logs_table(logs: &[seren::AuditLog]) {
+    if logs.is_empty() {
+        println!("No audit logs found");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("Time").fg(Color::Green),
+        Cell::new("Action").fg(Color::Green),
+        Cell::new("Resource Type").fg(Color::Green),
+        Cell::new("Resource ID").fg(Color::Green),
+        Cell::new("User ID").fg(Color::Green),
+        Cell::new("IP").fg(Color::Green),
+    ]);
+
+    for log in logs {
+        table.add_row(vec![
+            Cell::new(log.created_at.to_string()),
+            Cell::new(&log.action),
+            Cell::new(&log.resource_type),
+            Cell::new(log.resource_id.as_deref().unwrap_or("-")),
+            Cell::new(
+                log.user_id
+                    .map(|u| u.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            Cell::new(log.ip_address.as_deref().unwrap_or("-")),
+        ]);
+    }
+
+    println!("{table}");
+}
+
+// RBAC Roles
+pub fn print_rbac_roles_table(roles: &[seren::OrganizationRoleResponse]) {
+    if roles.is_empty() {
+        println!("No roles found");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("ID").fg(Color::Green),
+        Cell::new("Name").fg(Color::Green),
+        Cell::new("Description").fg(Color::Green),
+        Cell::new("Built-in").fg(Color::Green),
+        Cell::new("Permissions").fg(Color::Green),
+    ]);
+
+    for role in roles {
+        let perms = if role.permissions.len() > 3 {
+            format!(
+                "{}, ... ({} total)",
+                role.permissions[..3].join(", "),
+                role.permissions.len()
+            )
+        } else {
+            role.permissions.join(", ")
+        };
+        table.add_row(vec![
+            Cell::new(role.id.to_string()),
+            Cell::new(&role.name),
+            Cell::new(role.description.as_deref().unwrap_or("-")),
+            Cell::new(if role.is_built_in { "Yes" } else { "No" }),
+            Cell::new(perms),
+        ]);
+    }
+
+    println!("{table}");
+}
+
+pub fn print_permissions_table(permissions: &[seren::OrganizationPermission]) {
+    if permissions.is_empty() {
+        println!("No permissions found");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("Name").fg(Color::Green),
+        Cell::new("Resource").fg(Color::Green),
+        Cell::new("Action").fg(Color::Green),
+        Cell::new("Description").fg(Color::Green),
+    ]);
+
+    for perm in permissions {
+        table.add_row(vec![
+            Cell::new(&perm.name),
+            Cell::new(&perm.resource_type),
+            Cell::new(&perm.action),
+            Cell::new(perm.description.as_deref().unwrap_or("-")),
+        ]);
+    }
+
+    println!("{table}");
+}
+
+// Branch Protection
+pub fn print_branch_protection_table(rules: &[seren::BranchProtectionResponse]) {
+    if rules.is_empty() {
+        println!("No branch protection rules found");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("Branch ID").fg(Color::Green),
+        Cell::new("Prevent Delete").fg(Color::Green),
+        Cell::new("Prevent Reset").fg(Color::Green),
+        Cell::new("Require Approval").fg(Color::Green),
+        Cell::new("Bypass Roles").fg(Color::Green),
+    ]);
+
+    for rule in rules {
+        table.add_row(vec![
+            Cell::new(rule.branch_id.to_string()),
+            Cell::new(if rule.prevent_deletion { "Yes" } else { "No" }),
+            Cell::new(if rule.prevent_reset { "Yes" } else { "No" }),
+            Cell::new(if rule.require_approval_for_changes {
+                "Yes"
+            } else {
+                "No"
+            }),
+            Cell::new(if rule.allowed_bypass_roles.is_empty() {
+                "-".to_string()
+            } else {
+                rule.allowed_bypass_roles.join(", ")
+            }),
+        ]);
+    }
+
+    println!("{table}");
+}
+
+// Logical Replication - Publications
+pub fn print_publications_table(publications: &[seren::PublicationResponse]) {
+    if publications.is_empty() {
+        println!("No publications found");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("ID").fg(Color::Green),
+        Cell::new("Name").fg(Color::Green),
+        Cell::new("Tables").fg(Color::Green),
+        Cell::new("All Tables").fg(Color::Green),
+        Cell::new("Created").fg(Color::Green),
+    ]);
+
+    for pub_ in publications {
+        let tables = if pub_.all_tables {
+            "ALL".to_string()
+        } else if pub_.table_names.is_empty() {
+            "-".to_string()
+        } else {
+            pub_.table_names.join(", ")
+        };
+        table.add_row(vec![
+            Cell::new(pub_.id.to_string()),
+            Cell::new(&pub_.name),
+            Cell::new(tables),
+            Cell::new(if pub_.all_tables { "Yes" } else { "No" }),
+            Cell::new(pub_.created_at.to_string()),
+        ]);
+    }
+
+    println!("{table}");
+}
+
+// Logical Replication - Slots
+pub fn print_replication_slots_table(slots: &[seren::ReplicationSlotResponse]) {
+    if slots.is_empty() {
+        println!("No replication slots found");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("ID").fg(Color::Green),
+        Cell::new("Name").fg(Color::Green),
+        Cell::new("Plugin").fg(Color::Green),
+        Cell::new("Created").fg(Color::Green),
+    ]);
+
+    for slot in slots {
+        table.add_row(vec![
+            Cell::new(slot.id.to_string()),
+            Cell::new(&slot.name),
+            Cell::new(&slot.plugin),
+            Cell::new(slot.created_at.to_string()),
+        ]);
+    }
+
+    println!("{table}");
+}
+
 // Schema Diff
 pub fn print_schema_diff(diff: &seren::SchemaDiff, format: OutputFormat) -> anyhow::Result<()> {
     match format {

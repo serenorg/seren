@@ -1,5 +1,7 @@
+pub mod audit_logs;
 pub mod auth;
 pub mod billing;
+pub mod branch_protection;
 pub mod branches;
 pub mod context;
 pub mod databases;
@@ -9,5 +11,9 @@ pub mod ip_allow_list;
 pub mod operations;
 pub mod organizations;
 pub mod projects;
+pub mod rbac;
+pub mod replication;
 pub mod roles;
+pub mod sessions;
 pub mod vpc;
+pub mod webhooks;
