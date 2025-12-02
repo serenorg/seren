@@ -10304,6 +10304,10 @@
           "audit_logs_enabled": {
             "type": "boolean"
           },
+          "branch_price_per_hour": {
+            "type": "string",
+            "nullable": true
+          },
           "compute_hours_quota": {
             "type": "integer",
             "format": "int32",
@@ -10316,6 +10320,11 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "data_transfer_gb_included": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
           },
           "data_transfer_price_per_gb": {
             "type": "string",
@@ -10364,11 +10373,21 @@
           "monitoring_enabled": {
             "type": "boolean"
           },
+          "monitoring_retention_days": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
           "name": {
             "type": "string"
           },
           "pitr_price_per_gb_month": {
             "type": "string",
+            "nullable": true
+          },
+          "pitr_retention_hours": {
+            "type": "integer",
+            "format": "int32",
             "nullable": true
           },
           "price_monthly": {
@@ -10391,8 +10410,7 @@
             "type": "boolean"
           },
           "storage_gb_quota": {
-            "type": "integer",
-            "format": "int32",
+            "type": "string",
             "nullable": true
           },
           "storage_price_per_gb_month": {
