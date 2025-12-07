@@ -12,6 +12,44 @@ use uuid::Uuid;
 
 use crate::{commands::auth::get_bearer_token, output, OutputFormat};
 
+/// Parse a duration string like "1d", "7d", "30d" into a Timestamp
+fn parse_duration_to_timestamp(duration_str: &str) -> Result<Timestamp> {
+    let duration_str = duration_str.trim().to_lowercase();
+
+    // Parse formats like "1d", "7d", "30d", "24h"
+    let (num_str, unit) = if duration_str.ends_with('d') {
+        (&duration_str[..duration_str.len() - 1], "d")
+    } else if duration_str.ends_with('h') {
+        (&duration_str[..duration_str.len() - 1], "h")
+    } else {
+        return Err(anyhow::anyhow!(
+            "Invalid duration format '{}'. Use format like '1d', '7d', '30d', or '24h'",
+            duration_str
+        ));
+    };
+
+    let num: i64 = num_str
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid number in duration: {}", num_str))?;
+
+    if num <= 0 {
+        return Err(anyhow::anyhow!("Duration must be positive"));
+    }
+
+    let seconds = match unit {
+        "d" => num * 24 * 60 * 60,
+        "h" => num * 60 * 60,
+        _ => unreachable!(),
+    };
+
+    let now = Timestamp::now();
+    let expires_at = now
+        .checked_add(jiff::Span::new().seconds(seconds))
+        .map_err(|e| anyhow::anyhow!("Duration overflow: {}", e))?;
+
+    Ok(expires_at)
+}
+
 async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
     let bearer_token = get_bearer_token(api_key).await?;
 
@@ -78,6 +116,11 @@ pub async fn create(
     add_endpoint: bool,
     endpoint_type: Option<&str>,
     endpoint_settings: &[String],
+    expires_in: Option<&str>,
+    schema_only: bool,
+    cu: Option<&str>,
+    suspend_timeout: Option<i32>,
+    psql: bool,
     format: OutputFormat,
     api_host: Option<String>,
     api_key: Option<String>,
@@ -97,6 +140,14 @@ pub async fn create(
         })
         .transpose()?;
 
+    // Parse expires_in duration (e.g., "1d", "7d", "30d")
+    let expires_at = expires_in
+        .map(|duration_str| {
+            parse_duration_to_timestamp(duration_str)
+                .map_err(|e| anyhow::anyhow!("Invalid expires-in duration: {}", e))
+        })
+        .transpose()?;
+
     let endpoint_settings_value = if endpoint_settings.is_empty() {
         None
     } else {
@@ -110,15 +161,75 @@ pub async fn create(
         Some(Value::Object(map))
     };
 
-    let auto_endpoint =
-        add_endpoint || endpoint_type.is_some() || endpoint_settings_value.is_some();
+    let auto_endpoint = add_endpoint
+        || endpoint_type.is_some()
+        || endpoint_settings_value.is_some()
+        || cu.is_some()
+        || suspend_timeout.is_some();
     let mut endpoints = Vec::new();
     if auto_endpoint {
+        // Build endpoint settings including cu and suspend_timeout
+        let mut settings_map = match endpoint_settings_value {
+            Some(Value::Object(map)) => map,
+            _ => Map::new(),
+        };
+
+        // Parse compute units (e.g., "2" or "0.5-3")
+        if let Some(cu_str) = cu {
+            if let Some((min, max)) = cu_str.split_once('-') {
+                if let (Ok(min_val), Ok(max_val)) = (min.parse::<f64>(), max.parse::<f64>()) {
+                    settings_map.insert(
+                        "autoscaling_limit_min_cu".to_string(),
+                        Value::Number(
+                            serde_json::Number::from_f64(min_val)
+                                .unwrap_or(serde_json::Number::from(1)),
+                        ),
+                    );
+                    settings_map.insert(
+                        "autoscaling_limit_max_cu".to_string(),
+                        Value::Number(
+                            serde_json::Number::from_f64(max_val)
+                                .unwrap_or(serde_json::Number::from(1)),
+                        ),
+                    );
+                }
+            } else if let Ok(fixed_val) = cu_str.parse::<f64>() {
+                settings_map.insert(
+                    "autoscaling_limit_min_cu".to_string(),
+                    Value::Number(
+                        serde_json::Number::from_f64(fixed_val)
+                            .unwrap_or(serde_json::Number::from(1)),
+                    ),
+                );
+                settings_map.insert(
+                    "autoscaling_limit_max_cu".to_string(),
+                    Value::Number(
+                        serde_json::Number::from_f64(fixed_val)
+                            .unwrap_or(serde_json::Number::from(1)),
+                    ),
+                );
+            }
+        }
+
+        // Add suspend timeout
+        if let Some(timeout) = suspend_timeout {
+            settings_map.insert(
+                "suspend_timeout_seconds".to_string(),
+                Value::Number(serde_json::Number::from(timeout)),
+            );
+        }
+
+        let final_settings = if settings_map.is_empty() {
+            None
+        } else {
+            Some(Value::Object(settings_map))
+        };
+
         endpoints.push(BranchEndpointRequest {
             endpoint_type: endpoint_type
                 .map(|s| s.to_string())
                 .or_else(|| Some("read_write".to_string())),
-            settings: endpoint_settings_value,
+            settings: final_settings,
         });
     }
 
@@ -132,6 +243,8 @@ pub async fn create(
         parent_timestamp,
         add_endpoint: auto_endpoint.then_some(true),
         endpoints,
+        expires_at,
+        schema_only: Some(schema_only),
     };
 
     let creation = client
@@ -150,10 +263,44 @@ pub async fn create(
     println!();
     output::print_branch(&branch, format)?;
 
+    let mut connection_uri_for_psql: Option<String> = None;
+
     if let Some(endpoints) = creation.endpoints.as_ref() {
         if !endpoints.is_empty() {
+            // Store connection URI for potential psql connection
+            if let Some(ep) = endpoints.first() {
+                if let Some(ref uri) = ep.connection_string {
+                    connection_uri_for_psql = Some(uri.clone());
+                }
+            }
             println!();
             output::print_created_endpoints(endpoints, format)?;
+        }
+    }
+
+    // Connect via psql if requested
+    if psql {
+        if let Some(uri) = connection_uri_for_psql {
+            println!();
+            println!("{}", "Connecting via psql...".cyan());
+            let status = std::process::Command::new("psql").arg(&uri).status();
+            match status {
+                Ok(exit_status) if !exit_status.success() => {
+                    eprintln!("{}", "psql exited with non-zero status".yellow());
+                }
+                Err(e) => {
+                    eprintln!(
+                        "{}",
+                        format!("Failed to run psql: {}. Is psql installed?", e).red()
+                    );
+                }
+                _ => {}
+            }
+        } else {
+            eprintln!(
+                "{}",
+                "No connection URI available for psql. Was an endpoint created?".yellow()
+            );
         }
     }
 
@@ -163,10 +310,39 @@ pub async fn create(
 pub async fn delete(
     project_id: &str,
     branch_id: &str,
+    skip_confirm: bool,
     api_host: Option<String>,
     api_key: Option<String>,
 ) -> Result<()> {
     let client = get_client(api_host, api_key).await?;
+
+    // Get branch details for confirmation message
+    let branch = client
+        .branches(project_id)
+        .get(branch_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get branch: {}", e))?;
+
+    if !skip_confirm {
+        println!(
+            "{}",
+            format!(
+                "⚠ This will permanently delete the branch '{}'.",
+                branch.name
+            )
+            .yellow()
+        );
+        println!("Are you sure you want to proceed? [y/N] ");
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let input = input.trim().to_lowercase();
+
+        if input != "y" && input != "yes" {
+            println!("{}", "Delete cancelled.".yellow());
+            return Ok(());
+        }
+    }
 
     client
         .branches(project_id)
@@ -176,7 +352,7 @@ pub async fn delete(
 
     println!(
         "{}",
-        format!("✓ Branch {} deleted successfully!", branch_id)
+        format!("✓ Branch '{}' deleted successfully!", branch.name)
             .green()
             .bold()
     );

@@ -176,3 +176,10 @@ impl ContextConfig {
         Ok(())
     }
 }
+
+/// Helper function to set project context
+pub fn set_context_project(project_id: &str) -> Result<()> {
+    let mut context = ContextConfig::load()?;
+    context.project_id = Some(project_id.to_string());
+    context.save()
+}

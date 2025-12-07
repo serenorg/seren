@@ -290,6 +290,14 @@ enum ProjectAction {
         /// Enable logical replication (sets wal_level=logical). Cannot be disabled once enabled.
         #[arg(long)]
         enable_logical_replication: Option<bool>,
+
+        /// Connect to the new project via psql after creation
+        #[arg(long, action = ArgAction::SetTrue)]
+        psql: bool,
+
+        /// Set the new project as the current context
+        #[arg(long, action = ArgAction::SetTrue)]
+        set_context: bool,
     },
     /// Retrieve a project-level connection URI
     ConnectionUri {
@@ -365,6 +373,10 @@ enum ProjectAction {
     Delete {
         /// Project ID
         id: String,
+
+        /// Skip confirmation prompt (use with caution)
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
 }
 
@@ -407,22 +419,51 @@ enum BranchAction {
         #[arg(long)]
         parent_timestamp: Option<String>,
 
-        /// Automatically provision an endpoint for the new branch
+        /// Do not create a compute endpoint for this branch.
+        /// By default, new branches get an endpoint automatically.
         #[arg(long, action = ArgAction::SetTrue)]
-        add_endpoint: bool,
+        no_compute: bool,
 
         /// Endpoint type for auto-provisioned endpoint (default read_write)
-        #[arg(long)]
+        #[arg(long, conflicts_with = "no_compute")]
         endpoint_type: Option<String>,
 
-        /// Endpoint settings in key=value form (requires --add-endpoint)
-        #[arg(long = "endpoint-setting", value_name = "KEY=VALUE", num_args = 0.., requires = "add_endpoint")]
+        /// Endpoint settings in key=value form
+        #[arg(long = "endpoint-setting", value_name = "KEY=VALUE", num_args = 0.., conflicts_with = "no_compute")]
         endpoint_settings: Vec<String>,
+
+        /// Auto-delete branch after specified duration.
+        /// Examples: "1d" (1 day), "7d" (7 days), "30d" (30 days)
+        #[arg(long, value_name = "DURATION")]
+        expires_in: Option<String>,
+
+        /// Create branch with schema only (no data).
+        /// Copies only the database schema, not the data.
+        #[arg(long, action = ArgAction::SetTrue)]
+        schema_only: bool,
+
+        /// Compute units for the endpoint. Can be a fixed size (e.g., "2") or
+        /// a range (e.g., "0.5-3") for autoscaling.
+        #[arg(long, conflicts_with = "no_compute")]
+        cu: Option<String>,
+
+        /// Suspend timeout in seconds. Duration of inactivity after which the
+        /// endpoint is suspended. Use 0 for default, -1 for never.
+        #[arg(long, conflicts_with = "no_compute")]
+        suspend_timeout: Option<i32>,
+
+        /// Connect to the new branch via psql after creation
+        #[arg(long, action = ArgAction::SetTrue)]
+        psql: bool,
     },
     /// Delete a branch
     Delete {
         /// Branch ID
         id: String,
+
+        /// Skip confirmation prompt (use with caution)
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
     /// Rename a branch
     Rename {
@@ -1238,6 +1279,8 @@ async fn main() -> anyhow::Result<()> {
                 compute_unit_min,
                 compute_unit_max,
                 enable_logical_replication,
+                psql,
+                set_context,
                 ..
             } => {
                 commands::projects::create(
@@ -1250,6 +1293,8 @@ async fn main() -> anyhow::Result<()> {
                     compute_unit_min,
                     compute_unit_max,
                     enable_logical_replication,
+                    psql,
+                    set_context,
                     cli.format,
                     cli.api_host.clone(),
                     cli.api_key.clone(),
@@ -1308,8 +1353,9 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
-            ProjectAction::Delete { id } => {
-                commands::projects::delete(&id, cli.api_host.clone(), cli.api_key.clone()).await?
+            ProjectAction::Delete { id, yes } => {
+                commands::projects::delete(&id, yes, cli.api_host.clone(), cli.api_key.clone())
+                    .await?
             }
         },
         Commands::Branches { project_id, action } => match action {
@@ -1340,10 +1386,17 @@ async fn main() -> anyhow::Result<()> {
                 init_source,
                 parent_lsn,
                 parent_timestamp,
-                add_endpoint,
+                no_compute,
                 endpoint_type,
                 endpoint_settings,
+                expires_in,
+                schema_only,
+                cu,
+                suspend_timeout,
+                psql,
             } => {
+                // Invert: --no-compute means add_endpoint=false, default is true
+                let add_endpoint = !no_compute;
                 commands::branches::create(
                     &project_id,
                     &name,
@@ -1356,16 +1409,22 @@ async fn main() -> anyhow::Result<()> {
                     add_endpoint,
                     endpoint_type.as_deref(),
                     &endpoint_settings,
+                    expires_in.as_deref(),
+                    schema_only,
+                    cu.as_deref(),
+                    suspend_timeout,
+                    psql,
                     cli.format,
                     cli.api_host.clone(),
                     cli.api_key.clone(),
                 )
                 .await?
             }
-            BranchAction::Delete { id } => {
+            BranchAction::Delete { id, yes } => {
                 commands::branches::delete(
                     &project_id,
                     &id,
+                    yes,
                     cli.api_host.clone(),
                     cli.api_key.clone(),
                 )

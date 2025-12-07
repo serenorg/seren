@@ -69,6 +69,8 @@ pub async fn create(
     compute_unit_min: Option<i32>,
     compute_unit_max: Option<i32>,
     enable_logical_replication: Option<bool>,
+    psql: bool,
+    set_context: bool,
     format: OutputFormat,
     api_host: Option<String>,
     api_key: Option<String>,
@@ -107,6 +109,58 @@ pub async fn create(
     println!("{}", "✓ Project created successfully!".green().bold());
     println!();
     output::print_create_project_response(&project, format)?;
+
+    // Set context if requested
+    if set_context {
+        crate::config::set_context_project(&project.id.to_string())?;
+        println!(
+            "{}",
+            format!("✓ Set project '{}' as current context", project.name).green()
+        );
+    }
+
+    // Connect via psql if requested
+    if psql {
+        // Fetch connection URI for the default branch
+        let query = seren::ProjectConnectionUriQuery {
+            branch_id: None,
+            database_name: None,
+            endpoint_id: None,
+            pooled: None,
+            role_name: None,
+        };
+        match client
+            .projects()
+            .connection_uri(&project.id.to_string(), query)
+            .await
+        {
+            Ok(uri_response) => {
+                println!();
+                println!("{}", "Connecting via psql...".cyan());
+                let status = std::process::Command::new("psql")
+                    .arg(&uri_response.uri)
+                    .status();
+                match status {
+                    Ok(exit_status) if !exit_status.success() => {
+                        eprintln!("{}", "psql exited with non-zero status".yellow());
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "{}",
+                            format!("Failed to run psql: {}. Is psql installed?", e).red()
+                        );
+                    }
+                    _ => {}
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "{}",
+                    format!("Could not get connection URI for psql: {}", e).yellow()
+                );
+            }
+        }
+    }
 
     Ok(())
 }
@@ -178,8 +232,49 @@ pub async fn update(
     Ok(())
 }
 
-pub async fn delete(id: &str, api_host: Option<String>, api_key: Option<String>) -> Result<()> {
+pub async fn delete(
+    id: &str,
+    skip_confirm: bool,
+    api_host: Option<String>,
+    api_key: Option<String>,
+) -> Result<()> {
     let client = get_client(api_host, api_key).await?;
+
+    // Get project details for confirmation
+    let project = client
+        .projects()
+        .get(id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get project: {}", e))?;
+
+    if !skip_confirm {
+        println!(
+            "{}",
+            format!(
+                "⚠ This action cannot be undone. This will permanently delete the project '{}'.",
+                project.name
+            )
+            .red()
+            .bold()
+        );
+        println!();
+        println!(
+            "To confirm, type the project name '{}': ",
+            project.name.yellow()
+        );
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let input = input.trim();
+
+        if input != project.name {
+            println!(
+                "{}",
+                "Project name does not match. Delete cancelled.".yellow()
+            );
+            return Ok(());
+        }
+    }
 
     client
         .projects()
@@ -189,7 +284,7 @@ pub async fn delete(id: &str, api_host: Option<String>, api_key: Option<String>)
 
     println!(
         "{}",
-        format!("✓ Project {} deleted successfully!", id)
+        format!("✓ Project '{}' deleted successfully!", project.name)
             .green()
             .bold()
     );
