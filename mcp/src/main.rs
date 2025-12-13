@@ -23,16 +23,16 @@ struct OAuthAuthState {
     store: TokenStore,
 }
 
-/// Extract bearer token from Authorization header (case-insensitive scheme)
+/// Extract bearer token from Authorization header (case-insensitive scheme per RFC 6750)
 fn extract_bearer_token(req: &axum::http::Request<axum::body::Body>) -> Option<&str> {
     req.headers()
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| {
             // Case-insensitive "Bearer " prefix per RFC 6750
-            let v_lower = v.to_ascii_lowercase();
-            if v_lower.starts_with("bearer ") {
-                Some(v[7..].trim()) // Skip "Bearer " (7 chars)
+            let (scheme, token) = v.split_once(' ')?;
+            if scheme.eq_ignore_ascii_case("bearer") {
+                Some(token.trim())
             } else {
                 None
             }
@@ -207,6 +207,7 @@ async fn run_http(config: Config) -> Result<()> {
     );
 
     // CORS configuration per MCP spec - allow browser-based clients
+    // Must allow and expose Mcp-Session-Id for rmcp session management
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -215,8 +216,12 @@ async fn run_http(config: Config) -> Result<()> {
             axum::http::header::CONTENT_TYPE,
             axum::http::header::ACCEPT,
             axum::http::header::HeaderName::from_static("x-read-only"),
+            axum::http::header::HeaderName::from_static("mcp-session-id"),
         ])
-        .expose_headers([axum::http::header::CONTENT_TYPE]);
+        .expose_headers([
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::HeaderName::from_static("mcp-session-id"),
+        ]);
 
     // Create axum router using the tower service
     // StreamableHttpService implements tower::Service, so we use it directly with axum
@@ -311,6 +316,7 @@ async fn run_oauth(config: Config) -> Result<()> {
     );
 
     // CORS configuration per MCP spec
+    // Must allow and expose Mcp-Session-Id for rmcp session management
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -319,8 +325,12 @@ async fn run_oauth(config: Config) -> Result<()> {
             axum::http::header::CONTENT_TYPE,
             axum::http::header::ACCEPT,
             axum::http::header::HeaderName::from_static("x-read-only"),
+            axum::http::header::HeaderName::from_static("mcp-session-id"),
         ])
-        .expose_headers([axum::http::header::CONTENT_TYPE]);
+        .expose_headers([
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::HeaderName::from_static("mcp-session-id"),
+        ]);
 
     // OAuth state for routes
     let oauth_state = Arc::new(OAuthState {
