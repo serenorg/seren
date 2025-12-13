@@ -291,11 +291,8 @@ async fn run_oauth(config: Config) -> Result<()> {
     let store = TokenStore::connect(&database_url).await?;
     tracing::info!("Connected to OAuth database");
 
-    // API key for the MCP server to use when calling the Seren API.
-    let api_key = std::env::var("SEREN_API_KEY")
-        .map_err(|_| anyhow::anyhow!("SEREN_API_KEY is required for start:oauth"))?;
     let api_base_url = config.api_base_url.clone();
-    let seren_api_key = api_key.clone();
+    let api_base_url_for_service = api_base_url.clone();
 
     let ct = CancellationToken::new();
 
@@ -321,7 +318,7 @@ async fn run_oauth(config: Config) -> Result<()> {
 
     // Create streamable HTTP service
     let mcp_service = StreamableHttpService::new(
-        move || SerenMcpServer::new(&api_key, &api_base_url).map_err(std::io::Error::other),
+        move || SerenMcpServer::new_oauth(&api_base_url_for_service).map_err(std::io::Error::other),
         session_manager,
         http_config,
     );
@@ -347,8 +344,8 @@ async fn run_oauth(config: Config) -> Result<()> {
     let oauth_state = Arc::new(OAuthState {
         store: store.clone(),
         server_host: server_host.clone(),
-        client_id,
-        seren_api_key,
+        upstream_client_id: client_id,
+        upstream_api_base_url: api_base_url,
     });
 
     // MCP endpoint with OAuth token validation

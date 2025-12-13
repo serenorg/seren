@@ -39,6 +39,24 @@ impl Client {
     }
 }
 
+/// Pending OAuth authorization request (before upstream login completes).
+///
+/// This tracks the downstream MCP client request and the upstream PKCE verifier
+/// so we can complete the code exchange on callback.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct AuthRequest {
+    pub id: String,
+    pub client_id: String,
+    pub redirect_uri: String,
+    pub scope: String,
+    pub client_state: Option<String>,
+    pub code_challenge: String,
+    pub code_challenge_method: String,
+    pub upstream_code_verifier: String,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
 /// Authorization code (short-lived, exchanged for tokens)
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AuthorizationCode {
@@ -51,6 +69,9 @@ pub struct AuthorizationCode {
     pub code_challenge_method: Option<String>,
     pub expires_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
+    pub upstream_access_token: String,
+    pub upstream_refresh_token: Option<String>,
+    pub upstream_expires_at: DateTime<Utc>,
 }
 
 /// Access token
@@ -62,7 +83,6 @@ pub struct AccessToken {
     pub scope: String,
     pub expires_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
-    pub seren_api_key: String,
 }
 
 /// Refresh token
@@ -117,14 +137,57 @@ impl TokenStore {
         Ok(client)
     }
 
+    // === Authorization request operations ===
+
+    /// Save a pending authorization request
+    pub async fn save_auth_request(&self, req: &AuthRequest) -> Result<()> {
+        sqlx::query(
+            r#"INSERT INTO mcp_oauth.auth_requests
+               (id, client_id, redirect_uri, scope, client_state, code_challenge, code_challenge_method, upstream_code_verifier, expires_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
+        )
+        .bind(&req.id)
+        .bind(&req.client_id)
+        .bind(&req.redirect_uri)
+        .bind(&req.scope)
+        .bind(&req.client_state)
+        .bind(&req.code_challenge)
+        .bind(&req.code_challenge_method)
+        .bind(&req.upstream_code_verifier)
+        .bind(req.expires_at)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(())
+    }
+
+    /// Get and consume a pending authorization request
+    pub async fn consume_auth_request(&self, id: &str) -> Result<Option<AuthRequest>> {
+        let req = sqlx::query_as::<_, AuthRequest>(
+            r#"DELETE FROM mcp_oauth.auth_requests
+               WHERE id = $1 AND expires_at > NOW()
+               RETURNING id, client_id, redirect_uri, scope, client_state,
+                         code_challenge, code_challenge_method, upstream_code_verifier,
+                         expires_at, created_at"#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(req)
+    }
+
     // === Authorization code operations ===
 
     /// Save an authorization code
     pub async fn save_authorization_code(&self, code: &AuthorizationCode) -> Result<()> {
         sqlx::query(
             r#"INSERT INTO mcp_oauth.authorization_codes
-               (code, client_id, user_id, redirect_uri, scope, code_challenge, code_challenge_method, expires_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+               (code, client_id, user_id, redirect_uri, scope, code_challenge, code_challenge_method,
+                expires_at, upstream_access_token, upstream_refresh_token, upstream_expires_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#,
         )
         .bind(&code.code)
         .bind(&code.client_id)
@@ -134,6 +197,9 @@ impl TokenStore {
         .bind(&code.code_challenge)
         .bind(&code.code_challenge_method)
         .bind(code.expires_at)
+        .bind(&code.upstream_access_token)
+        .bind(&code.upstream_refresh_token)
+        .bind(code.upstream_expires_at)
         .execute(&self.pool)
         .await
         .map_err(McpError::Database)?;
@@ -150,7 +216,8 @@ impl TokenStore {
             r#"DELETE FROM mcp_oauth.authorization_codes
                WHERE code = $1 AND expires_at > NOW()
                RETURNING code, client_id, user_id, redirect_uri, scope,
-                         code_challenge, code_challenge_method, expires_at, created_at"#,
+                         code_challenge, code_challenge_method, expires_at, created_at,
+                         upstream_access_token, upstream_refresh_token, upstream_expires_at"#,
         )
         .bind(code)
         .fetch_optional(&self.pool)
@@ -166,15 +233,14 @@ impl TokenStore {
     pub async fn save_access_token(&self, token: &AccessToken) -> Result<()> {
         sqlx::query(
             r#"INSERT INTO mcp_oauth.access_tokens
-               (token, client_id, user_id, scope, expires_at, seren_api_key)
-               VALUES ($1, $2, $3, $4, $5, $6)"#,
+               (token, client_id, user_id, scope, expires_at)
+               VALUES ($1, $2, $3, $4, $5)"#,
         )
         .bind(&token.token)
         .bind(&token.client_id)
         .bind(&token.user_id)
         .bind(&token.scope)
         .bind(token.expires_at)
-        .bind(&token.seren_api_key)
         .execute(&self.pool)
         .await
         .map_err(McpError::Database)?;
@@ -185,7 +251,7 @@ impl TokenStore {
     /// Get an access token (validates expiry)
     pub async fn get_access_token(&self, token: &str) -> Result<Option<AccessToken>> {
         let access_token = sqlx::query_as::<_, AccessToken>(
-            r#"SELECT token, client_id, user_id, scope, expires_at, created_at, seren_api_key
+            r#"SELECT token, client_id, user_id, scope, expires_at, created_at
                FROM mcp_oauth.access_tokens
                WHERE token = $1 AND expires_at > NOW()"#,
         )

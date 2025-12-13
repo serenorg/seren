@@ -10,14 +10,20 @@ use rmcp::{
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use tracing::instrument;
 use uuid::Uuid;
+
+#[derive(Clone)]
+enum SerenAuth {
+    StaticToken(String),
+    FromRequestBearer,
+}
 
 /// Seren MCP Server
 #[derive(Clone)]
 pub struct SerenMcpServer {
-    api_client: Arc<seren::Client>,
+    api_base_url: String,
+    auth: SerenAuth,
     http_client: reqwest::Client,
     tool_router: ToolRouter<Self>,
 }
@@ -238,6 +244,23 @@ fn ensure_writes_allowed(extensions: &Extensions) -> Result<(), McpError> {
     Ok(())
 }
 
+fn extract_bearer_token_from_extensions(extensions: &Extensions) -> Option<String> {
+    let parts = extensions.get::<axum::http::request::Parts>()?;
+    let header = parts.headers.get(axum::http::header::AUTHORIZATION)?;
+    let header = header.to_str().ok()?;
+    let (scheme, token) = header.split_once(' ')?;
+    if scheme.eq_ignore_ascii_case("bearer") {
+        let token = token.trim();
+        if token.is_empty() {
+            None
+        } else {
+            Some(token.to_string())
+        }
+    } else {
+        None
+    }
+}
+
 // ============================================================================
 // Input Validation Helpers
 // ============================================================================
@@ -335,6 +358,17 @@ fn validate_sql_query(query: &str) -> Result<(), McpError> {
 // ============================================================================
 
 impl SerenMcpServer {
+    fn api_client(&self, extensions: &Extensions) -> Result<seren::Client, McpError> {
+        let token = match &self.auth {
+            SerenAuth::StaticToken(token) => token.clone(),
+            SerenAuth::FromRequestBearer => extract_bearer_token_from_extensions(extensions)
+                .ok_or_else(|| McpError::invalid_request("Missing Bearer token", None))?,
+        };
+
+        let config = seren::ClientConfig::new(token).with_base_url(&self.api_base_url);
+        seren::Client::new(config).map_err(|e| McpError::internal_error(e.to_string(), None))
+    }
+
     #[instrument(skip(self, connection_string), fields(query_len = query.len()))]
     async fn execute_sql(
         &self,
@@ -394,19 +428,31 @@ impl SerenMcpServer {
 impl SerenMcpServer {
     /// Create a new Seren MCP Server
     pub fn new(api_key: &str, api_base_url: &str) -> Result<Self, seren::Error> {
-        let config = seren::ClientConfig::new(api_key).with_base_url(api_base_url);
-        let api_client = Arc::new(seren::Client::new(config)?);
         Ok(Self {
-            api_client,
+            api_base_url: api_base_url.to_string(),
+            auth: SerenAuth::StaticToken(api_key.to_string()),
+            http_client: reqwest::Client::new(),
+            tool_router: Self::tool_router(),
+        })
+    }
+
+    /// Create a new Seren MCP Server in OAuth mode.
+    ///
+    /// In this mode the Seren API token is taken from each incoming HTTP request's
+    /// `Authorization: Bearer ...` header (injected into [`Extensions`] by rmcp).
+    pub fn new_oauth(api_base_url: &str) -> Result<Self, seren::Error> {
+        Ok(Self {
+            api_base_url: api_base_url.to_string(),
+            auth: SerenAuth::FromRequestBearer,
             http_client: reqwest::Client::new(),
             tool_router: Self::tool_router(),
         })
     }
 
     #[tool(description = "List all Seren projects accessible to the authenticated user")]
-    async fn list_projects(&self) -> Result<CallToolResult, McpError> {
-        let projects = self
-            .api_client
+    async fn list_projects(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let projects = api_client
             .projects()
             .list()
             .await
@@ -418,9 +464,10 @@ impl SerenMcpServer {
     async fn describe_project(
         &self,
         Parameters(params): Parameters<DescribeProjectParams>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let project = self
-            .api_client
+        let api_client = self.api_client(&extensions)?;
+        let project = api_client
             .projects()
             .get(&params.project_id.to_string())
             .await
@@ -438,6 +485,7 @@ impl SerenMcpServer {
         ensure_writes_allowed(&extensions)?;
         validate_resource_name(&params.name, "project name")?;
 
+        let api_client = self.api_client(&extensions)?;
         let request = seren::CreateProjectRequest {
             name: params.name,
             region: params.region.unwrap_or_else(|| "aws-us-east-1".to_string()),
@@ -449,8 +497,7 @@ impl SerenMcpServer {
             hipaa: None,
             protected_branches_only: None,
         };
-        let response = self
-            .api_client
+        let response = api_client
             .projects()
             .create(request)
             .await
@@ -466,7 +513,8 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
 
-        self.api_client
+        let api_client = self.api_client(&extensions)?;
+        api_client
             .projects()
             .delete(&params.project_id.to_string())
             .await
@@ -487,6 +535,7 @@ impl SerenMcpServer {
         ensure_writes_allowed(&extensions)?;
         validate_resource_name(&params.name, "branch name")?;
 
+        let api_client = self.api_client(&extensions)?;
         let request = seren::CreateBranchRequest {
             name: params.name,
             parent_branch_id: params.parent_branch_id,
@@ -498,8 +547,7 @@ impl SerenMcpServer {
             parent_timestamp: None,
             protected: None,
         };
-        let response = self
-            .api_client
+        let response = api_client
             .branches(params.project_id.to_string())
             .create(request)
             .await
@@ -515,7 +563,8 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
 
-        self.api_client
+        let api_client = self.api_client(&extensions)?;
+        api_client
             .branches(params.project_id.to_string())
             .delete(&params.branch_id.to_string())
             .await
@@ -530,9 +579,10 @@ impl SerenMcpServer {
     async fn list_databases(
         &self,
         Parameters(params): Parameters<ListDatabasesParams>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let databases = self
-            .api_client
+        let api_client = self.api_client(&extensions)?;
+        let databases = api_client
             .databases(params.project_id.to_string(), params.branch_id.to_string())
             .list()
             .await
@@ -550,12 +600,12 @@ impl SerenMcpServer {
         ensure_writes_allowed(&extensions)?;
         validate_identifier(&params.name, "database name")?;
 
+        let api_client = self.api_client(&extensions)?;
         let request = seren::CreateDatabaseRequest {
             name: params.name,
             owner_name: params.owner,
         };
-        let database = self
-            .api_client
+        let database = api_client
             .databases(params.project_id.to_string(), params.branch_id.to_string())
             .create(request)
             .await
@@ -567,9 +617,10 @@ impl SerenMcpServer {
     async fn list_roles(
         &self,
         Parameters(params): Parameters<ListRolesParams>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let roles = self
-            .api_client
+        let api_client = self.api_client(&extensions)?;
+        let roles = api_client
             .roles(params.project_id.to_string(), params.branch_id.to_string())
             .list()
             .await
@@ -581,9 +632,10 @@ impl SerenMcpServer {
     async fn get_connection_string(
         &self,
         Parameters(params): Parameters<GetConnectionStringParams>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let mut response = self
-            .api_client
+        let api_client = self.api_client(&extensions)?;
+        let mut response = api_client
             .branches(params.project_id.to_string())
             .connection_string_with_options(
                 &params.branch_id.to_string(),
@@ -613,8 +665,8 @@ impl SerenMcpServer {
         validate_sql_query(&params.query)?;
 
         // Get connection info from API
-        let conn_response = self
-            .api_client
+        let api_client = self.api_client(&extensions)?;
+        let conn_response = api_client
             .branches(params.project_id.to_string())
             .connection_string_with_options(&params.branch_id.to_string(), None, None)
             .await
@@ -631,10 +683,11 @@ impl SerenMcpServer {
     }
 
     #[tool(description = "Get schema information for a table")]
-    #[instrument(skip(self), fields(project_id = %params.project_id, branch_id = %params.branch_id, database = %params.database, table = %params.table_name))]
+    #[instrument(skip(self, extensions), fields(project_id = %params.project_id, branch_id = %params.branch_id, database = %params.database, table = %params.table_name))]
     async fn describe_table_schema(
         &self,
         Parameters(params): Parameters<DescribeTableSchemaParams>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         validate_identifier(&params.database, "database")?;
         validate_identifier(&params.table_name, "table_name")?;
@@ -656,8 +709,8 @@ impl SerenMcpServer {
             ORDER BY ordinal_position
         "#;
 
-        let conn_response = self
-            .api_client
+        let api_client = self.api_client(&extensions)?;
+        let conn_response = api_client
             .branches(params.project_id.to_string())
             .connection_string_with_options(&params.branch_id.to_string(), None, None)
             .await

@@ -1,12 +1,16 @@
-//! OAuth2 HTTP routes for hosted MCP server mode
+//! OAuth2 HTTP routes for hosted MCP server mode.
 //!
 //! Implements OAuth 2.1 endpoints per MCP specification:
 //! - `/.well-known/oauth-authorization-server` - Server metadata (RFC 8414)
-//! - `/authorize` - Authorization endpoint
+//! - `/authorize` - Authorization endpoint (downstream: MCP client -> this server)
+//! - `/callback` - Callback endpoint (upstream: SerenCore -> this server)
 //! - `/token` - Token endpoint
 //! - `/register` - Dynamic client registration (RFC 7591)
+//!
+//! This server acts as the OAuth authorization server for MCP clients, but delegates
+//! actual user authentication to SerenCore via `/api/oauth2/*` (Authorization Code + PKCE).
 
-use crate::oauth::store::{AccessToken, AuthorizationCode, RefreshToken, TokenStore};
+use crate::oauth::store::{AccessToken, AuthRequest, AuthorizationCode, RefreshToken, TokenStore};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -14,19 +18,20 @@ use axum::{
     routing::{get, post},
     Form, Json, Router,
 };
+use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-/// OAuth server state
+/// OAuth server state.
 #[derive(Clone)]
 pub struct OAuthState {
     pub store: TokenStore,
+    /// Public base URL of this MCP server (e.g. `https://mcp.serendb.com`).
     pub server_host: String,
-    pub client_id: String,
-    /// Seren API key used by the MCP server when calling the Seren API in hosted mode.
-    ///
-    /// Note: this is currently a single-tenant implementation; all OAuth clients share this key.
-    pub seren_api_key: String,
+    /// Client id used with SerenCore `/api/oauth2/*` endpoints.
+    pub upstream_client_id: String,
+    /// Base URL for SerenCore API (e.g. `https://api.serendb.com/api`).
+    pub upstream_api_base_url: String,
 }
 
 // ============================================================================
@@ -88,11 +93,10 @@ async fn register(
     State(state): State<Arc<OAuthState>>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<RegisterResponse>, OAuthError> {
-    // Validate redirect URIs per MCP spec
     for uri in &req.redirect_uris {
         if !is_valid_redirect_uri(uri) {
             return Err(OAuthError::InvalidRequest(
-                "redirect_uris must be localhost or HTTPS URLs".into(),
+                "redirect_uris must be localhost, HTTPS, or mcp:// URLs".into(),
             ));
         }
     }
@@ -109,7 +113,6 @@ async fn register(
         .map(String::from)
         .collect();
 
-    // Store the client (hashing the secret)
     let secret_hash = hash_secret(&client_secret);
     sqlx::query(
         r#"INSERT INTO mcp_oauth.clients
@@ -137,7 +140,7 @@ async fn register(
 }
 
 // ============================================================================
-// Authorization Endpoint
+// Authorization Endpoint (downstream)
 // ============================================================================
 
 #[derive(Debug, Deserialize)]
@@ -159,12 +162,10 @@ async fn authorize(
     State(state): State<Arc<OAuthState>>,
     Query(req): Query<AuthorizeRequest>,
 ) -> Result<Response, OAuthError> {
-    // Validate response_type
     if req.response_type != "code" {
         return Err(OAuthError::UnsupportedResponseType);
     }
 
-    // Validate client
     let client = state
         .store
         .get_client(&req.client_id)
@@ -172,14 +173,12 @@ async fn authorize(
         .map_err(|e| OAuthError::ServerError(e.to_string()))?
         .ok_or(OAuthError::InvalidClient)?;
 
-    // Validate redirect URI
     if !client.allows_redirect_uri(&req.redirect_uri) {
         return Err(OAuthError::InvalidRequest(
             "redirect_uri not registered for this client".into(),
         ));
     }
 
-    // PKCE is required per MCP spec
     let code_challenge = req
         .code_challenge
         .ok_or(OAuthError::InvalidRequest("code_challenge required".into()))?;
@@ -191,18 +190,172 @@ async fn authorize(
         ));
     }
 
-    // Generate authorization code
-    let code = TokenStore::generate_code();
-    let auth_code = AuthorizationCode {
-        code: code.clone(),
-        client_id: req.client_id,
-        user_id: "mcp-user".into(), // In a real implementation, this would be the authenticated user
+    // Create a pending authorization request so we can complete the upstream callback.
+    let upstream_state = TokenStore::generate_token();
+    let upstream_code_verifier = TokenStore::generate_token();
+    let upstream_code_challenge = pkce_s256_challenge(&upstream_code_verifier);
+
+    let auth_request = AuthRequest {
+        id: upstream_state.clone(),
+        client_id: req.client_id.clone(),
         redirect_uri: req.redirect_uri.clone(),
         scope: req.scope.unwrap_or_else(|| "api".into()),
-        code_challenge: Some(code_challenge),
-        code_challenge_method: Some(code_challenge_method),
+        client_state: req.state.clone(),
+        code_challenge,
+        code_challenge_method,
+        upstream_code_verifier,
         expires_at: TokenStore::code_expiry(),
-        created_at: chrono::Utc::now(),
+        created_at: Utc::now(),
+    };
+
+    state
+        .store
+        .save_auth_request(&auth_request)
+        .await
+        .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+
+    let upstream_redirect_uri = format!("{}/callback", state.server_host.trim_end_matches('/'));
+    let mut url = reqwest::Url::parse(&format!(
+        "{}/oauth2/authorize",
+        state.upstream_api_base_url.trim_end_matches('/')
+    ))
+    .map_err(|_| OAuthError::ServerError("Invalid upstream_api_base_url".into()))?;
+
+    url.query_pairs_mut()
+        .append_pair("client_id", &state.upstream_client_id)
+        .append_pair("response_type", "code")
+        .append_pair("redirect_uri", &upstream_redirect_uri)
+        .append_pair("code_challenge", &upstream_code_challenge)
+        .append_pair("code_challenge_method", "S256")
+        .append_pair("state", &upstream_state)
+        .append_pair("scope", "openid profile email");
+
+    Ok(Redirect::temporary(url.as_str()).into_response())
+}
+
+// ============================================================================
+// Callback Endpoint (upstream)
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+struct CallbackQuery {
+    #[serde(default)]
+    code: Option<String>,
+    #[serde(default)]
+    state: Option<String>,
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    error_description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpstreamTokenResponse {
+    access_token: String,
+    token_type: String,
+    expires_in: i64,
+    #[serde(default)]
+    refresh_token: Option<String>,
+    #[serde(default)]
+    scope: Option<String>,
+}
+
+async fn callback(
+    State(state): State<Arc<OAuthState>>,
+    Query(q): Query<CallbackQuery>,
+) -> Result<Response, OAuthError> {
+    let upstream_state = q
+        .state
+        .ok_or_else(|| OAuthError::InvalidRequest("state required".into()))?;
+
+    let auth_request = state
+        .store
+        .consume_auth_request(&upstream_state)
+        .await
+        .map_err(|e| OAuthError::ServerError(e.to_string()))?
+        .ok_or(OAuthError::InvalidGrant(
+            "Invalid or expired authorization request".into(),
+        ))?;
+
+    // Upstream error -> redirect back to downstream client.
+    if let Some(error) = q.error {
+        return Ok(redirect_with_error(
+            &auth_request.redirect_uri,
+            auth_request.client_state.as_deref(),
+            &error,
+            q.error_description.as_deref(),
+        )?);
+    }
+
+    let code = q
+        .code
+        .ok_or_else(|| OAuthError::InvalidRequest("code required".into()))?;
+
+    let upstream_redirect_uri = format!("{}/callback", state.server_host.trim_end_matches('/'));
+    let token_url = format!(
+        "{}/oauth2/token",
+        state.upstream_api_base_url.trim_end_matches('/')
+    );
+
+    let http = reqwest::Client::new();
+    let token_res = http
+        .post(token_url)
+        .form(&[
+            ("grant_type", "authorization_code"),
+            ("code", code.as_str()),
+            ("redirect_uri", upstream_redirect_uri.as_str()),
+            ("client_id", state.upstream_client_id.as_str()),
+            (
+                "code_verifier",
+                auth_request.upstream_code_verifier.as_str(),
+            ),
+        ])
+        .send()
+        .await
+        .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+
+    if !token_res.status().is_success() {
+        let status = token_res.status();
+        let body = token_res.text().await.unwrap_or_default();
+        return Ok(redirect_with_error(
+            &auth_request.redirect_uri,
+            auth_request.client_state.as_deref(),
+            "server_error",
+            Some(&format!(
+                "Upstream token exchange failed ({status}): {body}"
+            )),
+        )?);
+    }
+
+    let token_body: UpstreamTokenResponse = token_res
+        .json()
+        .await
+        .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+    let upstream_expires_at = Utc::now() + Duration::seconds(token_body.expires_in.max(0));
+
+    let user_id = fetch_user_id(
+        &http,
+        &state.upstream_api_base_url,
+        &token_body.access_token,
+    )
+    .await
+    .ok_or_else(|| OAuthError::ServerError("Failed to fetch user id".into()))?;
+
+    // Create downstream authorization code carrying upstream tokens.
+    let downstream_code = TokenStore::generate_code();
+    let auth_code = AuthorizationCode {
+        code: downstream_code.clone(),
+        client_id: auth_request.client_id.clone(),
+        user_id,
+        redirect_uri: auth_request.redirect_uri.clone(),
+        scope: auth_request.scope.clone(),
+        code_challenge: Some(auth_request.code_challenge),
+        code_challenge_method: Some(auth_request.code_challenge_method),
+        expires_at: TokenStore::code_expiry(),
+        created_at: Utc::now(),
+        upstream_access_token: token_body.access_token,
+        upstream_refresh_token: token_body.refresh_token,
+        upstream_expires_at,
     };
 
     state
@@ -211,23 +364,22 @@ async fn authorize(
         .await
         .map_err(|e| OAuthError::ServerError(e.to_string()))?;
 
-    // Redirect back to client with code
-    let mut redirect_url = reqwest::Url::parse(&req.redirect_uri)
+    let mut redirect_url = reqwest::Url::parse(&auth_request.redirect_uri)
         .map_err(|_| OAuthError::InvalidRequest("Invalid redirect_uri".into()))?;
-
-    redirect_url.query_pairs_mut().append_pair("code", &code);
-
-    if let Some(state_param) = req.state {
+    redirect_url
+        .query_pairs_mut()
+        .append_pair("code", &downstream_code);
+    if let Some(client_state) = auth_request.client_state {
         redirect_url
             .query_pairs_mut()
-            .append_pair("state", &state_param);
+            .append_pair("state", &client_state);
     }
 
     Ok(Redirect::temporary(redirect_url.as_str()).into_response())
 }
 
 // ============================================================================
-// Token Endpoint
+// Token Endpoint (downstream)
 // ============================================================================
 
 #[derive(Debug, Deserialize)]
@@ -265,15 +417,14 @@ async fn token(
         "authorization_code" => {
             let code = req
                 .code
-                .ok_or(OAuthError::InvalidRequest("code required".into()))?;
+                .ok_or_else(|| OAuthError::InvalidRequest("code required".into()))?;
             let redirect_uri = req
                 .redirect_uri
-                .ok_or(OAuthError::InvalidRequest("redirect_uri required".into()))?;
+                .ok_or_else(|| OAuthError::InvalidRequest("redirect_uri required".into()))?;
             let code_verifier = req
                 .code_verifier
-                .ok_or(OAuthError::InvalidRequest("code_verifier required".into()))?;
+                .ok_or_else(|| OAuthError::InvalidRequest("code_verifier required".into()))?;
 
-            // Consume the authorization code
             let auth_code = state
                 .store
                 .consume_authorization_code(&code)
@@ -310,12 +461,10 @@ async fn token(
                 }
             }
 
-            // Validate redirect_uri matches
             if auth_code.redirect_uri != redirect_uri {
                 return Err(OAuthError::InvalidGrant("redirect_uri mismatch".into()));
             }
 
-            // Validate PKCE
             if let Some(challenge) = &auth_code.code_challenge {
                 if !TokenStore::verify_pkce(
                     &code_verifier,
@@ -326,57 +475,52 @@ async fn token(
                 }
             }
 
-            // Generate tokens
-            let access_token_str = TokenStore::generate_token();
-            let refresh_token_str = TokenStore::generate_token();
-            let expires_in = 3600; // 1 hour
-
-            // Single-tenant: use the server-configured Seren API key for all clients.
-            let seren_api_key = state.seren_api_key.clone();
-
+            // Persist upstream tokens (access token is used as bearer token on /mcp).
             let access_token = AccessToken {
-                token: access_token_str.clone(),
+                token: auth_code.upstream_access_token.clone(),
                 client_id: auth_code.client_id.clone(),
                 user_id: auth_code.user_id.clone(),
                 scope: auth_code.scope.clone(),
-                expires_at: TokenStore::token_expiry(1), // 1 hour
-                created_at: chrono::Utc::now(),
-                seren_api_key,
+                expires_at: auth_code.upstream_expires_at,
+                created_at: Utc::now(),
             };
-
-            let refresh_token = RefreshToken {
-                token: refresh_token_str.clone(),
-                access_token: access_token_str.clone(),
-                client_id: auth_code.client_id,
-                user_id: auth_code.user_id,
-                expires_at: Some(TokenStore::token_expiry(24 * 30)), // 30 days
-                created_at: chrono::Utc::now(),
-            };
-
             state
                 .store
                 .save_access_token(&access_token)
                 .await
                 .map_err(|e| OAuthError::ServerError(e.to_string()))?;
 
-            state
-                .store
-                .save_refresh_token(&refresh_token)
-                .await
-                .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+            if let Some(refresh_token_str) = auth_code.upstream_refresh_token.as_deref() {
+                let refresh_token = RefreshToken {
+                    token: refresh_token_str.to_string(),
+                    access_token: access_token.token.clone(),
+                    client_id: auth_code.client_id.clone(),
+                    user_id: auth_code.user_id.clone(),
+                    expires_at: Some(Utc::now() + Duration::days(7)),
+                    created_at: Utc::now(),
+                };
+                state
+                    .store
+                    .save_refresh_token(&refresh_token)
+                    .await
+                    .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+            }
 
+            let expires_in = (auth_code.upstream_expires_at - Utc::now())
+                .num_seconds()
+                .max(0);
             Ok(Json(TokenResponse {
-                access_token: access_token_str,
+                access_token: auth_code.upstream_access_token,
                 token_type: "Bearer".into(),
                 expires_in,
-                refresh_token: Some(refresh_token_str),
-                scope: access_token.scope,
+                refresh_token: auth_code.upstream_refresh_token,
+                scope: auth_code.scope,
             }))
         }
         "refresh_token" => {
             let refresh_token_str = req
                 .refresh_token
-                .ok_or(OAuthError::InvalidRequest("refresh_token required".into()))?;
+                .ok_or_else(|| OAuthError::InvalidRequest("refresh_token required".into()))?;
 
             let refresh_token = state
                 .store
@@ -416,32 +560,65 @@ async fn token(
                 }
             }
 
-            // Generate new access token
-            let new_access_token_str = TokenStore::generate_token();
-            let seren_api_key = state.seren_api_key.clone();
+            // Refresh upstream tokens via SerenCore.
+            let token_url = format!(
+                "{}/oauth2/token",
+                state.upstream_api_base_url.trim_end_matches('/')
+            );
+            let http = reqwest::Client::new();
+            let res = http
+                .post(token_url)
+                .form(&[
+                    ("grant_type", "refresh_token"),
+                    ("refresh_token", refresh_token_str.as_str()),
+                    ("client_id", state.upstream_client_id.as_str()),
+                ])
+                .send()
+                .await
+                .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+
+            if !res.status().is_success() {
+                let status = res.status();
+                let body = res.text().await.unwrap_or_default();
+                return Err(OAuthError::InvalidGrant(format!(
+                    "Upstream refresh failed ({}): {}",
+                    status, body
+                )));
+            }
+
+            let token_body: UpstreamTokenResponse = res
+                .json()
+                .await
+                .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+            let new_expires_at = Utc::now() + Duration::seconds(token_body.expires_in.max(0));
+
+            let new_access_token_str = token_body.access_token;
+            let new_refresh_token_str = token_body
+                .refresh_token
+                .unwrap_or_else(|| refresh_token_str.clone());
 
             let new_access_token = AccessToken {
                 token: new_access_token_str.clone(),
                 client_id: refresh_token.client_id.clone(),
                 user_id: refresh_token.user_id.clone(),
-                scope: "api".into(), // Would be stored with refresh token in full implementation
-                expires_at: TokenStore::token_expiry(1),
-                created_at: chrono::Utc::now(),
-                seren_api_key,
+                scope: "api".into(),
+                expires_at: new_expires_at,
+                created_at: Utc::now(),
             };
-
             state
                 .store
                 .save_access_token(&new_access_token)
                 .await
                 .map_err(|e| OAuthError::ServerError(e.to_string()))?;
 
-            // Update refresh token to point to new access token
+            // Update refresh token row first (avoid FK cascade delete).
             let old_access_token = refresh_token.access_token.clone();
             let result = sqlx::query(
-                "UPDATE mcp_oauth.refresh_tokens SET access_token = $1 WHERE token = $2",
+                "UPDATE mcp_oauth.refresh_tokens SET token = $1, access_token = $2, expires_at = $3 WHERE token = $4",
             )
+            .bind(&new_refresh_token_str)
             .bind(&new_access_token_str)
+            .bind(Some(Utc::now() + Duration::days(7)))
             .bind(&refresh_token_str)
             .execute(state.store.pool())
             .await
@@ -450,19 +627,18 @@ async fn token(
                 return Err(OAuthError::InvalidGrant("refresh_token not found".into()));
             }
 
-            // Revoke the old access token after the refresh token has been repointed.
-            // (Deleting the old access token first would cascade-delete the refresh token row.)
             state
                 .store
                 .revoke_access_token(&old_access_token)
                 .await
                 .ok();
 
+            let expires_in = (new_expires_at - Utc::now()).num_seconds().max(0);
             Ok(Json(TokenResponse {
                 access_token: new_access_token_str,
                 token_type: "Bearer".into(),
-                expires_in: 3600,
-                refresh_token: Some(refresh_token_str),
+                expires_in,
+                refresh_token: Some(new_refresh_token_str),
                 scope: new_access_token.scope,
             }))
         }
@@ -545,6 +721,55 @@ fn hash_secret(secret: &str) -> String {
     base64::Engine::encode(&base64::engine::general_purpose::STANDARD, hash)
 }
 
+fn pkce_s256_challenge(code_verifier: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let hash = Sha256::digest(code_verifier.as_bytes());
+    base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, hash)
+}
+
+fn redirect_with_error(
+    redirect_uri: &str,
+    state: Option<&str>,
+    error: &str,
+    description: Option<&str>,
+) -> Result<Response, OAuthError> {
+    let mut redirect_url = reqwest::Url::parse(redirect_uri)
+        .map_err(|_| OAuthError::InvalidRequest("Invalid redirect_uri".into()))?;
+    redirect_url.query_pairs_mut().append_pair("error", error);
+    if let Some(desc) = description {
+        let truncated = if desc.len() > 500 { &desc[..500] } else { desc };
+        redirect_url
+            .query_pairs_mut()
+            .append_pair("error_description", truncated);
+    }
+    if let Some(state) = state {
+        redirect_url.query_pairs_mut().append_pair("state", state);
+    }
+    Ok(Redirect::temporary(redirect_url.as_str()).into_response())
+}
+
+async fn fetch_user_id(
+    http: &reqwest::Client,
+    api_base_url: &str,
+    access_token: &str,
+) -> Option<String> {
+    let url = format!("{}/auth/me", api_base_url.trim_end_matches('/'));
+    let res = http.get(url).bearer_auth(access_token).send().await.ok()?;
+    if !res.status().is_success() {
+        return None;
+    }
+    let v: serde_json::Value = res.json().await.ok()?;
+    v.get("data")
+        .and_then(|d| d.get("id"))
+        .and_then(|id| id.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            v.get("id")
+                .and_then(|id| id.as_str())
+                .map(|s| s.to_string())
+        })
+}
+
 // ============================================================================
 // Router
 // ============================================================================
@@ -553,6 +778,7 @@ pub fn oauth_router(state: Arc<OAuthState>) -> Router {
     Router::new()
         .route("/.well-known/oauth-authorization-server", get(metadata))
         .route("/authorize", get(authorize))
+        .route("/callback", get(callback))
         .route("/token", post(token))
         .route("/register", post(register))
         .with_state(state)
