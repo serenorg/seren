@@ -11,6 +11,7 @@ use rmcp::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tracing::instrument;
 use uuid::Uuid;
 
 /// Seren MCP Server
@@ -229,10 +230,64 @@ fn ensure_writes_allowed(extensions: &Extensions) -> Result<(), McpError> {
 }
 
 // ============================================================================
+// Input Validation Helpers
+// ============================================================================
+
+fn validate_name(name: &str, field: &str) -> Result<(), McpError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(McpError::invalid_params(
+            format!("{} must not be empty", field),
+            None,
+        ));
+    }
+    if name.len() > 63 {
+        return Err(McpError::invalid_params(
+            format!("{} must not exceed 63 characters", field),
+            None,
+        ));
+    }
+    // PostgreSQL identifier rules: must start with letter or underscore
+    let first_char = name.chars().next().unwrap();
+    if !first_char.is_ascii_alphabetic() && first_char != '_' {
+        return Err(McpError::invalid_params(
+            format!("{} must start with a letter or underscore", field),
+            None,
+        ));
+    }
+    // Rest must be alphanumeric, underscore, or hyphen
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(McpError::invalid_params(
+            format!(
+                "{} must contain only letters, numbers, underscores, or hyphens",
+                field
+            ),
+            None,
+        ));
+    }
+    Ok(())
+}
+
+fn validate_sql_query(query: &str) -> Result<(), McpError> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Err(McpError::invalid_params("query must not be empty", None));
+    }
+    if query.len() > 1_000_000 {
+        return Err(McpError::invalid_params("query must not exceed 1MB", None));
+    }
+    Ok(())
+}
+
+// ============================================================================
 // Tool Implementations
 // ============================================================================
 
 impl SerenMcpServer {
+    #[instrument(skip(self, connection_string), fields(query_len = query.len()))]
     async fn execute_sql(
         &self,
         connection_string: &str,
@@ -240,6 +295,8 @@ impl SerenMcpServer {
         params: Vec<serde_json::Value>,
     ) -> Result<SqlResponse, McpError> {
         let http_url = sql_proxy_url_from_connection_string(connection_string)?;
+
+        tracing::debug!(url = %http_url, "Executing SQL query");
 
         let response = self
             .http_client
@@ -252,19 +309,28 @@ impl SerenMcpServer {
             })
             .send()
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| {
+                tracing::error!(error = %e, "SQL HTTP request failed");
+                McpError::internal_error(e.to_string(), None)
+            })?;
 
         if !response.status().is_success() {
+            let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
+            tracing::error!(status = %status, error = %error_text, "SQL execution failed");
             return Err(McpError::internal_error(
                 format!("SQL execution failed: {}", error_text),
                 None,
             ));
         }
 
-        response.json().await.map_err(|e| {
+        let result: SqlResponse = response.json().await.map_err(|e| {
+            tracing::error!(error = %e, "Failed to parse SQL response");
             McpError::internal_error(format!("Failed to parse SQL response: {}", e), None)
-        })
+        })?;
+
+        tracing::debug!(row_count = ?result.row_count, "SQL query completed");
+        Ok(result)
     }
 }
 
@@ -307,12 +373,14 @@ impl SerenMcpServer {
     }
 
     #[tool(description = "Create a new Seren project")]
+    #[instrument(skip(self, extensions), fields(name = %params.name))]
     async fn create_project(
         &self,
         Parameters(params): Parameters<CreateProjectParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
+        validate_name(&params.name, "project name")?;
 
         let request = seren::CreateProjectRequest {
             name: params.name,
@@ -354,12 +422,14 @@ impl SerenMcpServer {
     }
 
     #[tool(description = "Create a new branch in a project")]
+    #[instrument(skip(self, extensions), fields(project_id = %params.project_id, name = %params.name))]
     async fn create_branch(
         &self,
         Parameters(params): Parameters<CreateBranchParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
+        validate_name(&params.name, "branch name")?;
 
         let request = seren::CreateBranchRequest {
             name: params.name,
@@ -415,12 +485,14 @@ impl SerenMcpServer {
     }
 
     #[tool(description = "Create a new database in a branch")]
+    #[instrument(skip(self, extensions), fields(project_id = %params.project_id, branch_id = %params.branch_id, name = %params.name))]
     async fn create_database(
         &self,
         Parameters(params): Parameters<CreateDatabaseParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
+        validate_name(&params.name, "database name")?;
 
         let request = seren::CreateDatabaseRequest {
             name: params.name,
@@ -474,12 +546,15 @@ impl SerenMcpServer {
     }
 
     #[tool(description = "Execute a SQL query against a database")]
+    #[instrument(skip(self, extensions, params), fields(project_id = %params.project_id, branch_id = %params.branch_id, database = %params.database))]
     async fn run_sql(
         &self,
         Parameters(params): Parameters<RunSqlParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
+        validate_name(&params.database, "database")?;
+        validate_sql_query(&params.query)?;
 
         // Get connection info from API
         let conn_response = self
@@ -500,10 +575,17 @@ impl SerenMcpServer {
     }
 
     #[tool(description = "Get schema information for a table")]
+    #[instrument(skip(self), fields(project_id = %params.project_id, branch_id = %params.branch_id, database = %params.database, table = %params.table_name))]
     async fn describe_table_schema(
         &self,
         Parameters(params): Parameters<DescribeTableSchemaParams>,
     ) -> Result<CallToolResult, McpError> {
+        validate_name(&params.database, "database")?;
+        validate_name(&params.table_name, "table_name")?;
+        if let Some(ref schema) = params.schema {
+            validate_name(schema, "schema")?;
+        }
+
         let schema = params.schema.unwrap_or_else(|| "public".to_string());
         let query = r#"
             SELECT

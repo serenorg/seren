@@ -96,6 +96,11 @@ impl TokenStore {
         Ok(Self::new(pool))
     }
 
+    /// Get the underlying connection pool
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
     // === Client operations ===
 
     /// Get a client by ID

@@ -5,5 +5,10 @@
 //! - Authorization Code flow with PKCE (for public clients like Claude Desktop)
 //! - Token storage in PostgreSQL
 //! - Session management
+//! - RFC 8414 Authorization Server Metadata
+//! - RFC 7591 Dynamic Client Registration
 
+pub mod routes;
 pub mod store;
+
+pub use routes::{oauth_router, OAuthState};

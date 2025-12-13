@@ -46,9 +46,14 @@ anyhow = { workspace = true }
 # HTTP client (for SQL proxy)
 reqwest = { workspace = true }
 
-# Logging
+# Logging & Telemetry
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry-semantic-conventions = { workspace = true }
 
 # Utils
 uuid = { workspace = true }
