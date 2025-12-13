@@ -23,6 +23,10 @@ pub struct OAuthState {
     pub store: TokenStore,
     pub server_host: String,
     pub client_id: String,
+    /// Seren API key used by the MCP server when calling the Seren API in hosted mode.
+    ///
+    /// Note: this is currently a single-tenant implementation; all OAuth clients share this key.
+    pub seren_api_key: String,
 }
 
 // ============================================================================
@@ -277,6 +281,35 @@ async fn token(
                 .map_err(|e| OAuthError::ServerError(e.to_string()))?
                 .ok_or(OAuthError::InvalidGrant("Invalid or expired code".into()))?;
 
+            // Validate client (and optional client_secret)
+            if let Some(client_id) = req.client_id.as_deref() {
+                if client_id != auth_code.client_id {
+                    return Err(OAuthError::InvalidClient);
+                }
+            }
+
+            let client = state
+                .store
+                .get_client(&auth_code.client_id)
+                .await
+                .map_err(|e| OAuthError::ServerError(e.to_string()))?
+                .ok_or(OAuthError::InvalidClient)?;
+
+            if let Some(ref secret_hash) = client.secret_hash {
+                let provided_client_id =
+                    req.client_id.as_deref().ok_or(OAuthError::InvalidClient)?;
+                if provided_client_id != client.id {
+                    return Err(OAuthError::InvalidClient);
+                }
+                let provided_secret = req
+                    .client_secret
+                    .as_deref()
+                    .ok_or(OAuthError::InvalidClient)?;
+                if hash_secret(provided_secret) != *secret_hash {
+                    return Err(OAuthError::InvalidClient);
+                }
+            }
+
             // Validate redirect_uri matches
             if auth_code.redirect_uri != redirect_uri {
                 return Err(OAuthError::InvalidGrant("redirect_uri mismatch".into()));
@@ -298,10 +331,8 @@ async fn token(
             let refresh_token_str = TokenStore::generate_token();
             let expires_in = 3600; // 1 hour
 
-            // For now, use the configured API key as the Seren API key
-            // In a full implementation, this would be retrieved from user's stored credentials
-            let seren_api_key =
-                std::env::var("SEREN_API_KEY").unwrap_or_else(|_| "not-configured".into());
+            // Single-tenant: use the server-configured Seren API key for all clients.
+            let seren_api_key = state.seren_api_key.clone();
 
             let access_token = AccessToken {
                 token: access_token_str.clone(),
@@ -356,17 +387,38 @@ async fn token(
                     "Invalid or expired refresh token".into(),
                 ))?;
 
-            // Revoke old tokens
-            state
+            // Validate client (and optional client_secret)
+            if let Some(client_id) = req.client_id.as_deref() {
+                if client_id != refresh_token.client_id {
+                    return Err(OAuthError::InvalidClient);
+                }
+            }
+
+            let client = state
                 .store
-                .revoke_access_token(&refresh_token.access_token)
+                .get_client(&refresh_token.client_id)
                 .await
-                .ok();
+                .map_err(|e| OAuthError::ServerError(e.to_string()))?
+                .ok_or(OAuthError::InvalidClient)?;
+
+            if let Some(ref secret_hash) = client.secret_hash {
+                let provided_client_id =
+                    req.client_id.as_deref().ok_or(OAuthError::InvalidClient)?;
+                if provided_client_id != client.id {
+                    return Err(OAuthError::InvalidClient);
+                }
+                let provided_secret = req
+                    .client_secret
+                    .as_deref()
+                    .ok_or(OAuthError::InvalidClient)?;
+                if hash_secret(provided_secret) != *secret_hash {
+                    return Err(OAuthError::InvalidClient);
+                }
+            }
 
             // Generate new access token
             let new_access_token_str = TokenStore::generate_token();
-            let seren_api_key =
-                std::env::var("SEREN_API_KEY").unwrap_or_else(|_| "not-configured".into());
+            let seren_api_key = state.seren_api_key.clone();
 
             let new_access_token = AccessToken {
                 token: new_access_token_str.clone(),
@@ -385,12 +437,26 @@ async fn token(
                 .map_err(|e| OAuthError::ServerError(e.to_string()))?;
 
             // Update refresh token to point to new access token
-            sqlx::query("UPDATE mcp_oauth.refresh_tokens SET access_token = $1 WHERE token = $2")
-                .bind(&new_access_token_str)
-                .bind(&refresh_token_str)
-                .execute(state.store.pool())
+            let old_access_token = refresh_token.access_token.clone();
+            let result = sqlx::query(
+                "UPDATE mcp_oauth.refresh_tokens SET access_token = $1 WHERE token = $2",
+            )
+            .bind(&new_access_token_str)
+            .bind(&refresh_token_str)
+            .execute(state.store.pool())
+            .await
+            .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+            if result.rows_affected() == 0 {
+                return Err(OAuthError::InvalidGrant("refresh_token not found".into()));
+            }
+
+            // Revoke the old access token after the refresh token has been repointed.
+            // (Deleting the old access token first would cascade-delete the refresh token row.)
+            state
+                .store
+                .revoke_access_token(&old_access_token)
                 .await
-                .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+                .ok();
 
             Ok(Json(TokenResponse {
                 access_token: new_access_token_str,
@@ -458,9 +524,16 @@ impl IntoResponse for OAuthError {
 
 fn is_valid_redirect_uri(uri: &str) -> bool {
     if let Ok(url) = reqwest::Url::parse(uri) {
-        let host = url.host_str().unwrap_or("");
-        // Allow localhost (any port) or HTTPS URLs
-        host == "localhost" || host == "127.0.0.1" || url.scheme() == "https"
+        match url.scheme() {
+            // Loopback redirect URIs (RFC 8252) – allow http/https on localhost.
+            "http" | "https" => {
+                let host = url.host_str().unwrap_or("");
+                host == "localhost" || host == "127.0.0.1" || url.scheme() == "https"
+            }
+            // Native app custom scheme used by some MCP clients.
+            "mcp" => true,
+            _ => false,
+        }
     } else {
         false
     }

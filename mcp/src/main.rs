@@ -104,31 +104,39 @@ async fn require_oauth_auth(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config = Config::from_env()?;
+    let command = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "start".to_string());
 
-    match std::env::args().nth(1).as_deref() {
-        Some("start") | None => {
+    match command.as_str() {
+        "start" => {
+            let config = Config::from_env_for_command("start")?;
+
             // Stdio mode: log to stderr to avoid interfering with JSON-RPC on stdout
             let _guard = telemetry::init_subscriber(true);
 
             tracing::info!("Starting in stdio mode (local)");
             run_stdio(config).await
         }
-        Some("start:http") => {
+        "start:http" => {
+            let config = Config::from_env_for_command("start:http")?;
+
             // HTTP mode with simple token auth: log to stdout normally
             let _guard = telemetry::init_subscriber(false);
 
             tracing::info!("Starting in Streamable HTTP mode (simple auth)");
             run_http(config).await
         }
-        Some("start:oauth") => {
+        "start:oauth" => {
+            let config = Config::from_env_for_command("start:oauth")?;
+
             // HTTP mode with full OAuth 2.1: log to stdout normally
             let _guard = telemetry::init_subscriber(false);
 
             tracing::info!("Starting in Streamable HTTP mode (OAuth 2.1)");
             run_oauth(config).await
         }
-        Some(cmd) => {
+        cmd => {
             eprintln!("Unknown command: {}", cmd);
             eprintln!("Usage: seren-mcp [start|start:http|start:oauth]");
             eprintln!();
@@ -230,11 +238,12 @@ async fn run_http(config: Config) -> Result<()> {
             "/mcp",
             axum::routing::any_service(tower::ServiceBuilder::new().service(mcp_service)),
         )
-        .layer(cors)
         .layer(axum::middleware::from_fn_with_state(
             SimpleAuthState { token: auth_token },
             require_simple_auth,
-        ));
+        ))
+        // CORS must be outermost so preflight requests work and error responses include headers.
+        .layer(cors);
 
     let addr = format!("{}:{}", config.host, config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -282,9 +291,11 @@ async fn run_oauth(config: Config) -> Result<()> {
     let store = TokenStore::connect(&database_url).await?;
     tracing::info!("Connected to OAuth database");
 
-    // API key for the MCP server to use (from environment or token)
-    let api_key = std::env::var("SEREN_API_KEY").unwrap_or_else(|_| "from-oauth-token".into());
+    // API key for the MCP server to use when calling the Seren API.
+    let api_key = std::env::var("SEREN_API_KEY")
+        .map_err(|_| anyhow::anyhow!("SEREN_API_KEY is required for start:oauth"))?;
     let api_base_url = config.api_base_url.clone();
+    let seren_api_key = api_key.clone();
 
     let ct = CancellationToken::new();
 
@@ -337,6 +348,7 @@ async fn run_oauth(config: Config) -> Result<()> {
         store: store.clone(),
         server_host: server_host.clone(),
         client_id,
+        seren_api_key,
     });
 
     // MCP endpoint with OAuth token validation
