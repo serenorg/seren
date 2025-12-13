@@ -1,0 +1,61 @@
+[package]
+name = "seren-mcp"
+version = "0.1.0"
+edition = "2021"
+authors = ["Seren Team"]
+license = "MIT"
+description = "MCP server for SerenDB - AI assistant integration"
+repository = "https://github.com/seren/seren"
+keywords = ["seren", "mcp", "ai", "database"]
+
+[[bin]]
+name = "seren-mcp"
+path = "src/main.rs"
+
+[dependencies]
+# Workspace - shared API client
+seren = { path = "../api" }
+
+# MCP SDK
+rmcp = { workspace = true }
+schemars = { workspace = true }
+tokio-util = { workspace = true }
+
+# Web server
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Database (token storage)
+sqlx = { workspace = true }
+
+# Auth
+oauth2 = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# HTTP client (for SQL proxy)
+reqwest = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Utils
+uuid = { workspace = true }
+rand = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+async-trait = { workspace = true }
+async-stream = { workspace = true }
+futures = { workspace = true }
+chrono = { workspace = true }

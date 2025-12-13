@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 pub use crate::generated::types::*;
 
 /// Legacy alias retained for compatibility with previous SDK versions.
-pub type User = crate::generated::types::UserResponse;
+pub type User = crate::generated::types::UserInfoResponse;
 
 /// Generic API response wrapper mirroring the backend `DataResponse<T>`.
 #[derive(Debug, Clone, Serialize, Deserialize)]

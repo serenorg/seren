@@ -41,9 +41,9 @@ fn default_string_schema() -> Schema {
 }
 
 fn main() -> anyhow::Result<()> {
-    println!("cargo:rerun-if-changed=openapi/seren.json");
+    println!("cargo:rerun-if-changed=../openapi/openapi.json");
 
-    let spec_str = fs::read_to_string("openapi/seren.json")?;
+    let spec_str = fs::read_to_string("../openapi/openapi.json")?;
     let raw_json: serde_json::Value = serde_json::from_str(&spec_str)?;
 
     let mut refs = HashSet::new();

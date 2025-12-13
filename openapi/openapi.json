@@ -161,41 +161,6 @@
         ]
       }
     },
-    "/api/auth/resend-verification": {
-      "post": {
-        "tags": [
-          "Auth"
-        ],
-        "summary": "POST /api/auth/resend-verification",
-        "description": "Resend email verification link",
-        "operationId": "resend_verification_email",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ResendVerificationRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Verification email sent if account exists",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/VerificationSentResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request"
-          }
-        }
-      }
-    },
     "/api/auth/reset-password": {
       "post": {
         "tags": [
@@ -230,41 +195,6 @@
           },
           "404": {
             "description": "Token not found"
-          }
-        }
-      }
-    },
-    "/api/auth/verify-email": {
-      "post": {
-        "tags": [
-          "Auth"
-        ],
-        "summary": "POST /api/auth/verify-email",
-        "description": "Verify email address using a token sent during signup\nOn success, automatically logs the user in and returns tokens",
-        "operationId": "verify_email",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/VerifyEmailRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Email verified and user logged in",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LoginResultResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid or expired token"
           }
         }
       }
@@ -5204,7 +5134,7 @@
           "Roles"
         ],
         "summary": "List all roles for a branch",
-        "operationId": "list_roles",
+        "operationId": "list_branch_roles",
         "parameters": [
           {
             "name": "project_id",
@@ -5256,7 +5186,7 @@
           "Roles"
         ],
         "summary": "Create a new role within a branch",
-        "operationId": "create_role",
+        "operationId": "create_branch_role",
         "parameters": [
           {
             "name": "project_id",
@@ -5323,7 +5253,7 @@
           "Roles"
         ],
         "summary": "Delete a role",
-        "operationId": "delete_role",
+        "operationId": "delete_branch_role",
         "parameters": [
           {
             "name": "project_id",
@@ -8740,8 +8670,7 @@
         ],
         "properties": {
           "add_endpoint": {
-            "type": "boolean",
-            "description": "Whether to automatically create an endpoint for this branch.\nDefaults to true.\nSet to false to create a branch without compute (equivalent to --no-compute)."
+            "type": "boolean"
           },
           "archived": {
             "type": "boolean",
@@ -8752,12 +8681,6 @@
             "items": {
               "$ref": "#/components/schemas/BranchEndpointRequest"
             }
-          },
-          "expires_at": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Optional expiration timestamp for auto-deletion of this branch.\nUseful for temporary dev/preview branches.",
-            "nullable": true
           },
           "init_source": {
             "type": "string",
@@ -8783,10 +8706,6 @@
           "protected": {
             "type": "boolean",
             "nullable": true
-          },
-          "schema_only": {
-            "type": "boolean",
-            "description": "Create branch with schema only (no data).\nWhen true, only the database schema is copied, not the data."
           }
         }
       },
@@ -9293,17 +9212,6 @@
             "format": "double"
           },
           "transaction_id": {
-            "type": "string"
-          }
-        }
-      },
-      "EmailVerified": {
-        "type": "object",
-        "required": [
-          "message"
-        ],
-        "properties": {
-          "message": {
             "type": "string"
           }
         }
@@ -10036,50 +9944,6 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/LogicalReplicationSettings"
-          },
-          "pagination": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/PaginationMeta"
-              }
-            ],
-            "nullable": true
-          }
-        }
-      },
-      "LoginResult": {
-        "type": "object",
-        "required": [
-          "access_token",
-          "refresh_token",
-          "expires_in",
-          "user"
-        ],
-        "properties": {
-          "access_token": {
-            "type": "string"
-          },
-          "expires_in": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "refresh_token": {
-            "type": "string"
-          },
-          "user": {
-            "$ref": "#/components/schemas/UserInfo"
-          }
-        }
-      },
-      "LoginResultResponse": {
-        "type": "object",
-        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
-        "required": [
-          "data"
-        ],
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/LoginResult"
           },
           "pagination": {
             "allOf": [
@@ -12390,17 +12254,6 @@
           }
         }
       },
-      "ResendVerificationRequest": {
-        "type": "object",
-        "required": [
-          "email"
-        ],
-        "properties": {
-          "email": {
-            "type": "string"
-          }
-        }
-      },
       "ResetBranchRequest": {
         "type": "object",
         "description": "Request to reset a branch to its parent's latest state",
@@ -13444,17 +13297,6 @@
           }
         }
       },
-      "VerificationSent": {
-        "type": "object",
-        "required": [
-          "message"
-        ],
-        "properties": {
-          "message": {
-            "type": "string"
-          }
-        }
-      },
       "VerificationSentResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
@@ -13472,17 +13314,6 @@
               }
             ],
             "nullable": true
-          }
-        }
-      },
-      "VerifyEmailRequest": {
-        "type": "object",
-        "required": [
-          "token"
-        ],
-        "properties": {
-          "token": {
-            "type": "string"
           }
         }
       },

@@ -407,7 +407,7 @@ impl ProjectsClient<'_> {
     }
 
     /// Create a new project
-    pub async fn create(&self, request: CreateProjectRequest) -> Result<CreateProjectResponse> {
+    pub async fn create(&self, request: CreateProjectRequest) -> Result<ProjectCreatedResponse> {
         self.client.post("/projects", &request).await
     }
 
@@ -594,7 +594,7 @@ impl BranchesClient<'_> {
         &self,
         branch_id: &str,
         request: RestoreBranchRequest,
-    ) -> Result<RestoreBranchResponse> {
+    ) -> Result<BranchRestoredResponse> {
         self.client
             .post(
                 &format!(
@@ -626,7 +626,7 @@ impl EndpointsClient<'_> {
     }
 
     /// Create a new endpoint
-    pub async fn create(&self, request: CreateEndpointRequest) -> Result<CreateEndpointResponse> {
+    pub async fn create(&self, request: CreateEndpointRequest) -> Result<EndpointCreatedResponse> {
         self.client
             .post(
                 &format!(
@@ -810,7 +810,7 @@ impl RolesClient<'_> {
     }
 
     /// Create a new role
-    pub async fn create(&self, request: CreateRoleRequest) -> Result<CreateRoleResponse> {
+    pub async fn create(&self, request: CreateRoleRequest) -> Result<RoleCreatedResponse> {
         self.client
             .post(
                 &format!(
@@ -837,7 +837,7 @@ impl RolesClient<'_> {
         &self,
         role_id: &str,
         request: ResetRolePasswordRequest,
-    ) -> Result<ResetRolePasswordResponse> {
+    ) -> Result<RolePasswordResetResponse> {
         self.client
             .post(
                 &format!(
@@ -874,7 +874,7 @@ impl RolesClient<'_> {
         &self,
         role_name: &str,
         request: ResetRolePasswordRequest,
-    ) -> Result<ResetRolePasswordResponse> {
+    ) -> Result<RolePasswordResetResponse> {
         self.client
             .post(
                 &format!(
@@ -1122,7 +1122,7 @@ impl ProjectEndpointsClient {
     }
 
     /// Restart an endpoint by id
-    pub async fn restart(&self, endpoint_id: &str) -> Result<EndpointStatusResponse> {
+    pub async fn restart(&self, endpoint_id: &str) -> Result<EndpointStatusInfoResponse> {
         self.client
             .post(
                 &format!(
@@ -1164,7 +1164,7 @@ impl OrganizationApiKeysClient {
     }
 
     /// List API keys for an organization (current user)
-    pub async fn list(&self) -> Result<Vec<ApiKeyResponse>> {
+    pub async fn list(&self) -> Result<ApiKeysResponse> {
         self.client
             .get(&format!(
                 "/api/organizations/{}/api_keys",
