@@ -12,6 +12,17 @@ keywords = ["seren", "mcp", "ai", "database"]
 name = "seren-mcp"
 path = "src/main.rs"
 
+[features]
+default = []
+# Enable OpenTelemetry for production/hosted deployments
+telemetry = [
+    "dep:tracing-opentelemetry",
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:opentelemetry-semantic-conventions",
+]
+
 [dependencies]
 # Workspace - shared API client
 seren = { path = "../api" }
@@ -49,11 +60,13 @@ reqwest = { workspace = true }
 # Logging & Telemetry
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-tracing-opentelemetry = { workspace = true }
-opentelemetry = { workspace = true }
-opentelemetry_sdk = { workspace = true }
-opentelemetry-otlp = { workspace = true }
-opentelemetry-semantic-conventions = { workspace = true }
+
+# OpenTelemetry (optional - for hosted/production deployments)
+tracing-opentelemetry = { workspace = true, optional = true }
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry-semantic-conventions = { workspace = true, optional = true }
 
 # Utils
 uuid = { workspace = true }
