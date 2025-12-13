@@ -201,6 +201,14 @@ fn sql_proxy_url_from_connection_string(connection_string: &str) -> Result<Strin
     Ok(format!("https://{}/sql", host))
 }
 
+/// Check if read-only mode is enabled.
+///
+/// Read-only mode can be enabled in two ways:
+/// 1. Environment variable `SEREN_MCP_READ_ONLY=true` (global, applies to all requests)
+/// 2. HTTP header `x-read-only: true` (per-request, must be sent on each call)
+///
+/// Note: The `x-read-only` header is evaluated per-request. Clients must include
+/// it on every request where they want write operations blocked.
 fn is_read_only(extensions: &Extensions) -> bool {
     let env_read_only = std::env::var("SEREN_MCP_READ_ONLY")
         .ok()
@@ -210,6 +218,7 @@ fn is_read_only(extensions: &Extensions) -> bool {
         return true;
     }
 
+    // Per-request header check - must be sent on each request
     let parts = extensions.get::<axum::http::request::Parts>();
     let header = parts
         .and_then(|p| p.headers.get("x-read-only"))
@@ -233,7 +242,9 @@ fn ensure_writes_allowed(extensions: &Extensions) -> Result<(), McpError> {
 // Input Validation Helpers
 // ============================================================================
 
-fn validate_name(name: &str, field: &str) -> Result<(), McpError> {
+/// Strict validation for PostgreSQL identifiers (database, schema, table names)
+/// Must follow PostgreSQL naming rules: start with letter/underscore, alphanumeric + underscore only
+fn validate_identifier(name: &str, field: &str) -> Result<(), McpError> {
     let name = name.trim();
     if name.is_empty() {
         return Err(McpError::invalid_params(
@@ -255,14 +266,51 @@ fn validate_name(name: &str, field: &str) -> Result<(), McpError> {
             None,
         ));
     }
-    // Rest must be alphanumeric, underscore, or hyphen
+    // Rest must be alphanumeric or underscore (strict PostgreSQL rules)
+    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(McpError::invalid_params(
+            format!(
+                "{} must contain only letters, numbers, and underscores",
+                field
+            ),
+            None,
+        ));
+    }
+    Ok(())
+}
+
+/// Relaxed validation for project/branch names (allows more characters)
+fn validate_resource_name(name: &str, field: &str) -> Result<(), McpError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(McpError::invalid_params(
+            format!("{} must not be empty", field),
+            None,
+        ));
+    }
+    if name.len() > 63 {
+        return Err(McpError::invalid_params(
+            format!("{} must not exceed 63 characters", field),
+            None,
+        ));
+    }
+    // Project/branch names: allow letters, numbers, spaces, hyphens, underscores
+    // Must start with letter or number
+    let first_char = name.chars().next().unwrap();
+    if !first_char.is_ascii_alphanumeric() {
+        return Err(McpError::invalid_params(
+            format!("{} must start with a letter or number", field),
+            None,
+        ));
+    }
+    // Allow more characters for user-friendly naming
     if !name
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == ' ' || c == '.')
     {
         return Err(McpError::invalid_params(
             format!(
-                "{} must contain only letters, numbers, underscores, or hyphens",
+                "{} must contain only letters, numbers, spaces, hyphens, underscores, or dots",
                 field
             ),
             None,
@@ -317,9 +365,17 @@ impl SerenMcpServer {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            tracing::error!(status = %status, error = %error_text, "SQL execution failed");
+            // Log only status code by default to avoid leaking sensitive info
+            // The full error is returned to the client but not logged
+            tracing::error!(status = %status, "SQL execution failed");
+            // Truncate error message for client to avoid exposing internal details
+            let client_error = if error_text.len() > 500 {
+                format!("{}... (truncated)", &error_text[..500])
+            } else {
+                error_text
+            };
             return Err(McpError::internal_error(
-                format!("SQL execution failed: {}", error_text),
+                format!("SQL execution failed ({}): {}", status, client_error),
                 None,
             ));
         }
@@ -380,7 +436,7 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
-        validate_name(&params.name, "project name")?;
+        validate_resource_name(&params.name, "project name")?;
 
         let request = seren::CreateProjectRequest {
             name: params.name,
@@ -429,7 +485,7 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
-        validate_name(&params.name, "branch name")?;
+        validate_resource_name(&params.name, "branch name")?;
 
         let request = seren::CreateBranchRequest {
             name: params.name,
@@ -492,7 +548,7 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
-        validate_name(&params.name, "database name")?;
+        validate_identifier(&params.name, "database name")?;
 
         let request = seren::CreateDatabaseRequest {
             name: params.name,
@@ -553,7 +609,7 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
-        validate_name(&params.database, "database")?;
+        validate_identifier(&params.database, "database")?;
         validate_sql_query(&params.query)?;
 
         // Get connection info from API
@@ -580,10 +636,10 @@ impl SerenMcpServer {
         &self,
         Parameters(params): Parameters<DescribeTableSchemaParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_name(&params.database, "database")?;
-        validate_name(&params.table_name, "table_name")?;
+        validate_identifier(&params.database, "database")?;
+        validate_identifier(&params.table_name, "table_name")?;
         if let Some(ref schema) = params.schema {
-            validate_name(schema, "schema")?;
+            validate_identifier(schema, "schema")?;
         }
 
         let schema = params.schema.unwrap_or_else(|| "public".to_string());

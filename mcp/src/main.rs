@@ -23,20 +23,30 @@ struct OAuthAuthState {
     store: TokenStore,
 }
 
+/// Extract bearer token from Authorization header (case-insensitive scheme)
+fn extract_bearer_token(req: &axum::http::Request<axum::body::Body>) -> Option<&str> {
+    req.headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| {
+            // Case-insensitive "Bearer " prefix per RFC 6750
+            let v_lower = v.to_ascii_lowercase();
+            if v_lower.starts_with("bearer ") {
+                Some(v[7..].trim()) // Skip "Bearer " (7 chars)
+            } else {
+                None
+            }
+        })
+        .filter(|v| !v.is_empty())
+}
+
 /// Simple token auth middleware (for start:http mode)
 async fn require_simple_auth(
     axum::extract::State(state): axum::extract::State<SimpleAuthState>,
     req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    // MCP spec requires Authorization: Bearer header only (RFC OAuth 2.1 Section 5.1.1)
-    let token = req
-        .headers()
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .map(str::trim)
-        .filter(|v| !v.is_empty());
+    let token = extract_bearer_token(&req);
 
     if token != Some(state.token.as_str()) {
         return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
@@ -51,13 +61,7 @@ async fn require_oauth_auth(
     req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    let token = req
-        .headers()
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .map(str::trim)
-        .filter(|v| !v.is_empty());
+    let token = extract_bearer_token(&req);
 
     let Some(token) = token else {
         return (
