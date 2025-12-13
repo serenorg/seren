@@ -4,9 +4,42 @@ mod oauth;
 mod server;
 
 use anyhow::Result;
+use axum::response::IntoResponse;
 use config::{AuthConfig, Config};
 use rmcp::ServiceExt;
 use server::SerenMcpServer;
+
+#[derive(Clone)]
+struct HttpAuthState {
+    token: String,
+}
+
+async fn require_http_auth(
+    axum::extract::State(state): axum::extract::State<HttpAuthState>,
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let token = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .or_else(|| {
+            req.headers()
+                .get("x-mcp-auth-token")
+                .and_then(|v| v.to_str().ok())
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+        });
+
+    if token != Some(state.token.as_str()) {
+        return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    next.run(req).await
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -74,14 +107,30 @@ async fn run_http(config: Config) -> Result<()> {
     use std::sync::Arc;
     use tokio_util::sync::CancellationToken;
 
-    let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into());
-    let port: u16 = std::env::var("PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(3000);
+    let api_key = match &config.auth {
+        AuthConfig::ApiKey(key) => key.clone(),
+        AuthConfig::OAuth { .. } => {
+            anyhow::bail!(
+                "Streamable HTTP mode currently requires SEREN_API_KEY (OAuth not wired yet)"
+            );
+        }
+    };
+
+    let auth_token = std::env::var("MCP_AUTH_TOKEN")
+        .map_err(|_| anyhow::anyhow!("MCP_AUTH_TOKEN is required for start:http"))?;
 
     let api_base_url = config.api_base_url.clone();
     let ct = CancellationToken::new();
+
+    tokio::spawn({
+        let ct = ct.clone();
+        async move {
+            if tokio::signal::ctrl_c().await.is_ok() {
+                tracing::info!("Shutdown signal received");
+                ct.cancel();
+            }
+        }
+    });
 
     // Create session manager
     let session_manager = Arc::new(LocalSessionManager::default());
@@ -95,28 +144,32 @@ async fn run_http(config: Config) -> Result<()> {
 
     // Create streamable HTTP service - it's a tower Service
     let mcp_service = StreamableHttpService::new(
-        move || {
-            let api_key = std::env::var("SEREN_API_KEY").unwrap_or_default();
-            SerenMcpServer::new(&api_key, &api_base_url).map_err(std::io::Error::other)
-        },
+        move || SerenMcpServer::new(&api_key, &api_base_url).map_err(std::io::Error::other),
         session_manager,
         http_config,
     );
 
     // Create axum router using the tower service
     // StreamableHttpService implements tower::Service, so we use it directly with axum
-    let app = axum::Router::new().route(
-        "/mcp",
-        axum::routing::any_service(tower::ServiceBuilder::new().service(mcp_service)),
-    );
+    let app = axum::Router::new()
+        .route(
+            "/mcp",
+            axum::routing::any_service(tower::ServiceBuilder::new().service(mcp_service)),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            HttpAuthState { token: auth_token },
+            require_http_auth,
+        ));
 
-    let addr = format!("{}:{}", host, port);
+    let addr = format!("{}:{}", config.host, config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
     tracing::info!("Streamable HTTP MCP server listening on {}", addr);
     tracing::info!("  POST   /mcp - send JSON-RPC messages");
     tracing::info!("  GET    /mcp - establish SSE stream (with session)");
     tracing::info!("  DELETE /mcp - close session");
+    tracing::info!("Auth: set `Authorization: Bearer <MCP_AUTH_TOKEN>` (or `x-mcp-auth-token`)");
+    tracing::info!("Read-only: set `x-read-only: true` (or `SEREN_MCP_READ_ONLY=true`)");
 
     let server_ct = ct.clone();
     axum::serve(listener, app)

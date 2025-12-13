@@ -21,6 +21,24 @@ pub struct Client {
     pub updated_at: DateTime<Utc>,
 }
 
+impl Client {
+    /// Returns true if the given redirect URI is allowed for this client.
+    ///
+    /// Supports exact matches and simple wildcard suffixes like `http://localhost:*`.
+    pub fn allows_redirect_uri(&self, redirect_uri: &str) -> bool {
+        for allowed in &self.redirect_uris {
+            if let Some(prefix) = allowed.strip_suffix('*') {
+                if redirect_uri.starts_with(prefix) {
+                    return true;
+                }
+            } else if allowed == redirect_uri {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 /// Authorization code (short-lived, exchanged for tokens)
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AuthorizationCode {
@@ -74,7 +92,7 @@ impl TokenStore {
     pub async fn connect(database_url: &str) -> Result<Self> {
         let pool = PgPool::connect(database_url)
             .await
-            .map_err(|e| McpError::Database(e))?;
+            .map_err(McpError::Database)?;
         Ok(Self::new(pool))
     }
 
@@ -94,21 +112,6 @@ impl TokenStore {
         Ok(client)
     }
 
-    /// Validate client redirect URI
-    pub fn validate_redirect_uri(&self, client: &Client, redirect_uri: &str) -> bool {
-        for allowed in &client.redirect_uris {
-            if allowed.ends_with("*") {
-                let prefix = &allowed[..allowed.len() - 1];
-                if redirect_uri.starts_with(prefix) {
-                    return true;
-                }
-            } else if allowed == redirect_uri {
-                return true;
-            }
-        }
-        false
-    }
-
     // === Authorization code operations ===
 
     /// Save an authorization code
@@ -125,7 +128,7 @@ impl TokenStore {
         .bind(&code.scope)
         .bind(&code.code_challenge)
         .bind(&code.code_challenge_method)
-        .bind(&code.expires_at)
+        .bind(code.expires_at)
         .execute(&self.pool)
         .await
         .map_err(McpError::Database)?;
@@ -165,7 +168,7 @@ impl TokenStore {
         .bind(&token.client_id)
         .bind(&token.user_id)
         .bind(&token.scope)
-        .bind(&token.expires_at)
+        .bind(token.expires_at)
         .bind(&token.seren_api_key)
         .execute(&self.pool)
         .await
@@ -213,7 +216,7 @@ impl TokenStore {
         .bind(&token.access_token)
         .bind(&token.client_id)
         .bind(&token.user_id)
-        .bind(&token.expires_at)
+        .bind(token.expires_at)
         .execute(&self.pool)
         .await
         .map_err(McpError::Database)?;
@@ -347,7 +350,6 @@ mod tests {
 
     #[test]
     fn test_validate_redirect_uri_exact() {
-        let store = TokenStore::new(PgPool::connect_lazy("postgres://").unwrap());
         let client = Client {
             id: "test".into(),
             name: "Test".into(),
@@ -359,13 +361,12 @@ mod tests {
             updated_at: Utc::now(),
         };
 
-        assert!(store.validate_redirect_uri(&client, "http://localhost:8080/callback"));
-        assert!(!store.validate_redirect_uri(&client, "http://localhost:9000/callback"));
+        assert!(client.allows_redirect_uri("http://localhost:8080/callback"));
+        assert!(!client.allows_redirect_uri("http://localhost:9000/callback"));
     }
 
     #[test]
     fn test_validate_redirect_uri_wildcard() {
-        let store = TokenStore::new(PgPool::connect_lazy("postgres://").unwrap());
         let client = Client {
             id: "test".into(),
             name: "Test".into(),
@@ -377,8 +378,8 @@ mod tests {
             updated_at: Utc::now(),
         };
 
-        assert!(store.validate_redirect_uri(&client, "http://localhost:8080/callback"));
-        assert!(store.validate_redirect_uri(&client, "http://localhost:3000"));
-        assert!(!store.validate_redirect_uri(&client, "http://example.com:8080"));
+        assert!(client.allows_redirect_uri("http://localhost:8080/callback"));
+        assert!(client.allows_redirect_uri("http://localhost:3000"));
+        assert!(!client.allows_redirect_uri("http://example.com:8080"));
     }
 }

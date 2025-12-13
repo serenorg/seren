@@ -56,8 +56,4 @@ impl Config {
                 .map_err(|_| McpError::Config("Invalid PORT".into()))?,
         })
     }
-
-    pub fn is_local_mode(&self) -> bool {
-        matches!(self.auth, AuthConfig::ApiKey(_))
-    }
 }

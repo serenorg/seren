@@ -5,7 +5,7 @@
 
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
+    model::{CallToolResult, Content, Extensions, ServerCapabilities, ServerInfo},
     tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler,
 };
 use schemars::JsonSchema;
@@ -171,9 +171,102 @@ fn json_content<T: Serialize>(data: &T) -> Result<Content, McpError> {
     Ok(Content::text(text))
 }
 
+fn connection_string_with_database(
+    connection_string: &str,
+    database: &str,
+) -> Result<String, McpError> {
+    if database.trim().is_empty() {
+        return Err(McpError::invalid_params("database must not be empty", None));
+    }
+    if database.contains('/') {
+        return Err(McpError::invalid_params(
+            "database must not contain '/'",
+            None,
+        ));
+    }
+
+    let mut url = reqwest::Url::parse(connection_string)
+        .map_err(|e| McpError::internal_error(format!("Invalid connection string: {}", e), None))?;
+    url.set_path(&format!("/{}", database));
+    Ok(url.to_string())
+}
+
+fn sql_proxy_url_from_connection_string(connection_string: &str) -> Result<String, McpError> {
+    let url = reqwest::Url::parse(connection_string)
+        .map_err(|e| McpError::internal_error(format!("Invalid connection string: {}", e), None))?;
+    let host = url.host_str().ok_or_else(|| {
+        McpError::internal_error("Connection string missing host".to_string(), None)
+    })?;
+    Ok(format!("https://{}/sql", host))
+}
+
+fn is_read_only(extensions: &Extensions) -> bool {
+    let env_read_only = std::env::var("SEREN_MCP_READ_ONLY")
+        .ok()
+        .map(|v| v.trim().to_ascii_lowercase())
+        .is_some_and(|v| v == "1" || v == "true" || v == "yes" || v == "on");
+    if env_read_only {
+        return true;
+    }
+
+    let parts = extensions.get::<axum::http::request::Parts>();
+    let header = parts
+        .and_then(|p| p.headers.get("x-read-only"))
+        .and_then(|v| v.to_str().ok());
+    header
+        .map(|v| v.trim().to_ascii_lowercase())
+        .is_some_and(|v| v == "1" || v == "true" || v == "yes" || v == "on")
+}
+
+fn ensure_writes_allowed(extensions: &Extensions) -> Result<(), McpError> {
+    if is_read_only(extensions) {
+        return Err(McpError::invalid_request(
+            "Read-only mode: write operations are disabled",
+            None,
+        ));
+    }
+    Ok(())
+}
+
 // ============================================================================
 // Tool Implementations
 // ============================================================================
+
+impl SerenMcpServer {
+    async fn execute_sql(
+        &self,
+        connection_string: &str,
+        query: &str,
+        params: Vec<serde_json::Value>,
+    ) -> Result<SqlResponse, McpError> {
+        let http_url = sql_proxy_url_from_connection_string(connection_string)?;
+
+        let response = self
+            .http_client
+            .post(&http_url)
+            .header("SerenDB-Connection-String", connection_string)
+            .header("SerenDB-Pool-Opt-In", "true")
+            .json(&SqlRequest {
+                query: query.to_string(),
+                params,
+            })
+            .send()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(McpError::internal_error(
+                format!("SQL execution failed: {}", error_text),
+                None,
+            ));
+        }
+
+        response.json().await.map_err(|e| {
+            McpError::internal_error(format!("Failed to parse SQL response: {}", e), None)
+        })
+    }
+}
 
 #[tool_router]
 impl SerenMcpServer {
@@ -217,7 +310,10 @@ impl SerenMcpServer {
     async fn create_project(
         &self,
         Parameters(params): Parameters<CreateProjectParams>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
         let request = seren::CreateProjectRequest {
             name: params.name,
             region: params.region.unwrap_or_else(|| "aws-us-east-1".to_string()),
@@ -242,7 +338,10 @@ impl SerenMcpServer {
     async fn delete_project(
         &self,
         Parameters(params): Parameters<DeleteProjectParams>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
         self.api_client
             .projects()
             .delete(&params.project_id.to_string())
@@ -258,7 +357,10 @@ impl SerenMcpServer {
     async fn create_branch(
         &self,
         Parameters(params): Parameters<CreateBranchParams>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
         let request = seren::CreateBranchRequest {
             name: params.name,
             parent_branch_id: params.parent_branch_id,
@@ -283,7 +385,10 @@ impl SerenMcpServer {
     async fn delete_branch(
         &self,
         Parameters(params): Parameters<DeleteBranchParams>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
         self.api_client
             .branches(params.project_id.to_string())
             .delete(&params.branch_id.to_string())
@@ -313,7 +418,10 @@ impl SerenMcpServer {
     async fn create_database(
         &self,
         Parameters(params): Parameters<CreateDatabaseParams>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
         let request = seren::CreateDatabaseRequest {
             name: params.name,
             owner_name: params.owner,
@@ -346,7 +454,7 @@ impl SerenMcpServer {
         &self,
         Parameters(params): Parameters<GetConnectionStringParams>,
     ) -> Result<CallToolResult, McpError> {
-        let response = self
+        let mut response = self
             .api_client
             .branches(params.project_id.to_string())
             .connection_string_with_options(
@@ -356,6 +464,12 @@ impl SerenMcpServer {
             )
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        if let Some(database) = params.database.as_deref() {
+            response.data.connection_string =
+                connection_string_with_database(&response.data.connection_string, database)?;
+        }
+
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -363,7 +477,10 @@ impl SerenMcpServer {
     async fn run_sql(
         &self,
         Parameters(params): Parameters<RunSqlParams>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
         // Get connection info from API
         let conn_response = self
             .api_client
@@ -372,42 +489,12 @@ impl SerenMcpServer {
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        // Parse the connection string to extract the host for the HTTP proxy
-        let conn_str = &conn_response.data.connection_string;
-        let host = conn_str
-            .split('@')
-            .nth(1)
-            .and_then(|s| s.split('/').next())
-            .and_then(|s| s.split(':').next())
-            .unwrap_or("proxy.serendb.com");
+        let conn_str = connection_string_with_database(
+            &conn_response.data.connection_string,
+            &params.database,
+        )?;
 
-        let http_url = format!("https://{}/sql", host);
-
-        // Execute via HTTP proxy
-        let response = self
-            .http_client
-            .post(&http_url)
-            .header("SerenDB-Connection-String", conn_str)
-            .header("SerenDB-Pool-Opt-In", "true")
-            .json(&SqlRequest {
-                query: params.query,
-                params: vec![],
-            })
-            .send()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        if !response.status().is_success() {
-            let error_text = response.text().await.unwrap_or_default();
-            return Err(McpError::internal_error(
-                format!("SQL execution failed: {}", error_text),
-                None,
-            ));
-        }
-
-        let result: SqlResponse = response.json().await.map_err(|e| {
-            McpError::internal_error(format!("Failed to parse SQL response: {}", e), None)
-        })?;
+        let result = self.execute_sql(&conn_str, &params.query, vec![]).await?;
 
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
@@ -417,9 +504,8 @@ impl SerenMcpServer {
         &self,
         Parameters(params): Parameters<DescribeTableSchemaParams>,
     ) -> Result<CallToolResult, McpError> {
-        let schema = params.schema.as_deref().unwrap_or("public");
-        let query = format!(
-            r#"
+        let schema = params.schema.unwrap_or_else(|| "public".to_string());
+        let query = r#"
             SELECT
                 column_name,
                 data_type,
@@ -427,20 +513,32 @@ impl SerenMcpServer {
                 column_default,
                 character_maximum_length
             FROM information_schema.columns
-            WHERE table_schema = '{}'
-              AND table_name = '{}'
+            WHERE table_schema = $1
+              AND table_name = $2
             ORDER BY ordinal_position
-            "#,
-            schema, params.table_name
-        );
+        "#;
 
-        self.run_sql(Parameters(RunSqlParams {
-            project_id: params.project_id,
-            branch_id: params.branch_id,
-            database: params.database,
-            query,
-        }))
-        .await
+        let conn_response = self
+            .api_client
+            .branches(params.project_id.to_string())
+            .connection_string_with_options(&params.branch_id.to_string(), None, None)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        let conn_str = connection_string_with_database(
+            &conn_response.data.connection_string,
+            &params.database,
+        )?;
+
+        let result = self
+            .execute_sql(
+                &conn_str,
+                query,
+                vec![schema.into(), params.table_name.into()],
+            )
+            .await?;
+
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
 }
 
