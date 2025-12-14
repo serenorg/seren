@@ -1,9 +1,9 @@
 [package]
 name = "seren-cli"
-version = "0.1.0"
-edition = "2021"
-authors = ["Seren Team"]
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
 description = "CLI tool for Seren database management"
 repository = "https://github.com/seren/seren-cli"
 

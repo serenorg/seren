@@ -1,9 +1,9 @@
 [package]
 name = "seren"
-version = "0.1.0"
-edition = "2021"
-authors = ["Seren Team"]
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
 description = "Rust SDK for the Seren API - Programmatic access to Seren database management"
 repository = "https://github.com/seren/seren"
 keywords = ["seren", "database", "sdk", "api"]
