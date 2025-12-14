@@ -1,29 +1,10 @@
 use anyhow::Result;
 use colored::Colorize;
-use seren::{Client, ClientConfig};
 
-use crate::{OutputFormat, commands::auth::get_bearer_token, output};
+use crate::{CommandContext, OutputFormat, output};
 
-async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
-    let bearer_token = get_bearer_token(api_key).await?;
-
-    let mut client_config = ClientConfig::new(bearer_token);
-
-    if let Some(host) = api_host {
-        client_config = client_config.with_base_url(host);
-    }
-
-    Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
-}
-
-pub async fn list(
-    project_id: &str,
-    branch_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn list(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let endpoints = client
         .endpoints(project_id, branch_id)
@@ -31,7 +12,7 @@ pub async fn list(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list endpoints: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&endpoints)?,
         OutputFormat::Table => output::print_endpoints_table(&endpoints),
     }
@@ -48,11 +29,9 @@ pub async fn create(
     autoscaling_min: Option<i32>,
     autoscaling_max: Option<i32>,
     suspend_timeout: Option<i32>,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let mut request = seren::CreateEndpointRequest {
         name: Some(name.to_string()),
@@ -89,15 +68,14 @@ pub async fn create(
 
     println!("{}", "✓ Endpoint created successfully!".green().bold());
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&endpoint)?,
-        OutputFormat::Table => output::print_create_endpoint_response(&endpoint, format)?,
+        OutputFormat::Table => output::print_create_endpoint_response(&endpoint, ctx.format)?,
     }
 
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn update(
     project_id: &str,
     branch_id: &str,
@@ -105,11 +83,9 @@ pub async fn update(
     autoscaling_min: Option<i32>,
     autoscaling_max: Option<i32>,
     suspend_timeout: Option<i32>,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let mut request = seren::UpdateEndpointRequest {
         autoscaling_min: None,
@@ -139,7 +115,7 @@ pub async fn update(
 
     println!("{}", "✓ Endpoint updated successfully!".green().bold());
     println!();
-    output::print_endpoint(&endpoint, format)?;
+    output::print_endpoint(&endpoint, ctx.format)?;
 
     Ok(())
 }
@@ -148,10 +124,9 @@ pub async fn delete(
     project_id: &str,
     branch_id: &str,
     endpoint_id: &str,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     client
         .endpoints(project_id, branch_id)
@@ -173,11 +148,9 @@ pub async fn suspend(
     project_id: &str,
     branch_id: &str,
     endpoint_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let endpoint = client
         .endpoints(project_id, branch_id)
@@ -187,7 +160,7 @@ pub async fn suspend(
 
     println!("{}", "✓ Endpoint suspended successfully!".green().bold());
     println!();
-    output::print_endpoint(&endpoint, format)?;
+    output::print_endpoint(&endpoint, ctx.format)?;
 
     Ok(())
 }
@@ -196,11 +169,9 @@ pub async fn start(
     project_id: &str,
     branch_id: &str,
     endpoint_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let endpoint = client
         .endpoints(project_id, branch_id)
@@ -210,7 +181,7 @@ pub async fn start(
 
     println!("{}", "✓ Endpoint started successfully!".green().bold());
     println!();
-    output::print_endpoint(&endpoint, format)?;
+    output::print_endpoint(&endpoint, ctx.format)?;
 
     Ok(())
 }
@@ -219,11 +190,9 @@ pub async fn health(
     project_id: &str,
     branch_id: &str,
     endpoint_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let health = client
         .endpoints(project_id, branch_id)
@@ -231,7 +200,7 @@ pub async fn health(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get endpoint health: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&health)?,
         OutputFormat::Table => {
             println!("Endpoint Health Status:");
@@ -250,11 +219,9 @@ pub async fn metrics(
     project_id: &str,
     branch_id: &str,
     endpoint_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let metrics = client
         .endpoints(project_id, branch_id)
@@ -262,7 +229,7 @@ pub async fn metrics(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get endpoint metrics: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&metrics)?,
         OutputFormat::Table => {
             println!("Endpoint Resource Metrics:");

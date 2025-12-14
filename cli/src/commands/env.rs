@@ -6,21 +6,8 @@ use anyhow::Result;
 use colored::Colorize;
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
 use serde::Serialize;
-use seren::{Client, ClientConfig};
 
-use crate::{OutputFormat, commands::auth::get_bearer_token, config::ContextConfig, output};
-
-async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
-    let bearer_token = get_bearer_token(api_key).await?;
-
-    let mut client_config = ClientConfig::new(bearer_token);
-
-    if let Some(host) = api_host {
-        client_config = client_config.with_base_url(host);
-    }
-
-    Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
-}
+use crate::{CommandContext, OutputFormat, config::ContextConfig, output};
 
 fn prompt_input(message: &str) -> Result<String> {
     print!("{}", message);
@@ -85,9 +72,7 @@ pub async fn init(
     pooled: bool,
     prisma: bool,
     yes: bool,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
     let context = ContextConfig::load()?;
 
@@ -127,7 +112,7 @@ pub async fn init(
         )
     })?;
 
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let conn = client
         .branches(&project_id)
@@ -186,7 +171,7 @@ pub async fn init(
         prisma,
     };
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => {
             output::print_json(&result)?;
         }

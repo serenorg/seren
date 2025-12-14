@@ -1,30 +1,11 @@
 use anyhow::Result;
 use colored::Colorize;
-use seren::{
-    AddIpAllowListRequest, Client, ClientConfig, ResetIpAllowListEntry, ResetIpAllowListRequest,
-};
+use seren::{AddIpAllowListRequest, ResetIpAllowListEntry, ResetIpAllowListRequest};
 
-use crate::{OutputFormat, commands::auth::get_bearer_token, output};
+use crate::{CommandContext, OutputFormat, output};
 
-async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
-    let bearer_token = get_bearer_token(api_key).await?;
-
-    let mut client_config = ClientConfig::new(bearer_token);
-
-    if let Some(host) = api_host {
-        client_config = client_config.with_base_url(host);
-    }
-
-    Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
-}
-
-pub async fn list(
-    project_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn list(project_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let ips = client
         .ip_allow(project_id)
@@ -32,7 +13,7 @@ pub async fn list(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list IP allow list: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&ips)?,
         OutputFormat::Table => output::print_ip_allow_list_table(&ips),
     }
@@ -44,11 +25,9 @@ pub async fn add(
     project_id: &str,
     ip_address: &str,
     description: Option<String>,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let mut request = AddIpAllowListRequest {
         ip_address: ip_address.to_string(),
@@ -67,7 +46,7 @@ pub async fn add(
     println!("{}", "✓ IP address added to allow list!".green().bold());
     println!();
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&ip)?,
         OutputFormat::Table => output::print_ip_allow_list_table(&[ip]),
     }
@@ -75,13 +54,8 @@ pub async fn add(
     Ok(())
 }
 
-pub async fn remove(
-    project_id: &str,
-    ip_id: &str,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn remove(project_id: &str, ip_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     client
         .ip_allow(project_id)
@@ -99,14 +73,8 @@ pub async fn remove(
     Ok(())
 }
 
-pub async fn reset(
-    project_id: &str,
-    ips: &[String],
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn reset(project_id: &str, ips: &[String], ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let entries: Vec<ResetIpAllowListEntry> = ips
         .iter()
@@ -136,7 +104,7 @@ pub async fn reset(
     }
     println!();
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&updated)?,
         OutputFormat::Table => output::print_ip_allow_list_table(&updated),
     }

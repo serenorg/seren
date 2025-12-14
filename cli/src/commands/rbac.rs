@@ -1,31 +1,13 @@
 use anyhow::Result;
 use colored::Colorize;
 use seren::{
-    AssignOrganizationRoleRequest, Client, ClientConfig, CreateOrganizationRoleRequest,
-    UpdateOrganizationRoleRequest,
+    AssignOrganizationRoleRequest, CreateOrganizationRoleRequest, UpdateOrganizationRoleRequest,
 };
 
-use crate::{OutputFormat, commands::auth::get_bearer_token, output};
+use crate::{CommandContext, OutputFormat, output};
 
-async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
-    let bearer_token = get_bearer_token(api_key).await?;
-
-    let mut client_config = ClientConfig::new(bearer_token);
-
-    if let Some(host) = api_host {
-        client_config = client_config.with_base_url(host);
-    }
-
-    Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
-}
-
-pub async fn list_roles(
-    org_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn list_roles(org_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let roles = client
         .rbac_roles(org_id)
@@ -33,7 +15,7 @@ pub async fn list_roles(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list roles: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&roles)?,
         OutputFormat::Table => output::print_rbac_roles_table(&roles),
     }
@@ -41,14 +23,8 @@ pub async fn list_roles(
     Ok(())
 }
 
-pub async fn get_role(
-    org_id: &str,
-    role_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn get_role(org_id: &str, role_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let role = client
         .rbac_roles(org_id)
@@ -56,7 +32,7 @@ pub async fn get_role(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get role: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&role)?,
         OutputFormat::Table => output::print_rbac_roles_table(&[role]),
     }
@@ -69,11 +45,9 @@ pub async fn create_role(
     name: &str,
     description: Option<String>,
     permissions: Vec<String>,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let request = CreateOrganizationRoleRequest {
         name: name.to_string(),
@@ -90,7 +64,7 @@ pub async fn create_role(
     println!("{}", "Role created successfully!".green().bold());
     println!();
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&role)?,
         OutputFormat::Table => output::print_rbac_roles_table(&[role]),
     }
@@ -98,18 +72,15 @@ pub async fn create_role(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn update_role(
     org_id: &str,
     role_id: &str,
     name: Option<String>,
     description: Option<String>,
     permissions: Option<Vec<String>>,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let request = UpdateOrganizationRoleRequest {
         name,
@@ -126,7 +97,7 @@ pub async fn update_role(
     println!("{}", "Role updated successfully!".green().bold());
     println!();
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&role)?,
         OutputFormat::Table => output::print_rbac_roles_table(&[role]),
     }
@@ -134,13 +105,8 @@ pub async fn update_role(
     Ok(())
 }
 
-pub async fn delete_role(
-    org_id: &str,
-    role_id: &str,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn delete_role(org_id: &str, role_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     client
         .rbac_roles(org_id)
@@ -162,10 +128,9 @@ pub async fn assign_role(
     org_id: &str,
     member_id: &str,
     role_id: &str,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let request = AssignOrganizationRoleRequest {
         role_id: role_id
@@ -192,12 +157,8 @@ pub async fn assign_role(
     Ok(())
 }
 
-pub async fn list_permissions(
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn list_permissions(ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     // Use empty org_id since permissions endpoint is global
     let permissions = client
@@ -206,7 +167,7 @@ pub async fn list_permissions(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list permissions: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&permissions)?,
         OutputFormat::Table => output::print_permissions_table(&permissions),
     }
@@ -214,13 +175,8 @@ pub async fn list_permissions(
     Ok(())
 }
 
-pub async fn my_permissions(
-    org_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn my_permissions(org_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let permissions = client
         .rbac_roles(org_id)
@@ -228,7 +184,7 @@ pub async fn my_permissions(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get your permissions: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&permissions)?,
         OutputFormat::Table => {
             println!("{}", "Your Permissions:".bold());

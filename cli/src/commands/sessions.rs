@@ -1,27 +1,10 @@
 use anyhow::Result;
 use colored::Colorize;
-use seren::{Client, ClientConfig};
 
-use crate::{OutputFormat, commands::auth::get_bearer_token, output};
+use crate::{CommandContext, OutputFormat, output};
 
-async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
-    let bearer_token = get_bearer_token(api_key).await?;
-
-    let mut client_config = ClientConfig::new(bearer_token);
-
-    if let Some(host) = api_host {
-        client_config = client_config.with_base_url(host);
-    }
-
-    Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
-}
-
-pub async fn list(
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn list(ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let sessions = client
         .sessions()
@@ -29,7 +12,7 @@ pub async fn list(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list sessions: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&sessions)?,
         OutputFormat::Table => output::print_sessions_table(&sessions),
     }
@@ -37,12 +20,8 @@ pub async fn list(
     Ok(())
 }
 
-pub async fn revoke(
-    session_id: &str,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn revoke(session_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     client
         .sessions()
@@ -60,13 +39,8 @@ pub async fn revoke(
     Ok(())
 }
 
-pub async fn revoke_others(
-    keep_session_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn revoke_others(keep_session_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let result = client
         .sessions()
@@ -81,7 +55,7 @@ pub async fn revoke_others(
             .bold()
     );
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&result)?,
         OutputFormat::Table => {}
     }
@@ -89,12 +63,8 @@ pub async fn revoke_others(
     Ok(())
 }
 
-pub async fn revoke_all(
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn revoke_all(ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let result = client
         .sessions()
@@ -112,7 +82,7 @@ pub async fn revoke_all(
         .bold()
     );
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&result)?,
         OutputFormat::Table => {}
     }

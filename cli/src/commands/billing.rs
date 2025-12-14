@@ -2,21 +2,11 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
-use seren::{Client, ClientConfig};
 
-use crate::{OutputFormat, commands::auth::get_bearer_token, defaults::DEFAULT_API_HOST, output};
-
-async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
-    let bearer_token = get_bearer_token(api_key).await?;
-
-    let mut client_config = ClientConfig::new(bearer_token);
-
-    if let Some(host) = api_host {
-        client_config = client_config.with_base_url(host);
-    }
-
-    Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
-}
+use crate::{
+    CommandContext, OutputFormat, commands::auth::get_bearer_token, defaults::DEFAULT_API_HOST,
+    output,
+};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CliPaymentMethod {
@@ -37,22 +27,17 @@ struct CliAddPaymentMethodResponse {
     message: String,
 }
 
-fn resolve_api_host(api_host: Option<String>) -> String {
+fn resolve_api_host(api_host: Option<&String>) -> String {
     api_host
+        .cloned()
         .or_else(|| std::env::var("SEREN_API_HOST").ok())
         .unwrap_or_else(|| DEFAULT_API_HOST.to_string())
 }
 
 // Invoice commands
 
-pub async fn generate_invoices(
-    year: i32,
-    month: u8,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn generate_invoices(year: i32, month: u8, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let response = client
         .invoices()
@@ -67,7 +52,7 @@ pub async fn generate_invoices(
             .bold()
     );
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&response)?,
         OutputFormat::Table => {
             println!("\nInvoice IDs:");
@@ -80,13 +65,8 @@ pub async fn generate_invoices(
     Ok(())
 }
 
-pub async fn get_invoice(
-    invoice_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn get_invoice(invoice_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let invoice = client
         .invoices()
@@ -94,7 +74,7 @@ pub async fn get_invoice(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get invoice: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&invoice)?,
         OutputFormat::Table => {
             println!("{}", "Invoice Details".bold());
@@ -129,12 +109,8 @@ pub async fn get_invoice(
     Ok(())
 }
 
-pub async fn issue_invoice(
-    invoice_id: &str,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn issue_invoice(invoice_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     client
         .invoices()
@@ -158,11 +134,9 @@ pub async fn get_usage(
     organization_id: &str,
     start_date: Option<&str>,
     end_date: Option<&str>,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let usage = client
         .usage(organization_id)
@@ -170,7 +144,7 @@ pub async fn get_usage(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get usage: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&usage)?,
         OutputFormat::Table => {
             output::print_usage_summaries_table(&usage);
@@ -182,13 +156,8 @@ pub async fn get_usage(
 
 // Agentic billing commands
 
-pub async fn validate_token(
-    token: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn validate_token(token: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let response = client
         .billing()
@@ -196,7 +165,7 @@ pub async fn validate_token(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to validate token: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&response)?,
         OutputFormat::Table => {
             println!("{}", "Token Valid".green().bold());
@@ -209,13 +178,8 @@ pub async fn validate_token(
     Ok(())
 }
 
-pub async fn get_balance(
-    endpoint_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn get_balance(endpoint_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let response = client
         .billing()
@@ -223,7 +187,7 @@ pub async fn get_balance(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get balance: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&response)?,
         OutputFormat::Table => {
             println!("{}", "Endpoint Balance".bold());
@@ -235,12 +199,8 @@ pub async fn get_balance(
     Ok(())
 }
 
-pub async fn get_health(
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn get_health(ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let health = client
         .billing()
@@ -248,7 +208,7 @@ pub async fn get_health(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get billing health: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&health)?,
         OutputFormat::Table => {
             output::print_billing_health_table(&health);
@@ -259,13 +219,9 @@ pub async fn get_health(
 }
 
 /// List saved payment methods for the authenticated user's primary organization.
-pub async fn list_payment_methods(
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let bearer_token = get_bearer_token(api_key).await?;
-    let base_url = resolve_api_host(api_host);
+pub async fn list_payment_methods(ctx: &CommandContext) -> Result<()> {
+    let bearer_token = get_bearer_token(ctx.api_key.clone()).await?;
+    let base_url = resolve_api_host(ctx.api_host.as_ref());
     let base_url = base_url.trim_end_matches('/');
 
     let url = format!("{}/api/billing/payment-methods", base_url);
@@ -293,7 +249,7 @@ pub async fn list_payment_methods(
         .await
         .context("Failed to parse payment methods response")?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&methods)?,
         OutputFormat::Table => output::print_payment_methods_table(&methods),
     }
@@ -305,12 +261,10 @@ pub async fn list_payment_methods(
 pub async fn add_payment_method(
     stripe_payment_method_id: &str,
     set_default: bool,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let bearer_token = get_bearer_token(api_key).await?;
-    let base_url = resolve_api_host(api_host);
+    let bearer_token = get_bearer_token(ctx.api_key.clone()).await?;
+    let base_url = resolve_api_host(ctx.api_host.as_ref());
     let base_url = base_url.trim_end_matches('/');
 
     let url = format!("{}/api/billing/payment-methods", base_url);
@@ -344,7 +298,7 @@ pub async fn add_payment_method(
         .await
         .context("Failed to parse add payment method response")?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&result)?,
         OutputFormat::Table => {
             println!("{}", "✓ Payment method added successfully".green().bold());
@@ -357,14 +311,9 @@ pub async fn add_payment_method(
 }
 
 /// Remove a stored payment method by its Seren payment_methods.id value.
-pub async fn remove_payment_method(
-    id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let bearer_token = get_bearer_token(api_key).await?;
-    let base_url = resolve_api_host(api_host);
+pub async fn remove_payment_method(id: &str, ctx: &CommandContext) -> Result<()> {
+    let bearer_token = get_bearer_token(ctx.api_key.clone()).await?;
+    let base_url = resolve_api_host(ctx.api_host.as_ref());
     let base_url = base_url.trim_end_matches('/');
 
     let url = format!("{}/api/billing/payment-methods/{}", base_url, id);
@@ -387,7 +336,7 @@ pub async fn remove_payment_method(
         ));
     }
 
-    if let OutputFormat::Json = format {
+    if let OutputFormat::Json = ctx.format {
         // No body for 204; return a simple JSON acknowledgement.
         let payload = serde_json::json!({
             "id": id,

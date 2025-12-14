@@ -1,30 +1,12 @@
 use anyhow::Result;
 use colored::Colorize;
-use seren::{
-    Client, ClientConfig, CreateProjectRequest, ProjectConnectionUriQuery, UpdateProjectRequest,
-};
+use seren::{CreateProjectRequest, ProjectConnectionUriQuery, UpdateProjectRequest};
 use uuid::Uuid;
 
-use crate::{OutputFormat, commands::auth::get_bearer_token, output};
+use crate::{CommandContext, OutputFormat, output};
 
-async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
-    let bearer_token = get_bearer_token(api_key).await?;
-
-    let mut client_config = ClientConfig::new(bearer_token);
-
-    if let Some(host) = api_host {
-        client_config = client_config.with_base_url(host);
-    }
-
-    Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
-}
-
-pub async fn list(
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn list(ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let projects = client
         .projects()
@@ -32,7 +14,7 @@ pub async fn list(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list projects: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&projects)?,
         OutputFormat::Table => output::print_projects_table(&projects),
     }
@@ -40,13 +22,8 @@ pub async fn list(
     Ok(())
 }
 
-pub async fn get(
-    id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn get(id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let project = client
         .projects()
@@ -54,7 +31,7 @@ pub async fn get(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get project: {}", e))?;
 
-    output::print_project(&project, format)?;
+    output::print_project(&project, ctx.format)?;
 
     Ok(())
 }
@@ -72,9 +49,7 @@ pub async fn create(
     enable_logical_replication: Option<bool>,
     psql: bool,
     set_context: bool,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
     // Validate region against supported list (UI/Backend aligned)
     const ALLOWED_REGIONS: &[&str] = &["us-east-1"]; // temporarily restricted for cost control
@@ -87,7 +62,7 @@ pub async fn create(
         ));
     }
 
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let request = CreateProjectRequest {
         name: name.to_string(),
@@ -109,7 +84,7 @@ pub async fn create(
 
     println!("{}", "✓ Project created successfully!".green().bold());
     println!();
-    output::print_create_project_response(&project, format)?;
+    output::print_create_project_response(&project, ctx.format)?;
 
     // Set context if requested
     if set_context {
@@ -177,11 +152,9 @@ pub async fn update(
     compute_unit_min: Option<i32>,
     compute_unit_max: Option<i32>,
     enable_logical_replication: Option<bool>,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     if name.is_none()
         && block_public_connections.is_none()
@@ -230,18 +203,13 @@ pub async fn update(
 
     println!("{}", "✓ Project updated successfully!".green().bold());
     println!();
-    output::print_project(&project, format)?;
+    output::print_project(&project, ctx.format)?;
 
     Ok(())
 }
 
-pub async fn delete(
-    id: &str,
-    skip_confirm: bool,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn delete(id: &str, skip_confirm: bool, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     // Get project details for confirmation
     let project = client
@@ -305,11 +273,9 @@ pub async fn connection_uri(
     pooled: bool,
     prisma: bool,
     ssl: Option<&str>,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let query = ProjectConnectionUriQuery {
         branch_id: branch_id
@@ -333,7 +299,7 @@ pub async fn connection_uri(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to fetch connection URI: {}", e))?;
 
-    output::print_project_connection_uri(&response, pooled, prisma, ssl, format)?;
+    output::print_project_connection_uri(&response, pooled, prisma, ssl, ctx.format)?;
 
     Ok(())
 }

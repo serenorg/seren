@@ -1,28 +1,11 @@
 use anyhow::Result;
-use seren::{Client, ClientConfig};
+use seren::Client;
 use tokio::time::{Duration, sleep};
 
-use crate::{OutputFormat, commands::auth::get_bearer_token, output};
+use crate::{CommandContext, OutputFormat, output};
 
-async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
-    let bearer_token = get_bearer_token(api_key).await?;
-
-    let mut client_config = ClientConfig::new(bearer_token);
-
-    if let Some(host) = api_host {
-        client_config = client_config.with_base_url(host);
-    }
-
-    Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
-}
-
-pub async fn list(
-    project_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn list(project_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let operations = client
         .operations(project_id)
@@ -30,7 +13,7 @@ pub async fn list(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list operations: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&operations)?,
         OutputFormat::Table => output::print_operations_table(&operations),
     }
@@ -38,14 +21,8 @@ pub async fn list(
     Ok(())
 }
 
-pub async fn get(
-    project_id: &str,
-    operation_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn get(project_id: &str, operation_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let operation = client
         .operations(project_id)
@@ -53,7 +30,7 @@ pub async fn get(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get operation: {}", e))?;
 
-    output::print_operation(&operation, format)?;
+    output::print_operation(&operation, ctx.format)?;
 
     Ok(())
 }

@@ -1,9 +1,12 @@
 use clap::{ArgAction, Parser, Subcommand};
 
+mod command_context;
 mod commands;
 pub mod config;
 pub mod defaults;
 pub mod output;
+
+pub use command_context::CommandContext;
 
 #[derive(Debug, Clone, Copy)]
 pub enum OutputFormat {
@@ -1215,6 +1218,9 @@ enum ReplicationAction {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
+    // Create shared command context for all commands
+    let ctx = CommandContext::new(cli.api_host.clone(), cli.api_key.clone(), cli.format);
+
     match cli.command {
         Commands::Auth { action } => match action {
             AuthAction::Login => commands::auth::login().await?,
@@ -1227,48 +1233,20 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Orgs { action } => match action {
             OrgAction::Members { org_id } => {
-                commands::organizations::list_members(
-                    &org_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::organizations::list_members(&org_id, &ctx).await?
             }
             OrgAction::Invites { org_id } => {
-                commands::organizations::list_invites(
-                    &org_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::organizations::list_invites(&org_id, &ctx).await?
             }
             OrgAction::Invite {
                 org_id,
                 email,
                 role,
-            } => {
-                commands::organizations::create_invite(
-                    &org_id,
-                    &email,
-                    &role,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
-            }
+            } => commands::organizations::create_invite(&org_id, &email, &role, &ctx).await?,
         },
         Commands::Projects { action } => match action {
-            ProjectAction::List => {
-                commands::projects::list(cli.format, cli.api_host.clone(), cli.api_key.clone())
-                    .await?
-            }
-            ProjectAction::Get { id } => {
-                commands::projects::get(&id, cli.format, cli.api_host.clone(), cli.api_key.clone())
-                    .await?
-            }
+            ProjectAction::List => commands::projects::list(&ctx).await?,
+            ProjectAction::Get { id } => commands::projects::get(&id, &ctx).await?,
             ProjectAction::Create {
                 name,
                 region,
@@ -1295,9 +1273,7 @@ async fn main() -> anyhow::Result<()> {
                     enable_logical_replication,
                     psql,
                     set_context,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
+                    &ctx,
                 )
                 .await?
             }
@@ -1322,9 +1298,7 @@ async fn main() -> anyhow::Result<()> {
                     compute_unit_min,
                     compute_unit_max,
                     enable_logical_replication,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
+                    &ctx,
                 )
                 .await?
             }
@@ -1347,37 +1321,15 @@ async fn main() -> anyhow::Result<()> {
                     pooled,
                     prisma,
                     ssl.as_deref(),
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
+                    &ctx,
                 )
                 .await?
             }
-            ProjectAction::Delete { id, yes } => {
-                commands::projects::delete(&id, yes, cli.api_host.clone(), cli.api_key.clone())
-                    .await?
-            }
+            ProjectAction::Delete { id, yes } => commands::projects::delete(&id, yes, &ctx).await?,
         },
         Commands::Branches { project_id, action } => match action {
-            BranchAction::List => {
-                commands::branches::list(
-                    &project_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
-            }
-            BranchAction::Get { id } => {
-                commands::branches::get(
-                    &project_id,
-                    &id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
-            }
+            BranchAction::List => commands::branches::list(&project_id, &ctx).await?,
+            BranchAction::Get { id } => commands::branches::get(&project_id, &id, &ctx).await?,
             BranchAction::Create {
                 name,
                 parent,
@@ -1414,41 +1366,18 @@ async fn main() -> anyhow::Result<()> {
                     cu.as_deref(),
                     suspend_timeout,
                     psql,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
+                    &ctx,
                 )
                 .await?
             }
             BranchAction::Delete { id, yes } => {
-                commands::branches::delete(
-                    &project_id,
-                    &id,
-                    yes,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::branches::delete(&project_id, &id, yes, &ctx).await?
             }
             BranchAction::Rename { id, name } => {
-                commands::branches::rename(
-                    &project_id,
-                    &id,
-                    &name,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::branches::rename(&project_id, &id, &name, &ctx).await?
             }
             BranchAction::SetDefault { id } => {
-                commands::branches::set_default(
-                    &project_id,
-                    &id,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::branches::set_default(&project_id, &id, &ctx).await?
             }
             BranchAction::ConnectionString {
                 id,
@@ -1464,9 +1393,7 @@ async fn main() -> anyhow::Result<()> {
                     prisma,
                     ssl.as_deref(),
                     role.as_deref(),
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
+                    &ctx,
                 )
                 .await?
             }
@@ -1480,9 +1407,7 @@ async fn main() -> anyhow::Result<()> {
                     &id,
                     expires_at.as_deref(),
                     no_expiration,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
+                    &ctx,
                 )
                 .await?
             }
@@ -1496,21 +1421,11 @@ async fn main() -> anyhow::Result<()> {
                     &base_branch_id,
                     &compare_branch_id,
                     database.as_deref(),
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
+                    &ctx,
                 )
                 .await?
             }
-            BranchAction::Reset { id } => {
-                commands::branches::reset(
-                    &project_id,
-                    &id,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
-            }
+            BranchAction::Reset { id } => commands::branches::reset(&project_id, &id, &ctx).await?,
             BranchAction::Restore {
                 id,
                 source,
@@ -1525,8 +1440,7 @@ async fn main() -> anyhow::Result<()> {
                     &preserve_under_name,
                     timestamp.as_deref(),
                     lsn.as_deref(),
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
+                    &ctx,
                 )
                 .await?
             }
@@ -1537,36 +1451,14 @@ async fn main() -> anyhow::Result<()> {
             action,
         } => match action {
             DatabaseAction::List => {
-                commands::databases::list(
-                    &project_id,
-                    &branch_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::databases::list(&project_id, &branch_id, &ctx).await?
             }
             DatabaseAction::Create { name, owner } => {
-                commands::databases::create(
-                    &project_id,
-                    &branch_id,
-                    &name,
-                    owner.as_deref(),
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::databases::create(&project_id, &branch_id, &name, owner.as_deref(), &ctx)
+                    .await?
             }
             DatabaseAction::Delete { id } => {
-                commands::databases::delete(
-                    &project_id,
-                    &branch_id,
-                    &id,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::databases::delete(&project_id, &branch_id, &id, &ctx).await?
             }
         },
         Commands::Roles {
@@ -1574,48 +1466,16 @@ async fn main() -> anyhow::Result<()> {
             branch_id,
             action,
         } => match action {
-            RoleAction::List => {
-                commands::roles::list(
-                    &project_id,
-                    &branch_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
-            }
+            RoleAction::List => commands::roles::list(&project_id, &branch_id, &ctx).await?,
             RoleAction::Create { name } => {
-                commands::roles::create(
-                    &project_id,
-                    &branch_id,
-                    &name,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::roles::create(&project_id, &branch_id, &name, &ctx).await?
             }
             RoleAction::Delete { id } => {
-                commands::roles::delete(
-                    &project_id,
-                    &branch_id,
-                    &id,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::roles::delete(&project_id, &branch_id, &id, &ctx).await?
             }
             RoleAction::ResetPassword { id, password } => {
-                commands::roles::reset_password(
-                    &project_id,
-                    &branch_id,
-                    &id,
-                    &password,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::roles::reset_password(&project_id, &branch_id, &id, &password, &ctx)
+                    .await?
             }
         },
         Commands::Endpoints {
@@ -1624,14 +1484,7 @@ async fn main() -> anyhow::Result<()> {
             action,
         } => match action {
             EndpointAction::List => {
-                commands::endpoints::list(
-                    &project_id,
-                    &branch_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::endpoints::list(&project_id, &branch_id, &ctx).await?
             }
             EndpointAction::Create {
                 name,
@@ -1648,9 +1501,7 @@ async fn main() -> anyhow::Result<()> {
                     autoscaling_min,
                     autoscaling_max,
                     suspend_timeout,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
+                    &ctx,
                 )
                 .await?
             }
@@ -1667,130 +1518,46 @@ async fn main() -> anyhow::Result<()> {
                     autoscaling_min,
                     autoscaling_max,
                     suspend_timeout,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
+                    &ctx,
                 )
                 .await?
             }
             EndpointAction::Delete { id } => {
-                commands::endpoints::delete(
-                    &project_id,
-                    &branch_id,
-                    &id,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::endpoints::delete(&project_id, &branch_id, &id, &ctx).await?
             }
             EndpointAction::Suspend { id } => {
-                commands::endpoints::suspend(
-                    &project_id,
-                    &branch_id,
-                    &id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::endpoints::suspend(&project_id, &branch_id, &id, &ctx).await?
             }
             EndpointAction::Start { id } => {
-                commands::endpoints::start(
-                    &project_id,
-                    &branch_id,
-                    &id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::endpoints::start(&project_id, &branch_id, &id, &ctx).await?
             }
             EndpointAction::Health { id } => {
-                commands::endpoints::health(
-                    &project_id,
-                    &branch_id,
-                    &id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::endpoints::health(&project_id, &branch_id, &id, &ctx).await?
             }
             EndpointAction::Metrics { id } => {
-                commands::endpoints::metrics(
-                    &project_id,
-                    &branch_id,
-                    &id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::endpoints::metrics(&project_id, &branch_id, &id, &ctx).await?
             }
         },
         Commands::Operations { project_id, action } => match action {
-            OperationAction::List => {
-                commands::operations::list(
-                    &project_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
-            }
+            OperationAction::List => commands::operations::list(&project_id, &ctx).await?,
             OperationAction::Get { id } => {
-                commands::operations::get(
-                    &project_id,
-                    &id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::operations::get(&project_id, &id, &ctx).await?
             }
         },
         Commands::IpAllowList { project_id, action } => match action {
-            IpAllowListAction::List => {
-                commands::ip_allow_list::list(
-                    &project_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
-            }
+            IpAllowListAction::List => commands::ip_allow_list::list(&project_id, &ctx).await?,
             IpAllowListAction::Add {
                 ip_address,
                 description,
             } => {
-                commands::ip_allow_list::add(
-                    &project_id,
-                    &ip_address,
-                    description.clone(),
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::ip_allow_list::add(&project_id, &ip_address, description.clone(), &ctx)
+                    .await?
             }
             IpAllowListAction::Remove { id } => {
-                commands::ip_allow_list::remove(
-                    &project_id,
-                    &id,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::ip_allow_list::remove(&project_id, &id, &ctx).await?
             }
             IpAllowListAction::Reset { ips } => {
-                commands::ip_allow_list::reset(
-                    &project_id,
-                    &ips,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::ip_allow_list::reset(&project_id, &ips, &ctx).await?
             }
         },
         Commands::SetContext { action } => match action {
@@ -1803,83 +1570,34 @@ async fn main() -> anyhow::Result<()> {
         Commands::Vpc { action } => match action {
             VpcAction::Endpoint { org_id, action } => match action {
                 VpcEndpointAction::List { region } => {
-                    commands::vpc::endpoint_list(
-                        &org_id,
-                        region,
-                        cli.format,
-                        cli.api_host.clone(),
-                        cli.api_key.clone(),
-                    )
-                    .await?
+                    commands::vpc::endpoint_list(&org_id, region, &ctx).await?
                 }
                 VpcEndpointAction::Add {
                     region,
                     endpoint_id,
                     label,
                 } => {
-                    commands::vpc::endpoint_create(
-                        &org_id,
-                        &region,
-                        &endpoint_id,
-                        label,
-                        cli.format,
-                        cli.api_host.clone(),
-                        cli.api_key.clone(),
-                    )
-                    .await?
+                    commands::vpc::endpoint_create(&org_id, &region, &endpoint_id, label, &ctx)
+                        .await?
                 }
                 VpcEndpointAction::Get { endpoint_id } => {
-                    commands::vpc::endpoint_get(
-                        &org_id,
-                        &endpoint_id,
-                        cli.format,
-                        cli.api_host.clone(),
-                        cli.api_key.clone(),
-                    )
-                    .await?
+                    commands::vpc::endpoint_get(&org_id, &endpoint_id, &ctx).await?
                 }
                 VpcEndpointAction::Remove { endpoint_id } => {
-                    commands::vpc::endpoint_remove(
-                        &org_id,
-                        &endpoint_id,
-                        cli.api_host.clone(),
-                        cli.api_key.clone(),
-                    )
-                    .await?
+                    commands::vpc::endpoint_remove(&org_id, &endpoint_id, &ctx).await?
                 }
             },
             VpcAction::Project { project_id, action } => match action {
-                VpcProjectAction::List => {
-                    commands::vpc::project_list(
-                        &project_id,
-                        cli.format,
-                        cli.api_host.clone(),
-                        cli.api_key.clone(),
-                    )
-                    .await?
-                }
+                VpcProjectAction::List => commands::vpc::project_list(&project_id, &ctx).await?,
                 VpcProjectAction::Assign {
                     vpc_endpoint_id,
                     label,
                 } => {
-                    commands::vpc::project_assign(
-                        &project_id,
-                        &vpc_endpoint_id,
-                        label,
-                        cli.format,
-                        cli.api_host.clone(),
-                        cli.api_key.clone(),
-                    )
-                    .await?
+                    commands::vpc::project_assign(&project_id, &vpc_endpoint_id, label, &ctx)
+                        .await?
                 }
                 VpcProjectAction::Remove { assignment_id } => {
-                    commands::vpc::project_remove(
-                        &project_id,
-                        &assignment_id,
-                        cli.api_host.clone(),
-                        cli.api_key.clone(),
-                    )
-                    .await?
+                    commands::vpc::project_remove(&project_id, &assignment_id, &ctx).await?
                 }
             },
         },
@@ -1893,48 +1611,19 @@ async fn main() -> anyhow::Result<()> {
                 prisma,
                 yes,
             } => {
-                commands::env::init(
-                    project_id,
-                    branch_id,
-                    &env,
-                    &key,
-                    pooled,
-                    prisma,
-                    yes,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::env::init(project_id, branch_id, &env, &key, pooled, prisma, yes, &ctx)
+                    .await?
             }
         },
         Commands::Billing { action } => match action {
             BillingAction::GenerateInvoices { year, month } => {
-                commands::billing::generate_invoices(
-                    year,
-                    month,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::billing::generate_invoices(year, month, &ctx).await?
             }
             BillingAction::GetInvoice { invoice_id } => {
-                commands::billing::get_invoice(
-                    &invoice_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::billing::get_invoice(&invoice_id, &ctx).await?
             }
             BillingAction::IssueInvoice { invoice_id } => {
-                commands::billing::issue_invoice(
-                    &invoice_id,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::billing::issue_invoice(&invoice_id, &ctx).await?
             }
             BillingAction::GetUsage {
                 organization_id,
@@ -1945,242 +1634,89 @@ async fn main() -> anyhow::Result<()> {
                     &organization_id,
                     start_date.as_deref(),
                     end_date.as_deref(),
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
+                    &ctx,
                 )
                 .await?
             }
             BillingAction::ValidateToken { token } => {
-                commands::billing::validate_token(
-                    &token,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::billing::validate_token(&token, &ctx).await?
             }
             BillingAction::GetBalance { endpoint_id } => {
-                commands::billing::get_balance(
-                    &endpoint_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::billing::get_balance(&endpoint_id, &ctx).await?
             }
             BillingAction::ListPaymentMethods => {
-                commands::billing::list_payment_methods(
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::billing::list_payment_methods(&ctx).await?
             }
             BillingAction::AddPaymentMethod {
                 stripe_payment_method_id,
                 default,
             } => {
-                commands::billing::add_payment_method(
-                    &stripe_payment_method_id,
-                    default,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::billing::add_payment_method(&stripe_payment_method_id, default, &ctx)
+                    .await?
             }
             BillingAction::RemovePaymentMethod { id } => {
-                commands::billing::remove_payment_method(
-                    &id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::billing::remove_payment_method(&id, &ctx).await?
             }
-            BillingAction::Health => {
-                commands::billing::get_health(cli.format, cli.api_host.clone(), cli.api_key.clone())
-                    .await?
-            }
+            BillingAction::Health => commands::billing::get_health(&ctx).await?,
         },
         Commands::Sessions { action } => match action {
-            SessionAction::List => {
-                commands::sessions::list(cli.format, cli.api_host.clone(), cli.api_key.clone())
-                    .await?
-            }
+            SessionAction::List => commands::sessions::list(&ctx).await?,
             SessionAction::Revoke { session_id } => {
-                commands::sessions::revoke(&session_id, cli.api_host.clone(), cli.api_key.clone())
-                    .await?
+                commands::sessions::revoke(&session_id, &ctx).await?
             }
             SessionAction::RevokeOthers { keep_session_id } => {
-                commands::sessions::revoke_others(
-                    &keep_session_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::sessions::revoke_others(&keep_session_id, &ctx).await?
             }
-            SessionAction::RevokeAll => {
-                commands::sessions::revoke_all(
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
-            }
+            SessionAction::RevokeAll => commands::sessions::revoke_all(&ctx).await?,
         },
         Commands::Webhooks { org_id, action } => match action {
-            WebhookAction::List => {
-                commands::webhooks::list(
-                    &org_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
-            }
+            WebhookAction::List => commands::webhooks::list(&org_id, &ctx).await?,
             WebhookAction::Get { webhook_id } => {
-                commands::webhooks::get(
-                    &org_id,
-                    &webhook_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::webhooks::get(&org_id, &webhook_id, &ctx).await?
             }
             WebhookAction::Create {
                 url,
                 events,
                 active,
-            } => {
-                commands::webhooks::create(
-                    &org_id,
-                    &url,
-                    events,
-                    active,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
-            }
+            } => commands::webhooks::create(&org_id, &url, events, active, &ctx).await?,
             WebhookAction::Update {
                 webhook_id,
                 url,
                 events,
                 active,
             } => {
-                commands::webhooks::update(
-                    &org_id,
-                    &webhook_id,
-                    url,
-                    events,
-                    active,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::webhooks::update(&org_id, &webhook_id, url, events, active, &ctx).await?
             }
             WebhookAction::Delete { webhook_id } => {
-                commands::webhooks::delete(
-                    &org_id,
-                    &webhook_id,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::webhooks::delete(&org_id, &webhook_id, &ctx).await?
             }
             WebhookAction::RotateSecret { webhook_id } => {
-                commands::webhooks::rotate_secret(
-                    &org_id,
-                    &webhook_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::webhooks::rotate_secret(&org_id, &webhook_id, &ctx).await?
             }
             WebhookAction::Deliveries { webhook_id } => {
-                commands::webhooks::list_deliveries(
-                    &org_id,
-                    &webhook_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::webhooks::list_deliveries(&org_id, &webhook_id, &ctx).await?
             }
-            WebhookAction::EventTypes => {
-                commands::webhooks::list_event_types(
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
-            }
+            WebhookAction::EventTypes => commands::webhooks::list_event_types(&ctx).await?,
         },
         Commands::AuditLogs { org_id, action } => match action {
             AuditLogAction::List { limit, offset } => {
-                commands::audit_logs::list(
-                    &org_id,
-                    Some(limit),
-                    Some(offset),
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::audit_logs::list(&org_id, Some(limit), Some(offset), &ctx).await?
             }
             AuditLogAction::Get { log_id } => {
-                commands::audit_logs::get(
-                    &org_id,
-                    &log_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::audit_logs::get(&org_id, &log_id, &ctx).await?
             }
         },
         Commands::Rbac { org_id, action } => match action {
-            RbacAction::ListRoles => {
-                commands::rbac::list_roles(
-                    &org_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
-            }
+            RbacAction::ListRoles => commands::rbac::list_roles(&org_id, &ctx).await?,
             RbacAction::GetRole { role_id } => {
-                commands::rbac::get_role(
-                    &org_id,
-                    &role_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::rbac::get_role(&org_id, &role_id, &ctx).await?
             }
             RbacAction::CreateRole {
                 name,
                 description,
                 permissions,
             } => {
-                commands::rbac::create_role(
-                    &org_id,
-                    &name,
-                    description,
-                    permissions,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::rbac::create_role(&org_id, &name, description, permissions, &ctx).await?
             }
             RbacAction::UpdateRole {
                 role_id,
@@ -2188,74 +1724,24 @@ async fn main() -> anyhow::Result<()> {
                 description,
                 permissions,
             } => {
-                commands::rbac::update_role(
-                    &org_id,
-                    &role_id,
-                    name,
-                    description,
-                    permissions,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::rbac::update_role(&org_id, &role_id, name, description, permissions, &ctx)
+                    .await?
             }
             RbacAction::DeleteRole { role_id } => {
-                commands::rbac::delete_role(
-                    &org_id,
-                    &role_id,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::rbac::delete_role(&org_id, &role_id, &ctx).await?
             }
             RbacAction::AssignRole { member_id, role_id } => {
-                commands::rbac::assign_role(
-                    &org_id,
-                    &member_id,
-                    &role_id,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::rbac::assign_role(&org_id, &member_id, &role_id, &ctx).await?
             }
-            RbacAction::ListPermissions => {
-                commands::rbac::list_permissions(
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
-            }
-            RbacAction::MyPermissions => {
-                commands::rbac::my_permissions(
-                    &org_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
-            }
+            RbacAction::ListPermissions => commands::rbac::list_permissions(&ctx).await?,
+            RbacAction::MyPermissions => commands::rbac::my_permissions(&org_id, &ctx).await?,
         },
         Commands::BranchProtection { project_id, action } => match action {
             BranchProtectionAction::List => {
-                commands::branch_protection::list(
-                    &project_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::branch_protection::list(&project_id, &ctx).await?
             }
             BranchProtectionAction::Get { branch_id } => {
-                commands::branch_protection::get(
-                    &project_id,
-                    &branch_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::branch_protection::get(&project_id, &branch_id, &ctx).await?
             }
             BranchProtectionAction::Create {
                 branch_id,
@@ -2271,9 +1757,7 @@ async fn main() -> anyhow::Result<()> {
                     prevent_reset,
                     require_approval,
                     bypass_roles,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
+                    &ctx,
                 )
                 .await?
             }
@@ -2291,50 +1775,21 @@ async fn main() -> anyhow::Result<()> {
                     prevent_reset,
                     require_approval,
                     bypass_roles,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
+                    &ctx,
                 )
                 .await?
             }
             BranchProtectionAction::Delete { branch_id } => {
-                commands::branch_protection::delete(
-                    &project_id,
-                    &branch_id,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::branch_protection::delete(&project_id, &branch_id, &ctx).await?
             }
         },
         Commands::Replication { project_id, action } => match action {
             ReplicationAction::Settings => {
-                commands::replication::get_settings(
-                    &project_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::replication::get_settings(&project_id, &ctx).await?
             }
-            ReplicationAction::Enable => {
-                commands::replication::enable(
-                    &project_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
-            }
+            ReplicationAction::Enable => commands::replication::enable(&project_id, &ctx).await?,
             ReplicationAction::ListPublications { branch_id } => {
-                commands::replication::list_publications(
-                    &project_id,
-                    &branch_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::replication::list_publications(&project_id, &branch_id, &ctx).await?
             }
             ReplicationAction::CreatePublication {
                 branch_id,
@@ -2348,9 +1803,7 @@ async fn main() -> anyhow::Result<()> {
                     &name,
                     tables,
                     all_tables,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
+                    &ctx,
                 )
                 .await?
             }
@@ -2366,9 +1819,7 @@ async fn main() -> anyhow::Result<()> {
                     &publication_id,
                     tables,
                     all_tables,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
+                    &ctx,
                 )
                 .await?
             }
@@ -2380,46 +1831,23 @@ async fn main() -> anyhow::Result<()> {
                     &project_id,
                     &branch_id,
                     &publication_id,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
+                    &ctx,
                 )
                 .await?
             }
             ReplicationAction::ListSlots { branch_id } => {
-                commands::replication::list_slots(
-                    &project_id,
-                    &branch_id,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::replication::list_slots(&project_id, &branch_id, &ctx).await?
             }
             ReplicationAction::CreateSlot {
                 branch_id,
                 name,
                 plugin,
             } => {
-                commands::replication::create_slot(
-                    &project_id,
-                    &branch_id,
-                    &name,
-                    plugin,
-                    cli.format,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::replication::create_slot(&project_id, &branch_id, &name, plugin, &ctx)
+                    .await?
             }
             ReplicationAction::DeleteSlot { branch_id, slot_id } => {
-                commands::replication::delete_slot(
-                    &project_id,
-                    &branch_id,
-                    &slot_id,
-                    cli.api_host.clone(),
-                    cli.api_key.clone(),
-                )
-                .await?
+                commands::replication::delete_slot(&project_id, &branch_id, &slot_id, &ctx).await?
             }
         },
     }

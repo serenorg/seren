@@ -1,33 +1,16 @@
 use anyhow::Result;
 use colored::Colorize;
 use seren::{
-    Client, ClientConfig, CreatePublicationRequest, CreateReplicationSlotRequest,
-    UpdateLogicalReplicationRequest, UpdatePublicationRequest,
+    CreatePublicationRequest, CreateReplicationSlotRequest, UpdateLogicalReplicationRequest,
+    UpdatePublicationRequest,
 };
 
-use crate::{OutputFormat, commands::auth::get_bearer_token, output};
-
-async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
-    let bearer_token = get_bearer_token(api_key).await?;
-
-    let mut client_config = ClientConfig::new(bearer_token);
-
-    if let Some(host) = api_host {
-        client_config = client_config.with_base_url(host);
-    }
-
-    Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
-}
+use crate::{CommandContext, OutputFormat, output};
 
 // Logical Replication Settings
 
-pub async fn get_settings(
-    project_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn get_settings(project_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let settings = client
         .replication(project_id)
@@ -35,7 +18,7 @@ pub async fn get_settings(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get replication settings: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&settings)?,
         OutputFormat::Table => {
             println!("{}", "Logical Replication Settings".bold());
@@ -54,13 +37,8 @@ pub async fn get_settings(
     Ok(())
 }
 
-pub async fn enable(
-    project_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn enable(project_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let request = UpdateLogicalReplicationRequest {
         logical_replication_enabled: true,
@@ -82,7 +60,7 @@ pub async fn enable(
         "Note: This sets wal_level=logical and cannot be disabled.".yellow()
     );
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&settings)?,
         OutputFormat::Table => {}
     }
@@ -95,11 +73,9 @@ pub async fn enable(
 pub async fn list_publications(
     project_id: &str,
     branch_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let publications = client
         .replication(project_id)
@@ -107,7 +83,7 @@ pub async fn list_publications(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list publications: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&publications)?,
         OutputFormat::Table => output::print_publications_table(&publications),
     }
@@ -115,18 +91,15 @@ pub async fn list_publications(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn create_publication(
     project_id: &str,
     branch_id: &str,
     name: &str,
     table_names: Vec<String>,
     all_tables: bool,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let request = CreatePublicationRequest {
         name: name.to_string(),
@@ -143,7 +116,7 @@ pub async fn create_publication(
     println!("{}", "Publication created successfully!".green().bold());
     println!();
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&publication)?,
         OutputFormat::Table => output::print_publications_table(&[publication]),
     }
@@ -151,18 +124,15 @@ pub async fn create_publication(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn update_publication(
     project_id: &str,
     branch_id: &str,
     publication_id: &str,
     table_names: Option<Vec<String>>,
     all_tables: Option<bool>,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let request = UpdatePublicationRequest {
         table_names,
@@ -178,7 +148,7 @@ pub async fn update_publication(
     println!("{}", "Publication updated successfully!".green().bold());
     println!();
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&publication)?,
         OutputFormat::Table => output::print_publications_table(&[publication]),
     }
@@ -190,10 +160,9 @@ pub async fn delete_publication(
     project_id: &str,
     branch_id: &str,
     publication_id: &str,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     client
         .replication(project_id)
@@ -213,14 +182,8 @@ pub async fn delete_publication(
 
 // Replication Slots
 
-pub async fn list_slots(
-    project_id: &str,
-    branch_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn list_slots(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let slots = client
         .replication(project_id)
@@ -228,7 +191,7 @@ pub async fn list_slots(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list replication slots: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&slots)?,
         OutputFormat::Table => output::print_replication_slots_table(&slots),
     }
@@ -241,11 +204,9 @@ pub async fn create_slot(
     branch_id: &str,
     name: &str,
     plugin: Option<String>,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let request = CreateReplicationSlotRequest {
         name: name.to_string(),
@@ -264,7 +225,7 @@ pub async fn create_slot(
     );
     println!();
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&slot)?,
         OutputFormat::Table => output::print_replication_slots_table(&[slot]),
     }
@@ -276,10 +237,9 @@ pub async fn delete_slot(
     project_id: &str,
     branch_id: &str,
     slot_id: &str,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     client
         .replication(project_id)

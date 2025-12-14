@@ -3,14 +3,13 @@ use colored::Colorize;
 use jiff::Timestamp;
 use serde_json::{Map, Value};
 use seren::{
-    BranchEndpointRequest, Client, ClientConfig, CreateBranchRequest, PointInTime,
-    RenameBranchRequest, RestoreBranchRequest, RestoreSource, SchemaDiffRequest,
-    SetBranchExpirationRequest,
+    BranchEndpointRequest, CreateBranchRequest, PointInTime, RenameBranchRequest,
+    RestoreBranchRequest, RestoreSource, SchemaDiffRequest, SetBranchExpirationRequest,
 };
 use std::str::FromStr;
 use uuid::Uuid;
 
-use crate::{OutputFormat, commands::auth::get_bearer_token, output};
+use crate::{CommandContext, OutputFormat, output};
 
 /// Parse a duration string like "1d", "7d", "30d" into a Timestamp
 fn parse_duration_to_timestamp(duration_str: &str) -> Result<Timestamp> {
@@ -50,25 +49,8 @@ fn parse_duration_to_timestamp(duration_str: &str) -> Result<Timestamp> {
     Ok(expires_at)
 }
 
-async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
-    let bearer_token = get_bearer_token(api_key).await?;
-
-    let mut client_config = ClientConfig::new(bearer_token);
-
-    if let Some(host) = api_host {
-        client_config = client_config.with_base_url(host);
-    }
-
-    Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
-}
-
-pub async fn list(
-    project_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn list(project_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let branches = client
         .branches(project_id)
@@ -76,7 +58,7 @@ pub async fn list(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list branches: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&branches)?,
         OutputFormat::Table => output::print_branches_table(&branches),
     }
@@ -84,14 +66,8 @@ pub async fn list(
     Ok(())
 }
 
-pub async fn get(
-    project_id: &str,
-    branch_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn get(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let branch = client
         .branches(project_id)
@@ -99,7 +75,7 @@ pub async fn get(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get branch: {}", e))?;
 
-    output::print_branch(&branch, format)?;
+    output::print_branch(&branch, ctx.format)?;
 
     Ok(())
 }
@@ -122,11 +98,9 @@ pub async fn create(
     cu: Option<&str>,
     suspend_timeout: Option<i32>,
     psql: bool,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let parent_branch_id = parent
         .map(|value| {
@@ -262,7 +236,7 @@ pub async fn create(
 
     println!("{}", "✓ Branch created successfully!".green().bold());
     println!();
-    output::print_branch(&branch, format)?;
+    output::print_branch(&branch, ctx.format)?;
 
     let mut connection_uri_for_psql: Option<String> = None;
 
@@ -284,7 +258,7 @@ pub async fn create(
                 pagination: None,
             })
             .collect();
-        output::print_created_endpoints(&endpoints_for_output, format)?;
+        output::print_created_endpoints(&endpoints_for_output, ctx.format)?;
     }
 
     // Connect via psql if requested
@@ -320,10 +294,9 @@ pub async fn delete(
     project_id: &str,
     branch_id: &str,
     skip_confirm: bool,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     // Get branch details for confirmation message
     let branch = client
@@ -373,11 +346,9 @@ pub async fn rename(
     project_id: &str,
     branch_id: &str,
     name: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let request = RenameBranchRequest {
         name: name.to_string(),
@@ -391,18 +362,13 @@ pub async fn rename(
 
     println!("{}", "✓ Branch renamed successfully!".green().bold());
     println!();
-    output::print_branch(&branch, format)?;
+    output::print_branch(&branch, ctx.format)?;
 
     Ok(())
 }
 
-pub async fn set_default(
-    project_id: &str,
-    branch_id: &str,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn set_default(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     client
         .branches(project_id)
@@ -420,7 +386,6 @@ pub async fn set_default(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn connection_string(
     project_id: &str,
     branch_id: &str,
@@ -428,11 +393,9 @@ pub async fn connection_string(
     prisma: bool,
     ssl: Option<&str>,
     role: Option<&str>,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let response = client
         .branches(project_id)
@@ -440,7 +403,7 @@ pub async fn connection_string(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get connection string: {}", e))?;
 
-    output::print_connection_string(&response, pooled, prisma, ssl, format)?;
+    output::print_connection_string(&response, pooled, prisma, ssl, ctx.format)?;
 
     Ok(())
 }
@@ -450,11 +413,9 @@ pub async fn set_expiration(
     branch_id: &str,
     expires_at: Option<&str>,
     no_expiration: bool,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     // Build the request
     let expires_at_value = if no_expiration {
@@ -495,7 +456,7 @@ pub async fn set_expiration(
         );
     }
     println!();
-    output::print_branch(&branch, format)?;
+    output::print_branch(&branch, ctx.format)?;
 
     Ok(())
 }
@@ -505,11 +466,9 @@ pub async fn schema_diff(
     base_branch_id: &str,
     compare_branch_id: &str,
     database: Option<&str>,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let mut request = SchemaDiffRequest::new(base_branch_id, compare_branch_id);
     if let Some(db) = database {
@@ -518,7 +477,7 @@ pub async fn schema_diff(
 
     match client.branches(project_id).schema_diff(request).await {
         Ok(diff) => {
-            output::print_schema_diff(&diff, format)?;
+            output::print_schema_diff(&diff, ctx.format)?;
             Ok(())
         }
         Err(e) => {
@@ -544,13 +503,8 @@ pub async fn schema_diff(
     }
 }
 
-pub async fn reset(
-    project_id: &str,
-    branch_id: &str,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn reset(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     match client.branches(project_id).reset(branch_id).await {
         Ok(branch) => {
@@ -584,7 +538,6 @@ pub async fn reset(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn restore(
     project_id: &str,
     branch_id: &str,
@@ -592,10 +545,9 @@ pub async fn restore(
     preserve_under_name: &str,
     timestamp: Option<&str>,
     lsn: Option<&str>,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let parse_timestamp = |ts: &str| -> Result<Timestamp> {
         Timestamp::from_str(ts).map_err(|e| anyhow::anyhow!("Invalid timestamp: {}", e))

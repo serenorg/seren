@@ -1,35 +1,18 @@
 use anyhow::Result;
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
-use seren::{Client, ClientConfig, CreateOrganizationInviteRequest};
+use seren::CreateOrganizationInviteRequest;
 
-use crate::{OutputFormat, commands::auth::get_bearer_token, output};
+use crate::{CommandContext, OutputFormat, output};
 
-async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
-    let bearer_token = get_bearer_token(api_key).await?;
-
-    let mut client_config = ClientConfig::new(bearer_token);
-
-    if let Some(host) = api_host {
-        client_config = client_config.with_base_url(host);
-    }
-
-    Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
-}
-
-pub async fn list_members(
-    organization_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn list_members(organization_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let members = client
         .organization_members(organization_id)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list members: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&members)?,
         OutputFormat::Table => {
             let mut table = Table::new();
@@ -60,20 +43,15 @@ pub async fn list_members(
     Ok(())
 }
 
-pub async fn list_invites(
-    organization_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn list_invites(organization_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let invites = client
         .organization_invites(organization_id)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list invites: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&invites)?,
         OutputFormat::Table => {
             let mut table = Table::new();
@@ -122,11 +100,9 @@ pub async fn create_invite(
     organization_id: &str,
     email: &str,
     role: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let payload = CreateOrganizationInviteRequest {
         email: email.to_string(),
@@ -138,7 +114,7 @@ pub async fn create_invite(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create invite: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&invite)?,
         OutputFormat::Table => {
             println!("✓ Invite created");

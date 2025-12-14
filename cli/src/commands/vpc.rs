@@ -1,39 +1,23 @@
 use anyhow::Result;
 use colored::Colorize;
-use seren::{
-    AssignProjectVpcEndpointRequest, Client, ClientConfig, CreateOrganizationVpcEndpointRequest,
-};
+use seren::{AssignProjectVpcEndpointRequest, CreateOrganizationVpcEndpointRequest};
 use uuid::Uuid;
 
-use crate::{OutputFormat, commands::auth::get_bearer_token, output};
-
-async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
-    let bearer_token = get_bearer_token(api_key).await?;
-
-    let mut client_config = ClientConfig::new(bearer_token);
-
-    if let Some(host) = api_host {
-        client_config = client_config.with_base_url(host);
-    }
-
-    Client::new(client_config).map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
-}
+use crate::{CommandContext, OutputFormat, output};
 
 pub async fn endpoint_list(
     org_id: &str,
     region: Option<String>,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
     let endpoints = client
         .organization_vpc_endpoints(org_id)
         .list(region.as_deref())
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list VPC endpoints: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&endpoints)?,
         OutputFormat::Table => output::print_org_vpc_endpoints_table(&endpoints),
     }
@@ -46,11 +30,9 @@ pub async fn endpoint_create(
     region: &str,
     endpoint_id: &str,
     label: Option<String>,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let request = CreateOrganizationVpcEndpointRequest {
         region: region.to_string(),
@@ -66,7 +48,7 @@ pub async fn endpoint_create(
 
     println!("{}", "✓ VPC endpoint registered".green().bold());
     println!();
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&endpoint)?,
         OutputFormat::Table => output::print_org_vpc_endpoints_table(&[endpoint]),
     }
@@ -74,14 +56,8 @@ pub async fn endpoint_create(
     Ok(())
 }
 
-pub async fn endpoint_get(
-    org_id: &str,
-    endpoint_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn endpoint_get(org_id: &str, endpoint_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let endpoint = client
         .organization_vpc_endpoints(org_id)
@@ -89,7 +65,7 @@ pub async fn endpoint_get(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to fetch VPC endpoint: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&endpoint)?,
         OutputFormat::Table => output::print_org_vpc_endpoints_table(&[endpoint]),
     }
@@ -97,13 +73,8 @@ pub async fn endpoint_get(
     Ok(())
 }
 
-pub async fn endpoint_remove(
-    org_id: &str,
-    endpoint_id: &str,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn endpoint_remove(org_id: &str, endpoint_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     client
         .organization_vpc_endpoints(org_id)
@@ -121,13 +92,8 @@ pub async fn endpoint_remove(
     Ok(())
 }
 
-pub async fn project_list(
-    project_id: &str,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
-) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+pub async fn project_list(project_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
 
     let assignments = client
         .project_vpc_endpoints(project_id)
@@ -135,7 +101,7 @@ pub async fn project_list(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list project VPC endpoints: {}", e))?;
 
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&assignments)?,
         OutputFormat::Table => output::print_project_vpc_endpoints_table(&assignments),
     }
@@ -147,11 +113,9 @@ pub async fn project_assign(
     project_id: &str,
     vpc_endpoint_id: &str,
     label: Option<String>,
-    format: OutputFormat,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     let request = AssignProjectVpcEndpointRequest {
         vpc_endpoint_id: Uuid::parse_str(vpc_endpoint_id)
@@ -167,7 +131,7 @@ pub async fn project_assign(
 
     println!("{}", "✓ VPC endpoint assigned to project".green().bold());
     println!();
-    match format {
+    match ctx.format {
         OutputFormat::Json => output::print_json(&assignment)?,
         OutputFormat::Table => output::print_project_vpc_endpoints_table(&[assignment]),
     }
@@ -178,10 +142,9 @@ pub async fn project_assign(
 pub async fn project_remove(
     project_id: &str,
     assignment_id: &str,
-    api_host: Option<String>,
-    api_key: Option<String>,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let client = get_client(api_host, api_key).await?;
+    let client = ctx.client().await?;
 
     client
         .project_vpc_endpoints(project_id)
