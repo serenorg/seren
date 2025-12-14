@@ -137,7 +137,7 @@ pub async fn init(
     // Derive the final connection string using the same formatting logic as print_connection_string.
     // We always apply sslmode=require when writing to .env to be explicit.
     let ssl_mode = Some("require");
-    let mut active = conn.connection_string.clone();
+    let mut active = conn.data.connection_string.clone();
 
     let apply_ssl = |s: &str, ssl_mode: &str| -> String {
         if let Some(idx) = s.find('?') {

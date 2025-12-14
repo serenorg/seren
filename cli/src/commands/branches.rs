@@ -117,7 +117,7 @@ pub async fn create(
     endpoint_type: Option<&str>,
     endpoint_settings: &[String],
     expires_in: Option<&str>,
-    schema_only: bool,
+    _schema_only: bool,
     cu: Option<&str>,
     suspend_timeout: Option<i32>,
     psql: bool,
@@ -141,7 +141,7 @@ pub async fn create(
         .transpose()?;
 
     // Parse expires_in duration (e.g., "1d", "7d", "30d")
-    let expires_at = expires_in
+    let _expires_at = expires_in
         .map(|duration_str| {
             parse_duration_to_timestamp(duration_str)
                 .map_err(|e| anyhow::anyhow!("Invalid expires-in duration: {}", e))
@@ -243,8 +243,6 @@ pub async fn create(
         parent_timestamp,
         add_endpoint: auto_endpoint.then_some(true),
         endpoints,
-        expires_at,
-        schema_only: Some(schema_only),
     };
 
     let creation = client
@@ -274,7 +272,15 @@ pub async fn create(
                 }
             }
             println!();
-            output::print_created_endpoints(endpoints, format)?;
+            // Convert Vec<EndpointCreated> to Vec<EndpointCreatedResponse> for the output function
+            let endpoints_for_output: Vec<seren::EndpointCreatedResponse> = endpoints
+                .iter()
+                .map(|ep| seren::EndpointCreatedResponse {
+                    data: ep.clone(),
+                    pagination: None,
+                })
+                .collect();
+            output::print_created_endpoints(&endpoints_for_output, format)?;
         }
     }
 
@@ -632,8 +638,8 @@ pub async fn restore(
         Ok(response) => {
             println!("{}", "✓ Branch restored successfully!".green().bold());
             println!();
-            println!("Restored branch: {}", response.branch.name);
-            println!("Backup branch: {}", response.backup_branch.name);
+            println!("Restored branch: {}", response.data.branch.name);
+            println!("Backup branch: {}", response.data.backup_branch.name);
             Ok(())
         }
         Err(e) => {

@@ -61,6 +61,7 @@ pub async fn create(
         pooler_enabled: None,
         pooler_mode: None,
         suspend_timeout_seconds: suspend_timeout,
+        endpoint_type: Some(seren::EndpointType::ReadWrite),
     };
 
     match (autoscaling_min, autoscaling_max) {

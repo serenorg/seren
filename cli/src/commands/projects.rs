@@ -112,10 +112,10 @@ pub async fn create(
 
     // Set context if requested
     if set_context {
-        crate::config::set_context_project(&project.id.to_string())?;
+        crate::config::set_context_project(&project.data.id.to_string())?;
         println!(
             "{}",
-            format!("✓ Set project '{}' as current context", project.name).green()
+            format!("✓ Set project '{}' as current context", project.data.name).green()
         );
     }
 
@@ -131,7 +131,7 @@ pub async fn create(
         };
         match client
             .projects()
-            .connection_uri(&project.id.to_string(), query)
+            .connection_uri(&project.data.id.to_string(), query)
             .await
         {
             Ok(uri_response) => {
@@ -217,6 +217,7 @@ pub async fn update(
         compute_unit_min,
         compute_unit_max,
         enable_logical_replication,
+        history_retention_seconds: None,
     };
 
     let project = client

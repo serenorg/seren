@@ -89,8 +89,8 @@ pub async fn list_invites(
             ]);
 
             for invite in invites {
-                let is_accepted = invite.accepted_at.is_some();
-                let is_revoked = invite.revoked_at.is_some();
+                let is_accepted = invite.data.accepted_at.is_some();
+                let is_revoked = invite.data.revoked_at.is_some();
                 let is_expired = !is_accepted && !is_revoked; // UI computes actual expiry time; CLI keeps it simple.
 
                 let status = if is_accepted {
@@ -104,9 +104,9 @@ pub async fn list_invites(
                 };
 
                 table.add_row(vec![
-                    Cell::new(invite.email),
-                    Cell::new(invite.role),
-                    Cell::new(invite.expires_at),
+                    Cell::new(&invite.data.email),
+                    Cell::new(&invite.data.role),
+                    Cell::new(&invite.data.expires_at),
                     Cell::new(status),
                 ]);
             }
@@ -142,9 +142,9 @@ pub async fn create_invite(
         OutputFormat::Json => output::print_json(&invite)?,
         OutputFormat::Table => {
             println!("✓ Invite created");
-            println!("  Email:   {}", invite.email);
-            println!("  Role:    {}", invite.role);
-            println!("  Expires: {}", invite.expires_at);
+            println!("  Email:   {}", invite.data.email);
+            println!("  Role:    {}", invite.data.role);
+            println!("  Expires: {}", invite.data.expires_at);
         }
     }
 

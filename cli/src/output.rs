@@ -119,7 +119,7 @@ pub fn print_project(project: &seren::Project, format: OutputFormat) -> anyhow::
 }
 
 pub fn print_create_project_response(
-    response: &seren::CreateProjectResponse,
+    response: &seren::ProjectCreatedResponse,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     match format {
@@ -134,39 +134,40 @@ pub fn print_create_project_response(
                 Cell::new("Field").fg(Color::Green),
                 Cell::new("Value").fg(Color::Green),
             ]);
-            table.add_row(vec![Cell::new("ID"), Cell::new(response.id.to_string())]);
-            table.add_row(vec![Cell::new("Name"), Cell::new(&response.name)]);
+            let project = &response.data;
+            table.add_row(vec![Cell::new("ID"), Cell::new(project.id.to_string())]);
+            table.add_row(vec![Cell::new("Name"), Cell::new(&project.name)]);
             table.add_row(vec![
                 Cell::new("Organization ID"),
-                Cell::new(response.organization_id.to_string()),
+                Cell::new(project.organization_id.to_string()),
             ]);
-            table.add_row(vec![Cell::new("Region"), Cell::new(&response.region)]);
+            table.add_row(vec![Cell::new("Region"), Cell::new(&project.region)]);
             table.add_row(vec![
                 Cell::new("Compute Units"),
                 Cell::new(format!(
                     "{}-{}",
-                    response.compute_unit_min, response.compute_unit_max
+                    project.compute_unit_min, project.compute_unit_max
                 )),
             ]);
             table.add_row(vec![
                 Cell::new("Block Public Connections"),
-                Cell::new(response.block_public_connections.to_string()),
+                Cell::new(project.block_public_connections.to_string()),
             ]);
             table.add_row(vec![
                 Cell::new("Block VPC Connections"),
-                Cell::new(response.block_vpc_connections.to_string()),
+                Cell::new(project.block_vpc_connections.to_string()),
             ]);
             table.add_row(vec![
                 Cell::new("HIPAA"),
-                Cell::new(response.hipaa.to_string()),
+                Cell::new(project.hipaa.to_string()),
             ]);
             table.add_row(vec![
                 Cell::new("Protected Branches Only"),
-                Cell::new(response.protected_branches_only.to_string()),
+                Cell::new(project.protected_branches_only.to_string()),
             ]);
             table.add_row(vec![
                 Cell::new("Created At"),
-                Cell::new(response.created_at.to_string()),
+                Cell::new(project.created_at.to_string()),
             ]);
 
             println!("{table}");
@@ -554,7 +555,7 @@ pub fn print_roles_table(roles: &[seren::Role]) {
 }
 
 pub fn print_role_with_password(
-    role: &seren::CreateRoleResponse,
+    role: &seren::RoleCreatedResponse,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     match format {
@@ -569,16 +570,16 @@ pub fn print_role_with_password(
                 Cell::new("Field").fg(Color::Green),
                 Cell::new("Value").fg(Color::Green),
             ]);
-            table.add_row(vec![Cell::new("ID"), Cell::new(role.id.to_string())]);
-            table.add_row(vec![Cell::new("Name"), Cell::new(&role.name)]);
+            table.add_row(vec![Cell::new("ID"), Cell::new(role.data.id.to_string())]);
+            table.add_row(vec![Cell::new("Name"), Cell::new(&role.data.name)]);
             table.add_row(vec![
                 Cell::new("Branch ID"),
-                Cell::new(role.branch_id.to_string()),
+                Cell::new(role.data.branch_id.to_string()),
             ]);
-            table.add_row(vec![Cell::new("Password"), Cell::new(&role.password)]);
+            table.add_row(vec![Cell::new("Password"), Cell::new(&role.data.password)]);
             table.add_row(vec![
                 Cell::new("Created At"),
-                Cell::new(role.created_at.to_string()),
+                Cell::new(role.data.created_at.to_string()),
             ]);
 
             println!("{table}");
@@ -679,7 +680,7 @@ pub fn print_endpoint(endpoint: &seren::Endpoint, format: OutputFormat) -> anyho
 }
 
 pub fn print_create_endpoint_response(
-    response: &seren::CreateEndpointResponse,
+    response: &seren::EndpointCreatedResponse,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     match format {
@@ -694,26 +695,30 @@ pub fn print_create_endpoint_response(
                 Cell::new("Field").fg(Color::Green),
                 Cell::new("Value").fg(Color::Green),
             ]);
-            table.add_row(vec![Cell::new("ID"), Cell::new(response.id.to_string())]);
-            table.add_row(vec![Cell::new("Name"), Cell::new(&response.name)]);
+            table.add_row(vec![
+                Cell::new("ID"),
+                Cell::new(response.data.id.to_string()),
+            ]);
+            table.add_row(vec![Cell::new("Name"), Cell::new(&response.data.name)]);
             table.add_row(vec![
                 Cell::new("Branch ID"),
-                Cell::new(response.branch_id.to_string()),
+                Cell::new(response.data.branch_id.to_string()),
             ]);
-            table.add_row(vec![Cell::new("Status"), Cell::new(&response.status)]);
+            table.add_row(vec![Cell::new("Status"), Cell::new(&response.data.status)]);
             table.add_row(vec![
                 Cell::new("Compute Unit"),
-                Cell::new(&response.compute_unit),
+                Cell::new(&response.data.compute_unit),
             ]);
             let conn_str = response
+                .data
                 .connection_string_direct
                 .as_deref()
-                .or_else(|| response.connection_string.as_deref())
+                .or_else(|| response.data.connection_string.as_deref())
                 .unwrap_or("");
             table.add_row(vec![Cell::new("Connection String"), Cell::new(conn_str)]);
             table.add_row(vec![
                 Cell::new("Created At"),
-                Cell::new(response.created_at.to_string()),
+                Cell::new(response.data.created_at.to_string()),
             ]);
 
             println!("{table}");
@@ -731,7 +736,7 @@ pub fn print_connection_string(
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     // Start from the single canonical connection string returned by the API.
-    let mut active = response.connection_string.clone();
+    let mut active = response.data.connection_string.clone();
 
     // Helper to apply / replace sslmode in a DSN.
     let apply_ssl = |s: &str, ssl_mode: &str| -> String {
@@ -827,13 +832,16 @@ pub fn print_project_connection_uri(
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     let wrapper = seren::ConnectionStringResponse {
-        connection_string: response.uri.clone(),
+        data: seren::ConnectionString {
+            connection_string: response.uri.clone(),
+        },
+        pagination: None,
     };
     print_connection_string(&wrapper, pooled, prisma, ssl, format)
 }
 
 pub fn print_created_endpoints(
-    endpoints: &[seren::CreateEndpointResponse],
+    endpoints: &[seren::EndpointCreatedResponse],
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     match format {
@@ -854,11 +862,11 @@ pub fn print_created_endpoints(
 
             for endpoint in endpoints {
                 table.add_row(vec![
-                    Cell::new(endpoint.id.to_string()),
-                    Cell::new(&endpoint.name),
-                    Cell::new(&endpoint.status),
-                    Cell::new(&endpoint.compute_unit),
-                    Cell::new(endpoint.connection_string.as_deref().unwrap_or("")),
+                    Cell::new(endpoint.data.id.to_string()),
+                    Cell::new(&endpoint.data.name),
+                    Cell::new(&endpoint.data.status),
+                    Cell::new(&endpoint.data.compute_unit),
+                    Cell::new(endpoint.data.connection_string.as_deref().unwrap_or("")),
                 ]);
             }
 
@@ -979,7 +987,7 @@ pub fn print_operation(operation: &seren::Operation, format: OutputFormat) -> an
 }
 
 // User
-pub fn print_user(user: &seren::User) -> anyhow::Result<()> {
+pub fn print_user(user: &seren::UserInfoResponse) -> anyhow::Result<()> {
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)
@@ -989,19 +997,19 @@ pub fn print_user(user: &seren::User) -> anyhow::Result<()> {
         Cell::new("Field").fg(Color::Green),
         Cell::new("Value").fg(Color::Green),
     ]);
-    table.add_row(vec![Cell::new("ID"), Cell::new(user.id.to_string())]);
-    table.add_row(vec![Cell::new("Email"), Cell::new(&user.email)]);
-    table.add_row(vec![Cell::new("Name"), Cell::new(&user.name)]);
-    if let Some(avatar) = &user.avatar_url {
+    table.add_row(vec![Cell::new("ID"), Cell::new(user.data.id.to_string())]);
+    table.add_row(vec![Cell::new("Email"), Cell::new(&user.data.email)]);
+    table.add_row(vec![Cell::new("Name"), Cell::new(&user.data.name)]);
+    if let Some(avatar) = &user.data.avatar_url {
         table.add_row(vec![Cell::new("Avatar URL"), Cell::new(avatar)]);
     }
     table.add_row(vec![
         Cell::new("Status"),
-        Cell::new(format!("{:?}", user.status)),
+        Cell::new(format!("{:?}", user.data.status)),
     ]);
     table.add_row(vec![
         Cell::new("Created At"),
-        Cell::new(user.created_at.to_string()),
+        Cell::new(user.data.created_at.to_string()),
     ]);
 
     println!("{table}");

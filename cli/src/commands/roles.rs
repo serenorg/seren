@@ -51,6 +51,8 @@ pub async fn create(
 
     let request = CreateRoleRequest {
         name: name.to_string(),
+        description: None,
+        permissions: vec![],
     };
 
     let role = client
@@ -69,7 +71,11 @@ pub async fn create(
             .yellow()
             .bold()
     );
-    println!("{}: {}", "Password".bold(), role.password.bright_cyan());
+    println!(
+        "{}: {}",
+        "Password".bold(),
+        role.data.password.bright_cyan()
+    );
     println!();
 
     output::print_role_with_password(&role, format)?;
@@ -129,11 +135,11 @@ pub async fn reset_password(
     match format {
         OutputFormat::Json => output::print_json(&response)?,
         OutputFormat::Table => {
-            println!("{}: {}", "Role ID".bold(), response.role_id);
+            println!("{}: {}", "Role ID".bold(), response.data.role_id);
             println!(
                 "{}: {}",
                 "New Password".bold(),
-                response.password.bright_cyan()
+                response.data.password.bright_cyan()
             );
         }
     }

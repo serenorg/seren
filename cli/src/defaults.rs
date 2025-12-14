@@ -7,7 +7,7 @@
 /// Runtime overrides are available via:
 /// - `SEREN_API_HOST` environment variable
 /// - `--api-host` command-line flag
-
+///
 /// Default API host URL
 /// - Debug builds: http://localhost:8080
 /// - Release builds: https://api.serendb.com
