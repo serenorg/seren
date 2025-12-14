@@ -21,6 +21,7 @@ use axum::{
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tracing::debug;
 
 /// OAuth server state.
 #[derive(Clone)]
@@ -45,12 +46,14 @@ struct AuthorizationServerMetadata {
     issuer: String,
     authorization_endpoint: String,
     token_endpoint: String,
+    revocation_endpoint: String,
     registration_endpoint: String,
     scopes_supported: Vec<String>,
     response_types_supported: Vec<String>,
     grant_types_supported: Vec<String>,
     token_endpoint_auth_methods_supported: Vec<String>,
     code_challenge_methods_supported: Vec<String>,
+    revocation_endpoint_auth_methods_supported: Vec<String>,
 }
 
 async fn metadata(State(state): State<Arc<OAuthState>>) -> Json<AuthorizationServerMetadata> {
@@ -58,12 +61,17 @@ async fn metadata(State(state): State<Arc<OAuthState>>) -> Json<AuthorizationSer
         issuer: state.server_host.clone(),
         authorization_endpoint: format!("{}/authorize", state.server_host),
         token_endpoint: format!("{}/token", state.server_host),
+        revocation_endpoint: format!("{}/revoke", state.server_host),
         registration_endpoint: format!("{}/register", state.server_host),
         scopes_supported: vec!["api".into(), "api:read".into()],
         response_types_supported: vec!["code".into()],
         grant_types_supported: vec!["authorization_code".into(), "refresh_token".into()],
         token_endpoint_auth_methods_supported: vec!["none".into(), "client_secret_post".into()],
         code_challenge_methods_supported: vec!["S256".into(), "plain".into()],
+        revocation_endpoint_auth_methods_supported: vec![
+            "none".into(),
+            "client_secret_post".into(),
+        ],
     })
 }
 
@@ -281,12 +289,12 @@ async fn callback(
 
     // Upstream error -> redirect back to downstream client.
     if let Some(error) = q.error {
-        return Ok(redirect_with_error(
+        return redirect_with_error(
             &auth_request.redirect_uri,
             auth_request.client_state.as_deref(),
             &error,
             q.error_description.as_deref(),
-        )?);
+        );
     }
 
     let code = q
@@ -319,14 +327,14 @@ async fn callback(
     if !token_res.status().is_success() {
         let status = token_res.status();
         let body = token_res.text().await.unwrap_or_default();
-        return Ok(redirect_with_error(
+        return redirect_with_error(
             &auth_request.redirect_uri,
             auth_request.client_state.as_deref(),
             "server_error",
             Some(&format!(
                 "Upstream token exchange failed ({status}): {body}"
             )),
-        )?);
+        );
     }
 
     let token_body: UpstreamTokenResponse = token_res
@@ -334,9 +342,18 @@ async fn callback(
         .await
         .map_err(|e| OAuthError::ServerError(e.to_string()))?;
 
+    // Log the granted scope for debugging
+    if let Some(ref granted_scope) = token_body.scope {
+        debug!(
+            scope = %granted_scope,
+            requested_scope = "openid profile email",
+            "Upstream token granted"
+        );
+    }
+
     // Validate token type per OAuth 2.0 spec
     if !token_body.token_type.eq_ignore_ascii_case("bearer") {
-        return Ok(redirect_with_error(
+        return redirect_with_error(
             &auth_request.redirect_uri,
             auth_request.client_state.as_deref(),
             "server_error",
@@ -344,7 +361,7 @@ async fn callback(
                 "Unsupported upstream token_type: {}",
                 token_body.token_type
             )),
-        )?);
+        );
     }
 
     let upstream_expires_at = Utc::now() + Duration::seconds(token_body.expires_in.max(0));
@@ -512,7 +529,7 @@ async fn token(
                     access_token: access_token.token.clone(),
                     client_id: auth_code.client_id.clone(),
                     user_id: auth_code.user_id.clone(),
-                    expires_at: Some(Utc::now() + Duration::days(7)),
+                    expires_at: Some(TokenStore::token_expiry(168)), // 7 days
                     created_at: Utc::now(),
                 };
                 state
@@ -614,6 +631,12 @@ async fn token(
                 .json()
                 .await
                 .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+
+            // Log the granted scope for debugging
+            if let Some(ref granted_scope) = token_body.scope {
+                debug!(scope = %granted_scope, "Upstream token refreshed");
+            }
+
             let new_expires_at = Utc::now() + Duration::seconds(token_body.expires_in.max(0));
 
             let new_access_token_str = token_body.access_token;
@@ -642,7 +665,7 @@ async fn token(
             )
             .bind(&new_refresh_token_str)
             .bind(&new_access_token_str)
-            .bind(Some(Utc::now() + Duration::days(7)))
+            .bind(Some(TokenStore::token_expiry(168))) // 7 days
             .bind(&refresh_token_str)
             .execute(state.store.pool())
             .await
@@ -668,6 +691,91 @@ async fn token(
         }
         _ => Err(OAuthError::UnsupportedGrantType),
     }
+}
+
+// ============================================================================
+// Token Revocation Endpoint (RFC 7009)
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+struct RevokeRequest {
+    token: String,
+    #[serde(default)]
+    token_type_hint: Option<String>,
+    #[serde(default)]
+    client_id: Option<String>,
+    #[serde(default)]
+    client_secret: Option<String>,
+}
+
+/// Token revocation endpoint per RFC 7009.
+///
+/// Revokes access tokens or refresh tokens. Per the spec, this endpoint
+/// always returns 200 OK even if the token was invalid or already revoked.
+async fn revoke(
+    State(state): State<Arc<OAuthState>>,
+    Form(req): Form<RevokeRequest>,
+) -> Result<StatusCode, OAuthError> {
+    // Validate client credentials if provided
+    if let Some(client_id) = req.client_id.as_deref() {
+        let client = state
+            .store
+            .get_client(client_id)
+            .await
+            .map_err(|e| OAuthError::ServerError(e.to_string()))?
+            .ok_or(OAuthError::InvalidClient)?;
+
+        if let Some(ref secret_hash) = client.secret_hash {
+            let provided_secret = req
+                .client_secret
+                .as_deref()
+                .ok_or(OAuthError::InvalidClient)?;
+            if hash_secret(provided_secret) != *secret_hash {
+                return Err(OAuthError::InvalidClient);
+            }
+        }
+    }
+
+    // Try to revoke based on token_type_hint, or try both if not specified
+    let token = &req.token;
+    match req.token_type_hint.as_deref() {
+        Some("refresh_token") => {
+            // Try refresh token first, then access token
+            if !state
+                .store
+                .revoke_refresh_token(token)
+                .await
+                .unwrap_or(false)
+            {
+                state.store.revoke_access_token(token).await.ok();
+            }
+        }
+        Some("access_token") => {
+            // Try access token first, then refresh token
+            if !state
+                .store
+                .revoke_access_token(token)
+                .await
+                .unwrap_or(false)
+            {
+                state.store.revoke_refresh_token(token).await.ok();
+            }
+        }
+        _ => {
+            // No hint - try both (access tokens are more common)
+            if !state
+                .store
+                .revoke_access_token(token)
+                .await
+                .unwrap_or(false)
+            {
+                state.store.revoke_refresh_token(token).await.ok();
+            }
+        }
+    }
+
+    // RFC 7009: Always return 200 OK regardless of whether token existed
+    Ok(StatusCode::OK)
 }
 
 // ============================================================================
@@ -798,12 +906,27 @@ async fn fetch_user_id(
 // Router
 // ============================================================================
 
+/// Cleanup expired tokens endpoint.
+///
+/// This endpoint triggers cleanup of expired authorization codes, access tokens,
+/// and refresh tokens. It can be called periodically by a cron job or health check.
+async fn cleanup(State(state): State<Arc<OAuthState>>) -> Result<StatusCode, OAuthError> {
+    state
+        .store
+        .cleanup_expired()
+        .await
+        .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+    Ok(StatusCode::OK)
+}
+
 pub fn oauth_router(state: Arc<OAuthState>) -> Router {
     Router::new()
         .route("/.well-known/oauth-authorization-server", get(metadata))
         .route("/authorize", get(authorize))
         .route("/callback", get(callback))
         .route("/token", post(token))
+        .route("/revoke", post(revoke))
         .route("/register", post(register))
+        .route("/_cleanup", post(cleanup))
         .with_state(state)
 }
