@@ -98,7 +98,7 @@ pub async fn list_invites(
                 } else if is_revoked {
                     "revoked"
                 } else if is_expired {
-                    "pending"
+                    "expired"
                 } else {
                     "pending"
                 };

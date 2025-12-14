@@ -109,6 +109,7 @@ pub async fn create(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn update(
     org_id: &str,
     webhook_id: &str,

@@ -98,6 +98,7 @@ pub async fn create_role(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn update_role(
     org_id: &str,
     role_id: &str,

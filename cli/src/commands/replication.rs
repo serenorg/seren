@@ -115,6 +115,7 @@ pub async fn list_publications(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_publication(
     project_id: &str,
     branch_id: &str,
@@ -150,6 +151,7 @@ pub async fn create_publication(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn update_publication(
     project_id: &str,
     branch_id: &str,

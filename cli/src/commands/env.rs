@@ -76,6 +76,7 @@ struct EnvInitResult {
 }
 
 /// Initialize a .env file with a Seren connection string.
+#[allow(clippy::too_many_arguments)]
 pub async fn init(
     mut project_id: Option<String>,
     mut branch_id: Option<String>,

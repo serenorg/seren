@@ -59,6 +59,7 @@ pub async fn get(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create(
     name: &str,
     region: &str,
@@ -165,6 +166,7 @@ pub async fn create(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn update(
     id: &str,
     name: Option<&str>,
@@ -293,6 +295,7 @@ pub async fn delete(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn connection_uri(
     id: &str,
     branch_id: Option<&str>,

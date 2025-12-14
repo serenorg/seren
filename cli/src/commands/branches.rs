@@ -104,6 +104,7 @@ pub async fn get(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create(
     project_id: &str,
     name: &str,
@@ -419,6 +420,7 @@ pub async fn set_default(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn connection_string(
     project_id: &str,
     branch_id: &str,
@@ -582,6 +584,7 @@ pub async fn reset(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn restore(
     project_id: &str,
     branch_id: &str,

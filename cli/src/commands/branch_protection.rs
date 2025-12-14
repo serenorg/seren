@@ -61,6 +61,7 @@ pub async fn get(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create(
     project_id: &str,
     branch_id: &str,
@@ -103,6 +104,7 @@ pub async fn create(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn update(
     project_id: &str,
     branch_id: &str,
