@@ -18,3 +18,4 @@ Thumbs.db
 # Local config
 .env
 .env.local
+docker/mcp.local.Dockerfile
