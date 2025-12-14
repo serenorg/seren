@@ -28,12 +28,12 @@ dirs = "5"
 futures = "0.3"
 html-escape = "0.2"
 jiff = { version = "0.2.15", features = ["serde"] }
-oauth2 = "4.4"
+oauth2 = "5.0"
 openapiv3 = "2"
 progenitor = "0.5"
 progenitor-client = "0.5"
 prettyplease = "0.2"
-rand = "0.8"
+rand = "0.9"
 regress = "0.7"
 rmcp = { version = "0.11", features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }
 schemars = { version = "1", features = ["uuid1"] }
@@ -49,7 +49,7 @@ thiserror = "1"
 tokio = { version = "1", features = ["full"] }
 toml = "0.8"
 tower = "0.5"
-tower_governor = "0.6"
+tower_governor = "0.8"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-opentelemetry = "0.28"

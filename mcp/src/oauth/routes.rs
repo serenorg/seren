@@ -1247,9 +1247,7 @@ pub fn oauth_router(state: Arc<OAuthState>) -> Router {
         .key_extractor(SmartIpKeyExtractor)
         .finish()
         .expect("Failed to create rate limiter config");
-    let register_limiter = GovernorLayer {
-        config: Arc::new(register_governor_conf),
-    };
+    let register_limiter = GovernorLayer::new(register_governor_conf);
 
     // Separate router for rate-limited /register endpoint
     let register_router = Router::new()
@@ -1301,13 +1299,12 @@ mod tests {
             return;
         }
 
-        use testcontainers::clients::Cli;
+        use testcontainers::runners::AsyncRunner;
         use testcontainers_modules::postgres::Postgres;
 
         // Docker container must stay in scope for the duration of the test.
-        let docker = Cli::default();
-        let container = docker.run(Postgres::default());
-        let port = container.get_host_port_ipv4(5432);
+        let container = Postgres::default().start().await.unwrap();
+        let port = container.get_host_port_ipv4(5432).await.unwrap();
         let database_url = format!("postgres://postgres:postgres@127.0.0.1:{}/postgres", port);
 
         let pool = sqlx::PgPool::connect(&database_url).await.unwrap();

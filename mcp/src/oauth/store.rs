@@ -44,10 +44,9 @@ impl Client {
                     continue;
                 }
 
-                if redirect_uri.starts_with(prefix) {
+                if let Some(remainder) = redirect_uri.strip_prefix(prefix) {
                     // Validate that what follows the prefix is a valid port (digits only)
                     // followed by optional path/query/fragment
-                    let remainder = &redirect_uri[prefix.len()..];
                     let port_end = remainder
                         .find(|c: char| !c.is_ascii_digit())
                         .unwrap_or(remainder.len());
@@ -503,14 +502,14 @@ impl TokenStore {
     /// Generate a secure random token
     pub fn generate_token() -> String {
         use rand::Rng;
-        let bytes: [u8; 32] = rand::thread_rng().gen();
+        let bytes: [u8; 32] = rand::rng().random();
         base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, bytes)
     }
 
     /// Generate a secure random authorization code
     pub fn generate_code() -> String {
         use rand::Rng;
-        let bytes: [u8; 32] = rand::thread_rng().gen();
+        let bytes: [u8; 32] = rand::rng().random();
         base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, bytes)
     }
 

@@ -59,6 +59,7 @@ pub async fn get(
 }
 
 /// Poll an operation until it reaches a terminal state.
+#[allow(dead_code)]
 pub async fn poll_operation(
     client: &Client,
     project_id: &str,

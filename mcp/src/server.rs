@@ -1240,6 +1240,10 @@ mod tests {
 
     #[test]
     fn read_only_header_enables_read_only_mode() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let old = std::env::var("SEREN_MCP_READ_ONLY").ok();
+        std::env::remove_var("SEREN_MCP_READ_ONLY");
+
         let extensions = extensions_with_headers(&[("x-read-only", "true")]);
         assert!(is_read_only(&extensions));
         assert!(ensure_writes_allowed(&extensions).is_err());
@@ -1247,6 +1251,11 @@ mod tests {
         let extensions = extensions_with_headers(&[("x-read-only", "0")]);
         assert!(!is_read_only(&extensions));
         assert!(ensure_writes_allowed(&extensions).is_ok());
+
+        match old {
+            Some(v) => std::env::set_var("SEREN_MCP_READ_ONLY", v),
+            None => std::env::remove_var("SEREN_MCP_READ_ONLY"),
+        }
     }
 
     #[test]
@@ -1266,6 +1275,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn execute_sql_sends_required_headers_and_body_to_proxy() {
         use wiremock::matchers::{body_json, header, method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -1306,6 +1316,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn execute_sql_transaction_sets_batch_headers() {
         use wiremock::matchers::{body_json, header, method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};

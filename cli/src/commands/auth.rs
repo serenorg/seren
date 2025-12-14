@@ -363,6 +363,7 @@ pub async fn get_bearer_token(api_key_override: Option<String>) -> Result<String
 #[derive(Debug, Deserialize)]
 struct OAuthTokenResponse {
     access_token: String,
+    #[allow(dead_code)]
     token_type: Option<String>,
     expires_in: i64,
     refresh_token: Option<String>,

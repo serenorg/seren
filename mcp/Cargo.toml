@@ -83,6 +83,6 @@ html-escape = { workspace = true }
 tower_governor = { workspace = true }
 
 [dev-dependencies]
-testcontainers = "0.15"
-testcontainers-modules = { version = "0.3", features = ["postgres"] }
+testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["postgres"] }
 wiremock = "0.6"
