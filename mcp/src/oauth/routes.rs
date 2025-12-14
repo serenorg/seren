@@ -26,6 +26,8 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct OAuthState {
     pub store: TokenStore,
+    /// Shared HTTP client for upstream requests.
+    pub http: reqwest::Client,
     /// Public base URL of this MCP server (e.g. `https://mcp.serendb.com`).
     pub server_host: String,
     /// Client id used with SerenCore `/api/oauth2/*` endpoints.
@@ -297,8 +299,8 @@ async fn callback(
         state.upstream_api_base_url.trim_end_matches('/')
     );
 
-    let http = reqwest::Client::new();
-    let token_res = http
+    let token_res = state
+        .http
         .post(token_url)
         .form(&[
             ("grant_type", "authorization_code"),
@@ -331,10 +333,24 @@ async fn callback(
         .json()
         .await
         .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+
+    // Validate token type per OAuth 2.0 spec
+    if !token_body.token_type.eq_ignore_ascii_case("bearer") {
+        return Ok(redirect_with_error(
+            &auth_request.redirect_uri,
+            auth_request.client_state.as_deref(),
+            "server_error",
+            Some(&format!(
+                "Unsupported upstream token_type: {}",
+                token_body.token_type
+            )),
+        )?);
+    }
+
     let upstream_expires_at = Utc::now() + Duration::seconds(token_body.expires_in.max(0));
 
     let user_id = fetch_user_id(
-        &http,
+        &state.http,
         &state.upstream_api_base_url,
         &token_body.access_token,
     )
@@ -560,13 +576,21 @@ async fn token(
                 }
             }
 
+            // Get the old access token to preserve scope
+            let old_token = state
+                .store
+                .get_access_token(&refresh_token.access_token)
+                .await
+                .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+            let preserved_scope = old_token.map(|t| t.scope).unwrap_or_else(|| "api".into());
+
             // Refresh upstream tokens via SerenCore.
             let token_url = format!(
                 "{}/oauth2/token",
                 state.upstream_api_base_url.trim_end_matches('/')
             );
-            let http = reqwest::Client::new();
-            let res = http
+            let res = state
+                .http
                 .post(token_url)
                 .form(&[
                     ("grant_type", "refresh_token"),
@@ -601,7 +625,7 @@ async fn token(
                 token: new_access_token_str.clone(),
                 client_id: refresh_token.client_id.clone(),
                 user_id: refresh_token.user_id.clone(),
-                scope: "api".into(),
+                scope: preserved_scope.clone(),
                 expires_at: new_expires_at,
                 created_at: Utc::now(),
             };

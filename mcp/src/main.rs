@@ -343,6 +343,7 @@ async fn run_oauth(config: Config) -> Result<()> {
     // OAuth state for routes
     let oauth_state = Arc::new(OAuthState {
         store: store.clone(),
+        http: reqwest::Client::new(),
         server_host: server_host.clone(),
         upstream_client_id: client_id,
         upstream_api_base_url: api_base_url,
