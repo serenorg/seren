@@ -179,7 +179,7 @@ cargo build --release --package seren-mcp
 
 ```bash
 # Build from repository root
-docker build -f Dockerfile.mcp -t seren-mcp .
+docker build -f docker/mcp.Dockerfile -t seren-mcp .
 
 # Run the container
 docker run -p 8080:8080 seren-mcp

@@ -138,7 +138,7 @@ seren/
 ├── api/          # Rust SDK (seren crate)
 ├── cli/          # CLI tool (seren-cli crate)
 ├── mcp/          # MCP server (seren-mcp crate)
-├── Dockerfile.mcp  # Docker build for MCP server
+├── docker/         # Dockerfiles for containerized deployments
 └── Cargo.toml    # Workspace configuration
 ```
 

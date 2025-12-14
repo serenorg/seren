@@ -2,12 +2,12 @@
 # Seren MCP Server - Production Dockerfile
 # Multi-stage build for minimal final image
 #
-# Build: docker build -f Dockerfile.mcp -t seren-mcp .
+# Build: docker build -f docker/mcp.Dockerfile -t seren-mcp .
 # Run:   docker run -p 8080:8080 seren-mcp
 #
 
 # ---------- Builder: compile Rust binary ----------
-FROM rust:1.83-slim-bookworm AS builder
+FROM rust:1.83-slim-trixie AS builder
 
 WORKDIR /app
 
@@ -27,14 +27,14 @@ COPY mcp ./mcp
 RUN cargo build --release --package seren-mcp --features telemetry
 
 # ---------- Runner: minimal runtime image ----------
-FROM debian:bookworm-slim AS runner
+FROM debian:trixie-slim AS runner
 
 WORKDIR /app
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
-    libssl3 \
+    libssl3t64 \
     curl \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -r -s /bin/false seren
