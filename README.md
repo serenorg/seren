@@ -1,123 +1,37 @@
-# seren-cli
+# Seren
 
-Command-line interface for Seren database management.
+Official Rust SDK, CLI, and MCP server for [SerenDB](https://serendb.com) - the serverless Postgres platform.
 
-## Overview
+## Packages
 
-`seren` is the official CLI tool for managing Seren databases, projects, and resources. Built in Rust for maximum performance and reliability.
-
-## Architecture
-
-This project is a standalone CLI tool that uses the `seren` SDK (seren-api).
-
-- **`seren-api`**: Rust SDK for the Seren API (separate repository)
-- **`seren-cli`**: CLI binary that uses the SDK (this repository)
-
-This separation allows the API client to be reused in other Rust projects, integrations, or tools.
-
-## Installation
-
-### From Source
-
-```bash
-cargo build --release
-```
-
-The binary will be at `target/release/seren`.
-
-### Install Locally
-
-```bash
-cargo install --path .
-```
+| Package | Description | Crate |
+|---------|-------------|-------|
+| [seren](./api/) | Rust SDK for the SerenDB API | [![crates.io](https://img.shields.io/crates/v/seren.svg)](https://crates.io/crates/seren) |
+| [seren-cli](./cli/) | Command-line interface | [![crates.io](https://img.shields.io/crates/v/seren-cli.svg)](https://crates.io/crates/seren-cli) |
+| [seren-mcp](./mcp/) | MCP server for AI assistants | [![crates.io](https://img.shields.io/crates/v/seren-mcp.svg)](https://crates.io/crates/seren-mcp) |
 
 ## Quick Start
 
-### 1. Authenticate
+### CLI
 
 ```bash
+# Install
+cargo install seren-cli
+
+# Or via Homebrew
+brew install serenorg/tap/seren
+
+# Login and start managing databases
 seren auth login
-```
-
-You'll be prompted for your API key. Get one at: https://app.seren.com/settings/api-keys
-
-### 2. List Projects
-
-```bash
 seren projects list
+seren projects create --name my-project --region aws-us-east-1
 ```
 
-### 3. Create a Project
-
-```bash
-seren projects create --name "My Project" --org "org-123"
-```
-
-### 4. Initialize a local `.env`
-
-```bash
-seren env init --project-id <project-id> --branch-id <branch-id>
-```
-
-This writes a `DATABASE_URL` entry into `.env` (by default), using a pooled, TLS-enabled connection string suitable for local development. Use `--env`, `--key`, `--pooled`, `--prisma`, and `--yes` for advanced workflows.
-
-## Commands
-
-### Authentication
-
-```bash
-# Login with API key
-seren auth login
-
-# Check authentication status
-seren auth status
-
-# Logout (remove credentials)
-seren auth logout
-```
-
-### Projects
-
-```bash
-# List all projects
-seren projects list
-
-# Get project details
-seren projects get <project-id>
-
-# Create a new project
-seren projects create --name "Project Name" --org "org-id"
-
-# Delete a project
-seren projects delete <project-id>
-```
-
-## Global Flags
-
-- `--output <format>`: Output format (`table` or `json`) - default: `table`
-- `--api-host <url>`: Override API host URL
-
-Example:
-
-```bash
-seren projects list --output json
-seren projects list --api-host http://localhost:3000/api/v1
-```
-
-## Configuration
-
-Credentials are stored at:
-- macOS/Linux: `~/.config/seren/credentials.toml`
-- Windows: `%APPDATA%\seren\credentials.toml`
-
-## Using the Rust SDK
-
-The `seren` SDK can be used independently in your Rust projects:
+### Rust SDK
 
 ```toml
 [dependencies]
-seren = { path = "../seren-api" }
-# Or when published: seren = "0.1"
+seren = "0.1"
 ```
 
 ```rust
@@ -125,115 +39,125 @@ use seren::{Client, ClientConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = ClientConfig::new("seren_your_api_key");
-    let client = Client::new(config)?;
-    
+    let client = Client::new(ClientConfig::new("seren_your_api_key"))?;
+
     let projects = client.projects().list().await?;
     println!("Found {} projects", projects.len());
-    
+
     Ok(())
 }
 ```
 
-## Development
+### MCP Server (AI Integration)
 
-### Build
-
-```bash
-cargo build
-```
-
-### Run
-
-```bash
-cargo run -- projects list
-```
-
-#### Connection strings (direct vs pooled)
-
-The `branches connection-string` command now returns both direct and pooled
-connection strings, backed by the SerenDB proxy:
-
-```bash
-# Direct proxy connection string (recommended default)
-seren branches connection-string <branch-id>
-
-# Pooled proxy connection string (PgBouncer via SerenDB proxy)
-seren branches connection-string <branch-id> --pooled
-
-# JSON output with both variants
-seren branches connection-string <branch-id> --format json
-```
-
-In table output, the CLI shows:
-
-- `Active Mode`: which DSN is currently selected (Direct or Pooled)
-- `Direct`: direct connection string (typically via SerenDB proxy)
-- `Pooled`: pooled connection string when available (via PgBouncer/proxy)
-
-Flags:
-
-- `--pooled`: prefer the pooled DSN when printing the “active” connection
-- `--ssl=<mode>`: override `sslmode` (e.g. `require`, `disable`)
-- `--prisma`: emit a Prisma-style `DATABASE_URL="..."` using the active DSN
-
-Example JSON output:
-
-```bash
-seren branches connection-string <branch-id> --format json
-```
+Enable Claude and other AI assistants to manage your SerenDB databases:
 
 ```json
 {
-  "direct": "postgresql://user:password@ep-radiant-sirius-a1b2c3d4.c-1.us-east-1.dev.serendb.com:5432/mydb?sslmode=require&channel_binding=require",
-  "pooled": "postgresql://user:password@ep-radiant-sirius-a1b2c3d4-pooler.c-1.us-east-1.dev.serendb.com:5432/mydb?sslmode=require&channel_binding=require",
-  "active": "postgresql://user:password@ep-radiant-sirius-a1b2c3d4.c-1.us-east-1.dev.serendb.com:5432/mydb?sslmode=require&channel_binding=require"
+  "mcpServers": {
+    "seren": {
+      "command": "npx",
+      "args": ["-y", "seren-mcp@latest", "start:oauth"]
+    }
+  }
 }
 ```
 
-### Test
+See [mcp/README.md](./mcp/README.md) for detailed setup instructions.
+
+## Installation
+
+### From Source
 
 ```bash
-cargo test
+git clone https://github.com/serenorg/seren.git
+cd seren
+
+# Build all packages
+cargo build --release
+
+# Install CLI
+cargo install --path cli
+
+# Install MCP server
+cargo install --path mcp
 ```
 
-### Format
+### Pre-built Binaries
+
+Download from [GitHub Releases](https://github.com/serenorg/seren/releases).
+
+### Package Managers
 
 ```bash
+# Homebrew (macOS/Linux)
+brew install serenorg/tap/seren
+
+# Cargo
+cargo install seren-cli
+cargo install seren-mcp
+
+# npm (MCP server only)
+npx seren-mcp start:oauth
+```
+
+## Documentation
+
+- **CLI Reference**: [cli/README.md](./cli/README.md)
+- **SDK Reference**: [api/README.md](./api/README.md)
+- **MCP Server**: [mcp/README.md](./mcp/README.md)
+- **API Documentation**: [docs.serendb.com](https://docs.serendb.com)
+
+## Development
+
+### Prerequisites
+
+- Rust 1.75+
+- PostgreSQL (for integration tests)
+
+### Building
+
+```bash
+# Build all packages
+cargo build
+
+# Run tests
+cargo test
+
+# Run clippy
+cargo clippy --all-targets
+
+# Format code
 cargo fmt
 ```
 
-### Lint
+### Project Structure
 
-```bash
-cargo clippy
+```
+seren/
+├── api/          # Rust SDK (seren crate)
+├── cli/          # CLI tool (seren-cli crate)
+├── mcp/          # MCP server (seren-mcp crate)
+├── Dockerfile.mcp  # Docker build for MCP server
+└── Cargo.toml    # Workspace configuration
 ```
 
-## Technology Stack
+## Contributing
 
-- **Language**: Rust 2021 edition
-- **CLI**: clap v4 (derive API)
-- **HTTP**: reqwest with rustls-tls
-- **Async**: tokio
-- **Serialization**: serde + serde_json
-- **Tables**: comfy-table
-- **Colors**: colored
+Contributions are welcome! Please read our contributing guidelines before submitting a PR.
 
-## Commit Conventions
-
-This workspace uses **Conventional Commits** for git history quality.
-
-- Commit messages must follow:
-  - `type(scope): description`
-  - Example: `feat(cli): add billing health command`
-- A shared `commit-msg` hook is provided in `.githooks/commit-msg`.
-
-To enable the hook locally:
-
-```bash
-git config core.hooksPath .githooks
-```
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## License
 
-MIT
+MIT License - see [LICENSE](LICENSE) for details.
+
+## Support
+
+- Documentation: https://docs.serendb.com
+- Issues: https://github.com/serenorg/seren/issues
+- Discord: https://discord.gg/serendb
