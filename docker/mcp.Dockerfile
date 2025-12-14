@@ -22,10 +22,7 @@ COPY api ./api
 COPY cli ./cli
 COPY mcp ./mcp
 
-# Build release binary with telemetry for hosted deployment
-ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
-ENV CARGO_PROFILE_RELEASE_LTO=thin
-
+# Build release binary
 RUN cargo build --release --package seren-mcp --features telemetry
 
 # ---------- Runtime ----------
