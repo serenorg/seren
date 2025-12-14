@@ -1521,9 +1521,7 @@ mod tests {
         // 5) Token exchange (downstream) -> should return upstream access token and persist it
         let token_body = format!(
             "grant_type=authorization_code&code={}&redirect_uri=http://localhost/callback&client_id={}&code_verifier={}",
-            downstream_code,
-            client_id,
-            downstream_code_verifier
+            downstream_code, client_id, downstream_code_verifier
         );
         let res = app
             .clone()

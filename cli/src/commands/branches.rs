@@ -654,7 +654,9 @@ pub async fn restore(
                 );
                 eprintln!();
                 eprintln!("This feature requires SerenDB Write-Ahead Log (WAL) integration.");
-                eprintln!("When available, it will support point-in-time recovery using timestamps or LSN,");
+                eprintln!(
+                    "When available, it will support point-in-time recovery using timestamps or LSN,"
+                );
                 eprintln!("with automatic backup branch creation.");
                 eprintln!();
                 eprintln!("Coming soon!");
