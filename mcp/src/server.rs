@@ -1242,7 +1242,7 @@ mod tests {
     fn read_only_header_enables_read_only_mode() {
         let _guard = ENV_LOCK.lock().unwrap();
         let old = std::env::var("SEREN_MCP_READ_ONLY").ok();
-        std::env::remove_var("SEREN_MCP_READ_ONLY");
+        unsafe { std::env::remove_var("SEREN_MCP_READ_ONLY") };
 
         let extensions = extensions_with_headers(&[("x-read-only", "true")]);
         assert!(is_read_only(&extensions));
@@ -1253,8 +1253,8 @@ mod tests {
         assert!(ensure_writes_allowed(&extensions).is_ok());
 
         match old {
-            Some(v) => std::env::set_var("SEREN_MCP_READ_ONLY", v),
-            None => std::env::remove_var("SEREN_MCP_READ_ONLY"),
+            Some(v) => unsafe { std::env::set_var("SEREN_MCP_READ_ONLY", v) },
+            None => unsafe { std::env::remove_var("SEREN_MCP_READ_ONLY") },
         }
     }
 
@@ -1263,14 +1263,14 @@ mod tests {
         let _guard = ENV_LOCK.lock().unwrap();
         let old = std::env::var("SEREN_MCP_READ_ONLY").ok();
 
-        std::env::set_var("SEREN_MCP_READ_ONLY", "yes");
+        unsafe { std::env::set_var("SEREN_MCP_READ_ONLY", "yes") };
         let extensions = extensions_with_headers(&[]);
         assert!(is_read_only(&extensions));
         assert!(ensure_writes_allowed(&extensions).is_err());
 
         match old {
-            Some(v) => std::env::set_var("SEREN_MCP_READ_ONLY", v),
-            None => std::env::remove_var("SEREN_MCP_READ_ONLY"),
+            Some(v) => unsafe { std::env::set_var("SEREN_MCP_READ_ONLY", v) },
+            None => unsafe { std::env::remove_var("SEREN_MCP_READ_ONLY") },
         }
     }
 
@@ -1284,7 +1284,7 @@ mod tests {
         let old = std::env::var("SEREN_SQL_PROXY_BASE_URL").ok();
 
         let proxy = MockServer::start().await;
-        std::env::set_var("SEREN_SQL_PROXY_BASE_URL", proxy.uri());
+        unsafe { std::env::set_var("SEREN_SQL_PROXY_BASE_URL", proxy.uri()) };
 
         let conn = "postgresql://user:pass@db.serendb.com/postgres?sslmode=require";
 
@@ -1310,8 +1310,8 @@ mod tests {
         assert_eq!(result, serde_json::json!({ "ok": true }));
 
         match old {
-            Some(v) => std::env::set_var("SEREN_SQL_PROXY_BASE_URL", v),
-            None => std::env::remove_var("SEREN_SQL_PROXY_BASE_URL"),
+            Some(v) => unsafe { std::env::set_var("SEREN_SQL_PROXY_BASE_URL", v) },
+            None => unsafe { std::env::remove_var("SEREN_SQL_PROXY_BASE_URL") },
         }
     }
 
@@ -1325,7 +1325,7 @@ mod tests {
         let old = std::env::var("SEREN_SQL_PROXY_BASE_URL").ok();
 
         let proxy = MockServer::start().await;
-        std::env::set_var("SEREN_SQL_PROXY_BASE_URL", proxy.uri());
+        unsafe { std::env::set_var("SEREN_SQL_PROXY_BASE_URL", proxy.uri()) };
 
         let conn = "postgresql://user:pass@db.serendb.com/postgres?sslmode=require";
 
@@ -1362,8 +1362,8 @@ mod tests {
         assert_eq!(result, serde_json::json!({ "ok": true }));
 
         match old {
-            Some(v) => std::env::set_var("SEREN_SQL_PROXY_BASE_URL", v),
-            None => std::env::remove_var("SEREN_SQL_PROXY_BASE_URL"),
+            Some(v) => unsafe { std::env::set_var("SEREN_SQL_PROXY_BASE_URL", v) },
+            None => unsafe { std::env::remove_var("SEREN_SQL_PROXY_BASE_URL") },
         }
     }
 }
