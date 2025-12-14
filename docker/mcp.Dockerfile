@@ -1,13 +1,12 @@
 #
 # Seren MCP Server - Production Dockerfile
-# Multi-stage build for minimal final image
 #
 # Build: docker build -f docker/mcp.Dockerfile -t seren-mcp .
 # Run:   docker run -p 8080:8080 seren-mcp
 #
 
-# ---------- Builder: compile Rust binary ----------
-FROM rust:1.83-slim-trixie AS builder
+# ---------- Builder ----------
+FROM rust:latest AS builder
 
 WORKDIR /app
 
@@ -23,37 +22,40 @@ COPY api ./api
 COPY cli ./cli
 COPY mcp ./mcp
 
-# Build release binary with telemetry feature for hosted deployment
+# Build release binary with telemetry for hosted deployment
+ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+ENV CARGO_PROFILE_RELEASE_LTO=thin
+
 RUN cargo build --release --package seren-mcp --features telemetry
 
-# ---------- Runner: minimal runtime image ----------
-FROM debian:trixie-slim AS runner
+# ---------- Runtime ----------
+FROM debian:trixie-slim
 
 WORKDIR /app
 
 # Install runtime dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ca-certificates \
-    libssl3t64 \
+    libssl3 \
     curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd -r -s /bin/false seren
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1000 seren && \
+    chown -R seren:seren /app
 
 # Copy binary from builder
 COPY --from=builder /app/target/release/seren-mcp /usr/local/bin/seren-mcp
 
-# Use non-root user
 USER seren
 
-# Default port for HTTP mode
 ENV PORT=8080
 ENV RUST_LOG=seren_mcp=info,tower_http=info
 
 EXPOSE 8080
 
-# Health check for container orchestration
-HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -sf http://localhost:${PORT}/health || exit 1
 
-# Default to OAuth mode for hosted deployment
 CMD ["seren-mcp", "start:oauth"]
