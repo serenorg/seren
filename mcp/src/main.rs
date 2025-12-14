@@ -11,6 +11,15 @@ use oauth::store::TokenStore;
 use rmcp::ServiceExt;
 use server::SerenMcpServer;
 
+/// Health check endpoint for k8s liveness/readiness probes
+async fn health_check() -> impl IntoResponse {
+    axum::Json(serde_json::json!({
+        "status": "ok",
+        "service": "seren-mcp",
+        "version": env!("CARGO_PKG_VERSION")
+    }))
+}
+
 /// Auth state for simple token-based HTTP mode
 #[derive(Clone)]
 struct SimpleAuthState {
@@ -231,9 +240,8 @@ async fn run_http(config: Config) -> Result<()> {
             axum::http::header::HeaderName::from_static("mcp-session-id"),
         ]);
 
-    // Create axum router using the tower service
-    // StreamableHttpService implements tower::Service, so we use it directly with axum
-    let app = axum::Router::new()
+    // MCP endpoint with auth
+    let mcp_router = axum::Router::new()
         .route(
             "/mcp",
             axum::routing::any_service(tower::ServiceBuilder::new().service(mcp_service)),
@@ -241,8 +249,15 @@ async fn run_http(config: Config) -> Result<()> {
         .layer(axum::middleware::from_fn_with_state(
             SimpleAuthState { token: auth_token },
             require_simple_auth,
-        ))
-        // CORS must be outermost so preflight requests work and error responses include headers.
+        ));
+
+    // Health endpoint (no auth required) for k8s probes
+    let health_router = axum::Router::new().route("/health", axum::routing::get(health_check));
+
+    // Combine routers - CORS must be outermost
+    let app = axum::Router::new()
+        .merge(health_router)
+        .merge(mcp_router)
         .layer(cors);
 
     let addr = format!("{}:{}", config.host, config.port);
@@ -360,8 +375,12 @@ async fn run_oauth(config: Config) -> Result<()> {
             require_oauth_auth,
         ));
 
-    // Combine OAuth routes and MCP endpoint
+    // Health endpoint (no auth required) for k8s probes
+    let health_router = axum::Router::new().route("/health", axum::routing::get(health_check));
+
+    // Combine OAuth routes, health, and MCP endpoint
     let app = axum::Router::new()
+        .merge(health_router)
         .merge(oauth_router(oauth_state))
         .merge(mcp_router)
         .layer(cors);
