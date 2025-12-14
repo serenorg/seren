@@ -65,6 +65,20 @@ pub struct CreateBranchParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ListBranchesParams {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct DescribeBranchParams {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+    /// The branch ID (UUID)
+    pub branch_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct DeleteBranchParams {
     /// The project ID (UUID)
     pub project_id: Uuid,
@@ -131,6 +145,52 @@ pub struct RunSqlParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct RunSqlTransactionParams {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+    /// The branch ID (UUID)
+    pub branch_id: Uuid,
+    /// Database name
+    pub database: String,
+    /// SQL statements to run in a single transaction
+    pub queries: Vec<String>,
+    /// If set, request a read-only transaction
+    #[serde(default)]
+    pub read_only: Option<bool>,
+    /// Transaction isolation level (e.g. "read_committed")
+    #[serde(default)]
+    pub isolation_level: Option<String>,
+    /// If set, request a deferrable transaction
+    #[serde(default)]
+    pub deferrable: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetDatabaseTablesParams {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+    /// The branch ID (UUID)
+    pub branch_id: Uuid,
+    /// Database name
+    pub database: String,
+    /// Schema name (default: public)
+    #[serde(default)]
+    pub schema: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ExplainSqlStatementParams {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+    /// The branch ID (UUID)
+    pub branch_id: Uuid,
+    /// Database name
+    pub database: String,
+    /// SQL query to explain
+    pub query: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct DescribeTableSchemaParams {
     /// The project ID (UUID)
     pub project_id: Uuid,
@@ -156,16 +216,14 @@ struct SqlRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct SqlResponse {
-    rows: Vec<serde_json::Value>,
-    fields: Option<Vec<FieldInfo>>,
-    row_count: Option<usize>,
+struct SqlBatchQuery {
+    query: String,
+    params: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct FieldInfo {
-    name: String,
-    data_type: Option<String>,
+struct SqlBatchRequest {
+    queries: Vec<SqlBatchQuery>,
 }
 
 // ============================================================================
@@ -366,7 +424,8 @@ impl SerenMcpServer {
         };
 
         let config = seren::ClientConfig::new(token).with_base_url(&self.api_base_url);
-        seren::Client::new(config).map_err(|e| McpError::internal_error(e.to_string(), None))
+        seren::Client::new_with_http_client(config, self.http_client.clone())
+            .map_err(|e| McpError::internal_error(e.to_string(), None))
     }
 
     #[instrument(skip(self, connection_string), fields(query_len = query.len()))]
@@ -375,7 +434,7 @@ impl SerenMcpServer {
         connection_string: &str,
         query: &str,
         params: Vec<serde_json::Value>,
-    ) -> Result<SqlResponse, McpError> {
+    ) -> Result<serde_json::Value, McpError> {
         let http_url = sql_proxy_url_from_connection_string(connection_string)?;
 
         tracing::debug!(url = %http_url, "Executing SQL query");
@@ -414,12 +473,83 @@ impl SerenMcpServer {
             ));
         }
 
-        let result: SqlResponse = response.json().await.map_err(|e| {
+        let result: serde_json::Value = response.json().await.map_err(|e| {
             tracing::error!(error = %e, "Failed to parse SQL response");
             McpError::internal_error(format!("Failed to parse SQL response: {}", e), None)
         })?;
 
-        tracing::debug!(row_count = ?result.row_count, "SQL query completed");
+        tracing::debug!("SQL query completed");
+        Ok(result)
+    }
+
+    #[instrument(skip(self, connection_string, queries), fields(query_count = queries.len()))]
+    async fn execute_sql_transaction(
+        &self,
+        connection_string: &str,
+        queries: Vec<String>,
+        read_only: Option<bool>,
+        isolation_level: Option<String>,
+        deferrable: Option<bool>,
+    ) -> Result<serde_json::Value, McpError> {
+        let http_url = sql_proxy_url_from_connection_string(connection_string)?;
+
+        tracing::debug!(url = %http_url, "Executing SQL transaction");
+
+        let batch_queries: Vec<SqlBatchQuery> = queries
+            .into_iter()
+            .map(|query| SqlBatchQuery {
+                query,
+                params: vec![],
+            })
+            .collect();
+
+        let mut request_builder = self
+            .http_client
+            .post(&http_url)
+            .header("SerenDB-Connection-String", connection_string)
+            .header("SerenDB-Pool-Opt-In", "true");
+
+        if read_only.unwrap_or(false) {
+            request_builder = request_builder.header("SerenDB-Batch-Read-Only", "true");
+        }
+        if let Some(level) = isolation_level.as_deref() {
+            request_builder = request_builder.header("SerenDB-Batch-Isolation-Level", level);
+        }
+        if deferrable.unwrap_or(false) {
+            request_builder = request_builder.header("SerenDB-Batch-Deferrable", "true");
+        }
+
+        let response = request_builder
+            .json(&SqlBatchRequest {
+                queries: batch_queries,
+            })
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, "SQL batch HTTP request failed");
+                McpError::internal_error(e.to_string(), None)
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            tracing::error!(status = %status, "SQL batch execution failed");
+            let client_error = if error_text.len() > 500 {
+                format!("{}... (truncated)", &error_text[..500])
+            } else {
+                error_text
+            };
+            return Err(McpError::internal_error(
+                format!("SQL execution failed ({}): {}", status, client_error),
+                None,
+            ));
+        }
+
+        let result: serde_json::Value = response.json().await.map_err(|e| {
+            tracing::error!(error = %e, "Failed to parse SQL batch response");
+            McpError::internal_error(format!("Failed to parse SQL batch response: {}", e), None)
+        })?;
+
         Ok(result)
     }
 }
@@ -449,7 +579,10 @@ impl SerenMcpServer {
         })
     }
 
-    #[tool(description = "List all Seren projects accessible to the authenticated user")]
+    #[tool(
+        description = "List all Seren projects accessible to the authenticated user",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
     async fn list_projects(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let projects = api_client
@@ -460,7 +593,10 @@ impl SerenMcpServer {
         Ok(CallToolResult::success(vec![json_content(&projects)?]))
     }
 
-    #[tool(description = "Get detailed information about a specific project")]
+    #[tool(
+        description = "Get detailed information about a specific project",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
     async fn describe_project(
         &self,
         Parameters(params): Parameters<DescribeProjectParams>,
@@ -475,7 +611,14 @@ impl SerenMcpServer {
         Ok(CallToolResult::success(vec![json_content(&project)?]))
     }
 
-    #[tool(description = "Create a new Seren project")]
+    #[tool(
+        description = "Create a new Seren project",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
     #[instrument(skip(self, extensions), fields(name = %params.name))]
     async fn create_project(
         &self,
@@ -505,7 +648,14 @@ impl SerenMcpServer {
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
-    #[tool(description = "Delete a Seren project")]
+    #[tool(
+        description = "Delete a Seren project",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
     async fn delete_project(
         &self,
         Parameters(params): Parameters<DeleteProjectParams>,
@@ -525,7 +675,14 @@ impl SerenMcpServer {
         ))]))
     }
 
-    #[tool(description = "Create a new branch in a project")]
+    #[tool(
+        description = "Create a new branch in a project",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
     #[instrument(skip(self, extensions), fields(project_id = %params.project_id, name = %params.name))]
     async fn create_branch(
         &self,
@@ -557,7 +714,14 @@ impl SerenMcpServer {
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
-    #[tool(description = "Delete a branch")]
+    #[tool(
+        description = "Delete a branch",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
     async fn delete_branch(
         &self,
         Parameters(params): Parameters<DeleteBranchParams>,
@@ -577,7 +741,10 @@ impl SerenMcpServer {
         ))]))
     }
 
-    #[tool(description = "List all databases in a branch")]
+    #[tool(
+        description = "List all databases in a branch",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
     async fn list_databases(
         &self,
         Parameters(params): Parameters<ListDatabasesParams>,
@@ -592,7 +759,14 @@ impl SerenMcpServer {
         Ok(CallToolResult::success(vec![json_content(&databases)?]))
     }
 
-    #[tool(description = "Create a new database in a branch")]
+    #[tool(
+        description = "Create a new database in a branch",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
     #[instrument(skip(self, extensions), fields(project_id = %params.project_id, branch_id = %params.branch_id, name = %params.name))]
     async fn create_database(
         &self,
@@ -615,7 +789,10 @@ impl SerenMcpServer {
         Ok(CallToolResult::success(vec![json_content(&database)?]))
     }
 
-    #[tool(description = "List all roles in a branch")]
+    #[tool(
+        description = "List all roles in a branch",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
     async fn list_roles(
         &self,
         Parameters(params): Parameters<ListRolesParams>,
@@ -630,7 +807,10 @@ impl SerenMcpServer {
         Ok(CallToolResult::success(vec![json_content(&roles)?]))
     }
 
-    #[tool(description = "Get connection string for a branch")]
+    #[tool(
+        description = "Get connection string for a branch",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
     async fn get_connection_string(
         &self,
         Parameters(params): Parameters<GetConnectionStringParams>,
@@ -655,7 +835,14 @@ impl SerenMcpServer {
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
-    #[tool(description = "Execute a SQL query against a database")]
+    #[tool(
+        description = "Execute a SQL query against a database",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
     #[instrument(skip(self, extensions, params), fields(project_id = %params.project_id, branch_id = %params.branch_id, database = %params.database))]
     async fn run_sql(
         &self,
@@ -684,7 +871,143 @@ impl SerenMcpServer {
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
 
-    #[tool(description = "Get schema information for a table")]
+    #[tool(
+        description = "Execute multiple SQL statements in a single transaction",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn run_sql_transaction(
+        &self,
+        Parameters(params): Parameters<RunSqlTransactionParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        validate_identifier(&params.database, "database")?;
+
+        if params.queries.is_empty() {
+            return Err(McpError::invalid_params("queries must not be empty", None));
+        }
+        if params.queries.len() > 100 {
+            return Err(McpError::invalid_params(
+                "queries must not exceed 100 statements",
+                None,
+            ));
+        }
+        for (idx, query) in params.queries.iter().enumerate() {
+            if let Err(err) = validate_sql_query(query) {
+                return Err(McpError::invalid_params(
+                    format!("queries[{idx}]: {}", err.message),
+                    None,
+                ));
+            }
+        }
+
+        let api_client = self.api_client(&extensions)?;
+        let conn_response = api_client
+            .branches(params.project_id.to_string())
+            .connection_string_with_options(&params.branch_id.to_string(), None, None)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        let conn_str = connection_string_with_database(
+            &conn_response.data.connection_string,
+            &params.database,
+        )?;
+
+        let result = self
+            .execute_sql_transaction(
+                &conn_str,
+                params.queries,
+                params.read_only,
+                params.isolation_level,
+                params.deferrable,
+            )
+            .await?;
+
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "List tables in a database schema",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_database_tables(
+        &self,
+        Parameters(params): Parameters<GetDatabaseTablesParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        validate_identifier(&params.database, "database")?;
+        if let Some(ref schema) = params.schema {
+            validate_identifier(schema, "schema")?;
+        }
+        let schema = params.schema.unwrap_or_else(|| "public".to_string());
+
+        let query = r#"
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = $1
+              AND table_type = 'BASE TABLE'
+            ORDER BY table_name
+        "#;
+
+        let api_client = self.api_client(&extensions)?;
+        let conn_response = api_client
+            .branches(params.project_id.to_string())
+            .connection_string_with_options(&params.branch_id.to_string(), None, None)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        let conn_str = connection_string_with_database(
+            &conn_response.data.connection_string,
+            &params.database,
+        )?;
+
+        let result = self
+            .execute_sql(&conn_str, query, vec![schema.into()])
+            .await?;
+
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Explain a SQL statement (FORMAT JSON)",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn explain_sql_statement(
+        &self,
+        Parameters(params): Parameters<ExplainSqlStatementParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        validate_identifier(&params.database, "database")?;
+        validate_sql_query(&params.query)?;
+
+        let query_trimmed = params.query.trim().trim_end_matches(';');
+        let explain_query = format!("EXPLAIN (FORMAT JSON) {query_trimmed}");
+
+        let api_client = self.api_client(&extensions)?;
+        let conn_response = api_client
+            .branches(params.project_id.to_string())
+            .connection_string_with_options(&params.branch_id.to_string(), None, None)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        let conn_str = connection_string_with_database(
+            &conn_response.data.connection_string,
+            &params.database,
+        )?;
+
+        let result = self.execute_sql(&conn_str, &explain_query, vec![]).await?;
+
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Get schema information for a table",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
     #[instrument(skip(self, extensions), fields(project_id = %params.project_id, branch_id = %params.branch_id, database = %params.database, table = %params.table_name))]
     async fn describe_table_schema(
         &self,
@@ -732,6 +1055,55 @@ impl SerenMcpServer {
             .await?;
 
         Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "List organizations accessible to the authenticated user",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_organizations(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let orgs = api_client
+            .organizations()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![json_content(&orgs)?]))
+    }
+
+    #[tool(
+        description = "List branches for a project",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_branches(
+        &self,
+        Parameters(params): Parameters<ListBranchesParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let branches = api_client
+            .branches(params.project_id.to_string())
+            .list()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![json_content(&branches)?]))
+    }
+
+    #[tool(
+        description = "Describe a branch",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn describe_branch(
+        &self,
+        Parameters(params): Parameters<DescribeBranchParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let branch = api_client
+            .branches(params.project_id.to_string())
+            .get(&params.branch_id.to_string())
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![json_content(&branch)?]))
     }
 }
 

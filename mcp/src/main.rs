@@ -321,6 +321,25 @@ async fn run_oauth(config: Config) -> Result<()> {
         }
     });
 
+    // Periodic cleanup of expired auth requests/tokens (defense-in-depth).
+    tokio::spawn({
+        let store = store.clone();
+        let ct = ct.clone();
+        async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(600));
+            loop {
+                tokio::select! {
+                    _ = ct.cancelled() => break,
+                    _ = interval.tick() => {
+                        if let Err(e) = store.cleanup_expired().await {
+                            tracing::warn!("OAuth cleanup failed: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+    });
+
     // Create session manager
     let session_manager = Arc::new(LocalSessionManager::default());
 

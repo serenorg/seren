@@ -7,57 +7,23 @@ Model Context Protocol (MCP) server for SerenDB, enabling AI assistants like Cla
 - **Project Management**: Create, list, and manage SerenDB projects
 - **Branch Operations**: Create branches, manage development workflows
 - **Database Queries**: Execute SQL queries directly through your AI assistant
-- **Secure OAuth**: Industry-standard OAuth 2.0 authentication flow
+- **Secure OAuth**: OAuth 2.1 (Auth Code + PKCE) for hosted deployments
 
-## Installation
+## Usage Modes
 
-### Option 1: Hosted (Recommended)
+### Hosted (Remote)
 
-The easiest way to use Seren MCP is through our hosted service. No installation required.
+If your MCP client supports Streamable HTTP servers, connect to:
 
-**Claude Desktop Configuration** (`~/.config/claude/claude_desktop_config.json`):
+- `https://mcp.serendb.com/mcp`
 
-```json
-{
-  "mcpServers": {
-    "seren": {
-      "command": "npx",
-      "args": ["-y", "seren-mcp@latest", "start:oauth"],
-      "env": {
-        "MCP_SERVER_URL": "https://mcp.serendb.com"
-      }
-    }
-  }
-}
-```
+Authentication is handled via OAuth 2.1 (Auth Code + PKCE).
 
-### Option 2: npm/npx
+### Local
 
-Install and run via npm:
+Run the MCP server locally if you need full control or are developing:
 
-```bash
-# Run directly with npx (no install needed)
-npx seren-mcp start:oauth
-
-# Or install globally
-npm install -g seren-mcp
-seren-mcp start:oauth
-```
-
-### Option 3: Homebrew (macOS/Linux)
-
-```bash
-# Add the Seren tap
-brew tap serenorg/tap
-
-# Install seren-mcp
-brew install seren-mcp
-
-# Run the server
-seren-mcp start:oauth
-```
-
-### Option 4: Cargo (Rust)
+#### Cargo (Rust)
 
 ```bash
 # Install from crates.io
@@ -69,20 +35,20 @@ cd seren
 cargo install --path mcp
 ```
 
-### Option 5: Docker
+#### Docker
 
 ```bash
-# Run the MCP server
+# Run the MCP server (HTTP mode)
 docker run -p 8080:8080 ghcr.io/serenorg/seren-mcp:latest
 
 # With environment configuration
 docker run -p 8080:8080 \
-  -e DATABASE_URL="postgres://..." \
-  -e OAUTH_CLIENT_ID="..." \
+  -e SEREN_API_KEY="seren_..." \
+  -e MCP_AUTH_TOKEN="..." \
   ghcr.io/serenorg/seren-mcp:latest
 ```
 
-### Option 6: GitHub Releases
+#### GitHub Releases
 
 Download pre-built binaries from [GitHub Releases](https://github.com/serenorg/seren/releases):
 
@@ -105,12 +71,14 @@ sudo mv seren-mcp /usr/local/bin/
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PORT` | Server port | `8080` |
-| `DATABASE_URL` | PostgreSQL connection string | Required for OAuth mode |
-| `OAUTH_CLIENT_ID` | OAuth client ID | Required for OAuth mode |
-| `OAUTH_AUTHORIZATION_URL` | OAuth authorization endpoint | `https://api.serendb.com/oauth/authorize` |
-| `OAUTH_TOKEN_URL` | OAuth token endpoint | `https://api.serendb.com/oauth/token` |
-| `CORS_ALLOWED_ORIGINS` | Allowed CORS origins | `*` |
+| `SEREN_API_URL` | Seren API base URL (must include `/api`) | `https://api.serendb.com/api` |
+| `SEREN_API_KEY` | Seren API key (for `start`/`start:http`) | Required |
+| `MCP_AUTH_TOKEN` | Auth token for `start:http` (bearer) | Required for `start:http` |
+| `MCP_DATABASE_URL` | Postgres URL for OAuth token storage | Required for `start:oauth` |
+| `SEREN_OAUTH_CLIENT_ID` | Upstream OAuth client id (SerenCore) | Required for `start:oauth` |
+| `MCP_SERVER_HOST` | Public base URL of this server | Required for `start:oauth` |
+| `HOST` | Listen host | `0.0.0.0` |
+| `PORT` | Listen port | `3000` |
 | `RUST_LOG` | Log level | `seren_mcp=info` |
 
 ### Claude Desktop Setup
@@ -124,7 +92,10 @@ sudo mv seren-mcp /usr/local/bin/
   "mcpServers": {
     "seren": {
       "command": "seren-mcp",
-      "args": ["start:oauth"]
+      "args": ["start"],
+      "env": {
+        "SEREN_API_KEY": "seren_..."
+      }
     }
   }
 }
@@ -146,11 +117,14 @@ Once configured, you can ask Claude to:
 ## Commands
 
 ```bash
-# Start with OAuth authentication (recommended)
-seren-mcp start:oauth
+# Start in stdio mode (Claude Desktop / local)
+seren-mcp start
 
-# Start in HTTP mode (for development)
+# Start in HTTP mode with simple bearer auth
 seren-mcp start:http
+
+# Start in HTTP mode with OAuth 2.1 (hosted)
+seren-mcp start:oauth
 
 # Show help
 seren-mcp --help

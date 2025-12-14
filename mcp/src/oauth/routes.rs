@@ -14,7 +14,7 @@ use crate::oauth::store::{AccessToken, AuthRequest, AuthorizationCode, RefreshTo
 use axum::{
     extract::{Query, State},
     http::StatusCode,
-    response::{IntoResponse, Redirect, Response},
+    response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Form, Json, Router,
 };
@@ -37,6 +37,10 @@ pub struct OAuthState {
     pub upstream_api_base_url: String,
 }
 
+const SUPPORTED_GRANT_TYPES: &[&str] = &["authorization_code", "refresh_token"];
+const SUPPORTED_RESPONSE_TYPES: &[&str] = &["code"];
+const SUPPORTED_AUTH_METHODS: &[&str] = &["none", "client_secret_post"];
+
 // ============================================================================
 // Metadata Endpoint (RFC 8414)
 // ============================================================================
@@ -57,16 +61,23 @@ struct AuthorizationServerMetadata {
 }
 
 async fn metadata(State(state): State<Arc<OAuthState>>) -> Json<AuthorizationServerMetadata> {
+    let server_host = state.server_host.trim_end_matches('/').to_string();
     Json(AuthorizationServerMetadata {
-        issuer: state.server_host.clone(),
-        authorization_endpoint: format!("{}/authorize", state.server_host),
-        token_endpoint: format!("{}/token", state.server_host),
-        revocation_endpoint: format!("{}/revoke", state.server_host),
-        registration_endpoint: format!("{}/register", state.server_host),
+        issuer: server_host.clone(),
+        authorization_endpoint: format!("{}/authorize", server_host),
+        token_endpoint: format!("{}/token", server_host),
+        revocation_endpoint: format!("{}/revoke", server_host),
+        registration_endpoint: format!("{}/register", server_host),
         scopes_supported: vec!["api".into(), "api:read".into()],
         response_types_supported: vec!["code".into()],
-        grant_types_supported: vec!["authorization_code".into(), "refresh_token".into()],
-        token_endpoint_auth_methods_supported: vec!["none".into(), "client_secret_post".into()],
+        grant_types_supported: SUPPORTED_GRANT_TYPES
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect(),
+        token_endpoint_auth_methods_supported: SUPPORTED_AUTH_METHODS
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect(),
         code_challenge_methods_supported: vec!["S256".into(), "plain".into()],
         revocation_endpoint_auth_methods_supported: vec![
             "none".into(),
@@ -83,10 +94,13 @@ async fn metadata(State(state): State<Arc<OAuthState>>) -> Json<AuthorizationSer
 struct RegisterRequest {
     client_name: String,
     redirect_uris: Vec<String>,
+    response_types: Vec<String>,
     #[serde(default)]
     grant_types: Option<Vec<String>>,
     #[serde(default)]
     scope: Option<String>,
+    #[serde(default)]
+    token_endpoint_auth_method: Option<String>,
     // Optional metadata (RFC 7591)
     #[serde(default)]
     client_uri: Option<String>,
@@ -104,6 +118,7 @@ struct RegisterResponse {
     redirect_uris: Vec<String>,
     grant_types: Vec<String>,
     scope: String,
+    token_endpoint_auth_method: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     client_uri: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -116,19 +131,50 @@ async fn register(
     State(state): State<Arc<OAuthState>>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<RegisterResponse>, OAuthError> {
+    if req.client_name.trim().is_empty() {
+        return Err(OAuthError::InvalidRequest("client_name is required".into()));
+    }
+    if req.redirect_uris.is_empty() {
+        return Err(OAuthError::InvalidRequest(
+            "redirect_uris is required".into(),
+        ));
+    }
+    if req.response_types.is_empty()
+        || !req
+            .response_types
+            .iter()
+            .all(|t| SUPPORTED_RESPONSE_TYPES.contains(&t.as_str()))
+    {
+        return Err(OAuthError::InvalidRequest(
+            "response_types is required and must include only 'code'".into(),
+        ));
+    }
+
     for uri in &req.redirect_uris {
         if !is_valid_redirect_uri(uri) {
             return Err(OAuthError::InvalidRequest(
-                "redirect_uris must be localhost, HTTPS, or mcp:// URLs".into(),
+                "redirect_uris must be loopback (localhost/127.0.0.1) or mcp:// URLs".into(),
             ));
         }
     }
 
     let client_id = TokenStore::generate_token();
-    let client_secret = TokenStore::generate_token();
     let grants = req
         .grant_types
         .unwrap_or_else(|| vec!["authorization_code".into()]);
+    if !grants
+        .iter()
+        .all(|g| SUPPORTED_GRANT_TYPES.contains(&g.as_str()))
+    {
+        return Err(OAuthError::InvalidRequest(
+            "grant_types must include only supported grant types".into(),
+        ));
+    }
+    if !grants.iter().any(|g| g == "authorization_code") {
+        return Err(OAuthError::InvalidRequest(
+            "grant_types must include 'authorization_code'".into(),
+        ));
+    }
     let scopes: Vec<String> = req
         .scope
         .unwrap_or_else(|| "api".into())
@@ -136,7 +182,23 @@ async fn register(
         .map(String::from)
         .collect();
 
-    let secret_hash = hash_secret(&client_secret);
+    let token_endpoint_auth_method = req
+        .token_endpoint_auth_method
+        .unwrap_or_else(|| "client_secret_post".into());
+    if !SUPPORTED_AUTH_METHODS.contains(&token_endpoint_auth_method.as_str()) {
+        return Err(OAuthError::InvalidRequest(
+            "token_endpoint_auth_method must be 'none' or 'client_secret_post'".into(),
+        ));
+    }
+
+    let (client_secret, secret_hash) = if token_endpoint_auth_method == "none" {
+        (None, None)
+    } else {
+        let secret = TokenStore::generate_token();
+        let secret_hash = hash_secret(&secret);
+        (Some(secret), Some(secret_hash))
+    };
+
     sqlx::query(
         r#"INSERT INTO mcp_oauth.clients
            (id, name, secret_hash, redirect_uris, grants, scopes, client_uri, software_id, software_version)
@@ -157,11 +219,12 @@ async fn register(
 
     Ok(Json(RegisterResponse {
         client_id,
-        client_secret: Some(client_secret),
+        client_secret,
         client_name: req.client_name,
         redirect_uris: req.redirect_uris,
         grant_types: grants,
         scope: scopes.join(" "),
+        token_endpoint_auth_method,
         client_uri: req.client_uri,
         software_id: req.software_id,
         software_version: req.software_version,
@@ -393,12 +456,19 @@ async fn callback(
     .await
     .ok_or_else(|| OAuthError::ServerError("Failed to fetch user id".into()))?;
 
+    // Enforce per-user consent before issuing a downstream authorization code redirect.
+    let approved = state
+        .store
+        .is_client_approved(&user_id, &auth_request.client_id)
+        .await
+        .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+
     // Create downstream authorization code carrying upstream tokens.
     let downstream_code = TokenStore::generate_code();
     let auth_code = AuthorizationCode {
         code: downstream_code.clone(),
         client_id: auth_request.client_id.clone(),
-        user_id,
+        user_id: user_id.clone(),
         redirect_uri: auth_request.redirect_uri.clone(),
         scope: auth_request.scope.clone(),
         code_challenge: Some(auth_request.code_challenge),
@@ -416,18 +486,43 @@ async fn callback(
         .await
         .map_err(|e| OAuthError::ServerError(e.to_string()))?;
 
-    let mut redirect_url = reqwest::Url::parse(&auth_request.redirect_uri)
-        .map_err(|_| OAuthError::InvalidRequest("Invalid redirect_uri".into()))?;
-    redirect_url
-        .query_pairs_mut()
-        .append_pair("code", &downstream_code);
-    if let Some(client_state) = auth_request.client_state {
+    if approved {
+        let mut redirect_url = reqwest::Url::parse(&auth_request.redirect_uri)
+            .map_err(|_| OAuthError::InvalidRequest("Invalid redirect_uri".into()))?;
         redirect_url
             .query_pairs_mut()
-            .append_pair("state", &client_state);
+            .append_pair("code", &downstream_code);
+        if let Some(client_state) = auth_request.client_state {
+            redirect_url
+                .query_pairs_mut()
+                .append_pair("state", &client_state);
+        }
+        return Ok(Redirect::temporary(redirect_url.as_str()).into_response());
     }
 
-    Ok(Redirect::temporary(redirect_url.as_str()).into_response())
+    // Not yet approved: create a pending consent record and redirect to a local consent page.
+    let consent_id = TokenStore::generate_token();
+    let consent_expires_at = Utc::now() + Duration::minutes(10);
+    let consent = crate::oauth::store::PendingConsent {
+        id: consent_id.clone(),
+        user_id: user_id.clone(),
+        client_id: auth_request.client_id.clone(),
+        authorization_code: downstream_code.clone(),
+        redirect_uri: auth_request.redirect_uri.clone(),
+        client_state: auth_request.client_state.clone(),
+        scope: auth_request.scope.clone(),
+        expires_at: consent_expires_at,
+        created_at: Utc::now(),
+    };
+    state
+        .store
+        .save_pending_consent(&consent)
+        .await
+        .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+
+    let server_host = state.server_host.trim_end_matches('/');
+    let consent_url = format!("{server_host}/consent?token={consent_id}");
+    Ok(Redirect::temporary(&consent_url).into_response())
 }
 
 // ============================================================================
@@ -855,7 +950,7 @@ fn is_valid_redirect_uri(uri: &str) -> bool {
             // Loopback redirect URIs (RFC 8252) – allow http/https on localhost.
             "http" | "https" => {
                 let host = url.host_str().unwrap_or("");
-                host == "localhost" || host == "127.0.0.1" || url.scheme() == "https"
+                host == "localhost" || host == "127.0.0.1"
             }
             // Native app custom scheme used by some MCP clients.
             "mcp" => true,
@@ -938,11 +1033,156 @@ async fn cleanup(State(state): State<Arc<OAuthState>>) -> Result<StatusCode, OAu
     Ok(StatusCode::OK)
 }
 
+// ============================================================================
+// Consent Endpoint
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+struct ConsentQuery {
+    token: String,
+}
+
+async fn consent_page(
+    State(state): State<Arc<OAuthState>>,
+    Query(q): Query<ConsentQuery>,
+) -> Result<Response, OAuthError> {
+    let consent = state
+        .store
+        .get_pending_consent(&q.token)
+        .await
+        .map_err(|e| OAuthError::ServerError(e.to_string()))?
+        .ok_or_else(|| OAuthError::InvalidGrant("Invalid or expired consent request".into()))?;
+
+    let client = state
+        .store
+        .get_client(&consent.client_id)
+        .await
+        .map_err(|e| OAuthError::ServerError(e.to_string()))?
+        .ok_or(OAuthError::InvalidClient)?;
+
+    let html = format!(
+        r#"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Approve MCP Client</title>
+  <style>
+    body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background: #0b0f19; color: #e6e8ee; margin: 0; }}
+    .wrap {{ max-width: 720px; margin: 40px auto; padding: 0 16px; }}
+    .card {{ background: #11182a; border: 1px solid #23304a; border-radius: 14px; padding: 22px; }}
+    .title {{ font-size: 20px; font-weight: 700; margin: 0 0 8px; }}
+    .muted {{ color: #a7b0c2; margin: 0 0 18px; }}
+    .row {{ display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px; }}
+    button {{ border: 0; border-radius: 10px; padding: 12px 14px; font-weight: 700; cursor: pointer; }}
+    .approve {{ background: #2d6cdf; color: white; }}
+    .deny {{ background: #2a3246; color: #e6e8ee; }}
+    .box {{ background: #0c1220; border: 1px solid #23304a; border-radius: 10px; padding: 12px; margin-top: 12px; }}
+    code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <p class="title">Allow <code>{client_name}</code> to access your Seren account?</p>
+      <p class="muted">This will let the MCP client manage your SerenDB projects and run SQL using your account permissions.</p>
+      <div class="box">
+        <div><strong>Client</strong>: {client_name}</div>
+        <div><strong>Requested scope</strong>: <code>{scope}</code></div>
+      </div>
+      <div class="row">
+        <form method="post" action="/consent">
+          <input type="hidden" name="token" value="{token}">
+          <input type="hidden" name="action" value="approve">
+          <button class="approve" type="submit">Approve</button>
+        </form>
+        <form method="post" action="/consent">
+          <input type="hidden" name="token" value="{token}">
+          <input type="hidden" name="action" value="deny">
+          <button class="deny" type="submit">Deny</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</body>
+</html>"#,
+        client_name = html_escape(&client.name),
+        scope = html_escape(&consent.scope),
+        token = html_escape(&q.token)
+    );
+
+    Ok(Html(html).into_response())
+}
+
+#[derive(Debug, Deserialize)]
+struct ConsentForm {
+    token: String,
+    action: String,
+}
+
+async fn consent_submit(
+    State(state): State<Arc<OAuthState>>,
+    Form(req): Form<ConsentForm>,
+) -> Result<Response, OAuthError> {
+    let consent = state
+        .store
+        .consume_pending_consent(&req.token)
+        .await
+        .map_err(|e| OAuthError::ServerError(e.to_string()))?
+        .ok_or_else(|| OAuthError::InvalidGrant("Invalid or expired consent request".into()))?;
+
+    match req.action.as_str() {
+        "approve" => {
+            state
+                .store
+                .approve_client(&consent.user_id, &consent.client_id)
+                .await
+                .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+
+            let mut redirect_url = reqwest::Url::parse(&consent.redirect_uri)
+                .map_err(|_| OAuthError::InvalidRequest("Invalid redirect_uri".into()))?;
+            redirect_url
+                .query_pairs_mut()
+                .append_pair("code", &consent.authorization_code);
+            if let Some(state_param) = consent.client_state.as_deref() {
+                redirect_url
+                    .query_pairs_mut()
+                    .append_pair("state", state_param);
+            }
+            Ok(Redirect::temporary(redirect_url.as_str()).into_response())
+        }
+        "deny" => {
+            state
+                .store
+                .delete_authorization_code(&consent.authorization_code)
+                .await
+                .ok();
+            redirect_with_error(
+                &consent.redirect_uri,
+                consent.client_state.as_deref(),
+                "access_denied",
+                Some("User denied access"),
+            )
+        }
+        _ => Err(OAuthError::InvalidRequest("Invalid action".into())),
+    }
+}
+
+fn html_escape(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
 pub fn oauth_router(state: Arc<OAuthState>) -> Router {
     Router::new()
         .route("/.well-known/oauth-authorization-server", get(metadata))
         .route("/authorize", get(authorize))
         .route("/callback", get(callback))
+        .route("/consent", get(consent_page).post(consent_submit))
         .route("/token", post(token))
         .route("/revoke", post(revoke))
         .route("/register", post(register))

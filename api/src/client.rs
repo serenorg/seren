@@ -3,7 +3,7 @@ use crate::{
     error::{Error, Result},
     models::*,
 };
-use reqwest::{header, Client as HttpClient, StatusCode};
+use reqwest::{header, Client as HttpClient, RequestBuilder, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::time::Duration;
@@ -24,24 +24,26 @@ impl Client {
     pub fn new(config: ClientConfig) -> Result<Self> {
         config.validate()?;
 
-        let mut headers = header::HeaderMap::new();
-        headers.insert(
-            header::AUTHORIZATION,
-            header::HeaderValue::from_str(&format!("Bearer {}", config.api_key))
-                .map_err(|_| Error::InvalidApiKey)?,
-        );
-        headers.insert(
-            header::USER_AGENT,
-            header::HeaderValue::from_str(&config.user_agent)
-                .map_err(|e| Error::Config(e.to_string()))?,
-        );
-
         let http = HttpClient::builder()
-            .default_headers(headers)
             .timeout(Duration::from_secs(config.timeout_seconds))
             .build()?;
 
         Ok(Self { http, config })
+    }
+
+    /// Create a new Seren API client using an existing reqwest client.
+    ///
+    /// This is useful for long-lived services (like MCP) that want to reuse a single
+    /// HTTP client across many short-lived bearer tokens.
+    pub fn new_with_http_client(config: ClientConfig, http: HttpClient) -> Result<Self> {
+        config.validate()?;
+        Ok(Self { http, config })
+    }
+
+    fn with_auth(&self, builder: RequestBuilder) -> Result<RequestBuilder> {
+        Ok(builder
+            .bearer_auth(&self.config.api_key)
+            .header(header::USER_AGENT, self.config.user_agent.as_str()))
     }
 
     /// Get the projects API client
@@ -229,7 +231,7 @@ impl Client {
         let url = format!("{}{}", self.config.base_url, path);
 
         self.request_with_retry(|| async {
-            let response = self.http.get(&url).send().await?;
+            let response = self.with_auth(self.http.get(&url))?.send().await?;
             self.handle_response(response).await
         })
         .await
@@ -244,7 +246,10 @@ impl Client {
         let url = format!("{}{}", self.config.base_url, path);
 
         self.request_with_retry(|| async {
-            let response = self.http.get(&url).query(query).send().await?;
+            let response = self
+                .with_auth(self.http.get(&url).query(query))?
+                .send()
+                .await?;
             self.handle_response(response).await
         })
         .await
@@ -256,7 +261,10 @@ impl Client {
         let body_json = serde_json::to_value(body)?;
 
         self.request_with_retry(|| async {
-            let response = self.http.post(&url).json(&body_json).send().await?;
+            let response = self
+                .with_auth(self.http.post(&url).json(&body_json))?
+                .send()
+                .await?;
             self.handle_response(response).await
         })
         .await
@@ -268,7 +276,10 @@ impl Client {
         let body_json = serde_json::to_value(body)?;
 
         self.request_with_retry(|| async {
-            let response = self.http.put(&url).json(&body_json).send().await?;
+            let response = self
+                .with_auth(self.http.put(&url).json(&body_json))?
+                .send()
+                .await?;
             self.handle_response(response).await
         })
         .await
@@ -280,7 +291,10 @@ impl Client {
         let body_json = serde_json::to_value(body)?;
 
         self.request_with_retry(|| async {
-            let response = self.http.patch(&url).json(&body_json).send().await?;
+            let response = self
+                .with_auth(self.http.patch(&url).json(&body_json))?
+                .send()
+                .await?;
             self.handle_response(response).await
         })
         .await
@@ -291,7 +305,7 @@ impl Client {
         let url = format!("{}{}", self.config.base_url, path);
 
         self.request_with_retry(|| async {
-            let response = self.http.delete(&url).send().await?;
+            let response = self.with_auth(self.http.delete(&url))?.send().await?;
 
             match response.status() {
                 StatusCode::NO_CONTENT | StatusCode::OK => Ok(()),

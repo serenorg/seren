@@ -100,6 +100,20 @@ pub struct RefreshToken {
     pub created_at: DateTime<Utc>,
 }
 
+/// Pending consent prompt during the OAuth callback flow.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct PendingConsent {
+    pub id: String,
+    pub user_id: String,
+    pub client_id: String,
+    pub authorization_code: String,
+    pub redirect_uri: String,
+    pub client_state: Option<String>,
+    pub scope: String,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
 /// Token store backed by PostgreSQL
 #[derive(Clone)]
 pub struct TokenStore {
@@ -327,6 +341,99 @@ impl TokenStore {
         Ok(result.rows_affected() > 0)
     }
 
+    // === Consent operations ===
+
+    /// Returns true if the given user has approved the given OAuth client.
+    pub async fn is_client_approved(&self, user_id: &str, client_id: &str) -> Result<bool> {
+        let exists: Option<(i64,)> = sqlx::query_as(
+            "SELECT 1 FROM mcp_oauth.approved_clients WHERE user_id = $1 AND client_id = $2 LIMIT 1",
+        )
+        .bind(user_id)
+        .bind(client_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(exists.is_some())
+    }
+
+    /// Records a user's approval for a given OAuth client.
+    pub async fn approve_client(&self, user_id: &str, client_id: &str) -> Result<()> {
+        sqlx::query(
+            r#"INSERT INTO mcp_oauth.approved_clients (user_id, client_id)
+               VALUES ($1, $2)
+               ON CONFLICT (user_id, client_id) DO NOTHING"#,
+        )
+        .bind(user_id)
+        .bind(client_id)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(())
+    }
+
+    /// Create a pending consent record.
+    pub async fn save_pending_consent(&self, consent: &PendingConsent) -> Result<()> {
+        sqlx::query(
+            r#"INSERT INTO mcp_oauth.pending_consents
+               (id, user_id, client_id, authorization_code, redirect_uri, client_state, scope, expires_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+        )
+        .bind(&consent.id)
+        .bind(&consent.user_id)
+        .bind(&consent.client_id)
+        .bind(&consent.authorization_code)
+        .bind(&consent.redirect_uri)
+        .bind(&consent.client_state)
+        .bind(&consent.scope)
+        .bind(consent.expires_at)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+        Ok(())
+    }
+
+    /// Get a pending consent record (without consuming it).
+    pub async fn get_pending_consent(&self, id: &str) -> Result<Option<PendingConsent>> {
+        let consent = sqlx::query_as::<_, PendingConsent>(
+            r#"SELECT id, user_id, client_id, authorization_code, redirect_uri, client_state, scope, expires_at, created_at
+               FROM mcp_oauth.pending_consents
+               WHERE id = $1 AND expires_at > NOW()"#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(consent)
+    }
+
+    /// Consume a pending consent record (delete and return it).
+    pub async fn consume_pending_consent(&self, id: &str) -> Result<Option<PendingConsent>> {
+        let consent = sqlx::query_as::<_, PendingConsent>(
+            r#"DELETE FROM mcp_oauth.pending_consents
+               WHERE id = $1 AND expires_at > NOW()
+               RETURNING id, user_id, client_id, authorization_code, redirect_uri, client_state, scope, expires_at, created_at"#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(consent)
+    }
+
+    /// Delete an authorization code without consuming it (used when consent is denied).
+    pub async fn delete_authorization_code(&self, code: &str) -> Result<()> {
+        sqlx::query("DELETE FROM mcp_oauth.authorization_codes WHERE code = $1")
+            .bind(code)
+            .execute(&self.pool)
+            .await
+            .map_err(McpError::Database)?;
+        Ok(())
+    }
+
     // === Utility operations ===
 
     /// Clean up expired tokens and codes
@@ -433,6 +540,9 @@ mod tests {
             redirect_uris: vec!["http://localhost:8080/callback".into()],
             grants: vec!["authorization_code".into()],
             scopes: vec!["api".into()],
+            client_uri: None,
+            software_id: None,
+            software_version: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -450,6 +560,9 @@ mod tests {
             redirect_uris: vec!["http://localhost:*".into()],
             grants: vec!["authorization_code".into()],
             scopes: vec!["api".into()],
+            client_uri: None,
+            software_id: None,
+            software_version: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
