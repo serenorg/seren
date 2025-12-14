@@ -257,6 +257,19 @@ fn connection_string_with_database(
 }
 
 fn sql_proxy_url_from_connection_string(connection_string: &str) -> Result<String, McpError> {
+    if let Ok(base_url) = std::env::var("SEREN_SQL_PROXY_BASE_URL") {
+        let base_url = base_url.trim();
+        if !base_url.is_empty() {
+            let mut url = reqwest::Url::parse(base_url).map_err(|e| {
+                McpError::internal_error(format!("Invalid SEREN_SQL_PROXY_BASE_URL: {}", e), None)
+            })?;
+            url.set_path("/sql");
+            url.set_query(None);
+            url.set_fragment(None);
+            return Ok(url.to_string());
+        }
+    }
+
     let url = reqwest::Url::parse(connection_string)
         .map_err(|e| McpError::internal_error(format!("Invalid connection string: {}", e), None))?;
     let host = url.host_str().ok_or_else(|| {
@@ -1128,6 +1141,218 @@ impl ServerHandler for SerenMcpServer {
                 "Seren MCP Server - Manage Seren database projects, branches, and execute SQL queries."
                     .into(),
             ),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use axum::body::Body;
+    use axum::http::Request;
+
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn extensions_with_headers(headers: &[(&str, &str)]) -> Extensions {
+        let mut builder = Request::builder().uri("http://localhost/");
+        for (k, v) in headers {
+            builder = builder.header(*k, *v);
+        }
+        let request = builder.body(Body::empty()).unwrap();
+        let (parts, _body) = request.into_parts();
+        let mut extensions = Extensions::default();
+        extensions.insert(parts);
+        extensions
+    }
+
+    #[test]
+    fn connection_string_with_database_replaces_path_preserves_query() {
+        let conn = "postgresql://user:pass@db.serendb.com:5432/postgres?sslmode=require";
+        let out = connection_string_with_database(conn, "mydb").unwrap();
+        assert!(out.contains("/mydb?"));
+        assert!(out.contains("sslmode=require"));
+        assert!(out.starts_with("postgresql://user:pass@db.serendb.com:5432/"));
+        assert!(!out.contains("/postgres?"));
+    }
+
+    #[test]
+    fn connection_string_with_database_validates_database_name() {
+        let conn = "postgresql://user@db.serendb.com/postgres";
+        assert!(connection_string_with_database(conn, "").is_err());
+        assert!(connection_string_with_database(conn, " ").is_err());
+        assert!(connection_string_with_database(conn, "a/b").is_err());
+    }
+
+    #[test]
+    fn sql_proxy_url_from_connection_string_uses_host_only() {
+        let conn = "postgresql://user:pass@proxy.serendb.com:5432/postgres";
+        let out = sql_proxy_url_from_connection_string(conn).unwrap();
+        assert_eq!(out, "https://proxy.serendb.com/sql");
+    }
+
+    #[test]
+    fn sql_proxy_url_from_connection_string_requires_host() {
+        let conn = "postgresql:///postgres";
+        assert!(sql_proxy_url_from_connection_string(conn).is_err());
+    }
+
+    #[test]
+    fn validate_identifier_enforces_postgres_rules() {
+        assert!(validate_identifier("valid_name", "db").is_ok());
+        assert!(validate_identifier("_valid_2", "db").is_ok());
+
+        assert!(validate_identifier("", "db").is_err());
+        assert!(validate_identifier("1invalid", "db").is_err());
+        assert!(validate_identifier("has-dash", "db").is_err());
+    }
+
+    #[test]
+    fn validate_resource_name_allows_relaxed_characters() {
+        assert!(validate_resource_name("my branch-1", "branch").is_ok());
+        assert!(validate_resource_name("My.Project 2", "project").is_ok());
+
+        assert!(validate_resource_name("", "branch").is_err());
+        assert!(validate_resource_name("_starts_with_underscore", "branch").is_err());
+        assert!(validate_resource_name("bad/char", "branch").is_err());
+    }
+
+    #[test]
+    fn validate_sql_query_enforces_size_and_non_empty() {
+        assert!(validate_sql_query("select 1").is_ok());
+        assert!(validate_sql_query("  ").is_err());
+
+        let too_large = "a".repeat(1_000_001);
+        assert!(validate_sql_query(&too_large).is_err());
+    }
+
+    #[test]
+    fn extract_bearer_token_from_extensions_is_case_insensitive_and_trims() {
+        let extensions = extensions_with_headers(&[("authorization", "bearer   token123  ")]);
+        assert_eq!(
+            extract_bearer_token_from_extensions(&extensions).as_deref(),
+            Some("token123")
+        );
+
+        let extensions = extensions_with_headers(&[("authorization", "Basic abc")]);
+        assert_eq!(extract_bearer_token_from_extensions(&extensions), None);
+    }
+
+    #[test]
+    fn read_only_header_enables_read_only_mode() {
+        let extensions = extensions_with_headers(&[("x-read-only", "true")]);
+        assert!(is_read_only(&extensions));
+        assert!(ensure_writes_allowed(&extensions).is_err());
+
+        let extensions = extensions_with_headers(&[("x-read-only", "0")]);
+        assert!(!is_read_only(&extensions));
+        assert!(ensure_writes_allowed(&extensions).is_ok());
+    }
+
+    #[test]
+    fn read_only_env_enables_read_only_mode() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let old = std::env::var("SEREN_MCP_READ_ONLY").ok();
+
+        std::env::set_var("SEREN_MCP_READ_ONLY", "yes");
+        let extensions = extensions_with_headers(&[]);
+        assert!(is_read_only(&extensions));
+        assert!(ensure_writes_allowed(&extensions).is_err());
+
+        match old {
+            Some(v) => std::env::set_var("SEREN_MCP_READ_ONLY", v),
+            None => std::env::remove_var("SEREN_MCP_READ_ONLY"),
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_sql_sends_required_headers_and_body_to_proxy() {
+        use wiremock::matchers::{body_json, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let _guard = ENV_LOCK.lock().unwrap();
+        let old = std::env::var("SEREN_SQL_PROXY_BASE_URL").ok();
+
+        let proxy = MockServer::start().await;
+        std::env::set_var("SEREN_SQL_PROXY_BASE_URL", proxy.uri());
+
+        let conn = "postgresql://user:pass@db.serendb.com/postgres?sslmode=require";
+
+        Mock::given(method("POST"))
+            .and(path("/sql"))
+            .and(header("SerenDB-Connection-String", conn))
+            .and(header("SerenDB-Pool-Opt-In", "true"))
+            .and(body_json(serde_json::json!({
+                "query": "select $1",
+                "params": [1],
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ok": true,
+            })))
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", "https://api.serendb.com/api").unwrap();
+        let result = server
+            .execute_sql(conn, "select $1", vec![serde_json::json!(1)])
+            .await
+            .unwrap();
+        assert_eq!(result, serde_json::json!({ "ok": true }));
+
+        match old {
+            Some(v) => std::env::set_var("SEREN_SQL_PROXY_BASE_URL", v),
+            None => std::env::remove_var("SEREN_SQL_PROXY_BASE_URL"),
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_sql_transaction_sets_batch_headers() {
+        use wiremock::matchers::{body_json, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let _guard = ENV_LOCK.lock().unwrap();
+        let old = std::env::var("SEREN_SQL_PROXY_BASE_URL").ok();
+
+        let proxy = MockServer::start().await;
+        std::env::set_var("SEREN_SQL_PROXY_BASE_URL", proxy.uri());
+
+        let conn = "postgresql://user:pass@db.serendb.com/postgres?sslmode=require";
+
+        Mock::given(method("POST"))
+            .and(path("/sql"))
+            .and(header("SerenDB-Connection-String", conn))
+            .and(header("SerenDB-Pool-Opt-In", "true"))
+            .and(header("SerenDB-Batch-Read-Only", "true"))
+            .and(header("SerenDB-Batch-Isolation-Level", "read_committed"))
+            .and(header("SerenDB-Batch-Deferrable", "true"))
+            .and(body_json(serde_json::json!({
+                "queries": [
+                    {"query": "select 1", "params": []},
+                    {"query": "select 2", "params": []},
+                ],
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ok": true,
+            })))
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", "https://api.serendb.com/api").unwrap();
+        let result = server
+            .execute_sql_transaction(
+                conn,
+                vec!["select 1".to_string(), "select 2".to_string()],
+                Some(true),
+                Some("read_committed".to_string()),
+                Some(true),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result, serde_json::json!({ "ok": true }));
+
+        match old {
+            Some(v) => std::env::set_var("SEREN_SQL_PROXY_BASE_URL", v),
+            None => std::env::remove_var("SEREN_SQL_PROXY_BASE_URL"),
         }
     }
 }
