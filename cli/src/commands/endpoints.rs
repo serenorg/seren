@@ -54,7 +54,7 @@ pub async fn create(
     let client = get_client(api_host, api_key).await?;
 
     let mut request = seren::CreateEndpointRequest {
-        name: name.to_string(),
+        name: Some(name.to_string()),
         compute_unit: compute_unit.clone(),
         autoscaling_min: None,
         autoscaling_max: None,

@@ -546,6 +546,8 @@ impl SerenMcpServer {
             parent_lsn: None,
             parent_timestamp: None,
             protected: None,
+            expires_at: None,
+            schema_only: None,
         };
         let response = api_client
             .branches(params.project_id.to_string())

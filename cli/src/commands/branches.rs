@@ -243,6 +243,8 @@ pub async fn create(
         parent_timestamp,
         add_endpoint: auto_endpoint.then_some(true),
         endpoints,
+        expires_at: None,
+        schema_only: None,
     };
 
     let creation = client
