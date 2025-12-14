@@ -17,6 +17,10 @@ pub struct Client {
     pub redirect_uris: Vec<String>,
     pub grants: Vec<String>,
     pub scopes: Vec<String>,
+    // Optional metadata (RFC 7591)
+    pub client_uri: Option<String>,
+    pub software_id: Option<String>,
+    pub software_version: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -126,7 +130,8 @@ impl TokenStore {
     /// Get a client by ID
     pub async fn get_client(&self, client_id: &str) -> Result<Option<Client>> {
         let client = sqlx::query_as::<_, Client>(
-            r#"SELECT id, name, secret_hash, redirect_uris, grants, scopes, created_at, updated_at
+            r#"SELECT id, name, secret_hash, redirect_uris, grants, scopes,
+                      client_uri, software_id, software_version, created_at, updated_at
                FROM mcp_oauth.clients WHERE id = $1"#,
         )
         .bind(client_id)

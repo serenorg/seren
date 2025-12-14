@@ -4,7 +4,7 @@
 
 CREATE SCHEMA mcp_oauth;
 
--- OAuth2 Clients (registered MCP clients like Claude Desktop, Cursor, etc.)
+-- OAuth2 Clients (dynamically registered via RFC 7591)
 CREATE TABLE mcp_oauth.clients (
     id text PRIMARY KEY,
     name text NOT NULL,
@@ -12,6 +12,10 @@ CREATE TABLE mcp_oauth.clients (
     redirect_uris text[] NOT NULL DEFAULT '{}',
     grants text[] NOT NULL DEFAULT '{authorization_code}',
     scopes text[] NOT NULL DEFAULT '{api}',
+    -- Optional metadata (RFC 7591)
+    client_uri text,           -- Homepage URL
+    software_id text,          -- Unique software identifier (e.g., "com.anthropic.claude-desktop")
+    software_version text,     -- Version string
     created_at timestamptz NOT NULL DEFAULT NOW(),
     updated_at timestamptz NOT NULL DEFAULT NOW()
 );
@@ -106,21 +110,3 @@ BEGIN
     DELETE FROM mcp_oauth.sessions WHERE expires_at < NOW();
 END;
 $$ LANGUAGE plpgsql;
-
--- Pre-register known MCP clients
--- These are public clients that use PKCE
-INSERT INTO mcp_oauth.clients (id, name, redirect_uris, grants, scopes)
-VALUES
-    ('claude-desktop', 'Claude Desktop', ARRAY['http://localhost:*'], ARRAY['authorization_code'], ARRAY['api']),
-    ('claude-code', 'Claude Code', ARRAY['http://localhost:*', 'http://127.0.0.1:*'], ARRAY['authorization_code'], ARRAY['api']),
-    ('cursor', 'Cursor', ARRAY['http://localhost:*'], ARRAY['authorization_code'], ARRAY['api']),
-    ('windsurf', 'Windsurf', ARRAY['http://localhost:*'], ARRAY['authorization_code'], ARRAY['api']),
-    ('vscode', 'VS Code', ARRAY['http://localhost:*'], ARRAY['authorization_code'], ARRAY['api']),
-    ('zed', 'Zed', ARRAY['http://localhost:*'], ARRAY['authorization_code'], ARRAY['api']),
-    ('continue', 'Continue', ARRAY['http://localhost:*'], ARRAY['authorization_code'], ARRAY['api']),
-    ('cline', 'Cline', ARRAY['http://localhost:*'], ARRAY['authorization_code'], ARRAY['api']),
-    ('opencode', 'OpenCode', ARRAY['http://localhost:*'], ARRAY['authorization_code'], ARRAY['api']),
-    ('codex', 'Codex CLI', ARRAY['http://localhost:*'], ARRAY['authorization_code'], ARRAY['api']),
-    ('roo-code', 'Roo Code', ARRAY['http://localhost:*'], ARRAY['authorization_code'], ARRAY['api']),
-    ('amp', 'Amp', ARRAY['http://localhost:*'], ARRAY['authorization_code'], ARRAY['api']),
-    ('kilo-code', 'Kilo Code', ARRAY['http://localhost:*'], ARRAY['authorization_code'], ARRAY['api']);

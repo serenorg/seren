@@ -87,6 +87,13 @@ struct RegisterRequest {
     grant_types: Option<Vec<String>>,
     #[serde(default)]
     scope: Option<String>,
+    // Optional metadata (RFC 7591)
+    #[serde(default)]
+    client_uri: Option<String>,
+    #[serde(default)]
+    software_id: Option<String>,
+    #[serde(default)]
+    software_version: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -97,6 +104,12 @@ struct RegisterResponse {
     redirect_uris: Vec<String>,
     grant_types: Vec<String>,
     scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_uri: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    software_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    software_version: Option<String>,
 }
 
 async fn register(
@@ -126,8 +139,8 @@ async fn register(
     let secret_hash = hash_secret(&client_secret);
     sqlx::query(
         r#"INSERT INTO mcp_oauth.clients
-           (id, name, secret_hash, redirect_uris, grants, scopes)
-           VALUES ($1, $2, $3, $4, $5, $6)"#,
+           (id, name, secret_hash, redirect_uris, grants, scopes, client_uri, software_id, software_version)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
     )
     .bind(&client_id)
     .bind(&req.client_name)
@@ -135,6 +148,9 @@ async fn register(
     .bind(&req.redirect_uris)
     .bind(&grants)
     .bind(&scopes)
+    .bind(&req.client_uri)
+    .bind(&req.software_id)
+    .bind(&req.software_version)
     .execute(state.store.pool())
     .await
     .map_err(|e| OAuthError::ServerError(e.to_string()))?;
@@ -146,6 +162,9 @@ async fn register(
         redirect_uris: req.redirect_uris,
         grant_types: grants,
         scope: scopes.join(" "),
+        client_uri: req.client_uri,
+        software_id: req.software_id,
+        software_version: req.software_version,
     }))
 }
 
