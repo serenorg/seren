@@ -4,9 +4,10 @@
 //! Seren database projects, branches, and SQL execution.
 
 use rmcp::{
+    ErrorData as McpError, ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{CallToolResult, Content, Extensions, ServerCapabilities, ServerInfo},
-    tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler,
+    tool, tool_handler, tool_router,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

@@ -177,7 +177,7 @@ async fn run_stdio(config: Config) -> Result<()> {
 
 async fn run_http(config: Config) -> Result<()> {
     use rmcp::transport::streamable_http_server::{
-        session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
+        StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
     };
     use std::sync::Arc;
     use tokio_util::sync::CancellationToken;
@@ -281,9 +281,9 @@ async fn run_http(config: Config) -> Result<()> {
 }
 
 async fn run_oauth(config: Config) -> Result<()> {
-    use oauth::{oauth_router, OAuthState};
+    use oauth::{OAuthState, oauth_router};
     use rmcp::transport::streamable_http_server::{
-        session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
+        StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
     };
     use std::sync::Arc;
     use tokio_util::sync::CancellationToken;

@@ -3,9 +3,9 @@ use crate::{
     error::{Error, Result},
     models::*,
 };
-use reqwest::{header, Client as HttpClient, RequestBuilder, StatusCode};
-use serde::de::DeserializeOwned;
+use reqwest::{Client as HttpClient, RequestBuilder, StatusCode, header};
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::time::Duration;
 
 /// Retry configuration matching Neon's SDK

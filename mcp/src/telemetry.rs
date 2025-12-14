@@ -12,14 +12,14 @@
 
 #[cfg(feature = "telemetry")]
 mod otel {
-    use opentelemetry::trace::TracerProvider as _;
     use opentelemetry::KeyValue;
+    use opentelemetry::trace::TracerProvider as _;
     use opentelemetry_otlp::{SpanExporter, WithExportConfig};
-    use opentelemetry_sdk::trace::TracerProvider;
     use opentelemetry_sdk::Resource;
+    use opentelemetry_sdk::trace::TracerProvider;
     use tracing::Subscriber;
-    use tracing_subscriber::registry::LookupSpan;
     use tracing_subscriber::Layer;
+    use tracing_subscriber::registry::LookupSpan;
 
     /// OpenTelemetry provider guard - shuts down on drop
     pub struct TelemetryGuard {
@@ -116,10 +116,10 @@ pub struct TelemetryGuard;
 /// - Console logging only (lean binary for local use)
 #[cfg(feature = "telemetry")]
 pub fn init_subscriber(to_stderr: bool) -> Option<TelemetryGuard> {
+    use tracing_subscriber::EnvFilter;
     use tracing_subscriber::fmt;
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
-    use tracing_subscriber::EnvFilter;
 
     let env_filter = EnvFilter::builder()
         .with_default_directive(tracing::Level::INFO.into())
@@ -153,10 +153,10 @@ pub fn init_subscriber(to_stderr: bool) -> Option<TelemetryGuard> {
 /// Simple console logging only - lean binary for local/self-hosted use.
 #[cfg(not(feature = "telemetry"))]
 pub fn init_subscriber(to_stderr: bool) -> Option<TelemetryGuard> {
+    use tracing_subscriber::EnvFilter;
     use tracing_subscriber::fmt;
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
-    use tracing_subscriber::EnvFilter;
 
     let env_filter = EnvFilter::builder()
         .with_default_directive(tracing::Level::INFO.into())

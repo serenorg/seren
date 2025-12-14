@@ -8,10 +8,10 @@ use progenitor::{GenerationSettings, InterfaceStyle};
 fn collect_refs(value: &serde_json::Value, acc: &mut HashSet<String>) {
     match value {
         serde_json::Value::Object(map) => {
-            if let Some(serde_json::Value::String(reference)) = map.get("$ref") {
-                if let Some(name) = reference.split('/').next_back() {
-                    acc.insert(name.to_string());
-                }
+            if let Some(serde_json::Value::String(reference)) = map.get("$ref")
+                && let Some(name) = reference.split('/').next_back()
+            {
+                acc.insert(name.to_string());
             }
             for v in map.values() {
                 collect_refs(v, acc);

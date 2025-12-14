@@ -2,18 +2,18 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use jiff::Timestamp;
 use oauth2::{
-    basic::BasicClient, reqwest::async_http_client, AuthType, AuthUrl, AuthorizationCode, ClientId,
-    CsrfToken, PkceCodeChallenge, RedirectUrl, Scope, TokenResponse, TokenUrl,
+    AuthType, AuthUrl, AuthorizationCode, ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl,
+    Scope, TokenResponse, TokenUrl, basic::BasicClient, reqwest::async_http_client,
 };
 use serde::Deserialize;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpListener;
 use url::Url;
 
+use crate::OutputFormat;
 use crate::config::Config;
 use crate::defaults::{DEFAULT_API_HOST, DEFAULT_CLIENT_ID, DEFAULT_OAUTH_HOST};
 use crate::output;
-use crate::OutputFormat;
 
 pub async fn login() -> Result<()> {
     println!("{}", "Seren CLI Authentication".bold().green());

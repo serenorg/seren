@@ -4,7 +4,7 @@ use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use seren::{Client, ClientConfig};
 
-use crate::{commands::auth::get_bearer_token, defaults::DEFAULT_API_HOST, output, OutputFormat};
+use crate::{OutputFormat, commands::auth::get_bearer_token, defaults::DEFAULT_API_HOST, output};
 
 async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
     let bearer_token = get_bearer_token(api_key).await?;

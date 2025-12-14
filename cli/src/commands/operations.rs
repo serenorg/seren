@@ -1,8 +1,8 @@
 use anyhow::Result;
 use seren::{Client, ClientConfig};
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
-use crate::{commands::auth::get_bearer_token, output, OutputFormat};
+use crate::{OutputFormat, commands::auth::get_bearer_token, output};
 
 async fn get_client(api_host: Option<String>, api_key: Option<String>) -> Result<Client> {
     let bearer_token = get_bearer_token(api_key).await?;

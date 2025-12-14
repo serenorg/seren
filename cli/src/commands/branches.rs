@@ -10,7 +10,7 @@ use seren::{
 use std::str::FromStr;
 use uuid::Uuid;
 
-use crate::{commands::auth::get_bearer_token, output, OutputFormat};
+use crate::{OutputFormat, commands::auth::get_bearer_token, output};
 
 /// Parse a duration string like "1d", "7d", "30d" into a Timestamp
 fn parse_duration_to_timestamp(duration_str: &str) -> Result<Timestamp> {
@@ -265,25 +265,25 @@ pub async fn create(
 
     let mut connection_uri_for_psql: Option<String> = None;
 
-    if let Some(endpoints) = creation.endpoints.as_ref() {
-        if !endpoints.is_empty() {
-            // Store connection URI for potential psql connection
-            if let Some(ep) = endpoints.first() {
-                if let Some(ref uri) = ep.connection_string {
-                    connection_uri_for_psql = Some(uri.clone());
-                }
-            }
-            println!();
-            // Convert Vec<EndpointCreated> to Vec<EndpointCreatedResponse> for the output function
-            let endpoints_for_output: Vec<seren::EndpointCreatedResponse> = endpoints
-                .iter()
-                .map(|ep| seren::EndpointCreatedResponse {
-                    data: ep.clone(),
-                    pagination: None,
-                })
-                .collect();
-            output::print_created_endpoints(&endpoints_for_output, format)?;
+    if let Some(endpoints) = creation.endpoints.as_ref()
+        && !endpoints.is_empty()
+    {
+        // Store connection URI for potential psql connection
+        if let Some(ep) = endpoints.first()
+            && let Some(ref uri) = ep.connection_string
+        {
+            connection_uri_for_psql = Some(uri.clone());
         }
+        println!();
+        // Convert Vec<EndpointCreated> to Vec<EndpointCreatedResponse> for the output function
+        let endpoints_for_output: Vec<seren::EndpointCreatedResponse> = endpoints
+            .iter()
+            .map(|ep| seren::EndpointCreatedResponse {
+                data: ep.clone(),
+                pagination: None,
+            })
+            .collect();
+        output::print_created_endpoints(&endpoints_for_output, format)?;
     }
 
     // Connect via psql if requested

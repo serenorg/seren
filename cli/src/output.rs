@@ -1,5 +1,5 @@
 use colored::Colorize;
-use comfy_table::{presets::UTF8_FULL, Cell, Color, ContentArrangement, Table};
+use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
 use serde::Serialize;
 
 use crate::OutputFormat;
@@ -203,7 +203,7 @@ pub fn print_branches_table(branches: &[seren::Branch]) {
             Cell::new(branch.id.to_string()),
             Cell::new(&branch.name),
             Cell::new(branch.project_id.to_string()),
-            Cell::new(&branch.timeline_id),
+            Cell::new(branch.timeline_id),
             Cell::new(if branch.protected { "Yes" } else { "No" }),
             Cell::new(if branch.archived { "Yes" } else { "No" }),
             Cell::new(branch.created_at.to_string()),
@@ -234,7 +234,7 @@ pub fn print_branch(branch: &seren::Branch, format: OutputFormat) -> anyhow::Res
             ]);
             table.add_row(vec![
                 Cell::new("Timeline ID"),
-                Cell::new(&branch.timeline_id),
+                Cell::new(branch.timeline_id),
             ]);
             if let Some(parent) = &branch.parent_branch_id {
                 table.add_row(vec![
@@ -395,7 +395,7 @@ pub fn print_payment_methods_table(methods: &[crate::commands::billing::CliPayme
         let brand = method
             .card_brand
             .as_deref()
-            .unwrap_or_else(|| match method.type_.as_str() {
+            .unwrap_or(match method.type_.as_str() {
                 "us_bank_account" => "Bank account",
                 _ => "Payment method",
             });
@@ -403,7 +403,7 @@ pub fn print_payment_methods_table(methods: &[crate::commands::billing::CliPayme
         let last4 = method
             .card_last4
             .as_deref()
-            .or_else(|| method.bank_last4.as_deref())
+            .or(method.bank_last4.as_deref())
             .unwrap_or("????");
 
         let expires = match (method.card_exp_month, method.card_exp_year) {
@@ -612,7 +612,7 @@ pub fn print_endpoints_table(endpoints: &[seren::Endpoint]) {
         let conn_str = endpoint
             .connection_string_direct
             .as_deref()
-            .or_else(|| endpoint.connection_string.as_deref())
+            .or(endpoint.connection_string.as_deref())
             .unwrap_or("");
         table.add_row(vec![
             Cell::new(endpoint.id.to_string()),
@@ -665,7 +665,7 @@ pub fn print_endpoint(endpoint: &seren::Endpoint, format: OutputFormat) -> anyho
             let conn_str = endpoint
                 .connection_string_direct
                 .as_deref()
-                .or_else(|| endpoint.connection_string.as_deref())
+                .or(endpoint.connection_string.as_deref())
                 .unwrap_or("");
             table.add_row(vec![Cell::new("Connection String"), Cell::new(conn_str)]);
             table.add_row(vec![
@@ -713,7 +713,7 @@ pub fn print_create_endpoint_response(
                 .data
                 .connection_string_direct
                 .as_deref()
-                .or_else(|| response.data.connection_string.as_deref())
+                .or(response.data.connection_string.as_deref())
                 .unwrap_or("");
             table.add_row(vec![Cell::new("Connection String"), Cell::new(conn_str)]);
             table.add_row(vec![

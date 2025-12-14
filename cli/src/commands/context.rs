@@ -1,7 +1,7 @@
 use anyhow::Result;
 use colored::Colorize;
 
-use crate::{config::ContextConfig, output, OutputFormat};
+use crate::{OutputFormat, config::ContextConfig, output};
 
 pub async fn set(project_id: Option<String>, org_id: Option<String>) -> Result<()> {
     let mut context = ContextConfig::load()?;

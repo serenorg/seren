@@ -12,17 +12,17 @@
 
 use crate::oauth::store::{AccessToken, AuthRequest, AuthorizationCode, RefreshToken, TokenStore};
 use axum::{
+    Form, Json, Router,
     extract::{Query, State},
     http::StatusCode,
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
-    Form, Json, Router,
 };
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tower_governor::{
-    governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
+    GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor,
 };
 use tracing::debug;
 
@@ -598,10 +598,10 @@ async fn token(
                 .ok_or(OAuthError::InvalidGrant("Invalid or expired code".into()))?;
 
             // Validate client (and optional client_secret)
-            if let Some(client_id) = req.client_id.as_deref() {
-                if client_id != auth_code.client_id {
-                    return Err(OAuthError::InvalidClient);
-                }
+            if let Some(client_id) = req.client_id.as_deref()
+                && client_id != auth_code.client_id
+            {
+                return Err(OAuthError::InvalidClient);
             }
 
             let client = state
@@ -630,14 +630,14 @@ async fn token(
                 return Err(OAuthError::InvalidGrant("redirect_uri mismatch".into()));
             }
 
-            if let Some(challenge) = &auth_code.code_challenge {
-                if !TokenStore::verify_pkce(
+            if let Some(challenge) = &auth_code.code_challenge
+                && !TokenStore::verify_pkce(
                     &code_verifier,
                     challenge,
                     auth_code.code_challenge_method.as_deref(),
-                ) {
-                    return Err(OAuthError::InvalidGrant("PKCE verification failed".into()));
-                }
+                )
+            {
+                return Err(OAuthError::InvalidGrant("PKCE verification failed".into()));
             }
 
             // Persist upstream tokens (access token is used as bearer token on /mcp).
@@ -697,10 +697,10 @@ async fn token(
                 ))?;
 
             // Validate client (and optional client_secret)
-            if let Some(client_id) = req.client_id.as_deref() {
-                if client_id != refresh_token.client_id {
-                    return Err(OAuthError::InvalidClient);
-                }
+            if let Some(client_id) = req.client_id.as_deref()
+                && client_id != refresh_token.client_id
+            {
+                return Err(OAuthError::InvalidClient);
             }
 
             let client = state
@@ -993,8 +993,8 @@ fn is_valid_redirect_uri(uri: &str) -> bool {
 
 fn hash_secret(secret: &str) -> String {
     use argon2::{
-        password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
         Argon2,
+        password_hash::{PasswordHasher, SaltString, rand_core::OsRng},
     };
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
@@ -1006,8 +1006,8 @@ fn hash_secret(secret: &str) -> String {
 
 fn verify_secret(secret: &str, hash: &str) -> bool {
     use argon2::{
-        password_hash::{PasswordHash, PasswordVerifier},
         Argon2,
+        password_hash::{PasswordHash, PasswordVerifier},
     };
     let parsed_hash = match PasswordHash::new(hash) {
         Ok(h) => h,
@@ -1271,8 +1271,8 @@ pub fn oauth_router(state: Arc<OAuthState>) -> Router {
 mod tests {
     use super::*;
 
-    use axum::body::{to_bytes, Body};
-    use axum::http::{header, Request, StatusCode};
+    use axum::body::{Body, to_bytes};
+    use axum::http::{Request, StatusCode, header};
     use tower::ServiceExt;
     use wiremock::matchers::{body_string_contains, header as wm_header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};

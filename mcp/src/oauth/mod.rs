@@ -11,4 +11,4 @@
 pub mod routes;
 pub mod store;
 
-pub use routes::{oauth_router, OAuthState};
+pub use routes::{OAuthState, oauth_router};
