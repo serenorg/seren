@@ -28,12 +28,42 @@ pub struct Client {
 impl Client {
     /// Returns true if the given redirect URI is allowed for this client.
     ///
-    /// Supports exact matches and simple wildcard suffixes like `http://localhost:*`.
+    /// Supports exact matches and localhost port wildcards like `http://localhost:*`.
+    /// Wildcard matching is restricted to prevent security issues:
+    /// - Only `http://localhost:*` or `http://127.0.0.1:*` patterns are allowed
+    /// - The wildcard only matches port numbers (digits only)
+    /// - Path, query, and fragment must match exactly after the port
     pub fn allows_redirect_uri(&self, redirect_uri: &str) -> bool {
         for allowed in &self.redirect_uris {
             if let Some(prefix) = allowed.strip_suffix('*') {
+                // Only allow localhost/127.0.0.1 wildcards for security
+                if !prefix.starts_with("http://localhost:")
+                    && !prefix.starts_with("http://127.0.0.1:")
+                {
+                    // Non-localhost wildcards not allowed
+                    continue;
+                }
+
                 if redirect_uri.starts_with(prefix) {
-                    return true;
+                    // Validate that what follows the prefix is a valid port (digits only)
+                    // followed by optional path/query/fragment
+                    let remainder = &redirect_uri[prefix.len()..];
+                    let port_end = remainder
+                        .find(|c: char| !c.is_ascii_digit())
+                        .unwrap_or(remainder.len());
+
+                    // Port must be non-empty and contain only digits
+                    if port_end > 0 && remainder[..port_end].chars().all(|c| c.is_ascii_digit()) {
+                        // After port, only path separator or end is allowed
+                        let after_port = &remainder[port_end..];
+                        if after_port.is_empty()
+                            || after_port.starts_with('/')
+                            || after_port.starts_with('?')
+                            || after_port.starts_with('#')
+                        {
+                            return true;
+                        }
+                    }
                 }
             } else if allowed == redirect_uri {
                 return true;
@@ -110,6 +140,7 @@ pub struct PendingConsent {
     pub redirect_uri: String,
     pub client_state: Option<String>,
     pub scope: String,
+    pub csrf_token: String,
     pub expires_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
 }
@@ -341,6 +372,28 @@ impl TokenStore {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Update a refresh token with new values (for token rotation)
+    pub async fn update_refresh_token(
+        &self,
+        old_token: &str,
+        new_token: &str,
+        new_access_token: &str,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> Result<bool> {
+        let result = sqlx::query(
+            "UPDATE mcp_oauth.refresh_tokens SET token = $1, access_token = $2, expires_at = $3 WHERE token = $4",
+        )
+        .bind(new_token)
+        .bind(new_access_token)
+        .bind(expires_at)
+        .bind(old_token)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     // === Consent operations ===
 
     /// Returns true if the given user has approved the given OAuth client.
@@ -377,8 +430,8 @@ impl TokenStore {
     pub async fn save_pending_consent(&self, consent: &PendingConsent) -> Result<()> {
         sqlx::query(
             r#"INSERT INTO mcp_oauth.pending_consents
-               (id, user_id, client_id, authorization_code, redirect_uri, client_state, scope, expires_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+               (id, user_id, client_id, authorization_code, redirect_uri, client_state, scope, csrf_token, expires_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
         )
         .bind(&consent.id)
         .bind(&consent.user_id)
@@ -387,6 +440,7 @@ impl TokenStore {
         .bind(&consent.redirect_uri)
         .bind(&consent.client_state)
         .bind(&consent.scope)
+        .bind(&consent.csrf_token)
         .bind(consent.expires_at)
         .execute(&self.pool)
         .await
@@ -397,7 +451,7 @@ impl TokenStore {
     /// Get a pending consent record (without consuming it).
     pub async fn get_pending_consent(&self, id: &str) -> Result<Option<PendingConsent>> {
         let consent = sqlx::query_as::<_, PendingConsent>(
-            r#"SELECT id, user_id, client_id, authorization_code, redirect_uri, client_state, scope, expires_at, created_at
+            r#"SELECT id, user_id, client_id, authorization_code, redirect_uri, client_state, scope, csrf_token, expires_at, created_at
                FROM mcp_oauth.pending_consents
                WHERE id = $1 AND expires_at > NOW()"#,
         )
@@ -414,7 +468,7 @@ impl TokenStore {
         let consent = sqlx::query_as::<_, PendingConsent>(
             r#"DELETE FROM mcp_oauth.pending_consents
                WHERE id = $1 AND expires_at > NOW()
-               RETURNING id, user_id, client_id, authorization_code, redirect_uri, client_state, scope, expires_at, created_at"#,
+               RETURNING id, user_id, client_id, authorization_code, redirect_uri, client_state, scope, csrf_token, expires_at, created_at"#,
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -567,8 +621,62 @@ mod tests {
             updated_at: Utc::now(),
         };
 
+        // Valid localhost wildcards
         assert!(client.allows_redirect_uri("http://localhost:8080/callback"));
         assert!(client.allows_redirect_uri("http://localhost:3000"));
+        assert!(client.allows_redirect_uri("http://localhost:3000/"));
+        assert!(client.allows_redirect_uri("http://localhost:3000?foo=bar"));
+
+        // Security: reject non-localhost
         assert!(!client.allows_redirect_uri("http://example.com:8080"));
+
+        // Security: reject host injection attacks
+        assert!(!client.allows_redirect_uri("http://localhost:8080@evil.com"));
+        assert!(!client.allows_redirect_uri("http://localhost:8080.evil.com"));
+
+        // Security: reject empty port
+        assert!(!client.allows_redirect_uri("http://localhost:/callback"));
+    }
+
+    #[test]
+    fn test_validate_redirect_uri_127_0_0_1_wildcard() {
+        let client = Client {
+            id: "test".into(),
+            name: "Test".into(),
+            secret_hash: None,
+            redirect_uris: vec!["http://127.0.0.1:*".into()],
+            grants: vec!["authorization_code".into()],
+            scopes: vec!["api".into()],
+            client_uri: None,
+            software_id: None,
+            software_version: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        assert!(client.allows_redirect_uri("http://127.0.0.1:8080/callback"));
+        assert!(client.allows_redirect_uri("http://127.0.0.1:3000"));
+        assert!(!client.allows_redirect_uri("http://127.0.0.1:8080@evil.com"));
+    }
+
+    #[test]
+    fn test_validate_redirect_uri_non_localhost_wildcard_rejected() {
+        let client = Client {
+            id: "test".into(),
+            name: "Test".into(),
+            secret_hash: None,
+            redirect_uris: vec!["https://example.com/*".into()],
+            grants: vec!["authorization_code".into()],
+            scopes: vec!["api".into()],
+            client_uri: None,
+            software_id: None,
+            software_version: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        // Non-localhost wildcards should be rejected for security
+        assert!(!client.allows_redirect_uri("https://example.com/callback"));
+        assert!(!client.allows_redirect_uri("https://example.com/anything"));
     }
 }

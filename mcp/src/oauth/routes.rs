@@ -21,6 +21,9 @@ use axum::{
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tower_governor::{
+    governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
+};
 use tracing::debug;
 
 /// OAuth server state.
@@ -182,6 +185,14 @@ async fn register(
         .map(String::from)
         .collect();
 
+    // Validate scopes against allowed whitelist
+    const ALLOWED_SCOPES: &[&str] = &["api", "api:read", "openid", "profile", "email"];
+    for scope in &scopes {
+        if !ALLOWED_SCOPES.contains(&scope.as_str()) {
+            return Err(OAuthError::InvalidScope);
+        }
+    }
+
     let token_endpoint_auth_method = req
         .token_endpoint_auth_method
         .unwrap_or_else(|| "client_secret_post".into());
@@ -275,10 +286,11 @@ async fn authorize(
         .code_challenge
         .ok_or(OAuthError::InvalidRequest("code_challenge required".into()))?;
 
+    // OAuth 2.1 requires S256; plain is insecure and not allowed
     let code_challenge_method = req.code_challenge_method.unwrap_or_else(|| "S256".into());
-    if code_challenge_method != "S256" && code_challenge_method != "plain" {
+    if code_challenge_method != "S256" {
         return Err(OAuthError::InvalidRequest(
-            "code_challenge_method must be S256 or plain".into(),
+            "code_challenge_method must be S256 (plain is not supported)".into(),
         ));
     }
 
@@ -409,13 +421,17 @@ async fn callback(
     if !token_res.status().is_success() {
         let status = token_res.status();
         let body = token_res.text().await.unwrap_or_default();
+        // Log details server-side but don't expose to client
+        tracing::error!(
+            status = %status,
+            body = %body,
+            "Upstream token exchange failed"
+        );
         return redirect_with_error(
             &auth_request.redirect_uri,
             auth_request.client_state.as_deref(),
             "server_error",
-            Some(&format!(
-                "Upstream token exchange failed ({status}): {body}"
-            )),
+            Some("Authorization failed. Please try again."),
         );
     }
 
@@ -502,6 +518,7 @@ async fn callback(
 
     // Not yet approved: create a pending consent record and redirect to a local consent page.
     let consent_id = TokenStore::generate_token();
+    let csrf_token = TokenStore::generate_token();
     let consent_expires_at = Utc::now() + Duration::minutes(10);
     let consent = crate::oauth::store::PendingConsent {
         id: consent_id.clone(),
@@ -511,6 +528,7 @@ async fn callback(
         redirect_uri: auth_request.redirect_uri.clone(),
         client_state: auth_request.client_state.clone(),
         scope: auth_request.scope.clone(),
+        csrf_token,
         expires_at: consent_expires_at,
         created_at: Utc::now(),
     };
@@ -603,7 +621,7 @@ async fn token(
                     .client_secret
                     .as_deref()
                     .ok_or(OAuthError::InvalidClient)?;
-                if hash_secret(provided_secret) != *secret_hash {
+                if !verify_secret(provided_secret, secret_hash) {
                     return Err(OAuthError::InvalidClient);
                 }
             }
@@ -702,7 +720,7 @@ async fn token(
                     .client_secret
                     .as_deref()
                     .ok_or(OAuthError::InvalidClient)?;
-                if hash_secret(provided_secret) != *secret_hash {
+                if !verify_secret(provided_secret, secret_hash) {
                     return Err(OAuthError::InvalidClient);
                 }
             }
@@ -735,10 +753,15 @@ async fn token(
             if !res.status().is_success() {
                 let status = res.status();
                 let body = res.text().await.unwrap_or_default();
-                return Err(OAuthError::InvalidGrant(format!(
-                    "Upstream refresh failed ({}): {}",
-                    status, body
-                )));
+                // Log details server-side but don't expose to client
+                tracing::error!(
+                    status = %status,
+                    body = %body,
+                    "Upstream token refresh failed"
+                );
+                return Err(OAuthError::InvalidGrant(
+                    "Token refresh failed. Please re-authenticate.".into(),
+                ));
             }
 
             let token_body: UpstreamTokenResponse = res
@@ -754,9 +777,10 @@ async fn token(
             let new_expires_at = Utc::now() + Duration::seconds(token_body.expires_in.max(0));
 
             let new_access_token_str = token_body.access_token;
+            // Always rotate refresh token for security (don't reuse the old one)
             let new_refresh_token_str = token_body
                 .refresh_token
-                .unwrap_or_else(|| refresh_token_str.clone());
+                .unwrap_or_else(TokenStore::generate_token);
 
             let new_access_token = AccessToken {
                 token: new_access_token_str.clone(),
@@ -774,17 +798,17 @@ async fn token(
 
             // Update refresh token row first (avoid FK cascade delete).
             let old_access_token = refresh_token.access_token.clone();
-            let result = sqlx::query(
-                "UPDATE mcp_oauth.refresh_tokens SET token = $1, access_token = $2, expires_at = $3 WHERE token = $4",
-            )
-            .bind(&new_refresh_token_str)
-            .bind(&new_access_token_str)
-            .bind(Some(TokenStore::token_expiry(168))) // 7 days
-            .bind(&refresh_token_str)
-            .execute(state.store.pool())
-            .await
-            .map_err(|e| OAuthError::ServerError(e.to_string()))?;
-            if result.rows_affected() == 0 {
+            let updated = state
+                .store
+                .update_refresh_token(
+                    &refresh_token_str,
+                    &new_refresh_token_str,
+                    &new_access_token_str,
+                    Some(TokenStore::token_expiry(168)), // 7 days
+                )
+                .await
+                .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+            if !updated {
                 return Err(OAuthError::InvalidGrant("refresh_token not found".into()));
             }
 
@@ -844,7 +868,7 @@ async fn revoke(
                 .client_secret
                 .as_deref()
                 .ok_or(OAuthError::InvalidClient)?;
-            if hash_secret(provided_secret) != *secret_hash {
+            if !verify_secret(provided_secret, secret_hash) {
                 return Err(OAuthError::InvalidClient);
             }
         }
@@ -901,6 +925,7 @@ enum OAuthError {
     InvalidRequest(String),
     InvalidClient,
     InvalidGrant(String),
+    InvalidScope,
     UnsupportedResponseType,
     UnsupportedGrantType,
     ServerError(String),
@@ -916,6 +941,11 @@ impl IntoResponse for OAuthError {
                 "Client authentication failed".into(),
             ),
             OAuthError::InvalidGrant(desc) => (StatusCode::BAD_REQUEST, "invalid_grant", desc),
+            OAuthError::InvalidScope => (
+                StatusCode::BAD_REQUEST,
+                "invalid_scope",
+                "Requested scope is invalid or not allowed".into(),
+            ),
             OAuthError::UnsupportedResponseType => (
                 StatusCode::BAD_REQUEST,
                 "unsupported_response_type",
@@ -962,9 +992,30 @@ fn is_valid_redirect_uri(uri: &str) -> bool {
 }
 
 fn hash_secret(secret: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let hash = Sha256::digest(secret.as_bytes());
-    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, hash)
+    use argon2::{
+        password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
+        Argon2,
+    };
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    argon2
+        .hash_password(secret.as_bytes(), &salt)
+        .expect("Failed to hash secret")
+        .to_string()
+}
+
+fn verify_secret(secret: &str, hash: &str) -> bool {
+    use argon2::{
+        password_hash::{PasswordHash, PasswordVerifier},
+        Argon2,
+    };
+    let parsed_hash = match PasswordHash::new(hash) {
+        Ok(h) => h,
+        Err(_) => return false,
+    };
+    Argon2::default()
+        .verify_password(secret.as_bytes(), &parsed_hash)
+        .is_ok()
 }
 
 fn pkce_s256_challenge(code_verifier: &str) -> String {
@@ -1093,11 +1144,13 @@ async fn consent_page(
       <div class="row">
         <form method="post" action="/consent">
           <input type="hidden" name="token" value="{token}">
+          <input type="hidden" name="csrf_token" value="{csrf_token}">
           <input type="hidden" name="action" value="approve">
           <button class="approve" type="submit">Approve</button>
         </form>
         <form method="post" action="/consent">
           <input type="hidden" name="token" value="{token}">
+          <input type="hidden" name="csrf_token" value="{csrf_token}">
           <input type="hidden" name="action" value="deny">
           <button class="deny" type="submit">Deny</button>
         </form>
@@ -1108,7 +1161,8 @@ async fn consent_page(
 </html>"#,
         client_name = html_escape(&client.name),
         scope = html_escape(&consent.scope),
-        token = html_escape(&q.token)
+        token = html_escape(&q.token),
+        csrf_token = html_escape(&consent.csrf_token)
     );
 
     Ok(Html(html).into_response())
@@ -1117,6 +1171,7 @@ async fn consent_page(
 #[derive(Debug, Deserialize)]
 struct ConsentForm {
     token: String,
+    csrf_token: String,
     action: String,
 }
 
@@ -1130,6 +1185,18 @@ async fn consent_submit(
         .await
         .map_err(|e| OAuthError::ServerError(e.to_string()))?
         .ok_or_else(|| OAuthError::InvalidGrant("Invalid or expired consent request".into()))?;
+
+    // Verify CSRF token (constant-time comparison to prevent timing attacks)
+    use subtle::ConstantTimeEq;
+    if req
+        .csrf_token
+        .as_bytes()
+        .ct_eq(consent.csrf_token.as_bytes())
+        .unwrap_u8()
+        != 1
+    {
+        return Err(OAuthError::InvalidRequest("Invalid CSRF token".into()));
+    }
 
     match req.action.as_str() {
         "approve" => {
@@ -1169,15 +1236,27 @@ async fn consent_submit(
 }
 
 fn html_escape(input: &str) -> String {
-    input
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
+    html_escape::encode_safe(input).to_string()
 }
 
 pub fn oauth_router(state: Arc<OAuthState>) -> Router {
+    // Rate limiter for /register: 10 requests per minute per IP
+    let register_governor_conf = GovernorConfigBuilder::default()
+        .per_second(6) // refill rate: ~10 per minute
+        .burst_size(10)
+        .key_extractor(SmartIpKeyExtractor)
+        .finish()
+        .expect("Failed to create rate limiter config");
+    let register_limiter = GovernorLayer {
+        config: Arc::new(register_governor_conf),
+    };
+
+    // Separate router for rate-limited /register endpoint
+    let register_router = Router::new()
+        .route("/register", post(register))
+        .layer(register_limiter)
+        .with_state(state.clone());
+
     Router::new()
         .route("/.well-known/oauth-authorization-server", get(metadata))
         .route("/authorize", get(authorize))
@@ -1185,7 +1264,328 @@ pub fn oauth_router(state: Arc<OAuthState>) -> Router {
         .route("/consent", get(consent_page).post(consent_submit))
         .route("/token", post(token))
         .route("/revoke", post(revoke))
-        .route("/register", post(register))
         .route("/_cleanup", post(cleanup))
         .with_state(state)
+        .merge(register_router)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use axum::body::{to_bytes, Body};
+    use axum::http::{header, Request, StatusCode};
+    use tower::ServiceExt;
+    use wiremock::matchers::{body_string_contains, header as wm_header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn integration_tests_enabled() -> bool {
+        std::env::var("SEREN_MCP_INTEGRATION_TESTS")
+            .ok()
+            .map(|v| v.trim().to_ascii_lowercase())
+            .is_some_and(|v| v == "1" || v == "true" || v == "yes" || v == "on")
+    }
+
+    fn find_query_param(url: &reqwest::Url, key: &str) -> Option<String> {
+        url.query_pairs()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.to_string())
+    }
+
+    #[tokio::test]
+    async fn oauth_full_flow_consent_token_and_refresh() {
+        if !integration_tests_enabled() {
+            eprintln!(
+                "skipping oauth integration test; set SEREN_MCP_INTEGRATION_TESTS=1 to enable"
+            );
+            return;
+        }
+
+        use testcontainers::clients::Cli;
+        use testcontainers_modules::postgres::Postgres;
+
+        // Docker container must stay in scope for the duration of the test.
+        let docker = Cli::default();
+        let container = docker.run(Postgres::default());
+        let port = container.get_host_port_ipv4(5432);
+        let database_url = format!("postgres://postgres:postgres@127.0.0.1:{}/postgres", port);
+
+        let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+        let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+        let migrator = sqlx::migrate::Migrator::new(migrations_dir).await.unwrap();
+        migrator.run(&pool).await.unwrap();
+
+        let store = TokenStore::new(pool);
+        let upstream = MockServer::start().await;
+
+        let server_host = "http://mcp.test".to_string();
+        let upstream_client_id = "upstream-client-id".to_string();
+
+        // Upstream token exchange for authorization_code
+        Mock::given(method("POST"))
+            .and(path("/oauth2/token"))
+            .and(body_string_contains("grant_type=authorization_code"))
+            .and(body_string_contains("client_id=upstream-client-id"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "up_access_1",
+                "token_type": "Bearer",
+                "expires_in": 3600,
+                "refresh_token": "up_refresh_1",
+                "scope": "openid profile email",
+            })))
+            .mount(&upstream)
+            .await;
+
+        // Upstream user info
+        Mock::given(method("GET"))
+            .and(path("/auth/me"))
+            .and(wm_header("authorization", "Bearer up_access_1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": { "id": "user-123" }
+            })))
+            .mount(&upstream)
+            .await;
+
+        // Upstream token refresh
+        Mock::given(method("POST"))
+            .and(path("/oauth2/token"))
+            .and(body_string_contains("grant_type=refresh_token"))
+            .and(body_string_contains("refresh_token=up_refresh_1"))
+            .and(body_string_contains("client_id=upstream-client-id"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "up_access_2",
+                "token_type": "Bearer",
+                "expires_in": 3600,
+                "refresh_token": "up_refresh_2",
+                "scope": "openid profile email",
+            })))
+            .mount(&upstream)
+            .await;
+
+        let state = Arc::new(OAuthState {
+            store: store.clone(),
+            http: reqwest::Client::new(),
+            server_host: server_host.clone(),
+            upstream_client_id: upstream_client_id.clone(),
+            upstream_api_base_url: upstream.uri(),
+        });
+        let app = oauth_router(state.clone());
+
+        // 1) Register downstream client (public client, PKCE only)
+        let register_req = serde_json::json!({
+            "client_name": "test-client",
+            "redirect_uris": ["http://localhost/callback"],
+            "response_types": ["code"],
+            "grant_types": ["authorization_code", "refresh_token"],
+            "scope": "api",
+            "token_endpoint_auth_method": "none",
+        });
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/register")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(register_req.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let reg: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let client_id = reg
+            .get("client_id")
+            .and_then(|v| v.as_str())
+            .unwrap()
+            .to_string();
+
+        // 2) Start authorization request (downstream) -> should redirect to upstream authorize
+        let downstream_state = "client-state-xyz";
+        let downstream_code_verifier = "downstream-verifier-123";
+        let downstream_code_challenge = pkce_s256_challenge(downstream_code_verifier);
+
+        let mut authorize_url = reqwest::Url::parse("http://localhost/authorize").unwrap();
+        authorize_url
+            .query_pairs_mut()
+            .append_pair("response_type", "code")
+            .append_pair("client_id", &client_id)
+            .append_pair("redirect_uri", "http://localhost/callback")
+            .append_pair("scope", "api")
+            .append_pair("state", downstream_state)
+            .append_pair("code_challenge", &downstream_code_challenge)
+            .append_pair("code_challenge_method", "S256");
+        let authorize_uri = format!(
+            "{}?{}",
+            authorize_url.path(),
+            authorize_url.query().unwrap()
+        );
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(&authorize_uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::TEMPORARY_REDIRECT);
+        let location = res
+            .headers()
+            .get(header::LOCATION)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        let redirect = reqwest::Url::parse(&location).unwrap();
+        let upstream_state = find_query_param(&redirect, "state").unwrap();
+        let upstream_redirect_uri = find_query_param(&redirect, "redirect_uri").unwrap();
+        assert_eq!(upstream_redirect_uri, format!("{}/callback", server_host));
+
+        // Verify authorize created an auth_request with a verifier matching the upstream challenge.
+        let row: (String,) = sqlx::query_as(
+            "SELECT upstream_code_verifier FROM mcp_oauth.auth_requests WHERE id = $1",
+        )
+        .bind(&upstream_state)
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+        let upstream_code_verifier = row.0;
+        let upstream_code_challenge = find_query_param(&redirect, "code_challenge").unwrap();
+        assert_eq!(
+            upstream_code_challenge,
+            pkce_s256_challenge(&upstream_code_verifier)
+        );
+
+        // 3) Callback from upstream -> should require consent (not yet approved)
+        let mut callback_url = reqwest::Url::parse("http://localhost/callback").unwrap();
+        callback_url
+            .query_pairs_mut()
+            .append_pair("code", "upstream-auth-code")
+            .append_pair("state", &upstream_state);
+        let callback_uri = format!("{}?{}", callback_url.path(), callback_url.query().unwrap());
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(&callback_uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::TEMPORARY_REDIRECT);
+        let consent_location = res
+            .headers()
+            .get(header::LOCATION)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        let consent_redirect = reqwest::Url::parse(&consent_location).unwrap();
+        assert_eq!(consent_redirect.path(), "/consent");
+        let consent_token = find_query_param(&consent_redirect, "token").unwrap();
+
+        // 4) Approve consent -> should redirect back to downstream redirect_uri with code+state
+        let consent_body = "token=".to_string() + &consent_token + "&action=approve";
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/consent")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(consent_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::TEMPORARY_REDIRECT);
+        let downstream_location = res
+            .headers()
+            .get(header::LOCATION)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        let downstream_redirect = reqwest::Url::parse(&downstream_location).unwrap();
+        assert_eq!(downstream_redirect.path(), "/callback");
+        let downstream_code = find_query_param(&downstream_redirect, "code").unwrap();
+        assert_eq!(
+            find_query_param(&downstream_redirect, "state").as_deref(),
+            Some(downstream_state)
+        );
+
+        // 5) Token exchange (downstream) -> should return upstream access token and persist it
+        let token_body = format!(
+            "grant_type=authorization_code&code={}&redirect_uri=http://localhost/callback&client_id={}&code_verifier={}",
+            downstream_code,
+            client_id,
+            downstream_code_verifier
+        );
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/token")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(token_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let token_res: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            token_res.get("access_token").and_then(|v| v.as_str()),
+            Some("up_access_1")
+        );
+        assert_eq!(
+            token_res.get("refresh_token").and_then(|v| v.as_str()),
+            Some("up_refresh_1")
+        );
+        assert_eq!(
+            token_res.get("token_type").and_then(|v| v.as_str()),
+            Some("Bearer")
+        );
+
+        // 6) Refresh token (downstream) -> should call upstream refresh and return new tokens
+        let refresh_body = format!(
+            "grant_type=refresh_token&refresh_token=up_refresh_1&client_id={}",
+            client_id
+        );
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/token")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(refresh_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let refresh_res: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            refresh_res.get("access_token").and_then(|v| v.as_str()),
+            Some("up_access_2")
+        );
+        assert_eq!(
+            refresh_res.get("refresh_token").and_then(|v| v.as_str()),
+            Some("up_refresh_2")
+        );
+        assert_eq!(
+            refresh_res.get("token_type").and_then(|v| v.as_str()),
+            Some("Bearer")
+        );
+    }
 }

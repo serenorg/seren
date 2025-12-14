@@ -326,7 +326,7 @@ async fn run_oauth(config: Config) -> Result<()> {
         let store = store.clone();
         let ct = ct.clone();
         async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(600));
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
             loop {
                 tokio::select! {
                     _ = ct.cancelled() => break,
@@ -427,4 +427,79 @@ async fn run_oauth(config: Config) -> Result<()> {
         .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    #[test]
+    fn extract_bearer_token_is_case_insensitive_and_trims() {
+        let request = Request::builder()
+            .uri("http://localhost/")
+            .header(axum::http::header::AUTHORIZATION, "bEaReR   token123  ")
+            .body(Body::empty())
+            .unwrap();
+
+        assert_eq!(extract_bearer_token(&request), Some("token123"));
+
+        let request = Request::builder()
+            .uri("http://localhost/")
+            .header(axum::http::header::AUTHORIZATION, "Basic abc")
+            .body(Body::empty())
+            .unwrap();
+
+        assert_eq!(extract_bearer_token(&request), None);
+    }
+
+    #[tokio::test]
+    async fn require_simple_auth_enforces_bearer_token() {
+        let app = axum::Router::new()
+            .route("/", axum::routing::get(|| async { "ok" }))
+            .layer(axum::middleware::from_fn_with_state(
+                SimpleAuthState {
+                    token: "secret".to_string(),
+                },
+                require_simple_auth,
+            ));
+
+        // Missing auth => 401
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+
+        // Wrong token => 401
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .header(axum::http::header::AUTHORIZATION, "Bearer wrong")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+
+        // Correct token (case-insensitive scheme) => 200
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .header(axum::http::header::AUTHORIZATION, "bearer secret")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+    }
 }

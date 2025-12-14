@@ -14,6 +14,7 @@ version = "0.1.0"
 
 [workspace.dependencies]
 anyhow = "1"
+argon2 = "0.5"
 async-stream = "0.3"
 async-trait = "0.1"
 axum = "0.8"
@@ -25,6 +26,7 @@ comfy-table = "7"
 colored = "2"
 dirs = "5"
 futures = "0.3"
+html-escape = "0.2"
 jiff = { version = "0.2.15", features = ["serde"] }
 oauth2 = "4.4"
 openapiv3 = "2"
@@ -40,12 +42,14 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
-sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono"] }
+subtle = "2"
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "migrate"] }
 syn = { version = "2", default-features = false, features = ["full"] }
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
 toml = "0.8"
 tower = "0.5"
+tower_governor = "0.6"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-opentelemetry = "0.28"
