@@ -844,7 +844,7 @@ enum VpcProjectAction {
 enum BillingAction {
     /// Generate monthly invoices for all organizations
     GenerateInvoices {
-        /// Year (e.g., 2024)
+        /// Year (e.g., 2025)
         #[arg(long)]
         year: i32,
 

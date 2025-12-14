@@ -118,7 +118,7 @@ seren branches --project-id <id> create --name feature-branch
 
 # Create from parent with point-in-time recovery
 seren branches --project-id <id> create --name restore-branch \
-  --parent <parent-id> --parent-timestamp "2024-01-15T10:00:00Z"
+  --parent <parent-id> --parent-timestamp "2025-01-15T10:00:00Z"
 
 # Create with auto-expiration
 seren branches --project-id <id> create --name temp-branch --expires-in 7d
@@ -140,7 +140,7 @@ seren branches --project-id <id> reset <branch-id>
 # Restore branch (point-in-time recovery)
 seren branches --project-id <id> restore <branch-id> \
   --source ^self --preserve-under-name backup \
-  --timestamp "2024-01-15T10:00:00Z"
+  --timestamp "2025-01-15T10:00:00Z"
 
 # Delete a branch
 seren branches --project-id <id> delete <branch-id>
@@ -333,7 +333,7 @@ seren billing list-payment-methods
 
 # Get usage summary
 seren billing get-usage --organization-id <id> \
-  --start-date 2024-01-01 --end-date 2024-01-31
+  --start-date 2025-01-01 --end-date 2025-01-31
 ```
 
 ## Context Management
