@@ -83,9 +83,50 @@ sudo mv seren-mcp /usr/local/bin/
 
 ### Claude Desktop Setup
 
-1. Open Claude Desktop settings
-2. Navigate to the MCP configuration
-3. Add the Seren server configuration:
+#### Method 1: Using the Hosted Remote Server (Recommended)
+
+The easiest way to use Seren MCP is through our hosted server at `mcp.serendb.com`. No local installation required!
+
+**Using the Claude CLI:**
+
+```bash
+# Add hosted Seren MCP server globally (recommended - available in all conversations)
+claude mcp add --scope user --transport http seren https://mcp.serendb.com/mcp
+
+# Or add to current project only
+claude mcp add --scope local --transport http seren https://mcp.serendb.com/mcp
+```
+
+**Manual configuration:**
+
+```json
+{
+  "mcpServers": {
+    "seren": {
+      "url": "https://mcp.serendb.com/mcp",
+      "transport": "streamable-http"
+    }
+  }
+}
+```
+
+When you first use the MCP server, you'll be prompted to authorize Claude to access your SerenDB account via OAuth 2.1.
+
+#### Method 2: Using the Local Server
+
+If you need to run the MCP server locally (for development or offline use):
+
+**Using the Claude CLI:**
+
+```bash
+# If you have seren-mcp installed globally
+claude mcp add seren seren-mcp start
+
+# With custom API key
+claude mcp add seren seren-mcp start --env SEREN_API_KEY=seren_...
+```
+
+**Manual configuration:**
 
 ```json
 {
@@ -101,8 +142,7 @@ sudo mv seren-mcp /usr/local/bin/
 }
 ```
 
-4. Restart Claude Desktop
-5. Start a conversation and ask Claude to help with your SerenDB databases
+After adding the server configuration (either method), restart Claude Desktop and you can start using Seren MCP in your conversations!
 
 ## Usage Examples
 
