@@ -88,7 +88,7 @@ pub async fn create(
 
     // Set context if requested
     if set_context {
-        crate::config::set_context_project(&project.data.id.to_string()).await?;
+        crate::config::set_context_project(&project.data.id.to_string())?;
         println!(
             "{}",
             format!("✓ Set project '{}' as current context", project.data.name).green()

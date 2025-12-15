@@ -132,7 +132,7 @@ async fn login_oauth() -> Result<()> {
 
     // Save credentials
     let config = Config::from_oauth(access_token, refresh_token, expires_at);
-    config.save().await?;
+    config.save()?;
 
     println!();
     println!("{}", "✓ Successfully authenticated!".green().bold());
@@ -163,7 +163,7 @@ async fn login_api_key() -> Result<()> {
     verify_token(&api_key, &api_host).await?;
 
     let config = Config::from_api_key(api_key);
-    config.save().await?;
+    config.save()?;
 
     println!();
     println!("{}", "✓ Successfully authenticated!".green().bold());
@@ -243,7 +243,7 @@ fn receive_callback(listener: TcpListener) -> Result<(String, CsrfToken)> {
 }
 
 pub async fn status() -> Result<()> {
-    match Config::load().await {
+    match Config::load() {
         Ok(config) => {
             println!("{}", "✓ Authenticated".green().bold());
 
@@ -268,7 +268,7 @@ pub async fn status() -> Result<()> {
                 }
             }
 
-            if let Ok(path) = Config::config_path().await {
+            if let Ok(path) = Config::config_path() {
                 println!("Config: {}", path.display());
             }
         }
@@ -282,7 +282,7 @@ pub async fn status() -> Result<()> {
 }
 
 pub async fn logout() -> Result<()> {
-    Config::delete().await?;
+    Config::delete()?;
     println!("{}", "✓ Successfully logged out".green().bold());
     Ok(())
 }
@@ -351,7 +351,7 @@ pub async fn get_bearer_token(api_key_override: Option<String>) -> Result<String
     }
 
     // Priority 2: Stored credentials
-    let mut config = Config::load().await?;
+    let mut config = Config::load()?;
     maybe_refresh_oauth_token(&mut config).await?;
 
     config
@@ -403,7 +403,7 @@ async fn maybe_refresh_oauth_token(config: &mut Config) -> Result<()> {
     config.access_token = Some(refreshed.access_token);
     config.refresh_token = Some(refresh_token);
     config.expires_at = Some(expires_at);
-    config.save_silent().await?;
+    config.save_silent()?;
 
     Ok(())
 }
