@@ -4,6 +4,7 @@ use crate::error::{McpError, Result};
 pub struct Config {
     pub auth: AuthConfig,
     pub api_base_url: String,
+    pub oauth_redirect_base_url: String,
     pub host: String,
     pub port: u16,
 }
@@ -24,6 +25,8 @@ impl Config {
     pub fn from_env_for_command(command: &str) -> Result<Self> {
         let api_base_url =
             std::env::var("SEREN_API_URL").unwrap_or_else(|_| "https://api.serendb.com/api".into());
+        let oauth_redirect_base_url =
+            std::env::var("SEREN_OAUTH_REDIRECT_BASE_URL").unwrap_or_else(|_| api_base_url.clone());
 
         let auth = match command {
             "start" | "start:http" => {
@@ -55,6 +58,7 @@ impl Config {
         Ok(Self {
             auth,
             api_base_url,
+            oauth_redirect_base_url,
             host: std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into()),
             port: std::env::var("PORT")
                 .unwrap_or_else(|_| "3000".into())

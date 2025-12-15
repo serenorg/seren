@@ -39,8 +39,10 @@ pub struct OAuthState {
     pub server_host: String,
     /// Client id used with SerenCore `/api/oauth2/*` endpoints.
     pub upstream_client_id: String,
-    /// Base URL for SerenCore API (e.g. `https://api.serendb.com/api`).
+    /// Base URL for SerenCore API for server-to-server calls (e.g. `http://serencore.svc.cluster.local/api`).
     pub upstream_api_base_url: String,
+    /// Base URL for SerenCore API used in OAuth browser redirects (e.g. `https://api.serendb.com/api`).
+    pub upstream_oauth_redirect_base_url: String,
     /// Circuit breaker for upstream API resilience.
     pub circuit_breaker: Arc<OAuthCircuitBreaker>,
 }
@@ -141,6 +143,11 @@ async fn register(
     State(state): State<Arc<OAuthState>>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<RegisterResponse>, OAuthError> {
+    tracing::info!(
+        "Client registration request: client_name={}",
+        req.client_name
+    );
+
     if req.client_name.trim().is_empty() {
         return Err(OAuthError::InvalidRequest("client_name is required".into()));
     }
@@ -346,9 +353,9 @@ async fn authorize(
     let upstream_redirect_uri = format!("{}/callback", state.server_host.trim_end_matches('/'));
     let mut url = reqwest::Url::parse(&format!(
         "{}/oauth2/authorize",
-        state.upstream_api_base_url.trim_end_matches('/')
+        state.upstream_oauth_redirect_base_url.trim_end_matches('/')
     ))
-    .map_err(|_| OAuthError::ServerError("Invalid upstream_api_base_url".into()))?;
+    .map_err(|_| OAuthError::ServerError("Invalid upstream_oauth_redirect_base_url".into()))?;
 
     url.query_pairs_mut()
         .append_pair("client_id", &state.upstream_client_id)
@@ -1499,6 +1506,7 @@ mod tests {
             server_host: server_host.clone(),
             upstream_client_id: upstream_client_id.clone(),
             upstream_api_base_url: upstream.uri(),
+            upstream_oauth_redirect_base_url: upstream.uri(),
             circuit_breaker: crate::oauth::circuit_breaker::create_oauth_circuit_breaker(),
         });
         let app = oauth_router(state.clone());

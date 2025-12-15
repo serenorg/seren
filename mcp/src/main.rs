@@ -337,6 +337,7 @@ async fn run_oauth(config: Config) -> Result<()> {
     tracing::info!("Connected to OAuth database");
 
     let api_base_url = config.api_base_url.clone();
+    let oauth_redirect_base_url = config.oauth_redirect_base_url.clone();
     let api_base_url_for_service = api_base_url.clone();
 
     let ct = CancellationToken::new();
@@ -416,6 +417,7 @@ async fn run_oauth(config: Config) -> Result<()> {
         server_host: server_host.clone(),
         upstream_client_id: client_id,
         upstream_api_base_url: api_base_url,
+        upstream_oauth_redirect_base_url: oauth_redirect_base_url,
         circuit_breaker: oauth::circuit_breaker::create_oauth_circuit_breaker(),
     });
 
@@ -447,6 +449,7 @@ async fn run_oauth(config: Config) -> Result<()> {
         .merge(oauth_router(oauth_state))
         .merge(mcp_router)
         .layer(cors)
+        .layer(tower_http::trace::TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn(middleware::request_id_middleware));
 
     let addr = format!("{}:{}", config.host, config.port);
