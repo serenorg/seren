@@ -1,15 +1,9 @@
 use crate::error::{Error, Result};
 
-/// Default API base URL
+/// Default API host URL (production).
 ///
-/// Automatically selected based on build profile:
-/// - Debug builds (`cargo build`): http://localhost:8080
-/// - Release builds (`cargo build --release`): https://api.serendb.com
-const DEFAULT_API_HOST: &str = if cfg!(debug_assertions) {
-    "http://localhost:8080"
-} else {
-    "https://api.serendb.com"
-};
+/// Local/development endpoints can be configured via [`ClientConfig::with_base_url`].
+const DEFAULT_API_HOST: &str = "https://api.serendb.com";
 
 /// Configuration for the Seren API client
 #[derive(Debug, Clone)]
@@ -17,7 +11,7 @@ pub struct ClientConfig {
     /// API key for authentication (format: seren_...)
     pub api_key: String,
 
-    /// Base URL for the API (default: set at compile-time via build profile)
+    /// Base URL for the API (default: `https://api.serendb.com/api`)
     pub base_url: String,
 
     /// Request timeout in seconds (default: 60)

@@ -10,6 +10,11 @@ keywords = ["seren", "database", "sdk", "api"]
 categories = ["api-bindings", "database"]
 readme = "README.md"
 
+[lib]
+# The SDK is largely generated from OpenAPI. The generated docs currently contain
+# doctest blocks that reference internal server crates and fail to compile.
+doctest = false
+
 [dependencies]
 tokio = { workspace = true }
 reqwest = { workspace = true, default-features = false }
