@@ -10,6 +10,7 @@
 //! This server acts as the OAuth authorization server for MCP clients, but delegates
 //! actual user authentication to SerenCore via `/api/oauth2/*` (Authorization Code + PKCE).
 
+use crate::oauth::circuit_breaker::OAuthCircuitBreaker;
 use crate::oauth::store::{
     AccessToken, AuthRequest, AuthorizationCode, REFRESH_TOKEN_TTL_HOURS, RefreshToken, TokenStore,
 };
@@ -40,6 +41,8 @@ pub struct OAuthState {
     pub upstream_client_id: String,
     /// Base URL for SerenCore API (e.g. `https://api.serendb.com/api`).
     pub upstream_api_base_url: String,
+    /// Circuit breaker for upstream API resilience.
+    pub circuit_breaker: Arc<OAuthCircuitBreaker>,
 }
 
 const SUPPORTED_GRANT_TYPES: &[&str] = &["authorization_code", "refresh_token"];
@@ -412,6 +415,7 @@ async fn callback(
                 auth_request.upstream_code_verifier.as_str(),
             ),
         ],
+        &state.circuit_breaker,
     )
     .await
     {
@@ -454,6 +458,7 @@ async fn callback(
         &state.http,
         &state.upstream_api_base_url,
         &token_body.access_token,
+        &state.circuit_breaker,
     )
     .await
     .ok_or_else(|| OAuthError::ServerError("Failed to fetch user id".into()))?;
@@ -710,6 +715,7 @@ async fn token(
                     ("refresh_token", refresh_token_str.as_str()),
                     ("client_id", state.upstream_client_id.as_str()),
                 ],
+                &state.circuit_breaker,
             )
             .await?;
 
@@ -931,18 +937,35 @@ async fn exchange_upstream_token(
     http_client: &reqwest::Client,
     upstream_api_base_url: &str,
     params: Vec<(&str, &str)>,
+    circuit_breaker: &Arc<OAuthCircuitBreaker>,
 ) -> Result<UpstreamTokenResponse, OAuthError> {
+    // Check circuit breaker before making request
+    if !circuit_breaker.is_call_permitted() {
+        tracing::warn!("Circuit breaker open - rejecting upstream token request");
+        return Err(OAuthError::ServerError(
+            "Upstream service temporarily unavailable - please try again later".into(),
+        ));
+    }
+
     let token_url = format!(
         "{}/oauth2/token",
         upstream_api_base_url.trim_end_matches('/')
     );
 
-    let res = http_client
-        .post(token_url)
-        .form(&params)
-        .send()
-        .await
-        .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+    // Execute request
+    let res = match http_client.post(token_url).form(&params).send().await {
+        Ok(response) => {
+            circuit_breaker.record_success();
+            response
+        }
+        Err(e) => {
+            circuit_breaker.record_failure();
+            return Err(OAuthError::ServerError(format!(
+                "Upstream request failed: {}",
+                e
+            )));
+        }
+    };
 
     if !res.status().is_success() {
         let status = res.status();
@@ -1037,12 +1060,33 @@ async fn fetch_user_id(
     http: &reqwest::Client,
     api_base_url: &str,
     access_token: &str,
+    circuit_breaker: &Arc<OAuthCircuitBreaker>,
 ) -> Option<String> {
-    let url = format!("{}/auth/me", api_base_url.trim_end_matches('/'));
-    let res = http.get(url).bearer_auth(access_token).send().await.ok()?;
-    if !res.status().is_success() {
+    // Check circuit breaker before making request
+    if !circuit_breaker.is_call_permitted() {
+        tracing::warn!("Circuit breaker open - rejecting upstream user info request");
         return None;
     }
+
+    let url = format!("{}/auth/me", api_base_url.trim_end_matches('/'));
+
+    // Execute request
+    let res = match http.get(url).bearer_auth(access_token).send().await {
+        Ok(response) => {
+            if response.status().is_success() {
+                circuit_breaker.record_success();
+                response
+            } else {
+                circuit_breaker.record_failure();
+                return None;
+            }
+        }
+        Err(_) => {
+            circuit_breaker.record_failure();
+            return None;
+        }
+    };
+
     let v: serde_json::Value = res.json().await.ok()?;
     v.get("data")
         .and_then(|d| d.get("id"))
@@ -1406,6 +1450,7 @@ mod tests {
             server_host: server_host.clone(),
             upstream_client_id: upstream_client_id.clone(),
             upstream_api_base_url: upstream.uri(),
+            circuit_breaker: crate::oauth::circuit_breaker::create_oauth_circuit_breaker(),
         });
         let app = oauth_router(state.clone());
 

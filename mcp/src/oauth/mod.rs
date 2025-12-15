@@ -8,6 +8,7 @@
 //! - RFC 8414 Authorization Server Metadata
 //! - RFC 7591 Dynamic Client Registration
 
+pub(crate) mod circuit_breaker;
 pub mod routes;
 pub mod store;
 

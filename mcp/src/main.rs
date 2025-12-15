@@ -416,6 +416,7 @@ async fn run_oauth(config: Config) -> Result<()> {
         server_host: server_host.clone(),
         upstream_client_id: client_id,
         upstream_api_base_url: api_base_url,
+        circuit_breaker: oauth::circuit_breaker::create_oauth_circuit_breaker(),
     });
 
     // Clone store for health check before moving it
