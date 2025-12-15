@@ -1063,12 +1063,15 @@ async fn fetch_user_id(
 ///
 /// This endpoint triggers cleanup of expired authorization codes, access tokens,
 /// and refresh tokens. It can be called periodically by a cron job or health check.
+/// Uses batch limits to prevent table locks.
 async fn cleanup(State(state): State<Arc<OAuthState>>) -> Result<StatusCode, OAuthError> {
-    state
+    let deleted = state
         .store
-        .cleanup_expired()
+        .cleanup_expired(Some(1000))
         .await
         .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+
+    tracing::info!(deleted_count = deleted, "Cleaned up expired OAuth records");
     Ok(StatusCode::OK)
 }
 

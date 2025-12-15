@@ -503,14 +503,18 @@ impl TokenStore {
 
     // === Utility operations ===
 
-    /// Clean up expired tokens and codes
-    pub async fn cleanup_expired(&self) -> Result<()> {
-        sqlx::query("SELECT mcp_oauth.cleanup_expired()")
-            .execute(&self.pool)
+    /// Clean up expired tokens and codes with optional batch limit
+    /// Returns the number of records deleted
+    pub async fn cleanup_expired(&self, batch_limit: Option<i32>) -> Result<i64> {
+        let limit = batch_limit.unwrap_or(1000);
+
+        let row: (i32,) = sqlx::query_as("SELECT mcp_oauth.cleanup_expired($1)")
+            .bind(limit)
+            .fetch_one(&self.pool)
             .await
             .map_err(McpError::Database)?;
 
-        Ok(())
+        Ok(row.0 as i64)
     }
 
     /// Generate a secure random token
