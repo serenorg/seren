@@ -59,7 +59,6 @@ struct EnvInitResult {
     env_path: String,
     key: String,
     pooled: bool,
-    prisma: bool,
 }
 
 /// Initialize a .env file with a Seren connection string.
@@ -70,7 +69,6 @@ pub async fn init(
     env_path: &str,
     key: &str,
     pooled: bool,
-    prisma: bool,
     yes: bool,
     ctx: &CommandContext,
 ) -> Result<()> {
@@ -125,42 +123,11 @@ pub async fn init(
     let ssl_mode = Some("require");
     let mut active = conn.data.connection_string.clone();
 
-    let apply_ssl = |s: &str, ssl_mode: &str| -> String {
-        if let Some(idx) = s.find('?') {
-            let (base, query) = s.split_at(idx);
-            let params: Vec<&str> = query[1..]
-                .split('&')
-                .filter(|p| !p.starts_with("sslmode="))
-                .collect();
-            let base_str = if params.is_empty() {
-                base.to_string()
-            } else {
-                format!("{}?{}", base, params.join("&"))
-            };
-
-            if base_str.contains('?') {
-                format!("{}&sslmode={}", base_str, ssl_mode)
-            } else {
-                format!("{}?sslmode={}", base_str, ssl_mode)
-            }
-        } else if s.is_empty() {
-            s.to_string()
-        } else {
-            format!("{}?sslmode={}", s, ssl_mode)
-        }
-    };
-
     if let Some(mode) = ssl_mode {
-        active = apply_ssl(&active, mode);
+        active = output::apply_sslmode(&active, mode);
     }
 
-    let value_to_write = if prisma {
-        format!("DATABASE_URL=\"{}\"", active)
-    } else {
-        active.clone()
-    };
-
-    write_env_value(env_path, key, &value_to_write)?;
+    write_env_value(env_path, key, &active)?;
 
     let result = EnvInitResult {
         project_id: project_id.clone(),
@@ -168,7 +135,6 @@ pub async fn init(
         env_path: env_path.to_string(),
         key: key.to_string(),
         pooled,
-        prisma,
     };
 
     match ctx.format {
@@ -200,10 +166,6 @@ pub async fn init(
             table.add_row(vec![
                 Cell::new("Pooled"),
                 Cell::new(if result.pooled { "yes" } else { "no" }),
-            ]);
-            table.add_row(vec![
-                Cell::new("Prisma fmt"),
-                Cell::new(if result.prisma { "yes" } else { "no" }),
             ]);
 
             println!("{table}");

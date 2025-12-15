@@ -3,7 +3,7 @@ use colored::Colorize;
 use jiff::Timestamp;
 use oauth2::{
     AuthType, AuthUrl, AuthorizationCode, ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl,
-    Scope, TokenResponse, TokenUrl, basic::BasicClient, reqwest::async_http_client,
+    Scope, TokenResponse, TokenUrl, basic::BasicClient,
 };
 use serde::Deserialize;
 use std::io::{self, BufRead, BufReader, Write};
@@ -12,7 +12,7 @@ use url::Url;
 
 use crate::OutputFormat;
 use crate::config::Config;
-use crate::defaults::{DEFAULT_API_HOST, DEFAULT_CLIENT_ID, DEFAULT_OAUTH_HOST};
+use crate::defaults::{DEFAULT_API_HOST, DEFAULT_CLIENT_ID, DEFAULT_OAUTH_HOST, api_base_url};
 use crate::output;
 
 const ACCESS_TOKEN_DEFAULT_TTL_SECS: i64 = 900; // 15 minutes
@@ -60,14 +60,14 @@ async fn login_oauth() -> Result<()> {
     let client_id =
         std::env::var("SEREN_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
 
-    let client = BasicClient::new(
-        ClientId::new(client_id.clone()),
-        None,
-        AuthUrl::new(format!("{}/api/oauth2/authorize", oauth_host))?,
-        Some(TokenUrl::new(format!("{}/api/oauth2/token", oauth_host))?),
-    )
-    .set_auth_type(AuthType::RequestBody)
-    .set_redirect_uri(RedirectUrl::new(redirect_url.clone())?);
+    let client = BasicClient::new(ClientId::new(client_id.clone()))
+        .set_auth_uri(AuthUrl::new(format!(
+            "{}/api/oauth2/authorize",
+            oauth_host
+        ))?)
+        .set_token_uri(TokenUrl::new(format!("{}/api/oauth2/token", oauth_host))?)
+        .set_auth_type(AuthType::RequestBody)
+        .set_redirect_uri(RedirectUrl::new(redirect_url.clone())?);
 
     // Generate PKCE challenge
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
@@ -103,11 +103,17 @@ async fn login_oauth() -> Result<()> {
 
     println!("Exchanging authorization code for tokens...");
 
+    // Avoid following redirects during token exchange.
+    let http_client = reqwest::ClientBuilder::new()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .context("Failed to build OAuth HTTP client")?;
+
     // Exchange code for token
     let token_result = client
         .exchange_code(AuthorizationCode::new(code))
         .set_pkce_verifier(pkce_verifier)
-        .request_async(async_http_client)
+        .request_async(&http_client)
         .await?;
 
     let access_token = token_result.access_token().secret().to_string();
@@ -175,7 +181,7 @@ async fn login_api_key() -> Result<()> {
 
 async fn verify_token(token: &str, api_host: &str) -> Result<()> {
     let client = reqwest::Client::new();
-    let url = format!("{}/api/auth/me", api_host);
+    let url = format!("{}/auth/me", api_base_url(api_host));
 
     let response = client
         .get(&url)
@@ -305,9 +311,8 @@ pub async fn me(
     let bearer_token = get_bearer_token(api_key).await?;
 
     let mut client_config = seren::ClientConfig::new(bearer_token);
-    if let Some(base_url) = api_host {
-        client_config = client_config.with_base_url(base_url);
-    }
+    let host = api_host.unwrap_or_else(|| DEFAULT_API_HOST.to_string());
+    client_config = client_config.with_base_url(api_base_url(&host));
 
     let client = seren::Client::new(client_config)?;
     let user = client.me().await?;
@@ -328,9 +333,8 @@ pub async fn organizations(
     let bearer_token = get_bearer_token(api_key).await?;
 
     let mut client_config = seren::ClientConfig::new(bearer_token);
-    if let Some(base_url) = api_host {
-        client_config = client_config.with_base_url(base_url);
-    }
+    let host = api_host.unwrap_or_else(|| DEFAULT_API_HOST.to_string());
+    client_config = client_config.with_base_url(api_base_url(&host));
 
     let client = seren::Client::new(client_config)?;
     let orgs = client.organizations().await?;

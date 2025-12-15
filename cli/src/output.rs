@@ -4,6 +4,32 @@ use serde::Serialize;
 
 use crate::OutputFormat;
 
+/// Apply or replace the `sslmode` query parameter in a PostgreSQL connection string.
+pub fn apply_sslmode(dsn: &str, ssl_mode: &str) -> String {
+    if let Some(idx) = dsn.find('?') {
+        let (base, query) = dsn.split_at(idx);
+        let params: Vec<&str> = query[1..]
+            .split('&')
+            .filter(|p| !p.starts_with("sslmode="))
+            .collect();
+        let base_str = if params.is_empty() {
+            base.to_string()
+        } else {
+            format!("{}?{}", base, params.join("&"))
+        };
+
+        if base_str.contains('?') {
+            format!("{}&sslmode={}", base_str, ssl_mode)
+        } else {
+            format!("{}?sslmode={}", base_str, ssl_mode)
+        }
+    } else if dsn.is_empty() {
+        dsn.to_string()
+    } else {
+        format!("{}?sslmode={}", dsn, ssl_mode)
+    }
+}
+
 pub fn print_json<T: Serialize + ?Sized>(data: &T) -> anyhow::Result<()> {
     let json = serde_json::to_string_pretty(data)?;
     println!("{}", json);
@@ -730,95 +756,37 @@ pub fn print_create_endpoint_response(
 // Connection String
 pub fn print_connection_string(
     response: &seren::ConnectionStringResponse,
-    _pooled: bool,
-    prisma: bool,
     ssl: Option<&str>,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     // Start from the single canonical connection string returned by the API.
     let mut active = response.data.connection_string.clone();
 
-    // Helper to apply / replace sslmode in a DSN.
-    let apply_ssl = |s: &str, ssl_mode: &str| -> String {
-        if let Some(idx) = s.find('?') {
-            let (base, query) = s.split_at(idx);
-            let params: Vec<&str> = query[1..]
-                .split('&')
-                .filter(|p| !p.starts_with("sslmode="))
-                .collect();
-            let base_str = if params.is_empty() {
-                base.to_string()
-            } else {
-                format!("{}?{}", base, params.join("&"))
-            };
-
-            if base_str.contains('?') {
-                format!("{}&sslmode={}", base_str, ssl_mode)
-            } else {
-                format!("{}?sslmode={}", base_str, ssl_mode)
-            }
-        } else if s.is_empty() {
-            s.to_string()
-        } else {
-            format!("{}?sslmode={}", s, ssl_mode)
-        }
-    };
-
     // Apply SSL override on the single active DSN.
     if let Some(ssl_mode) = ssl {
-        active = apply_ssl(&active, ssl_mode);
+        active = apply_sslmode(&active, ssl_mode);
     }
 
-    // Format for Prisma if requested
-    if prisma {
-        // Prisma format wraps the connection string in quotes and adds schema parameter
-        let prisma_str = format!("DATABASE_URL=\"{}\"", active);
-        match format {
-            OutputFormat::Json => {
-                let json_obj = serde_json::json!({
-                    "connection_string": active,
-                    "prisma_format": prisma_str
-                });
-                println!("{}", serde_json::to_string_pretty(&json_obj)?);
-            }
-            OutputFormat::Table => {
-                let mut table = Table::new();
-                table
-                    .load_preset(UTF8_FULL)
-                    .set_content_arrangement(ContentArrangement::Dynamic);
-
-                table.add_row(vec![
-                    Cell::new("Field").fg(Color::Green),
-                    Cell::new("Value").fg(Color::Green),
-                ]);
-                table.add_row(vec![Cell::new("Connection String"), Cell::new(&active)]);
-                table.add_row(vec![Cell::new("Prisma Format"), Cell::new(&prisma_str)]);
-
-                println!("{table}");
-            }
+    match format {
+        OutputFormat::Json => {
+            let json_obj = serde_json::json!({
+                "connection_string": active
+            });
+            println!("{}", serde_json::to_string_pretty(&json_obj)?);
         }
-    } else {
-        match format {
-            OutputFormat::Json => {
-                let json_obj = serde_json::json!({
-                    "connection_string": active
-                });
-                println!("{}", serde_json::to_string_pretty(&json_obj)?);
-            }
-            OutputFormat::Table => {
-                let mut table = Table::new();
-                table
-                    .load_preset(UTF8_FULL)
-                    .set_content_arrangement(ContentArrangement::Dynamic);
+        OutputFormat::Table => {
+            let mut table = Table::new();
+            table
+                .load_preset(UTF8_FULL)
+                .set_content_arrangement(ContentArrangement::Dynamic);
 
-                table.add_row(vec![
-                    Cell::new("Field").fg(Color::Green),
-                    Cell::new("Value").fg(Color::Green),
-                ]);
-                table.add_row(vec![Cell::new("Connection String"), Cell::new(&active)]);
+            table.add_row(vec![
+                Cell::new("Field").fg(Color::Green),
+                Cell::new("Value").fg(Color::Green),
+            ]);
+            table.add_row(vec![Cell::new("Connection String"), Cell::new(&active)]);
 
-                println!("{table}");
-            }
+            println!("{table}");
         }
     }
     Ok(())
@@ -826,8 +794,6 @@ pub fn print_connection_string(
 
 pub fn print_project_connection_uri(
     response: &seren::ProjectConnectionUriResponse,
-    pooled: bool,
-    prisma: bool,
     ssl: Option<&str>,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
@@ -837,7 +803,7 @@ pub fn print_project_connection_uri(
         },
         pagination: None,
     };
-    print_connection_string(&wrapper, pooled, prisma, ssl, format)
+    print_connection_string(&wrapper, ssl, format)
 }
 
 pub fn print_created_endpoints(

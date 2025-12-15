@@ -100,7 +100,6 @@ seren projects update <project-id> --name new-name
 
 # Get connection URI
 seren projects connection-uri <project-id>
-seren projects connection-uri <project-id> --pooled --prisma
 
 # Delete a project
 seren projects delete <project-id>
@@ -198,9 +197,6 @@ seren env init --project-id <id>
 # Specify branch and key name
 seren env init --project-id <id> --branch-id <id> \
   --key DATABASE_URL --pooled
-
-# Prisma format
-seren env init --project-id <id> --prisma
 ```
 
 ### Organizations

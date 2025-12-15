@@ -271,7 +271,6 @@ pub async fn connection_uri(
     database: Option<&str>,
     role: Option<&str>,
     pooled: bool,
-    prisma: bool,
     ssl: Option<&str>,
     ctx: &CommandContext,
 ) -> Result<()> {
@@ -299,7 +298,7 @@ pub async fn connection_uri(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to fetch connection URI: {}", e))?;
 
-    output::print_project_connection_uri(&response, pooled, prisma, ssl, ctx.format)?;
+    output::print_project_connection_uri(&response, ssl, ctx.format)?;
 
     Ok(())
 }

@@ -327,10 +327,6 @@ enum ProjectAction {
         #[arg(long, action = ArgAction::SetTrue)]
         pooled: bool,
 
-        /// Format as Prisma connection string
-        #[arg(long, action = ArgAction::SetTrue)]
-        prisma: bool,
-
         /// Override SSL mode (require, prefer, disable)
         #[arg(long)]
         ssl: Option<String>,
@@ -494,10 +490,6 @@ enum BranchAction {
         /// Use pooled connection (PgBouncer)
         #[arg(long)]
         pooled: bool,
-
-        /// Format for Prisma ORM
-        #[arg(long)]
-        prisma: bool,
 
         /// SSL mode (require, prefer, disable)
         #[arg(long)]
@@ -755,10 +747,6 @@ enum EnvAction {
         /// Request a pooled connection string
         #[arg(long, action = ArgAction::SetTrue)]
         pooled: bool,
-
-        /// Write Prisma-style format (DATABASE_URL="...")
-        #[arg(long, action = ArgAction::SetTrue)]
-        prisma: bool,
 
         /// Non-interactive mode (do not prompt; error instead)
         #[arg(long, action = ArgAction::SetTrue)]
@@ -1309,7 +1297,6 @@ async fn main() -> anyhow::Result<()> {
                 database,
                 role,
                 pooled,
-                prisma,
                 ssl,
             } => {
                 commands::projects::connection_uri(
@@ -1319,7 +1306,6 @@ async fn main() -> anyhow::Result<()> {
                     database.as_deref(),
                     role.as_deref(),
                     pooled,
-                    prisma,
                     ssl.as_deref(),
                     &ctx,
                 )
@@ -1383,14 +1369,12 @@ async fn main() -> anyhow::Result<()> {
                 id,
                 role,
                 pooled,
-                prisma,
                 ssl,
             } => {
                 commands::branches::connection_string(
                     &project_id,
                     &id,
                     pooled,
-                    prisma,
                     ssl.as_deref(),
                     role.as_deref(),
                     &ctx,
@@ -1608,12 +1592,8 @@ async fn main() -> anyhow::Result<()> {
                 env,
                 key,
                 pooled,
-                prisma,
                 yes,
-            } => {
-                commands::env::init(project_id, branch_id, &env, &key, pooled, prisma, yes, &ctx)
-                    .await?
-            }
+            } => commands::env::init(project_id, branch_id, &env, &key, pooled, yes, &ctx).await?,
         },
         Commands::Billing { action } => match action {
             BillingAction::GenerateInvoices { year, month } => {

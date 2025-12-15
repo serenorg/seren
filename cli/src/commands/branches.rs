@@ -390,7 +390,6 @@ pub async fn connection_string(
     project_id: &str,
     branch_id: &str,
     pooled: bool,
-    prisma: bool,
     ssl: Option<&str>,
     role: Option<&str>,
     ctx: &CommandContext,
@@ -403,7 +402,7 @@ pub async fn connection_string(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get connection string: {}", e))?;
 
-    output::print_connection_string(&response, pooled, prisma, ssl, ctx.format)?;
+    output::print_connection_string(&response, ssl, ctx.format)?;
 
     Ok(())
 }

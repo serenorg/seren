@@ -3,6 +3,7 @@ use seren::{Client, ClientConfig};
 
 use crate::OutputFormat;
 use crate::commands::auth::get_bearer_token;
+use crate::defaults;
 
 /// Shared context for CLI command execution.
 ///
@@ -31,9 +32,11 @@ impl CommandContext {
 
         let mut client_config = ClientConfig::new(bearer_token);
 
-        if let Some(host) = &self.api_host {
-            client_config = client_config.with_base_url(host.clone());
-        }
+        let base_url = match self.api_host.as_deref() {
+            Some(host) => defaults::api_base_url(host),
+            None => defaults::api_base_url(defaults::DEFAULT_API_HOST),
+        };
+        client_config = client_config.with_base_url(base_url);
 
         Client::new(client_config)
             .map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))

@@ -4,7 +4,9 @@ use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CommandContext, OutputFormat, commands::auth::get_bearer_token, defaults::DEFAULT_API_HOST,
+    CommandContext, OutputFormat,
+    commands::auth::get_bearer_token,
+    defaults::{DEFAULT_API_HOST, normalize_api_host},
     output,
 };
 
@@ -28,10 +30,11 @@ struct CliAddPaymentMethodResponse {
 }
 
 fn resolve_api_host(api_host: Option<&String>) -> String {
-    api_host
+    let host = api_host
         .cloned()
         .or_else(|| std::env::var("SEREN_API_HOST").ok())
-        .unwrap_or_else(|| DEFAULT_API_HOST.to_string())
+        .unwrap_or_else(|| DEFAULT_API_HOST.to_string());
+    normalize_api_host(&host)
 }
 
 // Invoice commands
