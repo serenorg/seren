@@ -331,8 +331,13 @@ async fn run_oauth(config: Config) -> Result<()> {
                 tokio::select! {
                     _ = ct.cancelled() => break,
                     _ = interval.tick() => {
-                        if let Err(e) = store.cleanup_expired().await {
-                            tracing::warn!("OAuth cleanup failed: {}", e);
+                        match store.cleanup_expired(Some(1000)).await {
+                            Ok(deleted) => {
+                                tracing::info!(deleted_count = deleted, "OAuth cleanup completed");
+                            }
+                            Err(e) => {
+                                tracing::warn!("OAuth cleanup failed: {}", e);
+                            }
                         }
                     }
                 }

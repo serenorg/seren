@@ -237,45 +237,6 @@ fn json_content<T: Serialize>(data: &T) -> Result<Content, McpError> {
     Ok(Content::text(text))
 }
 
-fn validate_identifier(name: &str, field_name: &str) -> Result<(), McpError> {
-    if name.trim().is_empty() {
-        return Err(McpError::invalid_params(
-            &format!("{} must not be empty", field_name),
-            None,
-        ));
-    }
-
-    // PostgreSQL identifiers: max 63 chars, alphanumeric + underscore, must start with letter or underscore
-    if name.len() > 63 {
-        return Err(McpError::invalid_params(
-            &format!("{} must not exceed 63 characters", field_name),
-            None,
-        ));
-    }
-
-    // Must start with letter or underscore
-    let first = name.chars().next().unwrap();
-    if !first.is_ascii_alphabetic() && first != '_' {
-        return Err(McpError::invalid_params(
-            &format!("{} must start with a letter or underscore", field_name),
-            None,
-        ));
-    }
-
-    // Only alphanumeric and underscore allowed
-    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        return Err(McpError::invalid_params(
-            &format!(
-                "{} must contain only alphanumeric characters and underscores",
-                field_name
-            ),
-            None,
-        ));
-    }
-
-    Ok(())
-}
-
 fn connection_string_with_database(
     connection_string: &str,
     database: &str,

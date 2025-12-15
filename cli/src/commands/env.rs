@@ -1,4 +1,3 @@
-use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
@@ -6,6 +5,7 @@ use anyhow::Result;
 use colored::Colorize;
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
 use serde::Serialize;
+use tokio::fs;
 
 use crate::{CommandContext, OutputFormat, config::ContextConfig, output};
 
@@ -18,10 +18,10 @@ fn prompt_input(message: &str) -> Result<String> {
     Ok(buf.trim().to_string())
 }
 
-fn write_env_value(env_path: &str, key: &str, value: &str) -> Result<()> {
+async fn write_env_value(env_path: &str, key: &str, value: &str) -> Result<()> {
     let path = Path::new(env_path);
-    let mut lines: Vec<String> = if path.exists() {
-        let contents = fs::read_to_string(path)?;
+    let mut lines: Vec<String> = if tokio::fs::try_exists(path).await? {
+        let contents = fs::read_to_string(path).await?;
         contents.lines().map(|s| s.to_string()).collect()
     } else {
         Vec::new()
@@ -48,7 +48,7 @@ fn write_env_value(env_path: &str, key: &str, value: &str) -> Result<()> {
         lines.join("\n") + "\n"
     };
 
-    fs::write(path, new_contents)?;
+    fs::write(path, new_contents).await?;
     Ok(())
 }
 
@@ -74,7 +74,7 @@ pub async fn init(
     yes: bool,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let context = ContextConfig::load()?;
+    let context = ContextConfig::load().await?;
 
     if project_id.is_none() {
         project_id = context.project_id.clone();
@@ -160,7 +160,7 @@ pub async fn init(
         active.clone()
     };
 
-    write_env_value(env_path, key, &value_to_write)?;
+    write_env_value(env_path, key, &value_to_write).await?;
 
     let result = EnvInitResult {
         project_id: project_id.clone(),

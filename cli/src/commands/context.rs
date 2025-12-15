@@ -4,7 +4,7 @@ use colored::Colorize;
 use crate::{OutputFormat, config::ContextConfig, output};
 
 pub async fn set(project_id: Option<String>, org_id: Option<String>) -> Result<()> {
-    let mut context = ContextConfig::load()?;
+    let mut context = ContextConfig::load().await?;
 
     if let Some(pid) = project_id {
         context.project_id = Some(pid.clone());
@@ -24,13 +24,13 @@ pub async fn set(project_id: Option<String>, org_id: Option<String>) -> Result<(
         );
     }
 
-    context.save()?;
+    context.save().await?;
 
     Ok(())
 }
 
 pub async fn show(format: OutputFormat) -> Result<()> {
-    let context = ContextConfig::load()?;
+    let context = ContextConfig::load().await?;
 
     match format {
         OutputFormat::Json => output::print_json(&context)?,
@@ -53,7 +53,7 @@ pub async fn show(format: OutputFormat) -> Result<()> {
 }
 
 pub async fn clear() -> Result<()> {
-    ContextConfig::clear()?;
+    ContextConfig::clear().await?;
     println!("{}", "✓ Context cleared".green().bold());
     Ok(())
 }
