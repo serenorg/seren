@@ -8,6 +8,10 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
+// Token TTL constants
+pub const REFRESH_TOKEN_TTL_HOURS: i64 = 168; // 7 days
+pub const ACCESS_TOKEN_DEFAULT_TTL_SECS: i64 = 900; // 15 minutes
+
 /// OAuth2 Client registration
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Client {

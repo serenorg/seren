@@ -10,7 +10,9 @@
 //! This server acts as the OAuth authorization server for MCP clients, but delegates
 //! actual user authentication to SerenCore via `/api/oauth2/*` (Authorization Code + PKCE).
 
-use crate::oauth::store::{AccessToken, AuthRequest, AuthorizationCode, RefreshToken, TokenStore};
+use crate::oauth::store::{
+    AccessToken, AuthRequest, AuthorizationCode, REFRESH_TOKEN_TTL_HOURS, RefreshToken, TokenStore,
+};
 use axum::{
     Form, Json, Router,
     extract::{Query, State},
@@ -657,7 +659,7 @@ async fn token(
                     access_token: access_token.token.clone(),
                     client_id: auth_code.client_id.clone(),
                     user_id: auth_code.user_id.clone(),
-                    expires_at: Some(TokenStore::token_expiry(168)), // 7 days
+                    expires_at: Some(TokenStore::token_expiry(REFRESH_TOKEN_TTL_HOURS)),
                     created_at: Utc::now(),
                 };
                 state
@@ -786,7 +788,7 @@ async fn token(
                     &refresh_token_str,
                     &new_refresh_token_str,
                     &new_access_token_str,
-                    Some(TokenStore::token_expiry(168)), // 7 days
+                    Some(TokenStore::token_expiry(REFRESH_TOKEN_TTL_HOURS)),
                 )
                 .await
                 .map_err(|e| OAuthError::ServerError(e.to_string()))?;

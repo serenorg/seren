@@ -15,6 +15,9 @@ use crate::config::Config;
 use crate::defaults::{DEFAULT_API_HOST, DEFAULT_CLIENT_ID, DEFAULT_OAUTH_HOST};
 use crate::output;
 
+const ACCESS_TOKEN_DEFAULT_TTL_SECS: i64 = 900; // 15 minutes
+const TOKEN_REFRESH_SKEW_SECONDS: i64 = 60;
+
 pub async fn login() -> Result<()> {
     println!("{}", "Seren CLI Authentication".bold().green());
     println!();
@@ -37,8 +40,6 @@ pub async fn login() -> Result<()> {
         anyhow::bail!("Invalid selection")
     }
 }
-
-const TOKEN_REFRESH_SKEW_SECONDS: i64 = 60;
 
 async fn login_oauth() -> Result<()> {
     println!();
@@ -123,7 +124,7 @@ async fn login_oauth() -> Result<()> {
     let expires_at = token_result
         .expires_in()
         .map(|duration| Timestamp::now().as_second() + duration.as_secs() as i64)
-        .unwrap_or_else(|| Timestamp::now().as_second() + 900); // Default 15 minutes
+        .unwrap_or_else(|| Timestamp::now().as_second() + ACCESS_TOKEN_DEFAULT_TTL_SECS);
 
     // Verify token works by calling /me endpoint
     println!("Verifying authentication...");
