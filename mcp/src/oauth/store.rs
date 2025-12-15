@@ -5,8 +5,11 @@
 
 use crate::error::{McpError, Result};
 use chrono::{DateTime, Duration, Utc};
+use lru::LruCache;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::num::NonZeroUsize;
+use std::sync::{Arc, Mutex};
 
 // Token TTL constants
 pub const REFRESH_TOKEN_TTL_HOURS: i64 = 168; // 7 days
@@ -148,16 +151,29 @@ pub struct PendingConsent {
     pub created_at: DateTime<Utc>,
 }
 
-/// Token store backed by PostgreSQL
+/// Token store backed by PostgreSQL with LRU cache for client metadata
 #[derive(Clone)]
 pub struct TokenStore {
     pool: PgPool,
+    /// LRU cache for client metadata (client_id -> Client)
+    /// Wrapped in Arc<Mutex<>> for interior mutability across clones
+    client_cache: Arc<Mutex<LruCache<String, Client>>>,
 }
 
 impl TokenStore {
-    /// Create a new token store
+    /// Create a new token store with default cache size (100 clients)
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self::with_cache_size(pool, 100)
+    }
+
+    /// Create a new token store with custom cache size
+    pub fn with_cache_size(pool: PgPool, cache_size: usize) -> Self {
+        Self {
+            pool,
+            client_cache: Arc::new(Mutex::new(LruCache::new(
+                NonZeroUsize::new(cache_size).unwrap(),
+            ))),
+        }
     }
 
     /// Connect to the database and create a new token store
@@ -187,6 +203,15 @@ impl TokenStore {
 
     /// Get a client by ID
     pub async fn get_client(&self, client_id: &str) -> Result<Option<Client>> {
+        // Check cache first
+        {
+            let mut cache = self.client_cache.lock().unwrap();
+            if let Some(client) = cache.get(client_id) {
+                return Ok(Some(client.clone()));
+            }
+        }
+
+        // Cache miss - fetch from database
         let client = sqlx::query_as::<_, Client>(
             r#"SELECT id, name, secret_hash, redirect_uris, grants, scopes,
                       client_uri, software_id, software_version, created_at, updated_at
@@ -196,6 +221,12 @@ impl TokenStore {
         .fetch_optional(&self.pool)
         .await
         .map_err(McpError::Database)?;
+
+        // Store in cache if found
+        if let Some(ref c) = client {
+            let mut cache = self.client_cache.lock().unwrap();
+            cache.put(client_id.to_string(), c.clone());
+        }
 
         Ok(client)
     }

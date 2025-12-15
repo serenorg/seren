@@ -81,6 +81,7 @@ futures = { workspace = true }
 chrono = { workspace = true }
 html-escape = { workspace = true }
 tower_governor = { workspace = true }
+lru = "0.16.2"
 
 [dev-dependencies]
 temp-env = { version = "0.3", features = ["async_closure"] }
