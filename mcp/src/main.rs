@@ -5,19 +5,45 @@ mod server;
 mod telemetry;
 
 use anyhow::Result;
+use axum::extract::State;
 use axum::response::IntoResponse;
 use config::{AuthConfig, Config};
 use oauth::store::TokenStore;
 use rmcp::ServiceExt;
 use server::SerenMcpServer;
+use std::sync::Arc;
+
+/// Health check state with optional database store
+#[derive(Clone)]
+struct HealthCheckState {
+    store: Option<Arc<TokenStore>>,
+}
 
 /// Health check endpoint for k8s liveness/readiness probes
-async fn health_check() -> impl IntoResponse {
-    axum::Json(serde_json::json!({
-        "status": "ok",
+async fn health_check(
+    State(state): State<HealthCheckState>,
+) -> Result<impl IntoResponse, (axum::http::StatusCode, axum::Json<serde_json::Value>)> {
+    // Check database connectivity if store is available
+    if let Some(store) = &state.store {
+        if let Err(e) = store.health_check().await {
+            tracing::error!("Health check failed: database unavailable: {}", e);
+            return Err((
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                axum::Json(serde_json::json!({
+                    "status": "unhealthy",
+                    "service": "seren-mcp",
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "error": "database unavailable"
+                })),
+            ));
+        }
+    }
+
+    Ok(axum::Json(serde_json::json!({
+        "status": "healthy",
         "service": "seren-mcp",
         "version": env!("CARGO_PKG_VERSION")
-    }))
+    })))
 }
 
 /// Auth state for simple token-based HTTP mode
@@ -252,7 +278,9 @@ async fn run_http(config: Config) -> Result<()> {
         ));
 
     // Health endpoint (no auth required) for k8s probes
-    let health_router = axum::Router::new().route("/health", axum::routing::get(health_check));
+    let health_router = axum::Router::new()
+        .route("/health", axum::routing::get(health_check))
+        .with_state(HealthCheckState { store: None });
 
     // Combine routers - CORS must be outermost
     let app = axum::Router::new()
@@ -388,6 +416,9 @@ async fn run_oauth(config: Config) -> Result<()> {
         upstream_api_base_url: api_base_url,
     });
 
+    // Clone store for health check before moving it
+    let health_store = Arc::new(store.clone());
+
     // MCP endpoint with OAuth token validation
     let mcp_router = axum::Router::new()
         .route(
@@ -400,7 +431,11 @@ async fn run_oauth(config: Config) -> Result<()> {
         ));
 
     // Health endpoint (no auth required) for k8s probes
-    let health_router = axum::Router::new().route("/health", axum::routing::get(health_check));
+    let health_router = axum::Router::new()
+        .route("/health", axum::routing::get(health_check))
+        .with_state(HealthCheckState {
+            store: Some(health_store),
+        });
 
     // Combine OAuth routes, health, and MCP endpoint
     let app = axum::Router::new()

@@ -517,6 +517,16 @@ impl TokenStore {
         Ok(row.0 as i64)
     }
 
+    /// Health check: verify database connectivity
+    /// Returns Ok(()) if the database is accessible
+    pub async fn health_check(&self) -> Result<()> {
+        sqlx::query("SELECT 1")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(McpError::Database)?;
+        Ok(())
+    }
+
     /// Generate a secure random token
     pub fn generate_token() -> String {
         use rand::Rng;
