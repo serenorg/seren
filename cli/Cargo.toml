@@ -16,7 +16,6 @@ seren = { path = "../api" }
 tokio = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
-dirs = { workspace = true }
 toml = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -32,3 +31,4 @@ base64 = "0.21"
 sha2 = "0.10"
 rand = "0.8"
 open = "5.0"
+etcetera = "0.11.0"

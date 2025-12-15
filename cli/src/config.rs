@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use etcetera::{BaseStrategy, choose_base_strategy};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -51,10 +52,15 @@ pub struct ContextConfig {
 
 impl Config {
     /// Get the path to the config file
+    ///
+    /// Uses XDG Base Directory specification on all platforms (including macOS)
+    /// for consistency with other CLI tools like gh, aws, etc.
+    ///
+    /// - Linux/macOS: ~/.config/seren/credentials.toml (respects $XDG_CONFIG_HOME)
+    /// - Windows: %APPDATA%\seren\credentials.toml
     pub fn config_path() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir()
-            .context("Could not find config directory")?
-            .join("seren");
+        let strategy = choose_base_strategy().context("Could not determine config strategy")?;
+        let config_dir = strategy.config_dir().join("seren");
 
         std::fs::create_dir_all(&config_dir).context("Could not create config directory")?;
 
@@ -131,10 +137,11 @@ impl Config {
 
 impl ContextConfig {
     /// Get the path to the context config file
+    ///
+    /// Uses same XDG-compliant directory as credentials
     pub fn context_path() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir()
-            .context("Could not find config directory")?
-            .join("seren");
+        let strategy = choose_base_strategy().context("Could not determine config strategy")?;
+        let config_dir = strategy.config_dir().join("seren");
 
         std::fs::create_dir_all(&config_dir).context("Could not create config directory")?;
 
