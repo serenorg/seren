@@ -513,6 +513,16 @@ async fn callback(
                 .query_pairs_mut()
                 .append_pair("state", &client_state);
         }
+
+        tracing::info!(
+            event = "oauth_redirect",
+            user_id = %user_id,
+            client_id = %auth_request.client_id,
+            redirect_uri = %auth_request.redirect_uri,
+            approved = true,
+            "OAuth authorization code redirect"
+        );
+
         return Ok(Redirect::temporary(redirect_url.as_str()).into_response());
     }
 
@@ -597,6 +607,7 @@ async fn token(
                 .map_err(|e| OAuthError::ServerError(e.to_string()))?
                 .ok_or(OAuthError::InvalidGrant("Invalid or expired code".into()))?;
 
+            // Q1 fix: Use extracted validation helper
             // Validate client (and optional client_secret)
             if let Some(client_id) = req.client_id.as_deref()
                 && client_id != auth_code.client_id
@@ -604,27 +615,12 @@ async fn token(
                 return Err(OAuthError::InvalidClient);
             }
 
-            let client = state
-                .store
-                .get_client(&auth_code.client_id)
-                .await
-                .map_err(|e| OAuthError::ServerError(e.to_string()))?
-                .ok_or(OAuthError::InvalidClient)?;
-
-            if let Some(ref secret_hash) = client.secret_hash {
-                let provided_client_id =
-                    req.client_id.as_deref().ok_or(OAuthError::InvalidClient)?;
-                if provided_client_id != client.id {
-                    return Err(OAuthError::InvalidClient);
-                }
-                let provided_secret = req
-                    .client_secret
-                    .as_deref()
-                    .ok_or(OAuthError::InvalidClient)?;
-                if !verify_secret(provided_secret, secret_hash) {
-                    return Err(OAuthError::InvalidClient);
-                }
-            }
+            let _client = validate_client_credentials(
+                &state.store,
+                &auth_code.client_id,
+                req.client_secret.as_deref(),
+            )
+            .await?;
 
             if auth_code.redirect_uri != redirect_uri {
                 return Err(OAuthError::InvalidGrant("redirect_uri mismatch".into()));
@@ -696,6 +692,7 @@ async fn token(
                     "Invalid or expired refresh token".into(),
                 ))?;
 
+            // Q1 fix: Use extracted validation helper
             // Validate client (and optional client_secret)
             if let Some(client_id) = req.client_id.as_deref()
                 && client_id != refresh_token.client_id
@@ -703,27 +700,12 @@ async fn token(
                 return Err(OAuthError::InvalidClient);
             }
 
-            let client = state
-                .store
-                .get_client(&refresh_token.client_id)
-                .await
-                .map_err(|e| OAuthError::ServerError(e.to_string()))?
-                .ok_or(OAuthError::InvalidClient)?;
-
-            if let Some(ref secret_hash) = client.secret_hash {
-                let provided_client_id =
-                    req.client_id.as_deref().ok_or(OAuthError::InvalidClient)?;
-                if provided_client_id != client.id {
-                    return Err(OAuthError::InvalidClient);
-                }
-                let provided_secret = req
-                    .client_secret
-                    .as_deref()
-                    .ok_or(OAuthError::InvalidClient)?;
-                if !verify_secret(provided_secret, secret_hash) {
-                    return Err(OAuthError::InvalidClient);
-                }
-            }
+            let _client = validate_client_credentials(
+                &state.store,
+                &refresh_token.client_id,
+                req.client_secret.as_deref(),
+            )
+            .await?;
 
             // Get the old access token to preserve scope
             let old_token = state
@@ -854,24 +836,10 @@ async fn revoke(
     State(state): State<Arc<OAuthState>>,
     Form(req): Form<RevokeRequest>,
 ) -> Result<StatusCode, OAuthError> {
+    // Q1 fix: Use extracted validation helper
     // Validate client credentials if provided
     if let Some(client_id) = req.client_id.as_deref() {
-        let client = state
-            .store
-            .get_client(client_id)
-            .await
-            .map_err(|e| OAuthError::ServerError(e.to_string()))?
-            .ok_or(OAuthError::InvalidClient)?;
-
-        if let Some(ref secret_hash) = client.secret_hash {
-            let provided_secret = req
-                .client_secret
-                .as_deref()
-                .ok_or(OAuthError::InvalidClient)?;
-            if !verify_secret(provided_secret, secret_hash) {
-                return Err(OAuthError::InvalidClient);
-            }
-        }
+        validate_client_credentials(&state.store, client_id, req.client_secret.as_deref()).await?;
     }
 
     // Try to revoke based on token_type_hint, or try both if not specified
@@ -973,6 +941,29 @@ impl IntoResponse for OAuthError {
 // ============================================================================
 // Helpers
 // ============================================================================
+
+/// Q1 fix: Extract duplicate client validation logic
+async fn validate_client_credentials(
+    store: &TokenStore,
+    client_id: &str,
+    client_secret: Option<&str>,
+) -> Result<crate::oauth::store::Client, OAuthError> {
+    let client = store
+        .get_client(client_id)
+        .await
+        .map_err(|e| OAuthError::ServerError(e.to_string()))?
+        .ok_or(OAuthError::InvalidClient)?;
+
+    // If client has a secret, verify it
+    if let Some(ref secret_hash) = client.secret_hash {
+        let provided_secret = client_secret.ok_or(OAuthError::InvalidClient)?;
+        if !verify_secret(provided_secret, secret_hash) {
+            return Err(OAuthError::InvalidClient);
+        }
+    }
+
+    Ok(client)
+}
 
 fn is_valid_redirect_uri(uri: &str) -> bool {
     if let Ok(url) = reqwest::Url::parse(uri) {
@@ -1216,9 +1207,26 @@ async fn consent_submit(
                     .query_pairs_mut()
                     .append_pair("state", state_param);
             }
+
+            tracing::info!(
+                event = "oauth_consent_approved",
+                user_id = %consent.user_id,
+                client_id = %consent.client_id,
+                redirect_uri = %consent.redirect_uri,
+                "User approved OAuth consent"
+            );
+
             Ok(Redirect::temporary(redirect_url.as_str()).into_response())
         }
         "deny" => {
+            tracing::warn!(
+                event = "oauth_consent_denied",
+                user_id = %consent.user_id,
+                client_id = %consent.client_id,
+                redirect_uri = %consent.redirect_uri,
+                "User denied OAuth consent"
+            );
+
             state
                 .store
                 .delete_authorization_code(&consent.authorization_code)
@@ -1249,22 +1257,55 @@ pub fn oauth_router(state: Arc<OAuthState>) -> Router {
         .expect("Failed to create rate limiter config");
     let register_limiter = GovernorLayer::new(register_governor_conf);
 
+    // Rate limiter for /consent POST: 5 requests per minute per IP (S2 fix)
+    // Prevents CSRF token enumeration attacks
+    let consent_governor_conf = GovernorConfigBuilder::default()
+        .per_second(2) // refill rate: ~5 per minute
+        .burst_size(5)
+        .key_extractor(SmartIpKeyExtractor)
+        .finish()
+        .expect("Failed to create consent rate limiter config");
+    let consent_limiter = GovernorLayer::new(consent_governor_conf);
+
+    // Rate limiter for /token: 20 requests per minute per IP (S6 fix)
+    // Prevents brute force attacks on authorization codes
+    let token_governor_conf = GovernorConfigBuilder::default()
+        .per_second(10) // refill rate: ~20 per minute
+        .burst_size(20)
+        .key_extractor(SmartIpKeyExtractor)
+        .finish()
+        .expect("Failed to create token rate limiter config");
+    let token_limiter = GovernorLayer::new(token_governor_conf);
+
     // Separate router for rate-limited /register endpoint
     let register_router = Router::new()
         .route("/register", post(register))
         .layer(register_limiter)
         .with_state(state.clone());
 
+    // Separate router for rate-limited /consent POST endpoint
+    let consent_post_router = Router::new()
+        .route("/consent", post(consent_submit))
+        .layer(consent_limiter)
+        .with_state(state.clone());
+
+    // Separate router for rate-limited /token endpoint
+    let token_router = Router::new()
+        .route("/token", post(token))
+        .layer(token_limiter)
+        .with_state(state.clone());
+
     Router::new()
         .route("/.well-known/oauth-authorization-server", get(metadata))
         .route("/authorize", get(authorize))
         .route("/callback", get(callback))
-        .route("/consent", get(consent_page).post(consent_submit))
-        .route("/token", post(token))
+        .route("/consent", get(consent_page)) // GET not rate-limited
         .route("/revoke", post(revoke))
         .route("/_cleanup", post(cleanup))
         .with_state(state)
         .merge(register_router)
+        .merge(consent_post_router)
+        .merge(token_router)
 }
 
 #[cfg(test)]

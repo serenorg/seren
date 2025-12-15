@@ -157,8 +157,18 @@ impl TokenStore {
     }
 
     /// Connect to the database and create a new token store
+    /// P1 fix: Configure connection pool with proper limits
     pub async fn connect(database_url: &str) -> Result<Self> {
-        let pool = PgPool::connect(database_url)
+        use sqlx::postgres::PgPoolOptions;
+        use std::time::Duration;
+
+        let pool = PgPoolOptions::new()
+            .max_connections(20) // Limit concurrent connections
+            .min_connections(2) // Keep some connections warm
+            .acquire_timeout(Duration::from_secs(10)) // Timeout for acquiring connections
+            .idle_timeout(Duration::from_secs(300)) // Close idle connections after 5 minutes
+            .max_lifetime(Duration::from_secs(1800)) // Recycle connections after 30 minutes
+            .connect(database_url)
             .await
             .map_err(McpError::Database)?;
         Ok(Self::new(pool))

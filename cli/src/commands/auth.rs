@@ -185,8 +185,7 @@ async fn verify_token(token: &str, api_host: &str) -> Result<()> {
 
     if !response.status().is_success() {
         let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        anyhow::bail!("Token verification failed ({}): {}", status, body);
+        anyhow::bail!("Token verification failed with status {}", status);
     }
 
     Ok(())
@@ -430,8 +429,7 @@ async fn request_token_refresh(
 
     if !response.status().is_success() {
         let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        anyhow::bail!("Token refresh failed ({}): {}", status, body.trim());
+        anyhow::bail!("Token refresh failed with status {}", status);
     }
 
     response
