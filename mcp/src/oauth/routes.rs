@@ -122,6 +122,7 @@ struct RegisterRequest {
 #[derive(Debug, Serialize)]
 struct RegisterResponse {
     client_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     client_secret: Option<String>,
     client_name: String,
     redirect_uris: Vec<String>,
