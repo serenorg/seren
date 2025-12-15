@@ -1,5 +1,6 @@
 mod config;
 mod error;
+mod middleware;
 mod oauth;
 mod server;
 mod telemetry;
@@ -24,19 +25,19 @@ async fn health_check(
     State(state): State<HealthCheckState>,
 ) -> Result<impl IntoResponse, (axum::http::StatusCode, axum::Json<serde_json::Value>)> {
     // Check database connectivity if store is available
-    if let Some(store) = &state.store {
-        if let Err(e) = store.health_check().await {
-            tracing::error!("Health check failed: database unavailable: {}", e);
-            return Err((
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                axum::Json(serde_json::json!({
-                    "status": "unhealthy",
-                    "service": "seren-mcp",
-                    "version": env!("CARGO_PKG_VERSION"),
-                    "error": "database unavailable"
-                })),
-            ));
-        }
+    if let Some(store) = &state.store
+        && let Err(e) = store.health_check().await
+    {
+        tracing::error!("Health check failed: database unavailable: {}", e);
+        return Err((
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            axum::Json(serde_json::json!({
+                "status": "unhealthy",
+                "service": "seren-mcp",
+                "version": env!("CARGO_PKG_VERSION"),
+                "error": "database unavailable"
+            })),
+        ));
     }
 
     Ok(axum::Json(serde_json::json!({
@@ -282,11 +283,12 @@ async fn run_http(config: Config) -> Result<()> {
         .route("/health", axum::routing::get(health_check))
         .with_state(HealthCheckState { store: None });
 
-    // Combine routers - CORS must be outermost
+    // Combine routers - CORS must be outermost, request ID middleware before CORS
     let app = axum::Router::new()
         .merge(health_router)
         .merge(mcp_router)
-        .layer(cors);
+        .layer(cors)
+        .layer(axum::middleware::from_fn(middleware::request_id_middleware));
 
     let addr = format!("{}:{}", config.host, config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -438,11 +440,13 @@ async fn run_oauth(config: Config) -> Result<()> {
         });
 
     // Combine OAuth routes, health, and MCP endpoint
+    // CORS must be outermost, request ID middleware before CORS
     let app = axum::Router::new()
         .merge(health_router)
         .merge(oauth_router(oauth_state))
         .merge(mcp_router)
-        .layer(cors);
+        .layer(cors)
+        .layer(axum::middleware::from_fn(middleware::request_id_middleware));
 
     let addr = format!("{}:{}", config.host, config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
