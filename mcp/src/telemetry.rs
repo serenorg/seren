@@ -28,10 +28,10 @@ mod otel {
 
     impl Drop for TelemetryGuard {
         fn drop(&mut self) {
-            if let Some(provider) = self.provider.take() {
-                if let Err(e) = provider.shutdown() {
-                    eprintln!("Error shutting down OpenTelemetry provider: {:?}", e);
-                }
+            if let Some(provider) = self.provider.take()
+                && let Err(e) = provider.shutdown()
+            {
+                eprintln!("Error shutting down OpenTelemetry provider: {:?}", e);
             }
         }
     }

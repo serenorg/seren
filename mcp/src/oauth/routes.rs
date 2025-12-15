@@ -48,6 +48,7 @@ pub struct OAuthState {
 const SUPPORTED_GRANT_TYPES: &[&str] = &["authorization_code", "refresh_token"];
 const SUPPORTED_RESPONSE_TYPES: &[&str] = &["code"];
 const SUPPORTED_AUTH_METHODS: &[&str] = &["none", "client_secret_post"];
+const ALLOWED_SCOPES: &[&str] = &["api", "api:read"];
 
 // ============================================================================
 // Metadata Endpoint (RFC 8414)
@@ -76,7 +77,7 @@ async fn metadata(State(state): State<Arc<OAuthState>>) -> Json<AuthorizationSer
         token_endpoint: format!("{}/token", server_host),
         revocation_endpoint: format!("{}/revoke", server_host),
         registration_endpoint: format!("{}/register", server_host),
-        scopes_supported: vec!["api".into(), "api:read".into()],
+        scopes_supported: ALLOWED_SCOPES.iter().map(|s| (*s).into()).collect(),
         response_types_supported: vec!["code".into()],
         grant_types_supported: SUPPORTED_GRANT_TYPES
             .iter()
@@ -86,7 +87,7 @@ async fn metadata(State(state): State<Arc<OAuthState>>) -> Json<AuthorizationSer
             .iter()
             .map(|s| (*s).to_string())
             .collect(),
-        code_challenge_methods_supported: vec!["S256".into(), "plain".into()],
+        code_challenge_methods_supported: vec!["S256".into()],
         revocation_endpoint_auth_methods_supported: vec![
             "none".into(),
             "client_secret_post".into(),
@@ -191,7 +192,9 @@ async fn register(
         .collect();
 
     // Validate scopes against allowed whitelist
-    const ALLOWED_SCOPES: &[&str] = &["api", "api:read", "openid", "profile", "email"];
+    if scopes.is_empty() {
+        return Err(OAuthError::InvalidScope);
+    }
     for scope in &scopes {
         if !ALLOWED_SCOPES.contains(&scope.as_str()) {
             return Err(OAuthError::InvalidScope);
@@ -287,6 +290,22 @@ async fn authorize(
         ));
     }
 
+    // Validate requested scopes.
+    // - Must be non-empty (or defaults to "api" if omitted)
+    // - Must be within server allowlist and client-registered scopes
+    let requested_scope = req.scope.clone().unwrap_or_else(|| "api".into());
+    let requested_scopes: Vec<&str> = requested_scope.split_whitespace().collect();
+    let requested_scopes = if requested_scopes.is_empty() {
+        vec!["api"]
+    } else {
+        requested_scopes
+    };
+    for scope in &requested_scopes {
+        if !ALLOWED_SCOPES.contains(scope) || !client.scopes.iter().any(|s| s == scope) {
+            return Err(OAuthError::InvalidScope);
+        }
+    }
+
     let code_challenge = req
         .code_challenge
         .ok_or(OAuthError::InvalidRequest("code_challenge required".into()))?;
@@ -308,7 +327,7 @@ async fn authorize(
         id: upstream_state.clone(),
         client_id: req.client_id.clone(),
         redirect_uri: req.redirect_uri.clone(),
-        scope: req.scope.unwrap_or_else(|| "api".into()),
+        scope: requested_scopes.join(" "),
         client_state: req.state.clone(),
         code_challenge,
         code_challenge_method,
@@ -1108,7 +1127,36 @@ async fn fetch_user_id(
 /// This endpoint triggers cleanup of expired authorization codes, access tokens,
 /// and refresh tokens. It can be called periodically by a cron job or health check.
 /// Uses batch limits to prevent table locks.
-async fn cleanup(State(state): State<Arc<OAuthState>>) -> Result<StatusCode, OAuthError> {
+async fn cleanup(
+    State(state): State<Arc<OAuthState>>,
+    headers: axum::http::HeaderMap,
+) -> Result<StatusCode, OAuthError> {
+    let Some(expected_token) = std::env::var("SEREN_MCP_CLEANUP_TOKEN")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+    else {
+        // Endpoint disabled unless explicitly configured.
+        return Ok(StatusCode::NOT_FOUND);
+    };
+
+    let provided_token = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| {
+            let (scheme, token) = v.split_once(' ')?;
+            if scheme.eq_ignore_ascii_case("bearer") {
+                Some(token.trim())
+            } else {
+                None
+            }
+        })
+        .filter(|v| !v.is_empty());
+
+    if provided_token != Some(expected_token.as_str()) {
+        return Ok(StatusCode::UNAUTHORIZED);
+    }
+
     let deleted = state
         .store
         .cleanup_expired(Some(1000))
