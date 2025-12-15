@@ -398,15 +398,11 @@ async fn callback(
         .ok_or_else(|| OAuthError::InvalidRequest("code required".into()))?;
 
     let upstream_redirect_uri = format!("{}/callback", state.server_host.trim_end_matches('/'));
-    let token_url = format!(
-        "{}/oauth2/token",
-        state.upstream_api_base_url.trim_end_matches('/')
-    );
 
-    let token_res = state
-        .http
-        .post(token_url)
-        .form(&[
+    let token_body = match exchange_upstream_token(
+        &state.http,
+        &state.upstream_api_base_url,
+        vec![
             ("grant_type", "authorization_code"),
             ("code", code.as_str()),
             ("redirect_uri", upstream_redirect_uri.as_str()),
@@ -415,32 +411,20 @@ async fn callback(
                 "code_verifier",
                 auth_request.upstream_code_verifier.as_str(),
             ),
-        ])
-        .send()
-        .await
-        .map_err(|e| OAuthError::ServerError(e.to_string()))?;
-
-    if !token_res.status().is_success() {
-        let status = token_res.status();
-        let body = token_res.text().await.unwrap_or_default();
-        // Log details server-side but don't expose to client
-        tracing::error!(
-            status = %status,
-            body = %body,
-            "Upstream token exchange failed"
-        );
-        return redirect_with_error(
-            &auth_request.redirect_uri,
-            auth_request.client_state.as_deref(),
-            "server_error",
-            Some("Authorization failed. Please try again."),
-        );
-    }
-
-    let token_body: UpstreamTokenResponse = token_res
-        .json()
-        .await
-        .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+        ],
+    )
+    .await
+    {
+        Ok(body) => body,
+        Err(_) => {
+            return redirect_with_error(
+                &auth_request.redirect_uri,
+                auth_request.client_state.as_deref(),
+                "server_error",
+                Some("Authorization failed. Please try again."),
+            );
+        }
+    };
 
     // Log the granted scope for debugging
     if let Some(ref granted_scope) = token_body.scope {
@@ -718,40 +702,16 @@ async fn token(
             let preserved_scope = old_token.map(|t| t.scope).unwrap_or_else(|| "api".into());
 
             // Refresh upstream tokens via SerenCore.
-            let token_url = format!(
-                "{}/oauth2/token",
-                state.upstream_api_base_url.trim_end_matches('/')
-            );
-            let res = state
-                .http
-                .post(token_url)
-                .form(&[
+            let token_body = exchange_upstream_token(
+                &state.http,
+                &state.upstream_api_base_url,
+                vec![
                     ("grant_type", "refresh_token"),
                     ("refresh_token", refresh_token_str.as_str()),
                     ("client_id", state.upstream_client_id.as_str()),
-                ])
-                .send()
-                .await
-                .map_err(|e| OAuthError::ServerError(e.to_string()))?;
-
-            if !res.status().is_success() {
-                let status = res.status();
-                let body = res.text().await.unwrap_or_default();
-                // Log details server-side but don't expose to client
-                tracing::error!(
-                    status = %status,
-                    body = %body,
-                    "Upstream token refresh failed"
-                );
-                return Err(OAuthError::InvalidGrant(
-                    "Token refresh failed. Please re-authenticate.".into(),
-                ));
-            }
-
-            let token_body: UpstreamTokenResponse = res
-                .json()
-                .await
-                .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+                ],
+            )
+            .await?;
 
             // Log the granted scope for debugging
             if let Some(ref granted_scope) = token_body.scope {
@@ -965,6 +925,41 @@ async fn validate_client_credentials(
     }
 
     Ok(client)
+}
+
+async fn exchange_upstream_token(
+    http_client: &reqwest::Client,
+    upstream_api_base_url: &str,
+    params: Vec<(&str, &str)>,
+) -> Result<UpstreamTokenResponse, OAuthError> {
+    let token_url = format!(
+        "{}/oauth2/token",
+        upstream_api_base_url.trim_end_matches('/')
+    );
+
+    let res = http_client
+        .post(token_url)
+        .form(&params)
+        .send()
+        .await
+        .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+
+    if !res.status().is_success() {
+        let status = res.status();
+        let body = res.text().await.unwrap_or_default();
+        tracing::error!(
+            status = %status,
+            body = %body,
+            "Upstream token exchange failed"
+        );
+        return Err(OAuthError::InvalidGrant(
+            "Token exchange failed. Please re-authenticate.".into(),
+        ));
+    }
+
+    res.json()
+        .await
+        .map_err(|e| OAuthError::ServerError(e.to_string()))
 }
 
 fn is_valid_redirect_uri(uri: &str) -> bool {
