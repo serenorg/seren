@@ -27,6 +27,7 @@ progenitor-client = { workspace = true }
 jiff = { workspace = true }
 uuid = { workspace = true }
 regress = { workspace = true }
+schemars = { workspace = true }
 
 [build-dependencies]
 anyhow = { workspace = true }

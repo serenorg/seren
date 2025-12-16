@@ -85,6 +85,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut settings = GenerationSettings::default();
     settings.with_interface(InterfaceStyle::Positional);
+    settings.with_derive("schemars::JsonSchema");
 
     // Replace chrono DateTime with jiff Timestamp for date-time format
     settings.with_replacement(
