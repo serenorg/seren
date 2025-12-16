@@ -27,7 +27,7 @@ use std::sync::Arc;
 use tower_governor::{
     GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor,
 };
-use tracing::debug;
+use tracing::{debug, info};
 
 /// OAuth server state.
 #[derive(Clone)]
@@ -752,14 +752,26 @@ async fn token(
                 .refresh_token
                 .ok_or_else(|| OAuthError::InvalidRequest("refresh_token required".into()))?;
 
-            let refresh_token = state
-                .store
-                .get_refresh_token(&refresh_token_str)
-                .await
-                .map_err(|e| OAuthError::ServerError(e.to_string()))?
-                .ok_or(OAuthError::InvalidGrant(
-                    "Invalid or expired refresh token".into(),
-                ))?;
+            let refresh_token = match state.store.get_refresh_token(&refresh_token_str).await {
+                Ok(Some(token)) => token,
+                Ok(None) => {
+                    info!(
+                        event = "oauth_refresh_token_not_found",
+                        "Refresh token not found in database"
+                    );
+                    return Err(OAuthError::InvalidGrant(
+                        "Invalid or expired refresh token".into(),
+                    ));
+                }
+                Err(e) => {
+                    info!(
+                        event = "oauth_refresh_token_db_error",
+                        error = %e,
+                        "Database error looking up refresh token"
+                    );
+                    return Err(OAuthError::ServerError(e.to_string()));
+                }
+            };
 
             // Q1 fix: Use extracted validation helper
             // Validate client (and optional client_secret)
@@ -847,6 +859,17 @@ async fn token(
                 .ok();
 
             let expires_in = (new_expires_at - Utc::now()).num_seconds().max(0);
+
+            info!(
+                event = "oauth_token_complete",
+                grant_type = "refresh_token",
+                client_id = %refresh_token.client_id,
+                user_id = %refresh_token.user_id,
+                expires_in = expires_in,
+                elapsed_ms = start.elapsed().as_millis() as u64,
+                "Token refresh completed successfully"
+            );
+
             Ok(Json(TokenResponse {
                 access_token: new_access_token_str,
                 token_type: "Bearer".into(),
