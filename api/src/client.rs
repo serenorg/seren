@@ -153,7 +153,7 @@ impl Client {
     pub async fn organization_invites(
         &self,
         organization_id: impl AsRef<str>,
-    ) -> Result<Vec<OrganizationInviteResponse>> {
+    ) -> Result<Vec<OrganizationInvite>> {
         let path = format!("/organizations/{}/invites", organization_id.as_ref());
         self.get(&path).await
     }
@@ -163,7 +163,7 @@ impl Client {
         &self,
         organization_id: impl AsRef<str>,
         request: &CreateOrganizationInviteRequest,
-    ) -> Result<OrganizationInviteResponse> {
+    ) -> Result<OrganizationInvite> {
         let path = format!("/organizations/{}/invites", organization_id.as_ref());
         self.post(&path, request).await
     }
@@ -518,7 +518,7 @@ impl BranchesClient<'_> {
     /// By default, returns a connection string for the default
     /// `serendb_owner` role. The backend prefers SerenDB proxy-based
     /// connection strings when proxy configuration is available.
-    pub async fn connection_string(&self, branch_id: &str) -> Result<ConnectionStringResponse> {
+    pub async fn connection_string(&self, branch_id: &str) -> Result<ConnectionString> {
         self.connection_string_with_options(branch_id, None, None)
             .await
     }
@@ -532,7 +532,7 @@ impl BranchesClient<'_> {
         branch_id: &str,
         pooled: Option<bool>,
         role: Option<&str>,
-    ) -> Result<ConnectionStringResponse> {
+    ) -> Result<ConnectionString> {
         let mut url = format!(
             "/projects/{}/branches/{}/connection-string",
             self.project_id, branch_id
@@ -608,7 +608,7 @@ impl BranchesClient<'_> {
         &self,
         branch_id: &str,
         request: RestoreBranchRequest,
-    ) -> Result<BranchRestoredResponse> {
+    ) -> Result<BranchRestored> {
         self.client
             .post(
                 &format!(
@@ -640,7 +640,7 @@ impl EndpointsClient<'_> {
     }
 
     /// Create a new endpoint
-    pub async fn create(&self, request: CreateEndpointRequest) -> Result<EndpointCreatedResponse> {
+    pub async fn create(&self, request: CreateEndpointRequest) -> Result<EndpointCreated> {
         self.client
             .post(
                 &format!(
@@ -824,7 +824,7 @@ impl RolesClient<'_> {
     }
 
     /// Create a new role
-    pub async fn create(&self, request: CreateRoleRequest) -> Result<RoleCreatedResponse> {
+    pub async fn create(&self, request: CreateRoleRequest) -> Result<RoleCreated> {
         self.client
             .post(
                 &format!(
@@ -851,7 +851,7 @@ impl RolesClient<'_> {
         &self,
         role_id: &str,
         request: ResetRolePasswordRequest,
-    ) -> Result<RolePasswordResetResponse> {
+    ) -> Result<RolePasswordReset> {
         self.client
             .post(
                 &format!(
@@ -888,7 +888,7 @@ impl RolesClient<'_> {
         &self,
         role_name: &str,
         request: ResetRolePasswordRequest,
-    ) -> Result<RolePasswordResetResponse> {
+    ) -> Result<RolePasswordReset> {
         self.client
             .post(
                 &format!(
@@ -1136,7 +1136,7 @@ impl ProjectEndpointsClient {
     }
 
     /// Restart an endpoint by id
-    pub async fn restart(&self, endpoint_id: &str) -> Result<EndpointStatusInfoResponse> {
+    pub async fn restart(&self, endpoint_id: &str) -> Result<EndpointStatusInfo> {
         self.client
             .post(
                 &format!(
@@ -1178,7 +1178,7 @@ impl OrganizationApiKeysClient {
     }
 
     /// List API keys for an organization (current user)
-    pub async fn list(&self) -> Result<ApiKeysResponse> {
+    pub async fn list(&self) -> Result<Vec<ApiKeyInfo>> {
         self.client
             .get(&format!(
                 "/api/organizations/{}/api_keys",

@@ -827,7 +827,7 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let mut response = api_client
+        let response = api_client
             .branches(params.project_id.to_string())
             .connection_string_with_options(
                 &params.branch_id.to_string(),
@@ -837,12 +837,16 @@ impl SerenMcpServer {
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
+        let mut conn_str = response.connection_string;
         if let Some(database) = params.database.as_deref() {
-            response.data.connection_string =
-                connection_string_with_database(&response.data.connection_string, database)?;
+            conn_str = connection_string_with_database(&conn_str, database)?;
         }
 
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        Ok(CallToolResult::success(vec![json_content(
+            &serde_json::json!({
+                "connection_string": conn_str
+            }),
+        )?]))
     }
 
     #[tool(
@@ -871,10 +875,8 @@ impl SerenMcpServer {
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let conn_str = connection_string_with_database(
-            &conn_response.data.connection_string,
-            &params.database,
-        )?;
+        let conn_str =
+            connection_string_with_database(&conn_response.connection_string, &params.database)?;
 
         let result = self.execute_sql(&conn_str, &params.query, vec![]).await?;
 
@@ -922,10 +924,8 @@ impl SerenMcpServer {
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let conn_str = connection_string_with_database(
-            &conn_response.data.connection_string,
-            &params.database,
-        )?;
+        let conn_str =
+            connection_string_with_database(&conn_response.connection_string, &params.database)?;
 
         let result = self
             .execute_sql_transaction(
@@ -970,10 +970,8 @@ impl SerenMcpServer {
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let conn_str = connection_string_with_database(
-            &conn_response.data.connection_string,
-            &params.database,
-        )?;
+        let conn_str =
+            connection_string_with_database(&conn_response.connection_string, &params.database)?;
 
         let result = self
             .execute_sql(&conn_str, query, vec![schema.into()])
@@ -1004,10 +1002,8 @@ impl SerenMcpServer {
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let conn_str = connection_string_with_database(
-            &conn_response.data.connection_string,
-            &params.database,
-        )?;
+        let conn_str =
+            connection_string_with_database(&conn_response.connection_string, &params.database)?;
 
         let result = self.execute_sql(&conn_str, &explain_query, vec![]).await?;
 
@@ -1051,10 +1047,8 @@ impl SerenMcpServer {
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let conn_str = connection_string_with_database(
-            &conn_response.data.connection_string,
-            &params.database,
-        )?;
+        let conn_str =
+            connection_string_with_database(&conn_response.connection_string, &params.database)?;
 
         let result = self
             .execute_sql(
