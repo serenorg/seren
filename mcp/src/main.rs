@@ -402,9 +402,7 @@ async fn run_oauth(config: Config) -> Result<()> {
             server_host,
         } => (database_url.clone(), client_id.clone(), server_host.clone()),
         AuthConfig::ApiKey(_) => {
-            anyhow::bail!(
-                "start:oauth mode requires MCP_DATABASE_URL, SEREN_OAUTH_CLIENT_ID, and MCP_SERVER_HOST"
-            );
+            anyhow::bail!("start:oauth mode requires DATABASE_URL and MCP_SERVER_HOST");
         }
     };
 

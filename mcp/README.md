@@ -74,8 +74,7 @@ sudo mv seren-mcp /usr/local/bin/
 | `SEREN_API_URL` | Seren API base URL (must include `/api`) | `https://api.serendb.com/api` |
 | `SEREN_API_KEY` | Seren API key (for `start`/`start:http`) | Required |
 | `MCP_AUTH_TOKEN` | Auth token for `start:http` (bearer) | Required for `start:http` |
-| `MCP_DATABASE_URL` | Postgres URL for OAuth token storage | Required for `start:oauth` |
-| `SEREN_OAUTH_CLIENT_ID` | Upstream OAuth client id (SerenCore) | Required for `start:oauth` |
+| `DATABASE_URL` | Postgres URL for OAuth token storage | Required for `start:oauth` |
 | `MCP_SERVER_HOST` | Public base URL of this server | Required for `start:oauth` |
 | `HOST` | Listen host | `0.0.0.0` |
 | `PORT` | Listen port | `3000` |

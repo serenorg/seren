@@ -40,8 +40,8 @@ impl Config {
                 AuthConfig::ApiKey(key)
             }
             "start:oauth" => {
-                let database_url = std::env::var("MCP_DATABASE_URL").map_err(|_| {
-                    McpError::Config("MCP_DATABASE_URL required for start:oauth mode".into())
+                let database_url = std::env::var("DATABASE_URL").map_err(|_| {
+                    McpError::Config("DATABASE_URL required for start:oauth mode".into())
                 })?;
                 let server_host = std::env::var("MCP_SERVER_HOST").map_err(|_| {
                     McpError::Config("MCP_SERVER_HOST required for start:oauth mode".into())
@@ -102,7 +102,7 @@ mod tests {
 
     #[test]
     fn start_oauth_requires_oauth_env_vars() {
-        temp_env::with_vars_unset(["MCP_DATABASE_URL", "MCP_SERVER_HOST"], || {
+        temp_env::with_vars_unset(["DATABASE_URL", "MCP_SERVER_HOST"], || {
             let res = Config::from_env_for_command("start:oauth");
             assert!(matches!(res, Err(McpError::Config(_))));
         });
@@ -112,7 +112,7 @@ mod tests {
     fn start_oauth_builds_oauth_config() {
         temp_env::with_vars(
             [
-                ("MCP_DATABASE_URL", Some("postgres://localhost/test")),
+                ("DATABASE_URL", Some("postgres://localhost/test")),
                 ("MCP_SERVER_HOST", Some("mcp.serendb.com")),
                 ("SEREN_API_URL", Some("https://example.com/api")),
             ],
