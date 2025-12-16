@@ -3,12 +3,12 @@
 //! Implements OAuth 2.1 endpoints per MCP specification:
 //! - `/.well-known/oauth-authorization-server` - Server metadata (RFC 8414)
 //! - `/authorize` - Authorization endpoint (downstream: MCP client -> this server)
-//! - `/callback` - Callback endpoint (upstream: SerenCore -> this server)
+//! - `/callback` - Callback endpoint (upstream -> this server)
 //! - `/token` - Token endpoint
 //! - `/register` - Dynamic client registration (RFC 7591)
 //!
 //! This server acts as the OAuth authorization server for MCP clients, but delegates
-//! actual user authentication to SerenCore via `/api/oauth2/*` (Authorization Code + PKCE).
+//! actual user authentication to upstream `/api/oauth2/*` (Authorization Code + PKCE).
 
 use crate::oauth::circuit_breaker::OAuthCircuitBreaker;
 use crate::oauth::store::{
@@ -37,11 +37,11 @@ pub struct OAuthState {
     pub http: reqwest::Client,
     /// Public base URL of this MCP server (e.g. `https://mcp.serendb.com`).
     pub server_host: String,
-    /// Client id used with SerenCore `/api/oauth2/*` endpoints.
+    /// Client id used with upstream `/api/oauth2/*` endpoints.
     pub upstream_client_id: String,
-    /// Base URL for SerenCore API for server-to-server calls (e.g. `http://serencore.svc.cluster.local/api`).
+    /// Base URL for upstream API server-to-server calls (e.g. internal cluster URL).
     pub upstream_api_base_url: String,
-    /// Base URL for SerenCore API used in OAuth browser redirects (e.g. `https://api.serendb.com/api`).
+    /// Base URL for upstream API used in OAuth browser redirects (e.g. public URL).
     pub upstream_oauth_redirect_base_url: String,
     /// Circuit breaker for upstream API resilience.
     pub circuit_breaker: Arc<OAuthCircuitBreaker>,
@@ -733,7 +733,7 @@ async fn token(
                 .map_err(|e| OAuthError::ServerError(e.to_string()))?;
             let preserved_scope = old_token.map(|t| t.scope).unwrap_or_else(|| "api".into());
 
-            // Refresh upstream tokens via SerenCore.
+            // Refresh upstream tokens.
             let token_body = exchange_upstream_token(
                 &state.http,
                 &state.upstream_api_base_url,

@@ -1,5 +1,9 @@
 use crate::error::{McpError, Result};
 
+/// OAuth client ID for upstream authentication.
+/// This identifies the MCP server as a trusted OAuth client.
+const UPSTREAM_OAUTH_CLIENT_ID: &str = "seren-mcp";
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub auth: AuthConfig,
@@ -39,16 +43,13 @@ impl Config {
                 let database_url = std::env::var("MCP_DATABASE_URL").map_err(|_| {
                     McpError::Config("MCP_DATABASE_URL required for start:oauth mode".into())
                 })?;
-                let client_id = std::env::var("SEREN_OAUTH_CLIENT_ID").map_err(|_| {
-                    McpError::Config("SEREN_OAUTH_CLIENT_ID required for start:oauth mode".into())
-                })?;
                 let server_host = std::env::var("MCP_SERVER_HOST").map_err(|_| {
                     McpError::Config("MCP_SERVER_HOST required for start:oauth mode".into())
                 })?;
 
                 AuthConfig::OAuth {
                     database_url,
-                    client_id,
+                    client_id: UPSTREAM_OAUTH_CLIENT_ID.to_string(),
                     server_host,
                 }
             }
@@ -101,17 +102,10 @@ mod tests {
 
     #[test]
     fn start_oauth_requires_oauth_env_vars() {
-        temp_env::with_vars_unset(
-            [
-                "MCP_DATABASE_URL",
-                "SEREN_OAUTH_CLIENT_ID",
-                "MCP_SERVER_HOST",
-            ],
-            || {
-                let res = Config::from_env_for_command("start:oauth");
-                assert!(matches!(res, Err(McpError::Config(_))));
-            },
-        );
+        temp_env::with_vars_unset(["MCP_DATABASE_URL", "MCP_SERVER_HOST"], || {
+            let res = Config::from_env_for_command("start:oauth");
+            assert!(matches!(res, Err(McpError::Config(_))));
+        });
     }
 
     #[test]
@@ -119,7 +113,6 @@ mod tests {
         temp_env::with_vars(
             [
                 ("MCP_DATABASE_URL", Some("postgres://localhost/test")),
-                ("SEREN_OAUTH_CLIENT_ID", Some("client-id")),
                 ("MCP_SERVER_HOST", Some("mcp.serendb.com")),
                 ("SEREN_API_URL", Some("https://example.com/api")),
             ],
@@ -132,7 +125,7 @@ mod tests {
                         server_host,
                     } => {
                         assert_eq!(database_url, "postgres://localhost/test");
-                        assert_eq!(client_id, "client-id");
+                        assert_eq!(client_id, "seren-mcp");
                         assert_eq!(server_host, "mcp.serendb.com");
                     }
                     _ => panic!("expected OAuth config"),
