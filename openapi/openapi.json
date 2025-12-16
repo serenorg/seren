@@ -2937,7 +2937,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProjectCreatedResponse"
+                  "$ref": "#/components/schemas/ProjectCreated"
                 }
               }
             }
@@ -8538,6 +8538,22 @@
           }
         }
       },
+      "ConnectionStringQueryParams": {
+        "type": "object",
+        "description": "Query parameters for getting a branch connection string.",
+        "properties": {
+          "pooled": {
+            "type": "boolean",
+            "description": "Return pooled connection (default: false)",
+            "nullable": true
+          },
+          "role": {
+            "type": "string",
+            "description": "PostgreSQL role/username to use (default: serendb_owner)",
+            "nullable": true
+          }
+        }
+      },
       "ConnectionStringResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
@@ -10196,6 +10212,19 @@
           }
         }
       },
+      "LsnByTimestampQuery": {
+        "type": "object",
+        "description": "Query parameters for getting LSN by timestamp.",
+        "required": [
+          "timestamp"
+        ],
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "description": "ISO 8601 timestamp (e.g., 2024-05-06T10:00:00.000Z)"
+          }
+        }
+      },
       "LsnByTimestampResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
@@ -11676,23 +11705,28 @@
           "branch_id": {
             "type": "string",
             "format": "uuid",
+            "description": "Branch ID to target (defaults to project's default branch)",
             "nullable": true
           },
           "database_name": {
             "type": "string",
+            "description": "Database name override (currently ignored)",
             "nullable": true
           },
           "endpoint_id": {
             "type": "string",
             "format": "uuid",
+            "description": "Endpoint ID to target (defaults to first endpoint in branch)",
             "nullable": true
           },
           "pooled": {
             "type": "boolean",
+            "description": "Return pooled connection (currently ignored)",
             "nullable": true
           },
           "role_name": {
             "type": "string",
+            "description": "Role name override (currently ignored)",
             "nullable": true
           }
         }
@@ -12433,6 +12467,17 @@
           }
         }
       },
+      "RegionQuery": {
+        "type": "object",
+        "description": "Query parameters for filtering VPC endpoints.",
+        "properties": {
+          "region": {
+            "type": "string",
+            "description": "Filter endpoints by region",
+            "nullable": true
+          }
+        }
+      },
       "RenameBranchRequest": {
         "type": "object",
         "description": "Request to rename a branch",
@@ -13102,6 +13147,19 @@
         "properties": {
           "timestamp": {
             "type": "string"
+          }
+        }
+      },
+      "TimestampByLsnQuery": {
+        "type": "object",
+        "description": "Query parameters for getting timestamp by LSN.",
+        "required": [
+          "lsn"
+        ],
+        "properties": {
+          "lsn": {
+            "type": "string",
+            "description": "Log Sequence Number (e.g., 0/1234567)"
           }
         }
       },
