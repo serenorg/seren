@@ -30,115 +30,94 @@ pub struct SerenMcpServer {
 }
 
 // ============================================================================
-// Tool Parameter Types
+// Path Parameter Types (reusable)
 // ============================================================================
 
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct DescribeProjectParams {
+/// Path parameters for project-level operations
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct ProjectPath {
     /// The project ID (UUID)
     pub project_id: Uuid,
 }
 
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct CreateProjectParams {
-    /// Project name
-    pub name: String,
-    /// Region for the project (e.g., aws-us-east-1)
-    #[serde(default)]
-    pub region: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct DeleteProjectParams {
-    /// The project ID (UUID) to delete
+/// Path parameters for branch-level operations
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct BranchPath {
+    /// The project ID (UUID)
     pub project_id: Uuid,
+    /// The branch ID (UUID)
+    pub branch_id: Uuid,
 }
 
+/// Path parameters for endpoint-level operations
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct EndpointPath {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+    /// The branch ID (UUID)
+    pub branch_id: Uuid,
+    /// The endpoint ID (UUID)
+    pub endpoint_id: Uuid,
+}
+
+// ============================================================================
+// Tool Parameter Types (path + body composition)
+// ============================================================================
+
+// Project operations (path only, no body for these)
+pub type DescribeProjectParams = ProjectPath;
+pub type DeleteProjectParams = ProjectPath;
+pub type ListBranchesParams = ProjectPath;
+
+// Branch operations
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CreateBranchParams {
-    /// The project ID (UUID)
-    pub project_id: Uuid,
-    /// Branch name
-    pub name: String,
-    /// Parent branch ID (UUID, optional, defaults to main)
-    #[serde(default)]
-    pub parent_branch_id: Option<Uuid>,
+    #[serde(flatten)]
+    pub path: ProjectPath,
+    #[serde(flatten)]
+    pub body: seren::CreateBranchRequest,
 }
 
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct ListBranchesParams {
-    /// The project ID (UUID)
-    pub project_id: Uuid,
-}
+pub type DescribeBranchParams = BranchPath;
+pub type DeleteBranchParams = BranchPath;
+pub type ListDatabasesParams = BranchPath;
+pub type ListRolesParams = BranchPath;
+pub type ListEndpointsParams = BranchPath;
 
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct DescribeBranchParams {
-    /// The project ID (UUID)
-    pub project_id: Uuid,
-    /// The branch ID (UUID)
-    pub branch_id: Uuid,
-}
-
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct DeleteBranchParams {
-    /// The project ID (UUID)
-    pub project_id: Uuid,
-    /// The branch ID (UUID) to delete
-    pub branch_id: Uuid,
-}
-
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct ListDatabasesParams {
-    /// The project ID (UUID)
-    pub project_id: Uuid,
-    /// The branch ID (UUID)
-    pub branch_id: Uuid,
-}
-
+// Database operations
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CreateDatabaseParams {
-    /// The project ID (UUID)
-    pub project_id: Uuid,
-    /// The branch ID (UUID)
-    pub branch_id: Uuid,
-    /// Database name
-    pub name: String,
-    /// Owner role name
-    #[serde(default)]
-    pub owner: Option<String>,
+    #[serde(flatten)]
+    pub path: BranchPath,
+    #[serde(flatten)]
+    pub body: seren::CreateDatabaseRequest,
 }
 
+// Endpoint operations
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct ListRolesParams {
-    /// The project ID (UUID)
-    pub project_id: Uuid,
-    /// The branch ID (UUID)
-    pub branch_id: Uuid,
+pub struct CreateEndpointParams {
+    #[serde(flatten)]
+    pub path: BranchPath,
+    #[serde(flatten)]
+    pub body: seren::CreateEndpointRequest,
 }
 
+// Connection and SQL operations (branch path + additional params)
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GetConnectionStringParams {
-    /// The project ID (UUID)
-    pub project_id: Uuid,
-    /// The branch ID (UUID)
-    pub branch_id: Uuid,
-    /// Database name
+    #[serde(flatten)]
+    pub path: BranchPath,
+    #[serde(flatten)]
+    pub query: seren::ConnectionStringQueryParams,
+    /// Database name to include in the connection string (optional override)
     #[serde(default)]
     pub database: Option<String>,
-    /// Role name
-    #[serde(default)]
-    pub role: Option<String>,
-    /// Use connection pooling
-    #[serde(default)]
-    pub pooled: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RunSqlParams {
-    /// The project ID (UUID)
-    pub project_id: Uuid,
-    /// The branch ID (UUID)
-    pub branch_id: Uuid,
+    #[serde(flatten)]
+    pub path: BranchPath,
     /// Database name
     pub database: String,
     /// SQL query to execute
@@ -147,10 +126,8 @@ pub struct RunSqlParams {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RunSqlTransactionParams {
-    /// The project ID (UUID)
-    pub project_id: Uuid,
-    /// The branch ID (UUID)
-    pub branch_id: Uuid,
+    #[serde(flatten)]
+    pub path: BranchPath,
     /// Database name
     pub database: String,
     /// SQL statements to run in a single transaction
@@ -168,10 +145,8 @@ pub struct RunSqlTransactionParams {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GetDatabaseTablesParams {
-    /// The project ID (UUID)
-    pub project_id: Uuid,
-    /// The branch ID (UUID)
-    pub branch_id: Uuid,
+    #[serde(flatten)]
+    pub path: BranchPath,
     /// Database name
     pub database: String,
     /// Schema name (default: public)
@@ -181,10 +156,8 @@ pub struct GetDatabaseTablesParams {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ExplainSqlStatementParams {
-    /// The project ID (UUID)
-    pub project_id: Uuid,
-    /// The branch ID (UUID)
-    pub branch_id: Uuid,
+    #[serde(flatten)]
+    pub path: BranchPath,
     /// Database name
     pub database: String,
     /// SQL query to explain
@@ -193,10 +166,8 @@ pub struct ExplainSqlStatementParams {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct DescribeTableSchemaParams {
-    /// The project ID (UUID)
-    pub project_id: Uuid,
-    /// The branch ID (UUID)
-    pub branch_id: Uuid,
+    #[serde(flatten)]
+    pub path: BranchPath,
     /// Database name
     pub database: String,
     /// Table name
@@ -626,27 +597,16 @@ impl SerenMcpServer {
             open_world_hint = false
         )
     )]
-    #[instrument(skip(self, extensions), fields(name = %params.name))]
+    #[instrument(skip(self, extensions), fields(name = %request.name))]
     async fn create_project(
         &self,
-        Parameters(params): Parameters<CreateProjectParams>,
+        Parameters(request): Parameters<seren::CreateProjectRequest>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
-        validate_resource_name(&params.name, "project name")?;
+        validate_resource_name(&request.name, "project name")?;
 
         let api_client = self.api_client(&extensions)?;
-        let request = seren::CreateProjectRequest {
-            name: params.name,
-            region: params.region.unwrap_or_else(|| "aws-us-east-1".to_string()),
-            block_public_connections: None,
-            block_vpc_connections: None,
-            compute_unit_max: None,
-            compute_unit_min: None,
-            enable_logical_replication: None,
-            hipaa: None,
-            protected_branches_only: None,
-        };
         let response = api_client
             .projects()
             .create(request)
@@ -692,7 +652,7 @@ impl SerenMcpServer {
     )]
     #[instrument(
         skip(self, extensions),
-        fields(project_id = %params.project_id, name = %params.name)
+        fields(project_id = %params.path.project_id, name = %params.body.name)
     )]
     async fn create_branch(
         &self,
@@ -700,25 +660,12 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
-        validate_resource_name(&params.name, "branch name")?;
+        validate_resource_name(&params.body.name, "branch name")?;
 
         let api_client = self.api_client(&extensions)?;
-        let request = seren::CreateBranchRequest {
-            name: params.name,
-            parent_branch_id: params.parent_branch_id,
-            add_endpoint: Some(true),
-            archived: None,
-            endpoints: vec![],
-            init_source: None,
-            parent_lsn: None,
-            parent_timestamp: None,
-            protected: None,
-            expires_at: None,
-            schema_only: None,
-        };
         let response = api_client
-            .branches(params.project_id.to_string())
-            .create(request)
+            .branches(params.path.project_id.to_string())
+            .create(params.body)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
@@ -777,23 +724,22 @@ impl SerenMcpServer {
             open_world_hint = false
         )
     )]
-    #[instrument(skip(self, extensions), fields(project_id = %params.project_id, branch_id = %params.branch_id, name = %params.name))]
+    #[instrument(skip(self, extensions), fields(project_id = %params.path.project_id, branch_id = %params.path.branch_id, name = %params.body.name))]
     async fn create_database(
         &self,
         Parameters(params): Parameters<CreateDatabaseParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
-        validate_identifier(&params.name, "database name")?;
+        validate_identifier(&params.body.name, "database name")?;
 
         let api_client = self.api_client(&extensions)?;
-        let request = seren::CreateDatabaseRequest {
-            name: params.name,
-            owner_name: params.owner,
-        };
         let database = api_client
-            .databases(params.project_id.to_string(), params.branch_id.to_string())
-            .create(request)
+            .databases(
+                params.path.project_id.to_string(),
+                params.path.branch_id.to_string(),
+            )
+            .create(params.body)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![json_content(&database)?]))
@@ -828,11 +774,11 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let response = api_client
-            .branches(params.project_id.to_string())
+            .branches(params.path.project_id.to_string())
             .connection_string_with_options(
-                &params.branch_id.to_string(),
-                params.pooled,
-                params.role.as_deref(),
+                &params.path.branch_id.to_string(),
+                params.query.pooled,
+                params.query.role.as_deref(),
             )
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -857,7 +803,7 @@ impl SerenMcpServer {
             open_world_hint = false
         )
     )]
-    #[instrument(skip(self, extensions, params), fields(project_id = %params.project_id, branch_id = %params.branch_id, database = %params.database))]
+    #[instrument(skip(self, extensions, params), fields(project_id = %params.path.project_id, branch_id = %params.path.branch_id, database = %params.database))]
     async fn run_sql(
         &self,
         Parameters(params): Parameters<RunSqlParams>,
@@ -870,8 +816,8 @@ impl SerenMcpServer {
         // Get connection info from API
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
-            .branches(params.project_id.to_string())
-            .connection_string_with_options(&params.branch_id.to_string(), None, None)
+            .branches(params.path.project_id.to_string())
+            .connection_string_with_options(&params.path.branch_id.to_string(), None, None)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
@@ -919,8 +865,8 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
-            .branches(params.project_id.to_string())
-            .connection_string_with_options(&params.branch_id.to_string(), None, None)
+            .branches(params.path.project_id.to_string())
+            .connection_string_with_options(&params.path.branch_id.to_string(), None, None)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
@@ -965,8 +911,8 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
-            .branches(params.project_id.to_string())
-            .connection_string_with_options(&params.branch_id.to_string(), None, None)
+            .branches(params.path.project_id.to_string())
+            .connection_string_with_options(&params.path.branch_id.to_string(), None, None)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
@@ -997,8 +943,8 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
-            .branches(params.project_id.to_string())
-            .connection_string_with_options(&params.branch_id.to_string(), None, None)
+            .branches(params.path.project_id.to_string())
+            .connection_string_with_options(&params.path.branch_id.to_string(), None, None)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
@@ -1014,7 +960,7 @@ impl SerenMcpServer {
         description = "Get schema information for a table",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
-    #[instrument(skip(self, extensions), fields(project_id = %params.project_id, branch_id = %params.branch_id, database = %params.database, table = %params.table_name))]
+    #[instrument(skip(self, extensions), fields(project_id = %params.path.project_id, branch_id = %params.path.branch_id, database = %params.database, table = %params.table_name))]
     async fn describe_table_schema(
         &self,
         Parameters(params): Parameters<DescribeTableSchemaParams>,
@@ -1042,8 +988,8 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
-            .branches(params.project_id.to_string())
-            .connection_string_with_options(&params.branch_id.to_string(), None, None)
+            .branches(params.path.project_id.to_string())
+            .connection_string_with_options(&params.path.branch_id.to_string(), None, None)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
@@ -1108,6 +1054,130 @@ impl SerenMcpServer {
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![json_content(&branch)?]))
+    }
+
+    // ========================================================================
+    // Endpoint Tools
+    // ========================================================================
+
+    #[tool(
+        description = "List all endpoints for a branch",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_endpoints(
+        &self,
+        Parameters(params): Parameters<ListEndpointsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let endpoints = api_client
+            .endpoints(params.project_id.to_string(), params.branch_id.to_string())
+            .list()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![json_content(&endpoints)?]))
+    }
+
+    #[tool(
+        description = "Create a new endpoint for a branch",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn create_endpoint(
+        &self,
+        Parameters(params): Parameters<CreateEndpointParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+        let endpoint = api_client
+            .endpoints(
+                params.path.project_id.to_string(),
+                params.path.branch_id.to_string(),
+            )
+            .create(params.body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![json_content(&endpoint)?]))
+    }
+
+    #[tool(
+        description = "Delete an endpoint",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn delete_endpoint(
+        &self,
+        Parameters(params): Parameters<EndpointPath>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+        api_client
+            .endpoints(params.project_id.to_string(), params.branch_id.to_string())
+            .delete(&params.endpoint_id.to_string())
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Endpoint {} deleted successfully",
+            params.endpoint_id
+        ))]))
+    }
+
+    #[tool(
+        description = "Start a suspended endpoint",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn start_endpoint(
+        &self,
+        Parameters(params): Parameters<EndpointPath>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+        let endpoint = api_client
+            .endpoints(params.project_id.to_string(), params.branch_id.to_string())
+            .start(&params.endpoint_id.to_string())
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![json_content(&endpoint)?]))
+    }
+
+    #[tool(
+        description = "Suspend an endpoint",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn suspend_endpoint(
+        &self,
+        Parameters(params): Parameters<EndpointPath>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+        let endpoint = api_client
+            .endpoints(params.project_id.to_string(), params.branch_id.to_string())
+            .suspend(&params.endpoint_id.to_string())
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![json_content(&endpoint)?]))
     }
 }
 
