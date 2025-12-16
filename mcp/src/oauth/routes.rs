@@ -1190,7 +1190,7 @@ async fn cleanup(
     State(state): State<Arc<OAuthState>>,
     headers: axum::http::HeaderMap,
 ) -> Result<StatusCode, OAuthError> {
-    let Some(expected_token) = std::env::var("SEREN_MCP_CLEANUP_TOKEN")
+    let Some(expected_token) = std::env::var("CLEANUP_TOKEN")
         .ok()
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())

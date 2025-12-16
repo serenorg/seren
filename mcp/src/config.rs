@@ -21,21 +21,21 @@ pub enum AuthConfig {
     OAuth {
         database_url: String,
         client_id: String,
-        server_host: String,
+        public_url: String,
     },
 }
 
 impl Config {
     pub fn from_env_for_command(command: &str) -> Result<Self> {
         let api_base_url =
-            std::env::var("SEREN_API_URL").unwrap_or_else(|_| "https://api.serendb.com/api".into());
+            std::env::var("API_URL").unwrap_or_else(|_| "https://api.serendb.com/api".into());
         let oauth_redirect_base_url =
-            std::env::var("SEREN_OAUTH_REDIRECT_BASE_URL").unwrap_or_else(|_| api_base_url.clone());
+            std::env::var("OAUTH_REDIRECT_URL").unwrap_or_else(|_| api_base_url.clone());
 
         let auth = match command {
             "start" | "start:http" => {
-                let key = std::env::var("SEREN_API_KEY").map_err(|_| {
-                    McpError::Config(format!("SEREN_API_KEY is required for {} mode", command))
+                let key = std::env::var("API_KEY").map_err(|_| {
+                    McpError::Config(format!("API_KEY is required for {} mode", command))
                 })?;
                 AuthConfig::ApiKey(key)
             }
@@ -43,14 +43,14 @@ impl Config {
                 let database_url = std::env::var("DATABASE_URL").map_err(|_| {
                     McpError::Config("DATABASE_URL required for start:oauth mode".into())
                 })?;
-                let server_host = std::env::var("MCP_SERVER_HOST").map_err(|_| {
-                    McpError::Config("MCP_SERVER_HOST required for start:oauth mode".into())
+                let public_url = std::env::var("PUBLIC_URL").map_err(|_| {
+                    McpError::Config("PUBLIC_URL required for start:oauth mode".into())
                 })?;
 
                 AuthConfig::OAuth {
                     database_url,
                     client_id: UPSTREAM_OAUTH_CLIENT_ID.to_string(),
-                    server_host,
+                    public_url,
                 }
             }
             _ => return Err(McpError::Config(format!("Unknown command: {}", command))),
@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn start_requires_api_key() {
-        temp_env::with_var_unset("SEREN_API_KEY", || {
+        temp_env::with_var_unset("API_KEY", || {
             let res = Config::from_env_for_command("start");
             assert!(matches!(res, Err(McpError::Config(_))));
         });
@@ -85,10 +85,10 @@ mod tests {
     fn start_builds_config_with_defaults() {
         temp_env::with_vars(
             [
-                ("SEREN_API_KEY", Some("test-key")),
+                ("API_KEY", Some("test-key")),
                 ("HOST", None),
                 ("PORT", None),
-                ("SEREN_API_URL", None),
+                ("API_URL", None),
             ],
             || {
                 let cfg = Config::from_env_for_command("start").unwrap();
@@ -102,7 +102,7 @@ mod tests {
 
     #[test]
     fn start_oauth_requires_oauth_env_vars() {
-        temp_env::with_vars_unset(["DATABASE_URL", "MCP_SERVER_HOST"], || {
+        temp_env::with_vars_unset(["DATABASE_URL", "PUBLIC_URL"], || {
             let res = Config::from_env_for_command("start:oauth");
             assert!(matches!(res, Err(McpError::Config(_))));
         });
@@ -113,8 +113,8 @@ mod tests {
         temp_env::with_vars(
             [
                 ("DATABASE_URL", Some("postgres://localhost/test")),
-                ("MCP_SERVER_HOST", Some("mcp.serendb.com")),
-                ("SEREN_API_URL", Some("https://example.com/api")),
+                ("PUBLIC_URL", Some("https://mcp.serendb.com")),
+                ("API_URL", Some("https://example.com/api")),
             ],
             || {
                 let cfg = Config::from_env_for_command("start:oauth").unwrap();
@@ -122,11 +122,11 @@ mod tests {
                     AuthConfig::OAuth {
                         database_url,
                         client_id,
-                        server_host,
+                        public_url,
                     } => {
                         assert_eq!(database_url, "postgres://localhost/test");
                         assert_eq!(client_id, "seren-mcp");
-                        assert_eq!(server_host, "mcp.serendb.com");
+                        assert_eq!(public_url, "https://mcp.serendb.com");
                     }
                     _ => panic!("expected OAuth config"),
                 }

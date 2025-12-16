@@ -250,11 +250,11 @@ fn connection_string_with_database(
 }
 
 fn sql_proxy_url_from_connection_string(connection_string: &str) -> Result<String, McpError> {
-    if let Ok(base_url) = std::env::var("SEREN_SQL_PROXY_BASE_URL") {
+    if let Ok(base_url) = std::env::var("SQL_PROXY_URL") {
         let base_url = base_url.trim();
         if !base_url.is_empty() {
             let mut url = reqwest::Url::parse(base_url).map_err(|e| {
-                McpError::internal_error(format!("Invalid SEREN_SQL_PROXY_BASE_URL: {}", e), None)
+                McpError::internal_error(format!("Invalid SQL_PROXY_URL: {}", e), None)
             })?;
             url.set_path("/sql");
             url.set_query(None);
@@ -274,13 +274,13 @@ fn sql_proxy_url_from_connection_string(connection_string: &str) -> Result<Strin
 /// Check if read-only mode is enabled.
 ///
 /// Read-only mode can be enabled in two ways:
-/// 1. Environment variable `SEREN_MCP_READ_ONLY=true` (global, applies to all requests)
+/// 1. Environment variable `READ_ONLY=true` (global, applies to all requests)
 /// 2. HTTP header `x-read-only: true` (per-request, must be sent on each call)
 ///
 /// Note: The `x-read-only` header is evaluated per-request. Clients must include
 /// it on every request where they want write operations blocked.
 fn is_read_only(extensions: &Extensions) -> bool {
-    let env_read_only = std::env::var("SEREN_MCP_READ_ONLY")
+    let env_read_only = std::env::var("READ_ONLY")
         .ok()
         .map(|v| v.trim().to_ascii_lowercase())
         .is_some_and(|v| v == "1" || v == "true" || v == "yes" || v == "on");
@@ -1235,7 +1235,7 @@ mod tests {
 
     #[test]
     fn read_only_header_enables_read_only_mode() {
-        temp_env::with_var_unset("SEREN_MCP_READ_ONLY", || {
+        temp_env::with_var_unset("READ_ONLY", || {
             let extensions = extensions_with_headers(&[("x-read-only", "true")]);
             assert!(is_read_only(&extensions));
             assert!(ensure_writes_allowed(&extensions).is_err());
@@ -1248,7 +1248,7 @@ mod tests {
 
     #[test]
     fn read_only_env_enables_read_only_mode() {
-        temp_env::with_var("SEREN_MCP_READ_ONLY", Some("yes"), || {
+        temp_env::with_var("READ_ONLY", Some("yes"), || {
             let extensions = extensions_with_headers(&[]);
             assert!(is_read_only(&extensions));
             assert!(ensure_writes_allowed(&extensions).is_err());
@@ -1263,7 +1263,7 @@ mod tests {
         let proxy = MockServer::start().await;
         let proxy_uri = proxy.uri();
 
-        temp_env::async_with_vars([("SEREN_SQL_PROXY_BASE_URL", Some(&proxy_uri))], async {
+        temp_env::async_with_vars([("SQL_PROXY_URL", Some(&proxy_uri))], async {
             let conn = "postgresql://user:pass@db.serendb.com/postgres?sslmode=require";
 
             Mock::given(method("POST"))
@@ -1298,7 +1298,7 @@ mod tests {
         let proxy = MockServer::start().await;
         let proxy_uri = proxy.uri();
 
-        temp_env::async_with_vars([("SEREN_SQL_PROXY_BASE_URL", Some(&proxy_uri))], async {
+        temp_env::async_with_vars([("SQL_PROXY_URL", Some(&proxy_uri))], async {
             let conn = "postgresql://user:pass@db.serendb.com/postgres?sslmode=require";
 
             Mock::given(method("POST"))

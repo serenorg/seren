@@ -265,7 +265,7 @@ async fn run_stdio(config: Config) -> Result<()> {
     let api_key = match &config.auth {
         AuthConfig::ApiKey(key) => key.clone(),
         AuthConfig::OAuth { .. } => {
-            anyhow::bail!("Stdio mode requires SEREN_API_KEY environment variable");
+            anyhow::bail!("Stdio mode requires API_KEY environment variable");
         }
     };
 
@@ -289,12 +289,12 @@ async fn run_http(config: Config) -> Result<()> {
     let api_key = match &config.auth {
         AuthConfig::ApiKey(key) => key.clone(),
         AuthConfig::OAuth { .. } => {
-            anyhow::bail!("start:http mode requires SEREN_API_KEY (use start:oauth for OAuth)");
+            anyhow::bail!("start:http mode requires API_KEY (use start:oauth for OAuth)");
         }
     };
 
-    let auth_token = std::env::var("MCP_AUTH_TOKEN")
-        .map_err(|_| anyhow::anyhow!("MCP_AUTH_TOKEN is required for start:http"))?;
+    let auth_token = std::env::var("AUTH_TOKEN")
+        .map_err(|_| anyhow::anyhow!("AUTH_TOKEN is required for start:http"))?;
 
     let api_base_url = config.api_base_url.clone();
     let ct = CancellationToken::new();
@@ -373,8 +373,8 @@ async fn run_http(config: Config) -> Result<()> {
     tracing::info!("  POST   /mcp - send JSON-RPC messages");
     tracing::info!("  GET    /mcp - establish SSE stream (with session)");
     tracing::info!("  DELETE /mcp - close session");
-    tracing::info!("Auth: set `Authorization: Bearer <MCP_AUTH_TOKEN>`");
-    tracing::info!("Read-only: set `x-read-only: true` header (or `SEREN_MCP_READ_ONLY=true`)");
+    tracing::info!("Auth: set `Authorization: Bearer <AUTH_TOKEN>`");
+    tracing::info!("Read-only: set `x-read-only: true` header (or `READ_ONLY=true`)");
 
     let server_ct = ct.clone();
     axum::serve(listener, app)
@@ -399,10 +399,10 @@ async fn run_oauth(config: Config) -> Result<()> {
         AuthConfig::OAuth {
             database_url,
             client_id,
-            server_host,
-        } => (database_url.clone(), client_id.clone(), server_host.clone()),
+            public_url,
+        } => (database_url.clone(), client_id.clone(), public_url.clone()),
         AuthConfig::ApiKey(_) => {
-            anyhow::bail!("start:oauth mode requires DATABASE_URL and MCP_SERVER_HOST");
+            anyhow::bail!("start:oauth mode requires DATABASE_URL and PUBLIC_URL");
         }
     };
 

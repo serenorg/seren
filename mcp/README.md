@@ -43,8 +43,8 @@ docker run -p 8080:8080 ghcr.io/serenorg/seren-mcp:latest
 
 # With environment configuration
 docker run -p 8080:8080 \
-  -e SEREN_API_KEY="seren_..." \
-  -e MCP_AUTH_TOKEN="..." \
+  -e API_KEY="seren_..." \
+  -e AUTH_TOKEN="..." \
   ghcr.io/serenorg/seren-mcp:latest
 ```
 
@@ -71,13 +71,15 @@ sudo mv seren-mcp /usr/local/bin/
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `SEREN_API_URL` | Seren API base URL (must include `/api`) | `https://api.serendb.com/api` |
-| `SEREN_API_KEY` | Seren API key (for `start`/`start:http`) | Required |
-| `MCP_AUTH_TOKEN` | Auth token for `start:http` (bearer) | Required for `start:http` |
+| `API_URL` | Seren API base URL (must include `/api`) | `https://api.serendb.com/api` |
+| `API_KEY` | Seren API key (for `start`/`start:http`) | Required |
+| `AUTH_TOKEN` | Auth token for `start:http` (bearer) | Required for `start:http` |
 | `DATABASE_URL` | Postgres URL for OAuth token storage | Required for `start:oauth` |
-| `MCP_SERVER_HOST` | Public base URL of this server | Required for `start:oauth` |
+| `PUBLIC_URL` | Public base URL of this server | Required for `start:oauth` |
+| `OAUTH_REDIRECT_URL` | Public URL for OAuth browser redirects | Defaults to `API_URL` |
 | `HOST` | Listen host | `0.0.0.0` |
 | `PORT` | Listen port | `3000` |
+| `READ_ONLY` | Enable read-only mode (blocks write operations) | `false` |
 | `RUST_LOG` | Log level | `seren_mcp=info` |
 
 ### Claude Desktop Setup
@@ -122,7 +124,7 @@ If you need to run the MCP server locally (for development or offline use):
 claude mcp add seren seren-mcp start
 
 # With custom API key
-claude mcp add seren seren-mcp start --env SEREN_API_KEY=seren_...
+claude mcp add seren seren-mcp start --env API_KEY=seren_...
 ```
 
 **Manual configuration:**
@@ -134,7 +136,7 @@ claude mcp add seren seren-mcp start --env SEREN_API_KEY=seren_...
       "command": "seren-mcp",
       "args": ["start"],
       "env": {
-        "SEREN_API_KEY": "seren_..."
+        "API_KEY": "seren_..."
       }
     }
   }
