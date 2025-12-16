@@ -281,6 +281,14 @@ async fn authorize(
     State(state): State<Arc<OAuthState>>,
     Query(req): Query<AuthorizeRequest>,
 ) -> Result<Response, OAuthError> {
+    let start = std::time::Instant::now();
+    tracing::info!(
+        event = "oauth_authorize_start",
+        client_id = %req.client_id,
+        redirect_uri = %req.redirect_uri,
+        "OAuth authorize request received"
+    );
+
     if req.response_type != "code" {
         return Err(OAuthError::UnsupportedResponseType);
     }
@@ -366,6 +374,13 @@ async fn authorize(
         .append_pair("state", &upstream_state)
         .append_pair("scope", "openid profile email");
 
+    tracing::info!(
+        event = "oauth_authorize_redirect",
+        client_id = %req.client_id,
+        elapsed_ms = %start.elapsed().as_millis(),
+        "Redirecting to upstream OAuth provider"
+    );
+
     Ok(Redirect::temporary(url.as_str()).into_response())
 }
 
@@ -400,6 +415,14 @@ async fn callback(
     State(state): State<Arc<OAuthState>>,
     Query(q): Query<CallbackQuery>,
 ) -> Result<Response, OAuthError> {
+    let start = std::time::Instant::now();
+    tracing::info!(
+        event = "oauth_callback_start",
+        has_code = q.code.is_some(),
+        has_error = q.error.is_some(),
+        "OAuth callback received from upstream"
+    );
+
     let upstream_state = q
         .state
         .ok_or_else(|| OAuthError::InvalidRequest("state required".into()))?;
@@ -533,12 +556,13 @@ async fn callback(
         }
 
         tracing::info!(
-            event = "oauth_redirect",
+            event = "oauth_callback_complete",
             user_id = %user_id,
             client_id = %auth_request.client_id,
             redirect_uri = %auth_request.redirect_uri,
             approved = true,
-            "OAuth authorization code redirect"
+            elapsed_ms = %start.elapsed().as_millis(),
+            "OAuth authorization code redirect (pre-approved)"
         );
 
         return Ok(Redirect::temporary(redirect_url.as_str()).into_response());
@@ -568,6 +592,15 @@ async fn callback(
 
     let server_host = state.server_host.trim_end_matches('/');
     let consent_url = format!("{server_host}/consent?token={consent_id}");
+
+    tracing::info!(
+        event = "oauth_callback_consent_required",
+        user_id = %user_id,
+        client_id = %auth_request.client_id,
+        elapsed_ms = %start.elapsed().as_millis(),
+        "Redirecting to consent page (first-time approval)"
+    );
+
     Ok(Redirect::temporary(&consent_url).into_response())
 }
 
@@ -606,6 +639,13 @@ async fn token(
     State(state): State<Arc<OAuthState>>,
     Form(req): Form<TokenRequest>,
 ) -> Result<Json<TokenResponse>, OAuthError> {
+    let start = std::time::Instant::now();
+    tracing::info!(
+        event = "oauth_token_start",
+        grant_type = %req.grant_type,
+        "Token exchange request received"
+    );
+
     match req.grant_type.as_str() {
         "authorization_code" => {
             let code = req
@@ -688,6 +728,17 @@ async fn token(
             let expires_in = (auth_code.upstream_expires_at - Utc::now())
                 .num_seconds()
                 .max(0);
+
+            tracing::info!(
+                event = "oauth_token_complete",
+                grant_type = "authorization_code",
+                client_id = %auth_code.client_id,
+                user_id = %auth_code.user_id,
+                expires_in = %expires_in,
+                elapsed_ms = %start.elapsed().as_millis(),
+                "Token exchange completed successfully"
+            );
+
             Ok(Json(TokenResponse {
                 access_token: auth_code.upstream_access_token,
                 token_type: "Bearer".into(),
@@ -1270,6 +1321,13 @@ async fn consent_submit(
     State(state): State<Arc<OAuthState>>,
     Form(req): Form<ConsentForm>,
 ) -> Result<Response, OAuthError> {
+    let start = std::time::Instant::now();
+    tracing::info!(
+        event = "oauth_consent_submit_start",
+        action = %req.action,
+        "Consent form submitted"
+    );
+
     let consent = state
         .store
         .consume_pending_consent(&req.token)
@@ -1313,7 +1371,8 @@ async fn consent_submit(
                 user_id = %consent.user_id,
                 client_id = %consent.client_id,
                 redirect_uri = %consent.redirect_uri,
-                "User approved OAuth consent"
+                elapsed_ms = %start.elapsed().as_millis(),
+                "User approved OAuth consent - redirecting with auth code"
             );
 
             Ok(Redirect::temporary(redirect_url.as_str()).into_response())
