@@ -27,7 +27,7 @@ use std::sync::Arc;
 use tower_governor::{
     GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor,
 };
-use tracing::{debug, info};
+use tracing::debug;
 
 /// OAuth server state.
 #[derive(Clone)]
@@ -143,10 +143,7 @@ async fn register(
     State(state): State<Arc<OAuthState>>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<RegisterResponse>, OAuthError> {
-    tracing::info!(
-        "Client registration request: client_name={}",
-        req.client_name
-    );
+    debug!(client_name = %req.client_name, "Client registration request");
 
     if req.client_name.trim().is_empty() {
         return Err(OAuthError::InvalidRequest("client_name is required".into()));
@@ -281,12 +278,10 @@ async fn authorize(
     State(state): State<Arc<OAuthState>>,
     Query(req): Query<AuthorizeRequest>,
 ) -> Result<Response, OAuthError> {
-    let start = std::time::Instant::now();
-    tracing::info!(
-        event = "oauth_authorize_start",
+    debug!(
+        event = "oauth_authorize",
         client_id = %req.client_id,
-        redirect_uri = %req.redirect_uri,
-        "OAuth authorize request received"
+        "OAuth authorize request"
     );
 
     if req.response_type != "code" {
@@ -374,13 +369,6 @@ async fn authorize(
         .append_pair("state", &upstream_state)
         .append_pair("scope", "openid profile email");
 
-    tracing::info!(
-        event = "oauth_authorize_redirect",
-        client_id = %req.client_id,
-        elapsed_ms = %start.elapsed().as_millis(),
-        "Redirecting to upstream OAuth provider"
-    );
-
     Ok(Redirect::temporary(url.as_str()).into_response())
 }
 
@@ -415,12 +403,11 @@ async fn callback(
     State(state): State<Arc<OAuthState>>,
     Query(q): Query<CallbackQuery>,
 ) -> Result<Response, OAuthError> {
-    let start = std::time::Instant::now();
-    tracing::info!(
-        event = "oauth_callback_start",
+    debug!(
+        event = "oauth_callback",
         has_code = q.code.is_some(),
         has_error = q.error.is_some(),
-        "OAuth callback received from upstream"
+        "OAuth callback from upstream"
     );
 
     let upstream_state = q
@@ -555,14 +542,11 @@ async fn callback(
                 .append_pair("state", &client_state);
         }
 
-        tracing::info!(
+        debug!(
             event = "oauth_callback_complete",
             user_id = %user_id,
             client_id = %auth_request.client_id,
-            redirect_uri = %auth_request.redirect_uri,
-            approved = true,
-            elapsed_ms = %start.elapsed().as_millis(),
-            "OAuth authorization code redirect (pre-approved)"
+            "OAuth authorization code issued (pre-approved)"
         );
 
         return Ok(Redirect::temporary(redirect_url.as_str()).into_response());
@@ -593,12 +577,11 @@ async fn callback(
     let server_host = state.server_host.trim_end_matches('/');
     let consent_url = format!("{server_host}/consent?token={consent_id}");
 
-    tracing::info!(
+    debug!(
         event = "oauth_callback_consent_required",
         user_id = %user_id,
         client_id = %auth_request.client_id,
-        elapsed_ms = %start.elapsed().as_millis(),
-        "Redirecting to consent page (first-time approval)"
+        "Redirecting to consent page"
     );
 
     Ok(Redirect::temporary(&consent_url).into_response())
@@ -639,11 +622,10 @@ async fn token(
     State(state): State<Arc<OAuthState>>,
     Form(req): Form<TokenRequest>,
 ) -> Result<Json<TokenResponse>, OAuthError> {
-    let start = std::time::Instant::now();
-    tracing::info!(
-        event = "oauth_token_start",
+    debug!(
+        event = "oauth_token",
         grant_type = %req.grant_type,
-        "Token exchange request received"
+        "Token exchange request"
     );
 
     match req.grant_type.as_str() {
@@ -729,14 +711,12 @@ async fn token(
                 .num_seconds()
                 .max(0);
 
-            tracing::info!(
+            debug!(
                 event = "oauth_token_complete",
                 grant_type = "authorization_code",
                 client_id = %auth_code.client_id,
                 user_id = %auth_code.user_id,
-                expires_in = %expires_in,
-                elapsed_ms = %start.elapsed().as_millis(),
-                "Token exchange completed successfully"
+                "Token exchange completed"
             );
 
             Ok(Json(TokenResponse {
@@ -755,16 +735,16 @@ async fn token(
             let refresh_token = match state.store.get_refresh_token(&refresh_token_str).await {
                 Ok(Some(token)) => token,
                 Ok(None) => {
-                    info!(
+                    debug!(
                         event = "oauth_refresh_token_not_found",
-                        "Refresh token not found in database"
+                        "Refresh token not found"
                     );
                     return Err(OAuthError::InvalidGrant(
                         "Invalid or expired refresh token".into(),
                     ));
                 }
                 Err(e) => {
-                    info!(
+                    debug!(
                         event = "oauth_refresh_token_db_error",
                         error = %e,
                         "Database error looking up refresh token"
@@ -860,14 +840,12 @@ async fn token(
 
             let expires_in = (new_expires_at - Utc::now()).num_seconds().max(0);
 
-            info!(
+            debug!(
                 event = "oauth_token_complete",
                 grant_type = "refresh_token",
                 client_id = %refresh_token.client_id,
                 user_id = %refresh_token.user_id,
-                expires_in = expires_in,
-                elapsed_ms = start.elapsed().as_millis() as u64,
-                "Token refresh completed successfully"
+                "Token refresh completed"
             );
 
             Ok(Json(TokenResponse {
@@ -1344,9 +1322,8 @@ async fn consent_submit(
     State(state): State<Arc<OAuthState>>,
     Form(req): Form<ConsentForm>,
 ) -> Result<Response, OAuthError> {
-    let start = std::time::Instant::now();
-    tracing::info!(
-        event = "oauth_consent_submit_start",
+    debug!(
+        event = "oauth_consent_submit",
         action = %req.action,
         "Consent form submitted"
     );
@@ -1389,23 +1366,20 @@ async fn consent_submit(
                     .append_pair("state", state_param);
             }
 
-            tracing::info!(
+            debug!(
                 event = "oauth_consent_approved",
                 user_id = %consent.user_id,
                 client_id = %consent.client_id,
-                redirect_uri = %consent.redirect_uri,
-                elapsed_ms = %start.elapsed().as_millis(),
-                "User approved OAuth consent - redirecting with auth code"
+                "User approved OAuth consent"
             );
 
             Ok(Redirect::temporary(redirect_url.as_str()).into_response())
         }
         "deny" => {
-            tracing::warn!(
+            debug!(
                 event = "oauth_consent_denied",
                 user_id = %consent.user_id,
                 client_id = %consent.client_id,
-                redirect_uri = %consent.redirect_uri,
                 "User denied OAuth consent"
             );
 
