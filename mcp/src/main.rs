@@ -12,7 +12,9 @@ use config::{AuthConfig, Config};
 use oauth::store::TokenStore;
 use rmcp::ServiceExt;
 use server::SerenMcpServer;
+use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 /// Health check state with optional database store
 #[derive(Clone)]
@@ -57,6 +59,13 @@ struct SimpleAuthState {
 #[derive(Clone)]
 struct OAuthAuthState {
     store: TokenStore,
+    /// Per-session bearer token cache keyed by `Mcp-Session-Id`.
+    ///
+    /// Some Streamable HTTP clients only send the `Authorization` header on the initial
+    /// session-creating request. Subsequent requests carry only `Mcp-Session-Id`.
+    /// We cache the validated token so later requests can be authorized and the token
+    /// can be re-injected for downstream API calls.
+    session_tokens: Arc<RwLock<HashMap<String, String>>>,
 }
 
 /// Extract bearer token from Authorization header (case-insensitive scheme per RFC 6750)
@@ -94,10 +103,36 @@ async fn require_simple_auth(
 /// OAuth token validation middleware (for start:oauth mode)
 async fn require_oauth_auth(
     axum::extract::State(state): axum::extract::State<OAuthAuthState>,
-    req: axum::http::Request<axum::body::Body>,
+    mut req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    let token = extract_bearer_token(&req);
+    let session_id = req
+        .headers()
+        .get(axum::http::header::HeaderName::from_static(
+            "mcp-session-id",
+        ))
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+
+    // Prefer an explicit Authorization header.
+    let mut token = extract_bearer_token(&req).map(|t| t.to_string());
+
+    // If missing, try to recover the token from the session cache.
+    if token.is_none() {
+        if let Some(ref sid) = session_id {
+            token = state.session_tokens.read().await.get(sid).cloned();
+            if token.is_some() {
+                // Re-inject Authorization so rmcp can propagate it into Extensions for tools.
+                if let Some(ref t) = token {
+                    if let Ok(v) = axum::http::HeaderValue::from_str(&format!("Bearer {}", t)) {
+                        req.headers_mut()
+                            .insert(axum::http::header::AUTHORIZATION, v);
+                    }
+                }
+            }
+        }
+    }
 
     let Some(token) = token else {
         return (
@@ -111,31 +146,72 @@ async fn require_oauth_auth(
     };
 
     // Validate token against database
-    match state.store.get_access_token(token).await {
-        Ok(Some(_access_token)) => {
-            // Token is valid and not expired (get_access_token checks expiry)
-            next.run(req).await
-        }
-        Ok(None) => (
-            axum::http::StatusCode::UNAUTHORIZED,
-            axum::Json(serde_json::json!({
-                "error": "invalid_token",
-                "error_description": "Token is invalid or expired"
-            })),
-        )
-            .into_response(),
+    let is_valid = match state.store.get_access_token(&token).await {
+        Ok(Some(_access_token)) => true, // get_access_token checks expiry
+        Ok(None) => false,
         Err(e) => {
             tracing::error!("Token validation error: {}", e);
-            (
+            return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 axum::Json(serde_json::json!({
                     "error": "server_error",
                     "error_description": "Token validation failed"
                 })),
             )
-                .into_response()
+                .into_response();
+        }
+    };
+
+    if !is_valid {
+        return (
+            axum::http::StatusCode::UNAUTHORIZED,
+            axum::Json(serde_json::json!({
+                "error": "invalid_token",
+                "error_description": "Token is invalid or expired"
+            })),
+        )
+            .into_response();
+    }
+
+    // If the request includes a session id, remember/update the token for that session.
+    if let Some(ref sid) = session_id {
+        state
+            .session_tokens
+            .write()
+            .await
+            .insert(sid.clone(), token.clone());
+    }
+
+    let method = req.method().clone();
+    let response = next.run(req).await;
+
+    // For the initial session-creating initialize request, rmcp returns `Mcp-Session-Id`
+    // in the response headers. Cache the token under that session id so clients can
+    // omit Authorization on subsequent requests.
+    if let Some(sid) = response
+        .headers()
+        .get(axum::http::header::HeaderName::from_static(
+            "mcp-session-id",
+        ))
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+    {
+        state
+            .session_tokens
+            .write()
+            .await
+            .insert(sid, token.clone());
+    }
+
+    // Best-effort cleanup: when a session is explicitly closed, drop the cached token.
+    if method == axum::http::Method::DELETE {
+        if let Some(sid) = session_id {
+            state.session_tokens.write().await.remove(&sid);
         }
     }
+
+    response
 }
 
 #[tokio::main]
@@ -425,13 +501,18 @@ async fn run_oauth(config: Config) -> Result<()> {
     let health_store = Arc::new(store.clone());
 
     // MCP endpoint with OAuth token validation
+    let session_tokens = Arc::new(RwLock::new(HashMap::<String, String>::new()));
+
     let mcp_router = axum::Router::new()
         .route(
             "/mcp",
             axum::routing::any_service(tower::ServiceBuilder::new().service(mcp_service)),
         )
         .layer(axum::middleware::from_fn_with_state(
-            OAuthAuthState { store },
+            OAuthAuthState {
+                store,
+                session_tokens,
+            },
             require_oauth_auth,
         ));
 
