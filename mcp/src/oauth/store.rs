@@ -130,7 +130,9 @@ pub struct AccessToken {
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RefreshToken {
     pub token: String,
-    pub access_token: String,
+    /// Reference to the associated access token. May be NULL if the access token
+    /// was deleted (e.g., expired and cleaned up) but the refresh token is still valid.
+    pub access_token: Option<String>,
     pub client_id: String,
     pub user_id: String,
     pub expires_at: Option<DateTime<Utc>>,

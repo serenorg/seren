@@ -694,7 +694,7 @@ async fn token(
             if let Some(refresh_token_str) = auth_code.upstream_refresh_token.as_deref() {
                 let refresh_token = RefreshToken {
                     token: refresh_token_str.to_string(),
-                    access_token: access_token.token.clone(),
+                    access_token: Some(access_token.token.clone()),
                     client_id: auth_code.client_id.clone(),
                     user_id: auth_code.user_id.clone(),
                     expires_at: Some(TokenStore::token_expiry(REFRESH_TOKEN_TTL_HOURS)),
@@ -768,13 +768,18 @@ async fn token(
             )
             .await?;
 
-            // Get the old access token to preserve scope
-            let old_token = state
-                .store
-                .get_access_token(&refresh_token.access_token)
-                .await
-                .map_err(|e| OAuthError::ServerError(e.to_string()))?;
-            let preserved_scope = old_token.map(|t| t.scope).unwrap_or_else(|| "api".into());
+            // Get the old access token to preserve scope (if it still exists)
+            let preserved_scope = if let Some(ref old_token_id) = refresh_token.access_token {
+                state
+                    .store
+                    .get_access_token(old_token_id)
+                    .await
+                    .map_err(|e| OAuthError::ServerError(e.to_string()))?
+                    .map(|t| t.scope)
+                    .unwrap_or_else(|| "api".into())
+            } else {
+                "api".into()
+            };
 
             // Refresh upstream tokens.
             let token_body = exchange_upstream_token(
@@ -832,11 +837,10 @@ async fn token(
                 return Err(OAuthError::InvalidGrant("refresh_token not found".into()));
             }
 
-            state
-                .store
-                .revoke_access_token(&old_access_token)
-                .await
-                .ok();
+            // Revoke old access token if it exists
+            if let Some(ref old_token_id) = old_access_token {
+                state.store.revoke_access_token(old_token_id).await.ok();
+            }
 
             let expires_in = (new_expires_at - Utc::now()).num_seconds().max(0);
 
