@@ -61,9 +61,11 @@ CREATE TABLE mcp_oauth.access_tokens (
 );
 
 -- Refresh tokens (long-lived, used to get new access tokens)
+-- Note: access_token is nullable with ON DELETE SET NULL so refresh tokens
+-- survive when their associated access tokens expire and are cleaned up.
 CREATE TABLE mcp_oauth.refresh_tokens (
     token text PRIMARY KEY,
-    access_token text NOT NULL REFERENCES mcp_oauth.access_tokens (token) ON DELETE CASCADE,
+    access_token text REFERENCES mcp_oauth.access_tokens (token) ON DELETE SET NULL,
     client_id text NOT NULL REFERENCES mcp_oauth.clients (id) ON DELETE CASCADE,
     user_id text NOT NULL,
     expires_at timestamptz,
