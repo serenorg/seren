@@ -1,42 +1,8 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use colored::Colorize;
-use reqwest::Client as HttpClient;
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{
-    CommandContext, OutputFormat,
-    commands::auth::get_bearer_token,
-    defaults::{DEFAULT_API_HOST, normalize_api_host},
-    output,
-};
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct CliPaymentMethod {
-    pub id: String,
-    #[serde(rename = "type_")]
-    pub type_: String,
-    pub card_brand: Option<String>,
-    pub card_last4: Option<String>,
-    pub card_exp_month: Option<i32>,
-    pub card_exp_year: Option<i32>,
-    pub bank_last4: Option<String>,
-    pub is_default: bool,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct CliAddPaymentMethodResponse {
-    id: String,
-    message: String,
-}
-
-fn resolve_api_host(api_host: Option<&String>) -> String {
-    let host = api_host
-        .cloned()
-        .or_else(|| std::env::var("SEREN_API_HOST").ok())
-        .unwrap_or_else(|| DEFAULT_API_HOST.to_string());
-    normalize_api_host(&host)
-}
+use crate::{CommandContext, OutputFormat, output};
 
 // Invoice commands
 
@@ -233,38 +199,18 @@ pub async fn get_health(ctx: &CommandContext) -> Result<()> {
 
 /// List saved payment methods for the authenticated user's primary organization.
 pub async fn list_payment_methods(ctx: &CommandContext) -> Result<()> {
-    let bearer_token = get_bearer_token(ctx.api_key.clone()).await?;
-    let base_url = resolve_api_host(ctx.api_host.as_ref());
-    let base_url = base_url.trim_end_matches('/');
-
-    let url = format!("{}/api/billing/payment-methods", base_url);
-    let client = HttpClient::new();
+    let client = ctx.client().await?;
 
     let response = client
-        .get(&url)
-        .header("Authorization", format!("Bearer {}", bearer_token))
-        .send()
+        .list_payment_methods()
         .await
-        .context("Failed to fetch payment methods")?;
+        .map_err(|e| anyhow::anyhow!("Failed to list payment methods: {}", e))?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        return Err(anyhow::anyhow!(
-            "Failed to list payment methods ({}): {}",
-            status,
-            body
-        ));
-    }
-
-    let methods: Vec<CliPaymentMethod> = response
-        .json()
-        .await
-        .context("Failed to parse payment methods response")?;
+    let methods = response.into_inner();
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&methods)?,
-        OutputFormat::Table => output::print_payment_methods_table(&methods),
+        OutputFormat::Table => output::print_payment_methods_table(&methods.data),
     }
 
     Ok(())
@@ -276,47 +222,26 @@ pub async fn add_payment_method(
     set_default: bool,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let bearer_token = get_bearer_token(ctx.api_key.clone()).await?;
-    let base_url = resolve_api_host(ctx.api_host.as_ref());
-    let base_url = base_url.trim_end_matches('/');
+    let client = ctx.client().await?;
 
-    let url = format!("{}/api/billing/payment-methods", base_url);
-    let client = HttpClient::new();
-
-    let body = serde_json::json!({
-        "stripe_payment_method_id": stripe_payment_method_id,
-        "set_as_default": set_default,
-    });
+    let request = seren::AddPaymentMethodRequest {
+        stripe_payment_method_id: stripe_payment_method_id.to_string(),
+        set_as_default: set_default,
+    };
 
     let response = client
-        .post(&url)
-        .header("Authorization", format!("Bearer {}", bearer_token))
-        .json(&body)
-        .send()
+        .add_payment_method(&request)
         .await
-        .context("Failed to add payment method")?;
+        .map_err(|e| anyhow::anyhow!("Failed to add payment method: {}", e))?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body_text = response.text().await.unwrap_or_default();
-        return Err(anyhow::anyhow!(
-            "Failed to add payment method ({}): {}",
-            status,
-            body_text
-        ));
-    }
-
-    let result: CliAddPaymentMethodResponse = response
-        .json()
-        .await
-        .context("Failed to parse add payment method response")?;
+    let result = response.into_inner();
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&result)?,
         OutputFormat::Table => {
             println!("{}", "✓ Payment method added successfully".green().bold());
-            println!("  ID:      {}", result.id);
-            println!("  Message: {}", result.message);
+            println!("  ID:      {}", result.data.id);
+            println!("  Message: {}", result.data.message);
         }
     }
 
@@ -325,29 +250,15 @@ pub async fn add_payment_method(
 
 /// Remove a stored payment method by its Seren payment_methods.id value.
 pub async fn remove_payment_method(id: &str, ctx: &CommandContext) -> Result<()> {
-    let bearer_token = get_bearer_token(ctx.api_key.clone()).await?;
-    let base_url = resolve_api_host(ctx.api_host.as_ref());
-    let base_url = base_url.trim_end_matches('/');
+    let client = ctx.client().await?;
 
-    let url = format!("{}/api/billing/payment-methods/{}", base_url, id);
-    let client = HttpClient::new();
+    let payment_method_id =
+        Uuid::parse_str(id).map_err(|e| anyhow::anyhow!("Invalid payment method ID: {}", e))?;
 
-    let response = client
-        .delete(&url)
-        .header("Authorization", format!("Bearer {}", bearer_token))
-        .send()
+    client
+        .delete_payment_method(&payment_method_id)
         .await
-        .context("Failed to remove payment method")?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body_text = response.text().await.unwrap_or_default();
-        return Err(anyhow::anyhow!(
-            "Failed to remove payment method ({}): {}",
-            status,
-            body_text
-        ));
-    }
+        .map_err(|e| anyhow::anyhow!("Failed to remove payment method: {}", e))?;
 
     if let OutputFormat::Json = ctx.format {
         // No body for 204; return a simple JSON acknowledgement.

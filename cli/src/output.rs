@@ -397,7 +397,7 @@ pub fn print_usage_summaries_table(summaries: &[seren::UsageSummary]) {
 }
 
 // Billing: payment methods
-pub fn print_payment_methods_table(methods: &[crate::commands::billing::CliPaymentMethod]) {
+pub fn print_payment_methods_table(methods: &[seren::PaymentMethod]) {
     if methods.is_empty() {
         println!("No payment methods found.");
         return;
