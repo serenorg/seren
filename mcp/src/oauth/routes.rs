@@ -1037,8 +1037,10 @@ async fn exchange_upstream_token(
         ));
     }
 
+    // OAuth endpoints are under /api in serencore, so we need to add /api prefix
+    // (The base URL no longer includes /api since the generated API client adds it)
     let token_url = format!(
-        "{}/oauth2/token",
+        "{}/api/oauth2/token",
         upstream_api_base_url.trim_end_matches('/')
     );
 
