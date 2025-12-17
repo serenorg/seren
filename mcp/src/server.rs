@@ -60,6 +60,22 @@ pub struct EndpointPath {
     pub endpoint_id: Uuid,
 }
 
+/// Path parameters for organization-level operations
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct OrganizationPath {
+    /// The organization ID (UUID)
+    pub organization_id: Uuid,
+}
+
+/// Path parameters for API key operations
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct ApiKeyPath {
+    /// The organization ID (UUID)
+    pub organization_id: Uuid,
+    /// The API key ID (UUID)
+    pub key_id: Uuid,
+}
+
 // ============================================================================
 // Tool Parameter Types (path + body composition)
 // ============================================================================
@@ -101,6 +117,19 @@ pub struct CreateEndpointParams {
     #[serde(flatten)]
     pub body: seren::CreateEndpointRequest,
 }
+
+// API key operations
+pub type ListApiKeysParams = OrganizationPath;
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CreateApiKeyParams {
+    #[serde(flatten)]
+    pub path: OrganizationPath,
+    #[serde(flatten)]
+    pub body: seren::CreateApiKeyRequest,
+}
+
+pub type RevokeApiKeyParams = ApiKeyPath;
 
 // Connection and SQL operations (branch path + additional params)
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -1206,6 +1235,80 @@ impl SerenMcpServer {
         Ok(CallToolResult::success(vec![Content::text(format!(
             "Endpoint {} suspended successfully",
             params.endpoint_id
+        ))]))
+    }
+
+    // ========================================================================
+    // API Key Tools
+    // ========================================================================
+
+    #[tool(
+        description = "List all API keys for an organization",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_api_keys(
+        &self,
+        Parameters(params): Parameters<ListApiKeysParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let api_keys = api_client
+            .list_org_api_keys(&params.organization_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&api_keys)?]))
+    }
+
+    #[tool(
+        description = "Create a new API key for an organization",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    #[instrument(skip(self, extensions), fields(organization_id = %params.path.organization_id, name = %params.body.name))]
+    async fn create_api_key(
+        &self,
+        Parameters(params): Parameters<CreateApiKeyParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        validate_resource_name(&params.body.name, "API key name")?;
+
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .create_org_api_key(&params.path.organization_id, &params.body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Revoke an API key",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn revoke_api_key(
+        &self,
+        Parameters(params): Parameters<RevokeApiKeyParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+        api_client
+            .revoke_org_api_key(&params.organization_id, &params.key_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "API key {} revoked successfully",
+            params.key_id
         ))]))
     }
 }
