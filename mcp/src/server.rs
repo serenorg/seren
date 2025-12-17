@@ -438,6 +438,8 @@ impl SerenMcpServer {
 
         let http_client = reqwest::Client::builder()
             .default_headers(headers)
+            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
             .build()
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to build HTTP client: {}", e), None)
