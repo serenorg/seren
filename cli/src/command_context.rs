@@ -38,7 +38,7 @@ impl CommandContext {
         };
         client_config = client_config.with_base_url(base_url);
 
-        Client::new(client_config)
+        Client::from_config(&client_config)
             .map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
     }
 }

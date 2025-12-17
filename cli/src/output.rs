@@ -145,11 +145,11 @@ pub fn print_project(project: &seren::Project, format: OutputFormat) -> anyhow::
 }
 
 pub fn print_create_project_response(
-    response: &seren::ProjectCreatedResponse,
+    project: &seren::ProjectCreated,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     match format {
-        OutputFormat::Json => print_json(response)?,
+        OutputFormat::Json => print_json(project)?,
         OutputFormat::Table => {
             let mut table = Table::new();
             table
@@ -160,7 +160,6 @@ pub fn print_create_project_response(
                 Cell::new("Field").fg(Color::Green),
                 Cell::new("Value").fg(Color::Green),
             ]);
-            let project = &response.data;
             table.add_row(vec![Cell::new("ID"), Cell::new(project.id.to_string())]);
             table.add_row(vec![Cell::new("Name"), Cell::new(&project.name)]);
             table.add_row(vec![
@@ -367,7 +366,7 @@ pub fn print_usage_summaries_table(summaries: &[seren::UsageSummary]) {
         let project_label = if !summary.project_name.is_empty() {
             summary.project_name.clone()
         } else {
-            summary.project_id.clone()
+            summary.project_id.to_string()
         };
 
         let region_label = if summary.project_region.is_empty() {
@@ -464,7 +463,7 @@ pub fn print_billing_health_table(health: &seren::BillingHealthResponse) {
 
     table.add_row(vec![
         Cell::new("Daily aggregation"),
-        Cell::new(if health.daily_aggregation_ok {
+        Cell::new(if health.data.daily_aggregation_ok {
             "OK"
         } else {
             "Attention"
@@ -474,6 +473,7 @@ pub fn print_billing_health_table(health: &seren::BillingHealthResponse) {
         Cell::new("Last daily run"),
         Cell::new(
             health
+                .data
                 .last_daily_aggregation_run_utc
                 .as_deref()
                 .unwrap_or("never"),
@@ -481,7 +481,7 @@ pub fn print_billing_health_table(health: &seren::BillingHealthResponse) {
     ]);
     table.add_row(vec![
         Cell::new("Has recent daily run"),
-        Cell::new(if health.has_recent_daily_run {
+        Cell::new(if health.data.has_recent_daily_run {
             "Yes"
         } else {
             "No"
@@ -489,13 +489,13 @@ pub fn print_billing_health_table(health: &seren::BillingHealthResponse) {
     ]);
     table.add_row(vec![
         Cell::new("Daily aggregation failures"),
-        Cell::new(health.daily_aggregation_failures_total.to_string()),
+        Cell::new(health.data.daily_aggregation_failures_total.to_string()),
     ]);
 
     println!("{}", "Billing Health".bold());
     println!("{table}");
 
-    if !health.jobs.is_empty() {
+    if !health.data.jobs.is_empty() {
         let mut jobs_table = Table::new();
         jobs_table
             .load_preset(UTF8_FULL)
@@ -506,7 +506,7 @@ pub fn print_billing_health_table(health: &seren::BillingHealthResponse) {
             Cell::new("Failures").fg(Color::Green),
         ]);
 
-        for job in &health.jobs {
+        for job in &health.data.jobs {
             jobs_table.add_row(vec![
                 Cell::new(&job.job),
                 Cell::new(job.failures_total.to_string()),
@@ -519,7 +519,10 @@ pub fn print_billing_health_table(health: &seren::BillingHealthResponse) {
     }
 }
 
-pub fn print_database(database: &seren::Database, format: OutputFormat) -> anyhow::Result<()> {
+pub fn print_database(
+    database: &seren::DatabaseCreated,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
     match format {
         OutputFormat::Json => print_json(database)?,
         OutputFormat::Table => {
@@ -550,7 +553,7 @@ pub fn print_database(database: &seren::Database, format: OutputFormat) -> anyho
 }
 
 // Roles
-pub fn print_roles_table(roles: &[seren::Role]) {
+pub fn print_roles_table(roles: &[seren::RoleInfo]) {
     if roles.is_empty() {
         println!("No roles found");
         return;
@@ -706,11 +709,11 @@ pub fn print_endpoint(endpoint: &seren::Endpoint, format: OutputFormat) -> anyho
 }
 
 pub fn print_create_endpoint_response(
-    response: &seren::EndpointCreatedResponse,
+    endpoint: &seren::EndpointCreated,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     match format {
-        OutputFormat::Json => print_json(response)?,
+        OutputFormat::Json => print_json(endpoint)?,
         OutputFormat::Table => {
             let mut table = Table::new();
             table
@@ -721,30 +724,26 @@ pub fn print_create_endpoint_response(
                 Cell::new("Field").fg(Color::Green),
                 Cell::new("Value").fg(Color::Green),
             ]);
-            table.add_row(vec![
-                Cell::new("ID"),
-                Cell::new(response.data.id.to_string()),
-            ]);
-            table.add_row(vec![Cell::new("Name"), Cell::new(&response.data.name)]);
+            table.add_row(vec![Cell::new("ID"), Cell::new(endpoint.id.to_string())]);
+            table.add_row(vec![Cell::new("Name"), Cell::new(&endpoint.name)]);
             table.add_row(vec![
                 Cell::new("Branch ID"),
-                Cell::new(response.data.branch_id.to_string()),
+                Cell::new(endpoint.branch_id.to_string()),
             ]);
-            table.add_row(vec![Cell::new("Status"), Cell::new(&response.data.status)]);
+            table.add_row(vec![Cell::new("Status"), Cell::new(&endpoint.status)]);
             table.add_row(vec![
                 Cell::new("Compute Unit"),
-                Cell::new(&response.data.compute_unit),
+                Cell::new(&endpoint.compute_unit),
             ]);
-            let conn_str = response
-                .data
+            let conn_str = endpoint
                 .connection_string_direct
                 .as_deref()
-                .or(response.data.connection_string.as_deref())
+                .or(endpoint.connection_string.as_deref())
                 .unwrap_or("");
             table.add_row(vec![Cell::new("Connection String"), Cell::new(conn_str)]);
             table.add_row(vec![
                 Cell::new("Created At"),
-                Cell::new(response.data.created_at.to_string()),
+                Cell::new(endpoint.created_at.to_string()),
             ]);
 
             println!("{table}");
@@ -755,12 +754,12 @@ pub fn print_create_endpoint_response(
 
 // Connection String
 pub fn print_connection_string(
-    response: &seren::ConnectionStringResponse,
+    response: &seren::ConnectionString,
     ssl: Option<&str>,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     // Start from the single canonical connection string returned by the API.
-    let mut active = response.data.connection_string.clone();
+    let mut active = response.connection_string.clone();
 
     // Apply SSL override on the single active DSN.
     if let Some(ssl_mode) = ssl {
@@ -797,11 +796,8 @@ pub fn print_project_connection_uri(
     ssl: Option<&str>,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
-    let wrapper = seren::ConnectionStringResponse {
-        data: seren::ConnectionString {
-            connection_string: response.uri.clone(),
-        },
-        pagination: None,
+    let wrapper = seren::ConnectionString {
+        connection_string: response.uri.clone(),
     };
     print_connection_string(&wrapper, ssl, format)
 }
@@ -1114,7 +1110,7 @@ pub fn print_project_vpc_endpoints_table(assignments: &[seren::ProjectVpcEndpoin
 }
 
 // Sessions
-pub fn print_sessions_table(sessions: &[seren::SessionResponse]) {
+pub fn print_sessions_table(sessions: &[seren::Session]) {
     if sessions.is_empty() {
         println!("No active sessions found");
         return;
@@ -1147,7 +1143,7 @@ pub fn print_sessions_table(sessions: &[seren::SessionResponse]) {
 }
 
 // Webhooks
-pub fn print_webhooks_table(webhooks: &[seren::WebhookResponse]) {
+pub fn print_webhooks_table(webhooks: &[seren::WebhookInfo]) {
     if webhooks.is_empty() {
         println!("No webhooks configured");
         return;
@@ -1160,18 +1156,20 @@ pub fn print_webhooks_table(webhooks: &[seren::WebhookResponse]) {
 
     table.set_header(vec![
         Cell::new("ID").fg(Color::Green),
+        Cell::new("Name").fg(Color::Green),
         Cell::new("URL").fg(Color::Green),
         Cell::new("Events").fg(Color::Green),
-        Cell::new("Active").fg(Color::Green),
+        Cell::new("Enabled").fg(Color::Green),
         Cell::new("Created").fg(Color::Green),
     ]);
 
     for webhook in webhooks {
         table.add_row(vec![
             Cell::new(webhook.id.to_string()),
+            Cell::new(&webhook.name),
             Cell::new(&webhook.url),
-            Cell::new(webhook.event_types.join(", ")),
-            Cell::new(if webhook.is_active { "Yes" } else { "No" }),
+            Cell::new(webhook.events.join(", ")),
+            Cell::new(if webhook.enabled { "Yes" } else { "No" }),
             Cell::new(webhook.created_at.to_string()),
         ]);
     }
@@ -1199,20 +1197,25 @@ pub fn print_webhook_deliveries_table(deliveries: &[seren::WebhookDelivery]) {
     ]);
 
     for delivery in deliveries {
-        let status = if delivery.success {
+        let is_success = delivery.delivered_at.is_some();
+        let status = if is_success {
             format!(
                 "{} ({})",
                 "Success".green(),
-                delivery.status_code.unwrap_or(0)
+                delivery.response_status.unwrap_or(0)
             )
         } else {
-            format!("{} ({})", "Failed".red(), delivery.status_code.unwrap_or(0))
+            format!(
+                "{} ({})",
+                "Failed".red(),
+                delivery.response_status.unwrap_or(0)
+            )
         };
         table.add_row(vec![
             Cell::new(delivery.id.to_string()),
             Cell::new(&delivery.event_type),
             Cell::new(status),
-            Cell::new(delivery.attempt_count.to_string()),
+            Cell::new(delivery.attempt_number.to_string()),
             Cell::new(
                 delivery
                     .delivered_at
@@ -1242,7 +1245,7 @@ pub fn print_audit_logs_table(logs: &[seren::AuditLog]) {
         Cell::new("Action").fg(Color::Green),
         Cell::new("Resource Type").fg(Color::Green),
         Cell::new("Resource ID").fg(Color::Green),
-        Cell::new("User ID").fg(Color::Green),
+        Cell::new("Actor ID").fg(Color::Green),
         Cell::new("IP").fg(Color::Green),
     ]);
 
@@ -1251,11 +1254,17 @@ pub fn print_audit_logs_table(logs: &[seren::AuditLog]) {
             Cell::new(log.created_at.to_string()),
             Cell::new(&log.action),
             Cell::new(&log.resource_type),
-            Cell::new(log.resource_id.as_deref().unwrap_or("-")),
             Cell::new(
-                log.user_id
+                log.resource_id
                     .map(|u| u.to_string())
-                    .unwrap_or_else(|| "-".to_string()),
+                    .as_deref()
+                    .unwrap_or("-"),
+            ),
+            Cell::new(
+                log.actor_id
+                    .map(|u| u.to_string())
+                    .as_deref()
+                    .unwrap_or("-"),
             ),
             Cell::new(log.ip_address.as_deref().unwrap_or("-")),
         ]);
@@ -1265,7 +1274,7 @@ pub fn print_audit_logs_table(logs: &[seren::AuditLog]) {
 }
 
 // RBAC Roles
-pub fn print_rbac_roles_table(roles: &[seren::OrganizationRoleResponse]) {
+pub fn print_rbac_roles_table(roles: &[seren::RbacRole]) {
     if roles.is_empty() {
         println!("No roles found");
         return;
@@ -1306,7 +1315,7 @@ pub fn print_rbac_roles_table(roles: &[seren::OrganizationRoleResponse]) {
     println!("{table}");
 }
 
-pub fn print_permissions_table(permissions: &[seren::OrganizationPermission]) {
+pub fn print_permissions_table(permissions: &[seren::Permission]) {
     if permissions.is_empty() {
         println!("No permissions found");
         return;
@@ -1337,7 +1346,7 @@ pub fn print_permissions_table(permissions: &[seren::OrganizationPermission]) {
 }
 
 // Branch Protection
-pub fn print_branch_protection_table(rules: &[seren::BranchProtectionResponse]) {
+pub fn print_branch_protection_table(rules: &[seren::BranchProtection]) {
     if rules.is_empty() {
         println!("No branch protection rules found");
         return;
@@ -1378,7 +1387,7 @@ pub fn print_branch_protection_table(rules: &[seren::BranchProtectionResponse]) 
 }
 
 // Logical Replication - Publications
-pub fn print_publications_table(publications: &[seren::PublicationResponse]) {
+pub fn print_publications_table(publications: &[seren::PublicationInfo]) {
     if publications.is_empty() {
         println!("No publications found");
         return;
@@ -1393,23 +1402,19 @@ pub fn print_publications_table(publications: &[seren::PublicationResponse]) {
         Cell::new("ID").fg(Color::Green),
         Cell::new("Name").fg(Color::Green),
         Cell::new("Tables").fg(Color::Green),
-        Cell::new("All Tables").fg(Color::Green),
         Cell::new("Created").fg(Color::Green),
     ]);
 
     for pub_ in publications {
-        let tables = if pub_.all_tables {
-            "ALL".to_string()
-        } else if pub_.table_names.is_empty() {
-            "-".to_string()
+        let tables = if pub_.tables.is_empty() {
+            "ALL TABLES".to_string()
         } else {
-            pub_.table_names.join(", ")
+            pub_.tables.join(", ")
         };
         table.add_row(vec![
             Cell::new(pub_.id.to_string()),
             Cell::new(&pub_.name),
             Cell::new(tables),
-            Cell::new(if pub_.all_tables { "Yes" } else { "No" }),
             Cell::new(pub_.created_at.to_string()),
         ]);
     }
@@ -1418,7 +1423,7 @@ pub fn print_publications_table(publications: &[seren::PublicationResponse]) {
 }
 
 // Logical Replication - Slots
-pub fn print_replication_slots_table(slots: &[seren::ReplicationSlotResponse]) {
+pub fn print_replication_slots_table(slots: &[seren::ReplicationSlotInfo]) {
     if slots.is_empty() {
         println!("No replication slots found");
         return;
@@ -1432,7 +1437,9 @@ pub fn print_replication_slots_table(slots: &[seren::ReplicationSlotResponse]) {
     table.set_header(vec![
         Cell::new("ID").fg(Color::Green),
         Cell::new("Name").fg(Color::Green),
+        Cell::new("Type").fg(Color::Green),
         Cell::new("Plugin").fg(Color::Green),
+        Cell::new("Status").fg(Color::Green),
         Cell::new("Created").fg(Color::Green),
     ]);
 
@@ -1440,7 +1447,9 @@ pub fn print_replication_slots_table(slots: &[seren::ReplicationSlotResponse]) {
         table.add_row(vec![
             Cell::new(slot.id.to_string()),
             Cell::new(&slot.name),
+            Cell::new(&slot.slot_type),
             Cell::new(&slot.plugin),
+            Cell::new(&slot.status),
             Cell::new(slot.created_at.to_string()),
         ]);
     }

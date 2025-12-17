@@ -1,20 +1,25 @@
 use anyhow::Result;
 use colored::Colorize;
+use uuid::Uuid;
 
 use crate::{CommandContext, OutputFormat, output};
 
 pub async fn list(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
-    let endpoints = client
-        .endpoints(project_id, branch_id)
-        .list()
+    let response = client
+        .list_endpoints(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list endpoints: {}", e))?;
 
+    let endpoints = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&endpoints)?,
-        OutputFormat::Table => output::print_endpoints_table(&endpoints),
+        OutputFormat::Table => output::print_endpoints_table(&endpoints.data),
     }
 
     Ok(())
@@ -32,6 +37,10 @@ pub async fn create(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     let mut request = seren::CreateEndpointRequest {
         name: Some(name.to_string()),
@@ -60,12 +69,12 @@ pub async fn create(
         (None, None) => {}
     }
 
-    let endpoint = client
-        .endpoints(project_id, branch_id)
-        .create(request)
+    let response = client
+        .create_endpoint(&project_uuid, &branch_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create endpoint: {}", e))?;
 
+    let endpoint = response.into_inner();
     println!("{}", "✓ Endpoint created successfully!".green().bold());
 
     match ctx.format {
@@ -86,6 +95,12 @@ pub async fn update(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
+    let endpoint_uuid =
+        Uuid::parse_str(endpoint_id).map_err(|e| anyhow::anyhow!("Invalid endpoint ID: {}", e))?;
 
     let mut request = seren::UpdateEndpointRequest {
         autoscaling_min: None,
@@ -107,15 +122,15 @@ pub async fn update(
         request.suspend_timeout_seconds = Some(timeout);
     }
 
-    let endpoint = client
-        .endpoints(project_id, branch_id)
-        .update(endpoint_id, request)
+    let response = client
+        .update_endpoint(&project_uuid, &branch_uuid, &endpoint_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to update endpoint: {}", e))?;
 
+    let endpoint = response.into_inner();
     println!("{}", "✓ Endpoint updated successfully!".green().bold());
     println!();
-    output::print_endpoint(&endpoint, ctx.format)?;
+    output::print_endpoint(&endpoint.data, ctx.format)?;
 
     Ok(())
 }
@@ -127,10 +142,15 @@ pub async fn delete(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
+    let endpoint_uuid =
+        Uuid::parse_str(endpoint_id).map_err(|e| anyhow::anyhow!("Invalid endpoint ID: {}", e))?;
 
     client
-        .endpoints(project_id, branch_id)
-        .delete(endpoint_id)
+        .delete_endpoint(&project_uuid, &branch_uuid, &endpoint_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to delete endpoint: {}", e))?;
 
@@ -151,16 +171,19 @@ pub async fn suspend(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
+    let endpoint_uuid =
+        Uuid::parse_str(endpoint_id).map_err(|e| anyhow::anyhow!("Invalid endpoint ID: {}", e))?;
 
-    let endpoint = client
-        .endpoints(project_id, branch_id)
-        .suspend(endpoint_id)
+    client
+        .stop_endpoint(&project_uuid, &branch_uuid, &endpoint_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to suspend endpoint: {}", e))?;
 
     println!("{}", "✓ Endpoint suspended successfully!".green().bold());
-    println!();
-    output::print_endpoint(&endpoint, ctx.format)?;
 
     Ok(())
 }
@@ -172,77 +195,53 @@ pub async fn start(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
+    let endpoint_uuid =
+        Uuid::parse_str(endpoint_id).map_err(|e| anyhow::anyhow!("Invalid endpoint ID: {}", e))?;
 
-    let endpoint = client
-        .endpoints(project_id, branch_id)
-        .start(endpoint_id)
+    client
+        .start_endpoint(&project_uuid, &branch_uuid, &endpoint_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to start endpoint: {}", e))?;
 
     println!("{}", "✓ Endpoint started successfully!".green().bold());
-    println!();
-    output::print_endpoint(&endpoint, ctx.format)?;
 
     Ok(())
 }
 
-pub async fn health(
+pub async fn status(
     project_id: &str,
     branch_id: &str,
     endpoint_id: &str,
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
+    let endpoint_uuid =
+        Uuid::parse_str(endpoint_id).map_err(|e| anyhow::anyhow!("Invalid endpoint ID: {}", e))?;
 
-    let health = client
-        .endpoints(project_id, branch_id)
-        .health(endpoint_id)
+    let response = client
+        .get_endpoint_status(&project_uuid, &branch_uuid, &endpoint_uuid)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to get endpoint health: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to get endpoint status: {}", e))?;
 
+    let status_info = response.into_inner();
     match ctx.format {
-        OutputFormat::Json => output::print_json(&health)?,
+        OutputFormat::Json => output::print_json(&status_info)?,
         OutputFormat::Table => {
-            println!("Endpoint Health Status:");
-            println!("  Status: {}", health.status);
-            println!("  Replicas: {}", health.replicas);
-            println!("  Ready Replicas: {}", health.ready_replicas);
-            println!("  Available Replicas: {}", health.available_replicas);
-            println!("  Unavailable Replicas: {}", health.unavailable_replicas);
-        }
-    }
-
-    Ok(())
-}
-
-pub async fn metrics(
-    project_id: &str,
-    branch_id: &str,
-    endpoint_id: &str,
-    ctx: &CommandContext,
-) -> Result<()> {
-    let client = ctx.client().await?;
-
-    let metrics = client
-        .endpoints(project_id, branch_id)
-        .metrics(endpoint_id)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to get endpoint metrics: {}", e))?;
-
-    match ctx.format {
-        OutputFormat::Json => output::print_json(&metrics)?,
-        OutputFormat::Table => {
-            println!("Endpoint Resource Metrics:");
-            println!("  Pod Count: {}", metrics.pod_count);
-            println!(
-                "  CPU Request: {} millicores",
-                metrics.cpu_request_millicores
-            );
-            println!(
-                "  Memory Request: {} bytes ({:.2} MB)",
-                metrics.memory_request_bytes,
-                metrics.memory_request_bytes as f64 / 1024.0 / 1024.0
-            );
+            println!("Endpoint Status:");
+            println!("  ID: {}", status_info.id);
+            println!("  Status: {}", status_info.status);
+            println!("  K8s Ready: {}", status_info.k8s_ready);
+            if let Some(compute_status) = &status_info.compute_status {
+                println!("  Compute Status: {}", compute_status);
+            }
         }
     }
 

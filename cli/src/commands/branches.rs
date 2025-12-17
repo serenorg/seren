@@ -51,16 +51,18 @@ fn parse_duration_to_timestamp(duration_str: &str) -> Result<Timestamp> {
 
 pub async fn list(project_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
 
-    let branches = client
-        .branches(project_id)
-        .list()
+    let response = client
+        .list_branches(&project_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list branches: {}", e))?;
 
+    let branches = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&branches)?,
-        OutputFormat::Table => output::print_branches_table(&branches),
+        OutputFormat::Table => output::print_branches_table(&branches.data),
     }
 
     Ok(())
@@ -68,14 +70,18 @@ pub async fn list(project_id: &str, ctx: &CommandContext) -> Result<()> {
 
 pub async fn get(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
-    let branch = client
-        .branches(project_id)
-        .get(branch_id)
+    let response = client
+        .get_branch(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get branch: {}", e))?;
 
-    output::print_branch(&branch, ctx.format)?;
+    let branch = response.into_inner();
+    output::print_branch(&branch.data, ctx.format)?;
 
     Ok(())
 }
@@ -101,6 +107,8 @@ pub async fn create(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
 
     let parent_branch_id = parent
         .map(|value| {
@@ -222,17 +230,19 @@ pub async fn create(
         schema_only: None,
     };
 
-    let creation = client
-        .branches(project_id)
-        .create(request)
+    let creation_response = client
+        .create_branch(&project_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create branch: {}", e))?;
 
-    let branch = client
-        .branches(project_id)
-        .get(&creation.branch.id.to_string())
+    let creation = creation_response.into_inner().data;
+
+    let branch_response = client
+        .get_branch(&project_uuid, &creation.branch.id)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to fetch branch details: {}", e))?;
+
+    let branch = branch_response.into_inner().data;
 
     println!("{}", "✓ Branch created successfully!".green().bold());
     println!();
@@ -297,13 +307,17 @@ pub async fn delete(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     // Get branch details for confirmation message
-    let branch = client
-        .branches(project_id)
-        .get(branch_id)
+    let response = client
+        .get_branch(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get branch: {}", e))?;
+    let branch = response.into_inner().data;
 
     if !skip_confirm {
         println!(
@@ -327,8 +341,7 @@ pub async fn delete(
     }
 
     client
-        .branches(project_id)
-        .delete(branch_id)
+        .delete_branch(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to delete branch: {}", e))?;
 
@@ -349,17 +362,21 @@ pub async fn rename(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     let request = RenameBranchRequest {
         name: name.to_string(),
     };
 
-    let branch = client
-        .branches(project_id)
-        .rename(branch_id, request)
+    let response = client
+        .rename_branch(&project_uuid, &branch_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to rename branch: {}", e))?;
 
+    let branch = response.into_inner().data;
     println!("{}", "✓ Branch renamed successfully!".green().bold());
     println!();
     output::print_branch(&branch, ctx.format)?;
@@ -369,10 +386,13 @@ pub async fn rename(
 
 pub async fn set_default(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     client
-        .branches(project_id)
-        .set_default(branch_id)
+        .set_default_branch(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to set default branch: {}", e))?;
 
@@ -395,14 +415,23 @@ pub async fn connection_string(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     let response = client
-        .branches(project_id)
-        .connection_string_with_options(branch_id, Some(pooled), role)
+        .get_connection_string(
+            &project_uuid,
+            &branch_uuid,
+            if pooled { Some(true) } else { None },
+            role,
+        )
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get connection string: {}", e))?;
 
-    output::print_connection_string(&response, ssl, ctx.format)?;
+    let conn_data = response.into_inner();
+    output::print_connection_string(&conn_data.data, ssl, ctx.format)?;
 
     Ok(())
 }
@@ -415,6 +444,10 @@ pub async fn set_expiration(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     // Build the request
     let expires_at_value = if no_expiration {
@@ -433,11 +466,17 @@ pub async fn set_expiration(
         expires_at: expires_at_value,
     };
 
-    let branch = client
-        .branches(project_id)
-        .set_expiration(branch_id, request)
+    client
+        .set_branch_expiration(&project_uuid, &branch_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to set branch expiration: {}", e))?;
+
+    // Fetch the updated branch to display
+    let branch_response = client
+        .get_branch(&project_uuid, &branch_uuid)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get branch: {}", e))?;
+    let branch = branch_response.into_inner().data;
 
     if no_expiration {
         println!(
@@ -467,46 +506,42 @@ pub async fn schema_diff(
     database: Option<&str>,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let client = ctx.client().await?;
+    let _client = ctx.client().await?;
+    let _project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
 
-    let mut request = SchemaDiffRequest::new(base_branch_id, compare_branch_id);
+    let mut _request = SchemaDiffRequest::new(base_branch_id, compare_branch_id);
     if let Some(db) = database {
-        request = request.with_database(db);
+        _request = _request.with_database(db);
     }
 
-    match client.branches(project_id).schema_diff(request).await {
-        Ok(diff) => {
-            output::print_schema_diff(&diff, ctx.format)?;
-            Ok(())
-        }
-        Err(e) => {
-            let message = e.to_string();
-            if message.contains("Not implemented")
-                || message.contains("Not Implemented")
-                || message.contains("501")
-            {
-                eprintln!(
-                    "{}",
-                    "⚠ Branch schema diff is not yet available in Seren."
-                        .yellow()
-                        .bold()
-                );
-                eprintln!(
-                    "This feature requires branch schema introspection and will be added soon."
-                );
-                std::process::exit(1);
-            } else {
-                Err(anyhow::anyhow!("Failed to get schema diff: {}", message))
-            }
-        }
-    }
+    // Schema diff endpoint not yet implemented in the generated client
+    // Return a not-implemented message for now
+    eprintln!(
+        "{}",
+        "⚠ Branch schema diff is not yet available in Seren."
+            .yellow()
+            .bold()
+    );
+    eprintln!("This feature requires branch schema introspection and will be added soon.");
+    std::process::exit(1);
 }
 
 pub async fn reset(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
-    match client.branches(project_id).reset(branch_id).await {
-        Ok(branch) => {
+    let request = seren::ResetBranchRequest { parent: true };
+
+    match client
+        .reset_branch(&project_uuid, &branch_uuid, &request)
+        .await
+    {
+        Ok(response) => {
+            let branch = response.into_inner().data;
             println!(
                 "{}",
                 format!("✓ Branch {} reset to parent successfully!", branch.name)
@@ -547,6 +582,10 @@ pub async fn restore(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     let parse_timestamp = |ts: &str| -> Result<Timestamp> {
         Timestamp::from_str(ts).map_err(|e| anyhow::anyhow!("Invalid timestamp: {}", e))
@@ -587,15 +626,15 @@ pub async fn restore(
     };
 
     match client
-        .branches(project_id)
-        .restore(branch_id, request)
+        .restore_branch(&project_uuid, &branch_uuid, &request)
         .await
     {
         Ok(response) => {
+            let restore_data = response.into_inner();
             println!("{}", "✓ Branch restored successfully!".green().bold());
             println!();
-            println!("Restored branch: {}", response.data.branch.name);
-            println!("Backup branch: {}", response.data.backup_branch.name);
+            println!("Restored branch: {}", restore_data.branch.name);
+            println!("Backup branch: {}", restore_data.backup_branch.name);
             Ok(())
         }
         Err(e) => {

@@ -1,21 +1,23 @@
 use anyhow::Result;
 use colored::Colorize;
-use seren::{CreateBranchProtectionRequest, UpdateBranchProtectionRequest};
+use uuid::Uuid;
 
 use crate::{CommandContext, OutputFormat, output};
 
 pub async fn list(project_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
 
-    let rules = client
-        .branch_protection(project_id)
-        .list()
+    let response = client
+        .list_branch_protection_rules(&project_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list branch protection rules: {}", e))?;
 
+    let rules = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&rules)?,
-        OutputFormat::Table => output::print_branch_protection_table(&rules),
+        OutputFormat::Table => output::print_branch_protection_table(&rules.data),
     }
 
     Ok(())
@@ -23,13 +25,17 @@ pub async fn list(project_id: &str, ctx: &CommandContext) -> Result<()> {
 
 pub async fn get(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
-    let rule = client
-        .branch_protection(project_id)
-        .get(branch_id)
+    let response = client
+        .get_branch_protection(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get branch protection: {}", e))?;
 
+    let rule = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&rule)?,
         OutputFormat::Table => output::print_branch_protection_table(&[rule]),
@@ -48,20 +54,24 @@ pub async fn create(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
-    let request = CreateBranchProtectionRequest {
-        prevent_deletion,
-        prevent_reset,
-        require_approval_for_changes: require_approval,
+    let request = seren::CreateBranchProtectionRequest {
+        prevent_deletion: Some(prevent_deletion),
+        prevent_reset: Some(prevent_reset),
+        require_approval_for_changes: Some(require_approval),
         allowed_bypass_roles: bypass_roles,
     };
 
-    let rule = client
-        .branch_protection(project_id)
-        .create(branch_id, &request)
+    let response = client
+        .create_branch_protection(&project_uuid, &branch_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create branch protection: {}", e))?;
 
+    let rule = response.into_inner();
     println!(
         "{}",
         "Branch protection rule created successfully!"
@@ -88,20 +98,24 @@ pub async fn update(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
-    let request = UpdateBranchProtectionRequest {
+    let request = seren::UpdateBranchProtectionRequest {
         prevent_deletion,
         prevent_reset,
         require_approval_for_changes: require_approval,
         allowed_bypass_roles: bypass_roles,
     };
 
-    let rule = client
-        .branch_protection(project_id)
-        .update(branch_id, &request)
+    let response = client
+        .update_branch_protection(&project_uuid, &branch_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to update branch protection: {}", e))?;
 
+    let rule = response.into_inner();
     println!(
         "{}",
         "Branch protection rule updated successfully!"
@@ -120,10 +134,13 @@ pub async fn update(
 
 pub async fn delete(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     client
-        .branch_protection(project_id)
-        .delete(branch_id)
+        .delete_branch_protection(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to delete branch protection: {}", e))?;
 

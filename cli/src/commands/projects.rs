@@ -1,6 +1,6 @@
 use anyhow::Result;
 use colored::Colorize;
-use seren::{CreateProjectRequest, ProjectConnectionUriQuery, UpdateProjectRequest};
+use seren::CreateProjectRequest;
 use uuid::Uuid;
 
 use crate::{CommandContext, OutputFormat, output};
@@ -8,15 +8,15 @@ use crate::{CommandContext, OutputFormat, output};
 pub async fn list(ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
 
-    let projects = client
-        .projects()
-        .list()
+    let response = client
+        .list_projects(None, None)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list projects: {}", e))?;
 
+    let projects = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&projects)?,
-        OutputFormat::Table => output::print_projects_table(&projects),
+        OutputFormat::Table => output::print_projects_table(&projects.data),
     }
 
     Ok(())
@@ -24,14 +24,16 @@ pub async fn list(ctx: &CommandContext) -> Result<()> {
 
 pub async fn get(id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let project_id =
+        Uuid::parse_str(id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
 
-    let project = client
-        .projects()
-        .get(id)
+    let response = client
+        .get_project(&project_id)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get project: {}", e))?;
 
-    output::print_project(&project, ctx.format)?;
+    let project = response.into_inner();
+    output::print_project(&project.data, ctx.format)?;
 
     Ok(())
 }
@@ -76,45 +78,45 @@ pub async fn create(
         enable_logical_replication,
     };
 
-    let project = client
-        .projects()
-        .create(request)
+    let response = client
+        .create_project(&request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create project: {}", e))?;
 
+    let project = response.into_inner();
     println!("{}", "✓ Project created successfully!".green().bold());
     println!();
     output::print_create_project_response(&project, ctx.format)?;
 
     // Set context if requested
     if set_context {
-        crate::config::set_context_project(&project.data.id.to_string())?;
+        crate::config::set_context_project(&project.id.to_string())?;
         println!(
             "{}",
-            format!("✓ Set project '{}' as current context", project.data.name).green()
+            format!("✓ Set project '{}' as current context", project.name).green()
         );
     }
 
     // Connect via psql if requested
     if psql {
         // Fetch connection URI for the default branch
-        let query = seren::ProjectConnectionUriQuery {
-            branch_id: None,
-            database_name: None,
-            endpoint_id: None,
-            pooled: None,
-            role_name: None,
-        };
         match client
-            .projects()
-            .connection_uri(&project.data.id.to_string(), query)
+            .get_project_connection_uri(
+                &project.id,
+                None, // branch_id
+                None, // database_name
+                None, // endpoint_id
+                None, // pooled
+                None, // role_name
+            )
             .await
         {
             Ok(uri_response) => {
+                let uri_data = uri_response.into_inner();
                 println!();
                 println!("{}", "Connecting via psql...".cyan());
                 let status = std::process::Command::new("psql")
-                    .arg(&uri_response.uri)
+                    .arg(&uri_data.uri)
                     .status();
                 match status {
                     Ok(exit_status) if !exit_status.success() => {
@@ -155,6 +157,8 @@ pub async fn update(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_id =
+        Uuid::parse_str(id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
 
     if name.is_none()
         && block_public_connections.is_none()
@@ -183,7 +187,7 @@ pub async fn update(
         );
     }
 
-    let request = UpdateProjectRequest {
+    let request = seren::UpdateProjectRequest {
         name: name.map(|value| value.to_string()),
         block_public_connections,
         block_vpc_connections,
@@ -195,28 +199,30 @@ pub async fn update(
         history_retention_seconds: None,
     };
 
-    let project = client
-        .projects()
-        .update(id, request)
+    let response = client
+        .update_project(&project_id, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to update project: {}", e))?;
 
+    let project = response.into_inner();
     println!("{}", "✓ Project updated successfully!".green().bold());
     println!();
-    output::print_project(&project, ctx.format)?;
+    output::print_project(&project.data, ctx.format)?;
 
     Ok(())
 }
 
 pub async fn delete(id: &str, skip_confirm: bool, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let project_id =
+        Uuid::parse_str(id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
 
     // Get project details for confirmation
-    let project = client
-        .projects()
-        .get(id)
+    let response = client
+        .get_project(&project_id)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get project: {}", e))?;
+    let project = response.into_inner().data;
 
     if !skip_confirm {
         println!(
@@ -248,8 +254,7 @@ pub async fn delete(id: &str, skip_confirm: bool, ctx: &CommandContext) -> Resul
     }
 
     client
-        .projects()
-        .delete(id)
+        .delete_project(&project_id)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to delete project: {}", e))?;
 
@@ -275,30 +280,34 @@ pub async fn connection_uri(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_id =
+        Uuid::parse_str(id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
 
-    let query = ProjectConnectionUriQuery {
-        branch_id: branch_id
-            .map(|value| {
-                Uuid::parse_str(value).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))
-            })
-            .transpose()?,
-        endpoint_id: endpoint_id
-            .map(|value| {
-                Uuid::parse_str(value).map_err(|e| anyhow::anyhow!("Invalid endpoint ID: {}", e))
-            })
-            .transpose()?,
-        database_name: database.map(|s| s.to_string()),
-        role_name: role.map(|s| s.to_string()),
-        pooled: if pooled { Some(true) } else { None },
-    };
+    let branch_uuid = branch_id
+        .map(|value| {
+            Uuid::parse_str(value).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))
+        })
+        .transpose()?;
+    let endpoint_uuid = endpoint_id
+        .map(|value| {
+            Uuid::parse_str(value).map_err(|e| anyhow::anyhow!("Invalid endpoint ID: {}", e))
+        })
+        .transpose()?;
 
     let response = client
-        .projects()
-        .connection_uri(id, query)
+        .get_project_connection_uri(
+            &project_id,
+            branch_uuid.as_ref(),
+            database,
+            endpoint_uuid.as_ref(),
+            if pooled { Some(true) } else { None },
+            role,
+        )
         .await
         .map_err(|e| anyhow::anyhow!("Failed to fetch connection URI: {}", e))?;
 
-    output::print_project_connection_uri(&response, ssl, ctx.format)?;
+    let uri_data = response.into_inner();
+    output::print_project_connection_uri(&uri_data, ssl, ctx.format)?;
 
     Ok(())
 }

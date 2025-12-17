@@ -1,21 +1,25 @@
 use anyhow::Result;
 use colored::Colorize;
-use seren::{CreateRoleRequest, ResetRolePasswordRequest};
+use uuid::Uuid;
 
 use crate::{CommandContext, OutputFormat, output};
 
 pub async fn list(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
-    let roles = client
-        .roles(project_id, branch_id)
-        .list()
+    let response = client
+        .list_branch_roles(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list roles: {}", e))?;
 
+    let roles = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&roles)?,
-        OutputFormat::Table => output::print_roles_table(&roles),
+        OutputFormat::Table => output::print_roles_table(&roles.data),
     }
 
     Ok(())
@@ -28,19 +32,23 @@ pub async fn create(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
-    let request = CreateRoleRequest {
+    let request = seren::CreateRoleRequest {
         name: name.to_string(),
         description: None,
         permissions: vec![],
     };
 
-    let role = client
-        .roles(project_id, branch_id)
-        .create(request)
+    let response = client
+        .create_branch_role(&project_uuid, &branch_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create role: {}", e))?;
 
+    let role = response.into_inner();
     println!("{}", "✓ Role created successfully!".green().bold());
     println!();
 
@@ -70,10 +78,15 @@ pub async fn delete(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
+    let role_uuid =
+        Uuid::parse_str(role_id).map_err(|e| anyhow::anyhow!("Invalid role ID: {}", e))?;
 
     client
-        .roles(project_id, branch_id)
-        .delete(role_id)
+        .delete_branch_role(&project_uuid, &branch_uuid, &role_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to delete role: {}", e))?;
 
@@ -95,28 +108,34 @@ pub async fn reset_password(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
+    let role_uuid =
+        Uuid::parse_str(role_id).map_err(|e| anyhow::anyhow!("Invalid role ID: {}", e))?;
 
-    let request = ResetRolePasswordRequest {
+    let request = seren::ResetRolePasswordRequest {
         password: password.to_string(),
     };
 
     let response = client
-        .roles(project_id, branch_id)
-        .reset_password(role_id, request)
+        .reset_role_password(&project_uuid, &branch_uuid, &role_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to reset role password: {}", e))?;
 
+    let result = response.into_inner();
     println!("{}", "✓ Password reset successfully!".green().bold());
     println!();
 
     match ctx.format {
-        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Json => output::print_json(&result)?,
         OutputFormat::Table => {
-            println!("{}: {}", "Role ID".bold(), response.data.role_id);
+            println!("{}: {}", "Role ID".bold(), result.data.role_id);
             println!(
                 "{}: {}",
                 "New Password".bold(),
-                response.data.password.bright_cyan()
+                result.data.password.bright_cyan()
             );
         }
     }

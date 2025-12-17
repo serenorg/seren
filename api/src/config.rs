@@ -1,5 +1,3 @@
-use crate::error::{Error, Result};
-
 /// Default API host URL (production).
 ///
 /// Local/development endpoints can be configured via [`ClientConfig::with_base_url`].
@@ -8,8 +6,8 @@ const DEFAULT_API_HOST: &str = "https://api.serendb.com";
 /// Configuration for the Seren API client
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
-    /// API key for authentication (format: seren_...)
-    pub api_key: String,
+    /// Bearer token for authentication (API key or OAuth token)
+    pub bearer_token: Option<String>,
 
     /// Base URL for the API (default: `https://api.serendb.com/api`)
     pub base_url: String,
@@ -22,10 +20,20 @@ pub struct ClientConfig {
 }
 
 impl ClientConfig {
-    /// Create a new client configuration with the given API key
-    pub fn new(api_key: impl Into<String>) -> Self {
+    /// Create a new client configuration with the given API key or bearer token
+    pub fn new(token: impl Into<String>) -> Self {
         Self {
-            api_key: api_key.into(),
+            bearer_token: Some(token.into()),
+            base_url: format!("{}/api", DEFAULT_API_HOST),
+            timeout_seconds: 60,
+            user_agent: format!("seren-api-rust/{}", env!("CARGO_PKG_VERSION")),
+        }
+    }
+
+    /// Create a client configuration without authentication
+    pub fn unauthenticated() -> Self {
+        Self {
+            bearer_token: None,
             base_url: format!("{}/api", DEFAULT_API_HOST),
             timeout_seconds: 60,
             user_agent: format!("seren-api-rust/{}", env!("CARGO_PKG_VERSION")),
@@ -44,22 +52,15 @@ impl ClientConfig {
         self
     }
 
-    /// Validate the API key format
-    pub fn validate(&self) -> Result<()> {
-        // Accept either API keys (seren_...) or OAuth bearer tokens (JWT format)
-        // JWT tokens have 3 parts separated by dots
-        let is_api_key = self.api_key.starts_with("seren_");
-        let is_jwt = self.api_key.matches('.').count() == 2 && !self.api_key.is_empty();
-
-        if !is_api_key && !is_jwt {
-            return Err(Error::InvalidApiKey);
-        }
-        Ok(())
+    /// Set the bearer token
+    pub fn with_bearer_token(mut self, token: impl Into<String>) -> Self {
+        self.bearer_token = Some(token.into());
+        self
     }
 }
 
 impl Default for ClientConfig {
     fn default() -> Self {
-        Self::new("")
+        Self::unauthenticated()
     }
 }

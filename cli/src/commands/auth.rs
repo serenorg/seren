@@ -314,8 +314,12 @@ pub async fn me(
     let host = api_host.unwrap_or_else(|| DEFAULT_API_HOST.to_string());
     client_config = client_config.with_base_url(api_base_url(&host));
 
-    let client = seren::Client::new(client_config)?;
-    let user = client.me().await?;
+    let client = seren::Client::from_config(&client_config)?;
+    let response = client
+        .get_current_user()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get user info: {}", e))?;
+    let user = response.into_inner();
 
     match format {
         OutputFormat::Json => output::print_json(&user)?,
@@ -336,12 +340,16 @@ pub async fn organizations(
     let host = api_host.unwrap_or_else(|| DEFAULT_API_HOST.to_string());
     client_config = client_config.with_base_url(api_base_url(&host));
 
-    let client = seren::Client::new(client_config)?;
-    let orgs = client.organizations().await?;
+    let client = seren::Client::from_config(&client_config)?;
+    let response = client
+        .list_organizations()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to list organizations: {}", e))?;
+    let orgs = response.into_inner();
 
     match format {
         OutputFormat::Json => output::print_json(&orgs)?,
-        OutputFormat::Table => output::print_organizations_table(&orgs),
+        OutputFormat::Table => output::print_organizations_table(&orgs.data),
     }
 
     Ok(())

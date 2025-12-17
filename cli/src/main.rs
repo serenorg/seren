@@ -841,7 +841,7 @@ enum BillingAction {
 
         /// Month (1-12)
         #[arg(long)]
-        month: u8,
+        month: i32,
     },
     /// Get invoice details
     GetInvoice {
@@ -926,6 +926,10 @@ enum WebhookAction {
     },
     /// Create a new webhook
     Create {
+        /// Name of the webhook
+        #[arg(long)]
+        name: String,
+
         /// Webhook URL to receive events
         #[arg(long)]
         url: String,
@@ -934,14 +938,18 @@ enum WebhookAction {
         #[arg(long = "event", value_delimiter = ',')]
         events: Vec<String>,
 
-        /// Whether the webhook is active (default: true)
-        #[arg(long, default_value_t = true)]
-        active: bool,
+        /// Project ID to scope webhook to (optional)
+        #[arg(long)]
+        project_id: Option<String>,
     },
     /// Update a webhook
     Update {
         /// Webhook ID
         webhook_id: String,
+
+        /// New webhook name
+        #[arg(long)]
+        name: Option<String>,
 
         /// New webhook URL
         #[arg(long)]
@@ -953,7 +961,7 @@ enum WebhookAction {
 
         /// Enable or disable the webhook
         #[arg(long)]
-        active: Option<bool>,
+        enabled: Option<bool>,
     },
     /// Delete a webhook
     Delete {
@@ -980,11 +988,11 @@ enum AuditLogAction {
     List {
         /// Maximum number of logs to return
         #[arg(long, default_value_t = 50)]
-        limit: i32,
+        limit: i64,
 
         /// Offset for pagination
         #[arg(long, default_value_t = 0)]
-        offset: i32,
+        offset: i64,
     },
     /// Get a specific audit log entry
     Get {
@@ -1516,10 +1524,10 @@ async fn main() -> anyhow::Result<()> {
                 commands::endpoints::start(&project_id, &branch_id, &id, &ctx).await?
             }
             EndpointAction::Health { id } => {
-                commands::endpoints::health(&project_id, &branch_id, &id, &ctx).await?
+                commands::endpoints::status(&project_id, &branch_id, &id, &ctx).await?
             }
             EndpointAction::Metrics { id } => {
-                commands::endpoints::metrics(&project_id, &branch_id, &id, &ctx).await?
+                commands::endpoints::status(&project_id, &branch_id, &id, &ctx).await?
             }
         },
         Commands::Operations { project_id, action } => match action {
@@ -1655,17 +1663,30 @@ async fn main() -> anyhow::Result<()> {
                 commands::webhooks::get(&org_id, &webhook_id, &ctx).await?
             }
             WebhookAction::Create {
+                name,
                 url,
                 events,
-                active,
-            } => commands::webhooks::create(&org_id, &url, events, active, &ctx).await?,
+                project_id,
+            } => {
+                commands::webhooks::create(
+                    &org_id,
+                    &name,
+                    &url,
+                    events,
+                    project_id.as_deref(),
+                    &ctx,
+                )
+                .await?
+            }
             WebhookAction::Update {
                 webhook_id,
+                name,
                 url,
                 events,
-                active,
+                enabled,
             } => {
-                commands::webhooks::update(&org_id, &webhook_id, url, events, active, &ctx).await?
+                commands::webhooks::update(&org_id, &webhook_id, name, url, events, enabled, &ctx)
+                    .await?
             }
             WebhookAction::Delete { webhook_id } => {
                 commands::webhooks::delete(&org_id, &webhook_id, &ctx).await?

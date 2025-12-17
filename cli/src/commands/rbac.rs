@@ -1,23 +1,24 @@
 use anyhow::Result;
 use colored::Colorize;
-use seren::{
-    AssignOrganizationRoleRequest, CreateOrganizationRoleRequest, UpdateOrganizationRoleRequest,
-};
+use seren::{AssignRoleRequest, CreateRoleRequest, UpdateRoleRequest};
+use uuid::Uuid;
 
 use crate::{CommandContext, OutputFormat, output};
 
 pub async fn list_roles(org_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let org_uuid =
+        Uuid::parse_str(org_id).map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
 
-    let roles = client
-        .rbac_roles(org_id)
-        .list()
+    let response = client
+        .list_organization_roles(&org_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list roles: {}", e))?;
 
+    let roles = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&roles)?,
-        OutputFormat::Table => output::print_rbac_roles_table(&roles),
+        OutputFormat::Table => output::print_rbac_roles_table(&roles.data),
     }
 
     Ok(())
@@ -25,16 +26,20 @@ pub async fn list_roles(org_id: &str, ctx: &CommandContext) -> Result<()> {
 
 pub async fn get_role(org_id: &str, role_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let org_uuid =
+        Uuid::parse_str(org_id).map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
+    let role_uuid =
+        Uuid::parse_str(role_id).map_err(|e| anyhow::anyhow!("Invalid role ID: {}", e))?;
 
-    let role = client
-        .rbac_roles(org_id)
-        .get(role_id)
+    let response = client
+        .get_role(&org_uuid, &role_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get role: {}", e))?;
 
+    let role = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&role)?,
-        OutputFormat::Table => output::print_rbac_roles_table(&[role]),
+        OutputFormat::Table => output::print_rbac_roles_table(&[role.data]),
     }
 
     Ok(())
@@ -48,25 +53,27 @@ pub async fn create_role(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let org_uuid =
+        Uuid::parse_str(org_id).map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
 
-    let request = CreateOrganizationRoleRequest {
+    let request = CreateRoleRequest {
         name: name.to_string(),
         description,
         permissions,
     };
 
-    let role = client
-        .rbac_roles(org_id)
-        .create(&request)
+    let response = client
+        .create_organization_role(&org_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create role: {}", e))?;
 
+    let role = response.into_inner();
     println!("{}", "Role created successfully!".green().bold());
     println!();
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&role)?,
-        OutputFormat::Table => output::print_rbac_roles_table(&[role]),
+        OutputFormat::Table => output::print_rbac_roles_table(&[role.data]),
     }
 
     Ok(())
@@ -81,25 +88,29 @@ pub async fn update_role(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let org_uuid =
+        Uuid::parse_str(org_id).map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
+    let role_uuid =
+        Uuid::parse_str(role_id).map_err(|e| anyhow::anyhow!("Invalid role ID: {}", e))?;
 
-    let request = UpdateOrganizationRoleRequest {
+    let request = UpdateRoleRequest {
         name,
         description,
         permissions,
     };
 
-    let role = client
-        .rbac_roles(org_id)
-        .update(role_id, &request)
+    let response = client
+        .update_role(&org_uuid, &role_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to update role: {}", e))?;
 
+    let role = response.into_inner();
     println!("{}", "Role updated successfully!".green().bold());
     println!();
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&role)?,
-        OutputFormat::Table => output::print_rbac_roles_table(&[role]),
+        OutputFormat::Table => output::print_rbac_roles_table(&[role.data]),
     }
 
     Ok(())
@@ -107,10 +118,13 @@ pub async fn update_role(
 
 pub async fn delete_role(org_id: &str, role_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let org_uuid =
+        Uuid::parse_str(org_id).map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
+    let role_uuid =
+        Uuid::parse_str(role_id).map_err(|e| anyhow::anyhow!("Invalid role ID: {}", e))?;
 
     client
-        .rbac_roles(org_id)
-        .delete(role_id)
+        .delete_organization_role(&org_uuid, &role_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to delete role: {}", e))?;
 
@@ -131,16 +145,20 @@ pub async fn assign_role(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let org_uuid =
+        Uuid::parse_str(org_id).map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
+    let member_uuid =
+        Uuid::parse_str(member_id).map_err(|e| anyhow::anyhow!("Invalid member ID: {}", e))?;
+    let role_uuid =
+        Uuid::parse_str(role_id).map_err(|e| anyhow::anyhow!("Invalid role ID: {}", e))?;
 
-    let request = AssignOrganizationRoleRequest {
-        role_id: role_id
-            .parse()
-            .map_err(|_| anyhow::anyhow!("Invalid role ID format"))?,
+    let request = AssignRoleRequest {
+        role_id: Some(role_uuid),
+        role_name: None,
     };
 
     client
-        .rbac_roles(org_id)
-        .assign(member_id, &request)
+        .assign_role(&org_uuid, &member_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to assign role: {}", e))?;
 
@@ -160,13 +178,12 @@ pub async fn assign_role(
 pub async fn list_permissions(ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
 
-    // Use empty org_id since permissions endpoint is global
-    let permissions = client
-        .rbac_roles("")
+    let response = client
         .list_permissions()
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list permissions: {}", e))?;
 
+    let permissions = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&permissions)?,
         OutputFormat::Table => output::print_permissions_table(&permissions),
@@ -177,17 +194,19 @@ pub async fn list_permissions(ctx: &CommandContext) -> Result<()> {
 
 pub async fn my_permissions(org_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let org_uuid =
+        Uuid::parse_str(org_id).map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
 
-    let permissions = client
-        .rbac_roles(org_id)
-        .my_permissions()
+    let response = client
+        .get_my_permissions(&org_uuid)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to get your permissions: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to get my permissions: {}", e))?;
 
+    let permissions = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&permissions)?,
         OutputFormat::Table => {
-            println!("{}", "Your Permissions:".bold());
+            println!("Your permissions:");
             for perm in &permissions {
                 println!("  - {}", perm);
             }

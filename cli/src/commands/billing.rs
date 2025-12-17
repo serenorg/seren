@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::{
     CommandContext, OutputFormat,
@@ -39,27 +40,28 @@ fn resolve_api_host(api_host: Option<&String>) -> String {
 
 // Invoice commands
 
-pub async fn generate_invoices(year: i32, month: u8, ctx: &CommandContext) -> Result<()> {
+pub async fn generate_invoices(year: i32, month: i32, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
 
+    let request = seren::GenerateInvoicesRequest { year, month };
     let response = client
-        .invoices()
-        .generate(year, month)
+        .generate_invoices(&request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to generate invoices: {}", e))?;
 
+    let result = response.into_inner();
     println!(
         "{}",
-        format!("✓ Generated {} invoices", response.count)
+        format!("✓ Generated {} invoices", result.data.count)
             .green()
             .bold()
     );
 
     match ctx.format {
-        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Json => output::print_json(&result)?,
         OutputFormat::Table => {
             println!("\nInvoice IDs:");
-            for id in &response.invoice_ids {
+            for id in &result.data.invoice_ids {
                 println!("  {}", id);
             }
         }
@@ -70,13 +72,15 @@ pub async fn generate_invoices(year: i32, month: u8, ctx: &CommandContext) -> Re
 
 pub async fn get_invoice(invoice_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let invoice_uuid =
+        Uuid::parse_str(invoice_id).map_err(|e| anyhow::anyhow!("Invalid invoice ID: {}", e))?;
 
-    let invoice = client
-        .invoices()
-        .get(invoice_id)
+    let response = client
+        .get_invoice(&invoice_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get invoice: {}", e))?;
 
+    let invoice = response.into_inner().data;
     match ctx.format {
         OutputFormat::Json => output::print_json(&invoice)?,
         OutputFormat::Table => {
@@ -114,10 +118,11 @@ pub async fn get_invoice(invoice_id: &str, ctx: &CommandContext) -> Result<()> {
 
 pub async fn issue_invoice(invoice_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let invoice_uuid =
+        Uuid::parse_str(invoice_id).map_err(|e| anyhow::anyhow!("Invalid invoice ID: {}", e))?;
 
     client
-        .invoices()
-        .issue(invoice_id)
+        .issue_invoice(&invoice_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to issue invoice: {}", e))?;
 
@@ -140,17 +145,19 @@ pub async fn get_usage(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let org_uuid = Uuid::parse_str(organization_id)
+        .map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
 
-    let usage = client
-        .usage(organization_id)
-        .summary(start_date, end_date)
+    let response = client
+        .get_usage_summary(&org_uuid, end_date, start_date)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get usage: {}", e))?;
 
+    let usage = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&usage)?,
         OutputFormat::Table => {
-            output::print_usage_summaries_table(&usage);
+            output::print_usage_summaries_table(&usage.data);
         }
     }
 
@@ -162,19 +169,22 @@ pub async fn get_usage(
 pub async fn validate_token(token: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
 
+    let request = seren::ValidateTokenRequest {
+        token: token.to_string(),
+    };
     let response = client
-        .billing()
-        .validate_token(token)
+        .validate_x402_token(&request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to validate token: {}", e))?;
 
+    let result = response.into_inner();
     match ctx.format {
-        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Json => output::print_json(&result)?,
         OutputFormat::Table => {
             println!("{}", "Token Valid".green().bold());
-            println!("  Endpoint ID: {}", response.endpoint_id);
-            println!("  Balance:     ${:.4}", response.balance);
-            println!("  Expires At:  {}", response.expires_at);
+            println!("  Endpoint ID: {}", result.endpoint_id);
+            println!("  Balance:     ${:.4}", result.balance);
+            println!("  Expires At:  {}", result.expires_at);
         }
     }
 
@@ -185,17 +195,17 @@ pub async fn get_balance(endpoint_id: &str, ctx: &CommandContext) -> Result<()> 
     let client = ctx.client().await?;
 
     let response = client
-        .billing()
         .get_balance(endpoint_id)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get balance: {}", e))?;
 
+    let result = response.into_inner();
     match ctx.format {
-        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Json => output::print_json(&result)?,
         OutputFormat::Table => {
             println!("{}", "Endpoint Balance".bold());
-            println!("  Endpoint ID: {}", response.endpoint_id);
-            println!("  Balance:     ${:.4}", response.balance);
+            println!("  Endpoint ID: {}", result.endpoint_id);
+            println!("  Balance:     ${:.4}", result.balance);
         }
     }
 
@@ -205,12 +215,12 @@ pub async fn get_balance(endpoint_id: &str, ctx: &CommandContext) -> Result<()> 
 pub async fn get_health(ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
 
-    let health = client
-        .billing()
-        .health()
+    let response = client
+        .get_billing_health()
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get billing health: {}", e))?;
 
+    let health = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&health)?,
         OutputFormat::Table => {

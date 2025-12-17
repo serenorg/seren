@@ -6,6 +6,7 @@ use anyhow::Result;
 use colored::Colorize;
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
 use serde::Serialize;
+use uuid::Uuid;
 
 use crate::{CommandContext, OutputFormat, config::ContextConfig, output};
 
@@ -112,16 +113,25 @@ pub async fn init(
 
     let client = ctx.client().await?;
 
+    let project_uuid =
+        Uuid::parse_str(&project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(&branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
+
     let conn = client
-        .branches(&project_id)
-        .connection_string_with_options(&branch_id, Some(pooled), None)
+        .get_connection_string(
+            &project_uuid,
+            &branch_uuid,
+            if pooled { Some(true) } else { None },
+            None,
+        )
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get connection string: {}", e))?;
 
     // Derive the final connection string using the same formatting logic as print_connection_string.
     // We always apply sslmode=require when writing to .env to be explicit.
     let ssl_mode = Some("require");
-    let mut active = conn.data.connection_string.clone();
+    let mut active = conn.into_inner().data.connection_string.clone();
 
     if let Some(mode) = ssl_mode {
         active = output::apply_sslmode(&active, mode);

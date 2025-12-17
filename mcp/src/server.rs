@@ -401,9 +401,23 @@ impl SerenMcpServer {
                 .ok_or_else(|| McpError::invalid_request("Missing Bearer token", None))?,
         };
 
-        let config = seren::ClientConfig::new(token).with_base_url(&self.api_base_url);
-        seren::Client::new_with_http_client(config, self.http_client.clone())
-            .map_err(|e| McpError::internal_error(e.to_string(), None))
+        // Build HTTP client with auth header
+        let mut headers = reqwest::header::HeaderMap::new();
+        let auth_value = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token))
+            .map_err(|e| McpError::internal_error(format!("Invalid token: {}", e), None))?;
+        headers.insert(reqwest::header::AUTHORIZATION, auth_value);
+
+        let http_client = reqwest::Client::builder()
+            .default_headers(headers)
+            .build()
+            .map_err(|e| {
+                McpError::internal_error(format!("Failed to build HTTP client: {}", e), None)
+            })?;
+
+        Ok(seren::Client::new_with_client(
+            &self.api_base_url,
+            http_client,
+        ))
     }
 
     #[instrument(skip(self, connection_string), fields(query_len = query.len()))]
@@ -564,10 +578,10 @@ impl SerenMcpServer {
     async fn list_projects(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let projects = api_client
-            .projects()
-            .list()
+            .list_projects(None, None)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
         Ok(CallToolResult::success(vec![json_content(&projects)?]))
     }
 
@@ -582,10 +596,10 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let project = api_client
-            .projects()
-            .get(&params.project_id.to_string())
+            .get_project(&params.project_id)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
         Ok(CallToolResult::success(vec![json_content(&project)?]))
     }
 
@@ -608,10 +622,10 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let response = api_client
-            .projects()
-            .create(request)
+            .create_project(&request)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -632,8 +646,7 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         api_client
-            .projects()
-            .delete(&params.project_id.to_string())
+            .delete_project(&params.project_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![Content::text(format!(
@@ -664,10 +677,10 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let response = api_client
-            .branches(params.path.project_id.to_string())
-            .create(params.body)
+            .create_branch(&params.path.project_id, &params.body)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -688,8 +701,7 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         api_client
-            .branches(params.project_id.to_string())
-            .delete(&params.branch_id.to_string())
+            .delete_branch(&params.project_id, &params.branch_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![Content::text(format!(
@@ -709,10 +721,10 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let databases = api_client
-            .databases(params.project_id.to_string(), params.branch_id.to_string())
-            .list()
+            .list_databases(&params.project_id, &params.branch_id)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
         Ok(CallToolResult::success(vec![json_content(&databases)?]))
     }
 
@@ -735,13 +747,14 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let database = api_client
-            .databases(
-                params.path.project_id.to_string(),
-                params.path.branch_id.to_string(),
+            .create_database(
+                &params.path.project_id,
+                &params.path.branch_id,
+                &params.body,
             )
-            .create(params.body)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
         Ok(CallToolResult::success(vec![json_content(&database)?]))
     }
 
@@ -756,10 +769,10 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let roles = api_client
-            .roles(params.project_id.to_string(), params.branch_id.to_string())
-            .list()
+            .list_branch_roles(&params.project_id, &params.branch_id)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
         Ok(CallToolResult::success(vec![json_content(&roles)?]))
     }
 
@@ -774,16 +787,17 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let response = api_client
-            .branches(params.path.project_id.to_string())
-            .connection_string_with_options(
-                &params.path.branch_id.to_string(),
+            .get_connection_string(
+                &params.path.project_id,
+                &params.path.branch_id,
                 params.query.pooled,
                 params.query.role.as_deref(),
             )
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
 
-        let mut conn_str = response.connection_string;
+        let mut conn_str = response.data.connection_string;
         if let Some(database) = params.database.as_deref() {
             conn_str = connection_string_with_database(&conn_str, database)?;
         }
@@ -816,13 +830,15 @@ impl SerenMcpServer {
         // Get connection info from API
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
-            .branches(params.path.project_id.to_string())
-            .connection_string_with_options(&params.path.branch_id.to_string(), None, None)
+            .get_connection_string(&params.path.project_id, &params.path.branch_id, None, None)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
 
-        let conn_str =
-            connection_string_with_database(&conn_response.connection_string, &params.database)?;
+        let conn_str = connection_string_with_database(
+            &conn_response.data.connection_string,
+            &params.database,
+        )?;
 
         let result = self.execute_sql(&conn_str, &params.query, vec![]).await?;
 
@@ -865,13 +881,15 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
-            .branches(params.path.project_id.to_string())
-            .connection_string_with_options(&params.path.branch_id.to_string(), None, None)
+            .get_connection_string(&params.path.project_id, &params.path.branch_id, None, None)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
 
-        let conn_str =
-            connection_string_with_database(&conn_response.connection_string, &params.database)?;
+        let conn_str = connection_string_with_database(
+            &conn_response.data.connection_string,
+            &params.database,
+        )?;
 
         let result = self
             .execute_sql_transaction(
@@ -911,13 +929,15 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
-            .branches(params.path.project_id.to_string())
-            .connection_string_with_options(&params.path.branch_id.to_string(), None, None)
+            .get_connection_string(&params.path.project_id, &params.path.branch_id, None, None)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
 
-        let conn_str =
-            connection_string_with_database(&conn_response.connection_string, &params.database)?;
+        let conn_str = connection_string_with_database(
+            &conn_response.data.connection_string,
+            &params.database,
+        )?;
 
         let result = self
             .execute_sql(&conn_str, query, vec![schema.into()])
@@ -943,13 +963,15 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
-            .branches(params.path.project_id.to_string())
-            .connection_string_with_options(&params.path.branch_id.to_string(), None, None)
+            .get_connection_string(&params.path.project_id, &params.path.branch_id, None, None)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
 
-        let conn_str =
-            connection_string_with_database(&conn_response.connection_string, &params.database)?;
+        let conn_str = connection_string_with_database(
+            &conn_response.data.connection_string,
+            &params.database,
+        )?;
 
         let result = self.execute_sql(&conn_str, &explain_query, vec![]).await?;
 
@@ -988,13 +1010,15 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
-            .branches(params.path.project_id.to_string())
-            .connection_string_with_options(&params.path.branch_id.to_string(), None, None)
+            .get_connection_string(&params.path.project_id, &params.path.branch_id, None, None)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
 
-        let conn_str =
-            connection_string_with_database(&conn_response.connection_string, &params.database)?;
+        let conn_str = connection_string_with_database(
+            &conn_response.data.connection_string,
+            &params.database,
+        )?;
 
         let result = self
             .execute_sql(
@@ -1014,9 +1038,10 @@ impl SerenMcpServer {
     async fn list_organizations(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let orgs = api_client
-            .organizations()
+            .list_organizations()
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
         Ok(CallToolResult::success(vec![json_content(&orgs)?]))
     }
 
@@ -1031,10 +1056,10 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let branches = api_client
-            .branches(params.project_id.to_string())
-            .list()
+            .list_branches(&params.project_id)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
         Ok(CallToolResult::success(vec![json_content(&branches)?]))
     }
 
@@ -1049,10 +1074,10 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let branch = api_client
-            .branches(params.project_id.to_string())
-            .get(&params.branch_id.to_string())
+            .get_branch(&params.project_id, &params.branch_id)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
         Ok(CallToolResult::success(vec![json_content(&branch)?]))
     }
 
@@ -1071,10 +1096,10 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let endpoints = api_client
-            .endpoints(params.project_id.to_string(), params.branch_id.to_string())
-            .list()
+            .list_endpoints(&params.project_id, &params.branch_id)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
         Ok(CallToolResult::success(vec![json_content(&endpoints)?]))
     }
 
@@ -1095,13 +1120,14 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let endpoint = api_client
-            .endpoints(
-                params.path.project_id.to_string(),
-                params.path.branch_id.to_string(),
+            .create_endpoint(
+                &params.path.project_id,
+                &params.path.branch_id,
+                &params.body,
             )
-            .create(params.body)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
         Ok(CallToolResult::success(vec![json_content(&endpoint)?]))
     }
 
@@ -1122,8 +1148,7 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         api_client
-            .endpoints(params.project_id.to_string(), params.branch_id.to_string())
-            .delete(&params.endpoint_id.to_string())
+            .delete_endpoint(&params.project_id, &params.branch_id, &params.endpoint_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![Content::text(format!(
@@ -1149,10 +1174,10 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let endpoint = api_client
-            .endpoints(params.project_id.to_string(), params.branch_id.to_string())
-            .start(&params.endpoint_id.to_string())
+            .start_endpoint(&params.project_id, &params.branch_id, &params.endpoint_id)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
         Ok(CallToolResult::success(vec![json_content(&endpoint)?]))
     }
 
@@ -1172,12 +1197,14 @@ impl SerenMcpServer {
         ensure_writes_allowed(&extensions)?;
 
         let api_client = self.api_client(&extensions)?;
-        let endpoint = api_client
-            .endpoints(params.project_id.to_string(), params.branch_id.to_string())
-            .suspend(&params.endpoint_id.to_string())
+        api_client
+            .stop_endpoint(&params.project_id, &params.branch_id, &params.endpoint_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![json_content(&endpoint)?]))
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Endpoint {} suspended successfully",
+            params.endpoint_id
+        ))]))
     }
 }
 

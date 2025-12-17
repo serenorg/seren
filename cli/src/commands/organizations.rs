@@ -1,17 +1,21 @@
 use anyhow::Result;
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
 use seren::CreateOrganizationInviteRequest;
+use uuid::Uuid;
 
 use crate::{CommandContext, OutputFormat, output};
 
 pub async fn list_members(organization_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let org_uuid = Uuid::parse_str(organization_id)
+        .map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
 
-    let members = client
-        .organization_members(organization_id)
+    let response = client
+        .list_members(&org_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list members: {}", e))?;
 
+    let members = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&members)?,
         OutputFormat::Table => {
@@ -27,12 +31,12 @@ pub async fn list_members(organization_id: &str, ctx: &CommandContext) -> Result
                 Cell::new("Joined").fg(Color::Green),
             ]);
 
-            for member in members {
+            for member in &members.data {
                 table.add_row(vec![
-                    Cell::new(member.email),
-                    Cell::new(member.name.unwrap_or_else(|| "—".to_string())),
-                    Cell::new(member.role),
-                    Cell::new(member.created_at),
+                    Cell::new(&member.email),
+                    Cell::new(member.name.as_deref().unwrap_or("—")),
+                    Cell::new(&member.role),
+                    Cell::new(member.created_at.to_string()),
                 ]);
             }
 
@@ -45,12 +49,15 @@ pub async fn list_members(organization_id: &str, ctx: &CommandContext) -> Result
 
 pub async fn list_invites(organization_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let org_uuid = Uuid::parse_str(organization_id)
+        .map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
 
-    let invites = client
-        .organization_invites(organization_id)
+    let response = client
+        .list_invites(&org_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list invites: {}", e))?;
 
+    let invites = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&invites)?,
         OutputFormat::Table => {
@@ -66,9 +73,9 @@ pub async fn list_invites(organization_id: &str, ctx: &CommandContext) -> Result
                 Cell::new("Status").fg(Color::Green),
             ]);
 
-            for invite in invites {
-                let is_accepted = invite.data.accepted_at.is_some();
-                let is_revoked = invite.data.revoked_at.is_some();
+            for invite in &invites.data {
+                let is_accepted = invite.accepted_at.is_some();
+                let is_revoked = invite.revoked_at.is_some();
                 let is_expired = !is_accepted && !is_revoked; // UI computes actual expiry time; CLI keeps it simple.
 
                 let status = if is_accepted {
@@ -82,9 +89,9 @@ pub async fn list_invites(organization_id: &str, ctx: &CommandContext) -> Result
                 };
 
                 table.add_row(vec![
-                    Cell::new(&invite.data.email),
-                    Cell::new(&invite.data.role),
-                    Cell::new(&invite.data.expires_at),
+                    Cell::new(&invite.email),
+                    Cell::new(&invite.role),
+                    Cell::new(&invite.expires_at),
                     Cell::new(status),
                 ]);
             }
@@ -103,24 +110,27 @@ pub async fn create_invite(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let org_uuid = Uuid::parse_str(organization_id)
+        .map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
 
     let payload = CreateOrganizationInviteRequest {
         email: email.to_string(),
         role: Some(role.to_string()),
     };
 
-    let invite = client
-        .create_organization_invite(organization_id, &payload)
+    let response = client
+        .create_invite(&org_uuid, &payload)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create invite: {}", e))?;
 
+    let invite = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&invite)?,
         OutputFormat::Table => {
             println!("✓ Invite created");
-            println!("  Email:   {}", invite.data.email);
-            println!("  Role:    {}", invite.data.role);
-            println!("  Expires: {}", invite.data.expires_at);
+            println!("  Email:   {}", invite.email);
+            println!("  Role:    {}", invite.role);
+            println!("  Expires: {}", invite.expires_at);
         }
     }
 

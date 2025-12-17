@@ -1,21 +1,24 @@
 use anyhow::Result;
 use colored::Colorize;
 use seren::{CreateWebhookRequest, UpdateWebhookRequest};
+use uuid::Uuid;
 
 use crate::{CommandContext, OutputFormat, output};
 
 pub async fn list(org_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let org_uuid =
+        Uuid::parse_str(org_id).map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
 
-    let webhooks = client
-        .webhooks(org_id)
-        .list()
+    let response = client
+        .list_webhooks(&org_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list webhooks: {}", e))?;
 
+    let webhooks = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&webhooks)?,
-        OutputFormat::Table => output::print_webhooks_table(&webhooks),
+        OutputFormat::Table => output::print_webhooks_table(&webhooks.data),
     }
 
     Ok(())
@@ -23,13 +26,17 @@ pub async fn list(org_id: &str, ctx: &CommandContext) -> Result<()> {
 
 pub async fn get(org_id: &str, webhook_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let org_uuid =
+        Uuid::parse_str(org_id).map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
+    let webhook_uuid =
+        Uuid::parse_str(webhook_id).map_err(|e| anyhow::anyhow!("Invalid webhook ID: {}", e))?;
 
-    let webhook = client
-        .webhooks(org_id)
-        .get(webhook_id)
+    let response = client
+        .get_webhook(&org_uuid, &webhook_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get webhook: {}", e))?;
 
+    let webhook = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&webhook)?,
         OutputFormat::Table => output::print_webhooks_table(&[webhook]),
@@ -40,25 +47,33 @@ pub async fn get(org_id: &str, webhook_id: &str, ctx: &CommandContext) -> Result
 
 pub async fn create(
     org_id: &str,
+    name: &str,
     url: &str,
-    event_types: Vec<String>,
-    is_active: bool,
+    events: Vec<String>,
+    project_id: Option<&str>,
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let org_uuid =
+        Uuid::parse_str(org_id).map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
+
+    let project_uuid = project_id
+        .map(|id| Uuid::parse_str(id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e)))
+        .transpose()?;
 
     let request = CreateWebhookRequest {
+        name: name.to_string(),
         url: url.to_string(),
-        event_types,
-        is_active: Some(is_active),
+        events,
+        project_id: project_uuid,
     };
 
-    let webhook = client
-        .webhooks(org_id)
-        .create(&request)
+    let response = client
+        .create_webhook(&org_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create webhook: {}", e))?;
 
+    let created = response.into_inner();
     println!("{}", "Webhook created successfully!".green().bold());
     println!();
     println!(
@@ -67,17 +82,18 @@ pub async fn create(
             .yellow()
             .bold()
     );
-    println!("Secret: {}", webhook.secret.cyan());
+    println!("Secret: {}", created.secret.cyan());
     println!();
 
     match ctx.format {
-        OutputFormat::Json => output::print_json(&webhook)?,
+        OutputFormat::Json => output::print_json(&created)?,
         OutputFormat::Table => {
             // Print basic info without the secret (already shown above)
-            println!("Webhook ID: {}", webhook.id);
-            println!("URL: {}", webhook.url);
-            println!("Events: {}", webhook.event_types.join(", "));
-            println!("Active: {}", webhook.is_active);
+            println!("Webhook ID: {}", created.webhook.id);
+            println!("Name: {}", created.webhook.name);
+            println!("URL: {}", created.webhook.url);
+            println!("Events: {}", created.webhook.events.join(", "));
+            println!("Enabled: {}", created.webhook.enabled);
         }
     }
 
@@ -87,25 +103,31 @@ pub async fn create(
 pub async fn update(
     org_id: &str,
     webhook_id: &str,
+    name: Option<String>,
     url: Option<String>,
-    event_types: Option<Vec<String>>,
-    is_active: Option<bool>,
+    events: Option<Vec<String>>,
+    enabled: Option<bool>,
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
+    let org_uuid =
+        Uuid::parse_str(org_id).map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
+    let webhook_uuid =
+        Uuid::parse_str(webhook_id).map_err(|e| anyhow::anyhow!("Invalid webhook ID: {}", e))?;
 
     let request = UpdateWebhookRequest {
+        name,
         url,
-        event_types,
-        is_active,
+        events,
+        enabled,
     };
 
-    let webhook = client
-        .webhooks(org_id)
-        .update(webhook_id, &request)
+    let response = client
+        .update_webhook(&org_uuid, &webhook_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to update webhook: {}", e))?;
 
+    let webhook = response.into_inner();
     println!("{}", "Webhook updated successfully!".green().bold());
     println!();
 
@@ -119,10 +141,13 @@ pub async fn update(
 
 pub async fn delete(org_id: &str, webhook_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let org_uuid =
+        Uuid::parse_str(org_id).map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
+    let webhook_uuid =
+        Uuid::parse_str(webhook_id).map_err(|e| anyhow::anyhow!("Invalid webhook ID: {}", e))?;
 
     client
-        .webhooks(org_id)
-        .delete(webhook_id)
+        .delete_webhook(&org_uuid, &webhook_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to delete webhook: {}", e))?;
 
@@ -138,13 +163,17 @@ pub async fn delete(org_id: &str, webhook_id: &str, ctx: &CommandContext) -> Res
 
 pub async fn rotate_secret(org_id: &str, webhook_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let org_uuid =
+        Uuid::parse_str(org_id).map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
+    let webhook_uuid =
+        Uuid::parse_str(webhook_id).map_err(|e| anyhow::anyhow!("Invalid webhook ID: {}", e))?;
 
-    let webhook = client
-        .webhooks(org_id)
-        .rotate_secret(webhook_id)
+    let response = client
+        .rotate_webhook_secret(&org_uuid, &webhook_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to rotate webhook secret: {}", e))?;
 
+    let rotated = response.into_inner();
     println!("{}", "Webhook secret rotated successfully!".green().bold());
     println!();
     println!(
@@ -153,10 +182,10 @@ pub async fn rotate_secret(org_id: &str, webhook_id: &str, ctx: &CommandContext)
             .yellow()
             .bold()
     );
-    println!("New Secret: {}", webhook.secret.cyan());
+    println!("New Secret: {}", rotated.secret.cyan());
 
     match ctx.format {
-        OutputFormat::Json => output::print_json(&webhook)?,
+        OutputFormat::Json => output::print_json(&rotated)?,
         OutputFormat::Table => {}
     }
 
@@ -165,13 +194,17 @@ pub async fn rotate_secret(org_id: &str, webhook_id: &str, ctx: &CommandContext)
 
 pub async fn list_deliveries(org_id: &str, webhook_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let org_uuid =
+        Uuid::parse_str(org_id).map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
+    let webhook_uuid =
+        Uuid::parse_str(webhook_id).map_err(|e| anyhow::anyhow!("Invalid webhook ID: {}", e))?;
 
-    let deliveries = client
-        .webhooks(org_id)
-        .list_deliveries(webhook_id)
+    let response = client
+        .list_webhook_deliveries(&org_uuid, &webhook_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list webhook deliveries: {}", e))?;
 
+    let deliveries = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&deliveries)?,
         OutputFormat::Table => output::print_webhook_deliveries_table(&deliveries),
@@ -183,12 +216,12 @@ pub async fn list_deliveries(org_id: &str, webhook_id: &str, ctx: &CommandContex
 pub async fn list_event_types(ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
 
-    let event_types = client
-        .webhooks("")
+    let response = client
         .list_event_types()
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list event types: {}", e))?;
 
+    let event_types = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&event_types)?,
         OutputFormat::Table => {

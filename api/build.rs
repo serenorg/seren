@@ -108,20 +108,19 @@ fn main() -> anyhow::Result<()> {
     let mut generator = progenitor::Generator::new(&settings);
     let tokens = generator.generate_tokens(&spec)?;
 
-    let mut syntax: syn::File = syn::parse2(tokens)?;
-    syntax
-        .items
-        .retain(|item| matches!(item, syn::Item::Mod(m) if m.ident == "types"));
+    let syntax: syn::File = syn::parse2(tokens)?;
+    // Generate full client with types - no longer filtering to types only
 
     let formatted = prettyplease::unparse(&syntax);
 
     // Replace chrono with jiff in the generated code
+    // Progenitor 0.11+ uses fully qualified paths with leading ::
     let formatted = formatted
-        .replace("chrono::DateTime<chrono::offset::Utc>", "::jiff::Timestamp")
         .replace(
-            "Option<chrono::DateTime<chrono::offset::Utc>>",
-            "Option<::jiff::Timestamp>",
-        );
+            "::chrono::DateTime<::chrono::offset::Utc>",
+            "::jiff::Timestamp",
+        )
+        .replace("chrono::DateTime<chrono::offset::Utc>", "::jiff::Timestamp");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     fs::create_dir_all(&out_dir)?;

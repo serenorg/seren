@@ -1,21 +1,24 @@
 use anyhow::Result;
 use seren::Client;
 use tokio::time::{Duration, sleep};
+use uuid::Uuid;
 
 use crate::{CommandContext, OutputFormat, output};
 
 pub async fn list(project_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
 
-    let operations = client
-        .operations(project_id)
-        .list()
+    let response = client
+        .list_operations(&project_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list operations: {}", e))?;
 
+    let operations = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&operations)?,
-        OutputFormat::Table => output::print_operations_table(&operations),
+        OutputFormat::Table => output::print_operations_table(&operations.data),
     }
 
     Ok(())
@@ -23,14 +26,18 @@ pub async fn list(project_id: &str, ctx: &CommandContext) -> Result<()> {
 
 pub async fn get(project_id: &str, operation_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let operation_uuid = Uuid::parse_str(operation_id)
+        .map_err(|e| anyhow::anyhow!("Invalid operation ID: {}", e))?;
 
-    let operation = client
-        .operations(project_id)
-        .get(operation_id)
+    let response = client
+        .get_operation(&project_uuid, &operation_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get operation: {}", e))?;
 
-    output::print_operation(&operation, ctx.format)?;
+    let operation = response.into_inner();
+    output::print_operation(&operation.data, ctx.format)?;
 
     Ok(())
 }
@@ -39,19 +46,19 @@ pub async fn get(project_id: &str, operation_id: &str, ctx: &CommandContext) -> 
 #[allow(dead_code)]
 pub async fn poll_operation(
     client: &Client,
-    project_id: &str,
-    operation_id: &str,
+    project_id: &Uuid,
+    operation_id: &Uuid,
     timeout_secs: u64,
 ) -> Result<seren::Operation> {
     let start = std::time::Instant::now();
 
     loop {
-        let op = client
-            .operations(project_id)
-            .get(operation_id)
+        let response = client
+            .get_operation(project_id, operation_id)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get operation {operation_id}: {}", e))?;
 
+        let op = response.into_inner().data;
         let status = op.status.to_lowercase();
         if matches!(status.as_str(), "completed" | "failed" | "cancelled") {
             return if status == "completed" {
@@ -60,7 +67,7 @@ pub async fn poll_operation(
                 Err(anyhow::anyhow!(
                     "Operation {operation_id} ended with status {}: {}",
                     op.status,
-                    op.error_message.unwrap_or_default()
+                    op.error_message.clone().unwrap_or_default()
                 ))
             };
         }
