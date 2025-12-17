@@ -119,18 +119,16 @@ async fn require_oauth_auth(
     let mut token = extract_bearer_token(&req).map(|t| t.to_string());
 
     // If missing, try to recover the token from the session cache.
-    if token.is_none() {
-        if let Some(ref sid) = session_id {
-            token = state.session_tokens.read().await.get(sid).cloned();
-            if token.is_some() {
-                // Re-inject Authorization so rmcp can propagate it into Extensions for tools.
-                if let Some(ref t) = token {
-                    if let Ok(v) = axum::http::HeaderValue::from_str(&format!("Bearer {}", t)) {
-                        req.headers_mut()
-                            .insert(axum::http::header::AUTHORIZATION, v);
-                    }
-                }
-            }
+    if token.is_none()
+        && let Some(ref sid) = session_id
+    {
+        token = state.session_tokens.read().await.get(sid).cloned();
+        // Re-inject Authorization so rmcp can propagate it into Extensions for tools.
+        if let Some(ref t) = token
+            && let Ok(v) = axum::http::HeaderValue::from_str(&format!("Bearer {}", t))
+        {
+            req.headers_mut()
+                .insert(axum::http::header::AUTHORIZATION, v);
         }
     }
 
@@ -205,10 +203,10 @@ async fn require_oauth_auth(
     }
 
     // Best-effort cleanup: when a session is explicitly closed, drop the cached token.
-    if method == axum::http::Method::DELETE {
-        if let Some(sid) = session_id {
-            state.session_tokens.write().await.remove(&sid);
-        }
+    if method == axum::http::Method::DELETE
+        && let Some(sid) = session_id
+    {
+        state.session_tokens.write().await.remove(&sid);
     }
 
     response

@@ -549,6 +549,7 @@ impl SerenMcpServer {
 #[tool_router]
 impl SerenMcpServer {
     /// Create a new Seren MCP Server
+    #[allow(clippy::result_large_err)]
     pub fn new(api_key: &str, api_base_url: &str) -> Result<Self, seren::Error> {
         Ok(Self {
             api_base_url: api_base_url.to_string(),
@@ -562,6 +563,7 @@ impl SerenMcpServer {
     ///
     /// In this mode the Seren API token is taken from each incoming HTTP request's
     /// `Authorization: Bearer ...` header (injected into [`Extensions`] by rmcp).
+    #[allow(clippy::result_large_err)]
     pub fn new_oauth(api_base_url: &str) -> Result<Self, seren::Error> {
         Ok(Self {
             api_base_url: api_base_url.to_string(),
