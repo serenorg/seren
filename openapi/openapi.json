@@ -1320,7 +1320,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OrganizationInvite"
+                  "$ref": "#/components/schemas/OrganizationInviteResponse"
                 }
               }
             }
@@ -2044,7 +2044,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OrganizationVpcEndpoint"
+                  "$ref": "#/components/schemas/OrganizationVpcEndpointResponse"
                 }
               }
             }
@@ -2094,7 +2094,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OrganizationVpcEndpoint"
+                  "$ref": "#/components/schemas/OrganizationVpcEndpointResponse"
                 }
               }
             }
@@ -2257,7 +2257,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OrganizationVpcEndpoint"
+                  "$ref": "#/components/schemas/OrganizationVpcEndpointResponse"
                 }
               }
             }
@@ -2454,7 +2454,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WebhookCreated"
+                  "$ref": "#/components/schemas/WebhookCreatedResponse"
                 }
               }
             }
@@ -2511,7 +2511,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WebhookInfo"
+                  "$ref": "#/components/schemas/WebhookInfoResponse"
                 }
               }
             }
@@ -2624,7 +2624,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WebhookInfo"
+                  "$ref": "#/components/schemas/WebhookInfoResponse"
                 }
               }
             }
@@ -2744,7 +2744,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WebhookCreated"
+                  "$ref": "#/components/schemas/WebhookCreatedResponse"
                 }
               }
             }
@@ -2937,7 +2937,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProjectCreated"
+                  "$ref": "#/components/schemas/ProjectCreatedResponse"
                 }
               }
             }
@@ -3617,7 +3617,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DatabaseCreated"
+                  "$ref": "#/components/schemas/DatabaseCreatedResponse"
                 }
               }
             }
@@ -4053,7 +4053,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BranchDetail"
+                  "$ref": "#/components/schemas/BranchDetailResponse"
                 }
               }
             }
@@ -4166,7 +4166,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EndpointCreated"
+                  "$ref": "#/components/schemas/EndpointCreatedResponse"
                 }
               }
             }
@@ -4358,7 +4358,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EndpointStatusInfo"
+                  "$ref": "#/components/schemas/EndpointStatusInfoResponse"
                 }
               }
             }
@@ -4424,7 +4424,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EndpointStatusInfo"
+                  "$ref": "#/components/schemas/EndpointStatusInfoResponse"
                 }
               }
             }
@@ -4600,7 +4600,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LsnByTimestamp"
+                  "$ref": "#/components/schemas/LsnByTimestampResponse"
                 }
               }
             }
@@ -4719,7 +4719,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PublicationInfo"
+                  "$ref": "#/components/schemas/PublicationInfoResponse"
                 }
               }
             }
@@ -4857,7 +4857,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PublicationInfo"
+                  "$ref": "#/components/schemas/PublicationInfoResponse"
                 }
               }
             }
@@ -4979,7 +4979,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ReplicationSlotInfo"
+                  "$ref": "#/components/schemas/ReplicationSlotInfoResponse"
                 }
               }
             }
@@ -5176,7 +5176,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BranchRestored"
+                  "$ref": "#/components/schemas/BranchRestoredResponse"
                 }
               }
             }
@@ -5845,7 +5845,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TimestampByLsn"
+                  "$ref": "#/components/schemas/TimestampByLsnResponse"
                 }
               }
             }
@@ -6219,7 +6219,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EndpointStatusInfo"
+                  "$ref": "#/components/schemas/EndpointStatusInfoResponse"
                 }
               }
             }
@@ -6273,7 +6273,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EndpointStatusInfo"
+                  "$ref": "#/components/schemas/EndpointStatusInfoResponse"
                 }
               }
             }
@@ -6767,7 +6767,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProjectSize"
+                  "$ref": "#/components/schemas/ProjectSizeResponse"
                 }
               }
             }
@@ -6864,7 +6864,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProjectVpcEndpointAssignment"
+                  "$ref": "#/components/schemas/ProjectVpcEndpointAssignmentResponse"
                 }
               }
             }
@@ -7011,7 +7011,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProjectVpcEndpointAssignment"
+                  "$ref": "#/components/schemas/ProjectVpcEndpointAssignmentResponse"
                 }
               }
             }
@@ -7120,7 +7120,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionsRevoked"
+                  "$ref": "#/components/schemas/SessionsRevokedResponse"
                 }
               }
             }
@@ -7161,7 +7161,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionsRevoked"
+                  "$ref": "#/components/schemas/SessionsRevokedResponse"
                 }
               }
             }
@@ -7205,7 +7205,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionsRevoked"
+                  "$ref": "#/components/schemas/SessionsRevokedResponse"
                 }
               }
             }
@@ -7356,7 +7356,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BranchProtection"
+                  "$ref": "#/components/schemas/BranchProtectionResponse"
                 }
               }
             }
@@ -7418,7 +7418,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BranchProtection"
+                  "$ref": "#/components/schemas/BranchProtectionResponse"
                 }
               }
             }
@@ -7528,7 +7528,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BranchProtection"
+                  "$ref": "#/components/schemas/BranchProtectionResponse"
                 }
               }
             }
