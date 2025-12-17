@@ -496,7 +496,6 @@ async fn callback(
         OffsetDateTime::now_utc() + Duration::seconds(token_body.expires_in.max(0));
 
     let user_id = fetch_user_id(
-        &state.http,
         &state.upstream_api_base_url,
         &token_body.access_token,
         &state.circuit_breaker,
@@ -1149,7 +1148,6 @@ fn redirect_with_error(
 }
 
 async fn fetch_user_id(
-    http: &reqwest::Client,
     api_base_url: &str,
     access_token: &str,
     circuit_breaker: &Arc<OAuthCircuitBreaker>,
@@ -1160,35 +1158,31 @@ async fn fetch_user_id(
         return None;
     }
 
-    let url = format!("{}/auth/me", api_base_url.trim_end_matches('/'));
+    // Build HTTP client with bearer token for the generated API client
+    let mut headers = reqwest::header::HeaderMap::new();
+    let auth_value =
+        reqwest::header::HeaderValue::from_str(&format!("Bearer {}", access_token)).ok()?;
+    headers.insert(reqwest::header::AUTHORIZATION, auth_value);
 
-    // Execute request
-    let res = match http.get(url).bearer_auth(access_token).send().await {
+    let http_client = reqwest::Client::builder()
+        .default_headers(headers)
+        .timeout(std::time::Duration::from_secs(10))
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .build()
+        .ok()?;
+
+    let api_client = seren::Client::new_with_client(api_base_url, http_client);
+
+    match api_client.get_current_user().await {
         Ok(response) => {
-            if response.status().is_success() {
-                circuit_breaker.record_success();
-                response
-            } else {
-                circuit_breaker.record_failure();
-                return None;
-            }
+            circuit_breaker.record_success();
+            Some(response.into_inner().data.id.to_string())
         }
         Err(_) => {
             circuit_breaker.record_failure();
-            return None;
+            None
         }
-    };
-
-    let v: serde_json::Value = res.json().await.ok()?;
-    v.get("data")
-        .and_then(|d| d.get("id"))
-        .and_then(|id| id.as_str())
-        .map(|s| s.to_string())
-        .or_else(|| {
-            v.get("id")
-                .and_then(|id| id.as_str())
-                .map(|s| s.to_string())
-        })
+    }
 }
 
 // ============================================================================
