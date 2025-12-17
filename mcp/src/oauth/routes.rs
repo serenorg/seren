@@ -21,9 +21,9 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
 };
-use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use time::{Duration, OffsetDateTime};
 use tower_governor::{
     GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor,
 };
@@ -344,7 +344,7 @@ async fn authorize(
         code_challenge_method,
         upstream_code_verifier,
         expires_at: TokenStore::code_expiry(),
-        created_at: Utc::now(),
+        created_at: OffsetDateTime::now_utc(),
     };
 
     state
@@ -489,7 +489,8 @@ async fn callback(
         );
     }
 
-    let upstream_expires_at = Utc::now() + Duration::seconds(token_body.expires_in.max(0));
+    let upstream_expires_at =
+        OffsetDateTime::now_utc() + Duration::seconds(token_body.expires_in.max(0));
 
     let user_id = fetch_user_id(
         &state.http,
@@ -518,7 +519,7 @@ async fn callback(
         code_challenge: Some(auth_request.code_challenge),
         code_challenge_method: Some(auth_request.code_challenge_method),
         expires_at: TokenStore::code_expiry(),
-        created_at: Utc::now(),
+        created_at: OffsetDateTime::now_utc(),
         upstream_access_token: token_body.access_token,
         upstream_refresh_token: token_body.refresh_token,
         upstream_expires_at,
@@ -555,7 +556,7 @@ async fn callback(
     // Not yet approved: create a pending consent record and redirect to a local consent page.
     let consent_id = TokenStore::generate_token();
     let csrf_token = TokenStore::generate_token();
-    let consent_expires_at = Utc::now() + Duration::minutes(10);
+    let consent_expires_at = OffsetDateTime::now_utc() + Duration::minutes(10);
     let consent = crate::oauth::store::PendingConsent {
         id: consent_id.clone(),
         user_id: user_id.clone(),
@@ -566,7 +567,7 @@ async fn callback(
         scope: auth_request.scope.clone(),
         csrf_token,
         expires_at: consent_expires_at,
-        created_at: Utc::now(),
+        created_at: OffsetDateTime::now_utc(),
     };
     state
         .store
@@ -683,7 +684,7 @@ async fn token(
                 user_id: auth_code.user_id.clone(),
                 scope: auth_code.scope.clone(),
                 expires_at: auth_code.upstream_expires_at,
-                created_at: Utc::now(),
+                created_at: OffsetDateTime::now_utc(),
             };
             state
                 .store
@@ -698,7 +699,7 @@ async fn token(
                     client_id: auth_code.client_id.clone(),
                     user_id: auth_code.user_id.clone(),
                     expires_at: Some(TokenStore::token_expiry(REFRESH_TOKEN_TTL_HOURS)),
-                    created_at: Utc::now(),
+                    created_at: OffsetDateTime::now_utc(),
                 };
                 state
                     .store
@@ -707,8 +708,8 @@ async fn token(
                     .map_err(|e| OAuthError::ServerError(e.to_string()))?;
             }
 
-            let expires_in = (auth_code.upstream_expires_at - Utc::now())
-                .num_seconds()
+            let expires_in = (auth_code.upstream_expires_at - OffsetDateTime::now_utc())
+                .whole_seconds()
                 .max(0);
 
             debug!(
@@ -799,7 +800,8 @@ async fn token(
                 debug!(scope = %granted_scope, "Upstream token refreshed");
             }
 
-            let new_expires_at = Utc::now() + Duration::seconds(token_body.expires_in.max(0));
+            let new_expires_at =
+                OffsetDateTime::now_utc() + Duration::seconds(token_body.expires_in.max(0));
 
             let new_access_token_str = token_body.access_token;
             // Always rotate refresh token for security (don't reuse the old one)
@@ -813,7 +815,7 @@ async fn token(
                 user_id: refresh_token.user_id.clone(),
                 scope: preserved_scope.clone(),
                 expires_at: new_expires_at,
-                created_at: Utc::now(),
+                created_at: OffsetDateTime::now_utc(),
             };
             state
                 .store
@@ -842,7 +844,9 @@ async fn token(
                 state.store.revoke_access_token(old_token_id).await.ok();
             }
 
-            let expires_in = (new_expires_at - Utc::now()).num_seconds().max(0);
+            let expires_in = (new_expires_at - OffsetDateTime::now_utc())
+                .whole_seconds()
+                .max(0);
 
             debug!(
                 event = "oauth_token_complete",

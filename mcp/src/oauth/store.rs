@@ -4,12 +4,12 @@
 //! authorization codes, and client registrations.
 
 use crate::error::{McpError, Result};
-use chrono::{DateTime, Duration, Utc};
 use lru::LruCache;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
+use time::{Duration, OffsetDateTime};
 
 // Token TTL constants
 pub const REFRESH_TOKEN_TTL_HOURS: i64 = 168; // 7 days
@@ -29,8 +29,8 @@ pub struct Client {
     pub client_uri: Option<String>,
     pub software_id: Option<String>,
     pub software_version: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
 }
 
 impl Client {
@@ -94,8 +94,8 @@ pub struct AuthRequest {
     pub code_challenge: String,
     pub code_challenge_method: String,
     pub upstream_code_verifier: String,
-    pub expires_at: DateTime<Utc>,
-    pub created_at: DateTime<Utc>,
+    pub expires_at: OffsetDateTime,
+    pub created_at: OffsetDateTime,
 }
 
 /// Authorization code (short-lived, exchanged for tokens)
@@ -108,11 +108,11 @@ pub struct AuthorizationCode {
     pub scope: String,
     pub code_challenge: Option<String>,
     pub code_challenge_method: Option<String>,
-    pub expires_at: DateTime<Utc>,
-    pub created_at: DateTime<Utc>,
+    pub expires_at: OffsetDateTime,
+    pub created_at: OffsetDateTime,
     pub upstream_access_token: String,
     pub upstream_refresh_token: Option<String>,
-    pub upstream_expires_at: DateTime<Utc>,
+    pub upstream_expires_at: OffsetDateTime,
 }
 
 /// Access token
@@ -122,8 +122,8 @@ pub struct AccessToken {
     pub client_id: String,
     pub user_id: String,
     pub scope: String,
-    pub expires_at: DateTime<Utc>,
-    pub created_at: DateTime<Utc>,
+    pub expires_at: OffsetDateTime,
+    pub created_at: OffsetDateTime,
 }
 
 /// Refresh token
@@ -135,8 +135,8 @@ pub struct RefreshToken {
     pub access_token: Option<String>,
     pub client_id: String,
     pub user_id: String,
-    pub expires_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
+    pub expires_at: Option<OffsetDateTime>,
+    pub created_at: OffsetDateTime,
 }
 
 /// Pending consent prompt during the OAuth callback flow.
@@ -150,8 +150,8 @@ pub struct PendingConsent {
     pub client_state: Option<String>,
     pub scope: String,
     pub csrf_token: String,
-    pub expires_at: DateTime<Utc>,
-    pub created_at: DateTime<Utc>,
+    pub expires_at: OffsetDateTime,
+    pub created_at: OffsetDateTime,
 }
 
 /// Token store backed by PostgreSQL with LRU cache for client metadata
@@ -425,7 +425,7 @@ impl TokenStore {
         old_token: &str,
         new_token: &str,
         new_access_token: &str,
-        expires_at: Option<DateTime<Utc>>,
+        expires_at: Option<OffsetDateTime>,
     ) -> Result<bool> {
         let result = sqlx::query(
             "UPDATE mcp_oauth.refresh_tokens SET token = $1, access_token = $2, expires_at = $3 WHERE token = $4",
@@ -597,13 +597,13 @@ impl TokenStore {
     }
 
     /// Create token expiry time
-    pub fn token_expiry(duration_hours: i64) -> DateTime<Utc> {
-        Utc::now() + Duration::hours(duration_hours)
+    pub fn token_expiry(duration_hours: i64) -> OffsetDateTime {
+        OffsetDateTime::now_utc() + Duration::hours(duration_hours)
     }
 
     /// Create authorization code expiry (short-lived, 10 minutes)
-    pub fn code_expiry() -> DateTime<Utc> {
-        Utc::now() + Duration::minutes(10)
+    pub fn code_expiry() -> OffsetDateTime {
+        OffsetDateTime::now_utc() + Duration::minutes(10)
     }
 }
 
@@ -658,8 +658,8 @@ mod tests {
             client_uri: None,
             software_id: None,
             software_version: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: OffsetDateTime::now_utc(),
+            updated_at: OffsetDateTime::now_utc(),
         };
 
         assert!(client.allows_redirect_uri("http://localhost:8080/callback"));
@@ -678,8 +678,8 @@ mod tests {
             client_uri: None,
             software_id: None,
             software_version: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: OffsetDateTime::now_utc(),
+            updated_at: OffsetDateTime::now_utc(),
         };
 
         // Valid localhost wildcards
@@ -711,8 +711,8 @@ mod tests {
             client_uri: None,
             software_id: None,
             software_version: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: OffsetDateTime::now_utc(),
+            updated_at: OffsetDateTime::now_utc(),
         };
 
         assert!(client.allows_redirect_uri("http://127.0.0.1:8080/callback"));
@@ -732,8 +732,8 @@ mod tests {
             client_uri: None,
             software_id: None,
             software_version: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: OffsetDateTime::now_utc(),
+            updated_at: OffsetDateTime::now_utc(),
         };
 
         // Non-localhost wildcards should be rejected for security
