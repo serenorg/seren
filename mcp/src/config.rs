@@ -28,8 +28,9 @@ pub enum AuthConfig {
 impl Config {
     #[allow(clippy::result_large_err)]
     pub fn from_env_for_command(command: &str) -> Result<Self> {
+        // Note: Do NOT include /api suffix - the generated API client already adds it
         let api_base_url =
-            std::env::var("API_URL").unwrap_or_else(|_| "https://api.serendb.com/api".into());
+            std::env::var("API_URL").unwrap_or_else(|_| "https://api.serendb.com".into());
         let oauth_redirect_base_url =
             std::env::var("OAUTH_REDIRECT_URL").unwrap_or_else(|_| api_base_url.clone());
 
@@ -96,7 +97,7 @@ mod tests {
                 assert!(matches!(cfg.auth, AuthConfig::ApiKey(_)));
                 assert_eq!(cfg.host, "0.0.0.0");
                 assert_eq!(cfg.port, 3000);
-                assert_eq!(cfg.api_base_url, "https://api.serendb.com/api");
+                assert_eq!(cfg.api_base_url, "https://api.serendb.com");
             },
         );
     }
@@ -115,7 +116,7 @@ mod tests {
             [
                 ("DATABASE_URL", Some("postgres://localhost/test")),
                 ("PUBLIC_URL", Some("https://mcp.serendb.com")),
-                ("API_URL", Some("https://example.com/api")),
+                ("API_URL", Some("https://example.com")),
             ],
             || {
                 let cfg = Config::from_env_for_command("start:oauth").unwrap();
@@ -131,7 +132,7 @@ mod tests {
                     }
                     _ => panic!("expected OAuth config"),
                 }
-                assert_eq!(cfg.api_base_url, "https://example.com/api");
+                assert_eq!(cfg.api_base_url, "https://example.com");
             },
         );
     }

@@ -71,7 +71,7 @@ sudo mv seren-mcp /usr/local/bin/
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `API_URL` | Seren API base URL (must include `/api`) | `https://api.serendb.com/api` |
+| `API_URL` | Seren API base URL | `https://api.serendb.com` |
 | `API_KEY` | Seren API key (for `start`/`start:http`) | Required |
 | `AUTH_TOKEN` | Auth token for `start:http` (bearer) | Required for `start:http` |
 | `DATABASE_URL` | Postgres URL for OAuth token storage | Required for `start:oauth` |
