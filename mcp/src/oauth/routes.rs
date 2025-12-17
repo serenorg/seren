@@ -224,9 +224,12 @@ async fn register(
     };
 
     sqlx::query(
-        r#"INSERT INTO mcp_oauth.clients
-           (id, name, secret_hash, redirect_uris, grants, scopes, client_uri, software_id, software_version)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
+        r#"
+        INSERT INTO mcp_oauth.clients
+            (id, name, secret_hash, redirect_uris, grants, scopes,
+            client_uri, software_id, software_version)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        "#,
     )
     .bind(&client_id)
     .bind(&req.client_name)
@@ -1652,7 +1655,11 @@ mod tests {
 
         // Verify authorize created an auth_request with a verifier matching the upstream challenge.
         let row: (String,) = sqlx::query_as(
-            "SELECT upstream_code_verifier FROM mcp_oauth.auth_requests WHERE id = $1",
+            r#"
+            SELECT upstream_code_verifier
+            FROM mcp_oauth.auth_requests
+            WHERE id = $1
+            "#,
         )
         .bind(&upstream_state)
         .fetch_one(store.pool())

@@ -216,9 +216,12 @@ impl TokenStore {
 
         // Cache miss - fetch from database
         let client = sqlx::query_as::<_, Client>(
-            r#"SELECT id, name, secret_hash, redirect_uris, grants, scopes,
-                      client_uri, software_id, software_version, created_at, updated_at
-               FROM mcp_oauth.clients WHERE id = $1"#,
+            r#"
+            SELECT id, name, secret_hash, redirect_uris, grants, scopes,
+                client_uri, software_id, software_version, created_at, updated_at
+            FROM mcp_oauth.clients
+            WHERE id = $1
+            "#,
         )
         .bind(client_id)
         .fetch_optional(&self.pool)
@@ -239,9 +242,12 @@ impl TokenStore {
     /// Save a pending authorization request
     pub async fn save_auth_request(&self, req: &AuthRequest) -> Result<()> {
         sqlx::query(
-            r#"INSERT INTO mcp_oauth.auth_requests
-               (id, client_id, redirect_uri, scope, client_state, code_challenge, code_challenge_method, upstream_code_verifier, expires_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
+            r#"
+            INSERT INTO mcp_oauth.auth_requests
+                (id, client_id, redirect_uri, scope, client_state, code_challenge,
+                code_challenge_method, upstream_code_verifier, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            "#,
         )
         .bind(&req.id)
         .bind(&req.client_id)
@@ -262,11 +268,13 @@ impl TokenStore {
     /// Get and consume a pending authorization request
     pub async fn consume_auth_request(&self, id: &str) -> Result<Option<AuthRequest>> {
         let req = sqlx::query_as::<_, AuthRequest>(
-            r#"DELETE FROM mcp_oauth.auth_requests
-               WHERE id = $1 AND expires_at > NOW()
-               RETURNING id, client_id, redirect_uri, scope, client_state,
-                         code_challenge, code_challenge_method, upstream_code_verifier,
-                         expires_at, created_at"#,
+            r#"
+            DELETE FROM mcp_oauth.auth_requests
+            WHERE id = $1 AND expires_at > NOW()
+            RETURNING id, client_id, redirect_uri, scope, client_state,
+                code_challenge, code_challenge_method, upstream_code_verifier,
+                expires_at, created_at
+            "#,
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -281,10 +289,13 @@ impl TokenStore {
     /// Save an authorization code
     pub async fn save_authorization_code(&self, code: &AuthorizationCode) -> Result<()> {
         sqlx::query(
-            r#"INSERT INTO mcp_oauth.authorization_codes
-               (code, client_id, user_id, redirect_uri, scope, code_challenge, code_challenge_method,
-                expires_at, upstream_access_token, upstream_refresh_token, upstream_expires_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#,
+            r#"
+            INSERT INTO mcp_oauth.authorization_codes
+                (code, client_id, user_id, redirect_uri, scope, code_challenge,
+                code_challenge_method, expires_at, upstream_access_token,
+                upstream_refresh_token, upstream_expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            "#,
         )
         .bind(&code.code)
         .bind(&code.client_id)
@@ -310,11 +321,13 @@ impl TokenStore {
         code: &str,
     ) -> Result<Option<AuthorizationCode>> {
         let auth_code = sqlx::query_as::<_, AuthorizationCode>(
-            r#"DELETE FROM mcp_oauth.authorization_codes
-               WHERE code = $1 AND expires_at > NOW()
-               RETURNING code, client_id, user_id, redirect_uri, scope,
-                         code_challenge, code_challenge_method, expires_at, created_at,
-                         upstream_access_token, upstream_refresh_token, upstream_expires_at"#,
+            r#"
+            DELETE FROM mcp_oauth.authorization_codes
+            WHERE code = $1 AND expires_at > NOW()
+            RETURNING code, client_id, user_id, redirect_uri, scope,
+                code_challenge, code_challenge_method, expires_at, created_at,
+                upstream_access_token, upstream_refresh_token, upstream_expires_at
+            "#,
         )
         .bind(code)
         .fetch_optional(&self.pool)
@@ -329,9 +342,11 @@ impl TokenStore {
     /// Save an access token
     pub async fn save_access_token(&self, token: &AccessToken) -> Result<()> {
         sqlx::query(
-            r#"INSERT INTO mcp_oauth.access_tokens
-               (token, client_id, user_id, scope, expires_at)
-               VALUES ($1, $2, $3, $4, $5)"#,
+            r#"
+            INSERT INTO mcp_oauth.access_tokens
+                (token, client_id, user_id, scope, expires_at)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
         )
         .bind(&token.token)
         .bind(&token.client_id)
@@ -348,9 +363,11 @@ impl TokenStore {
     /// Get an access token (validates expiry)
     pub async fn get_access_token(&self, token: &str) -> Result<Option<AccessToken>> {
         let access_token = sqlx::query_as::<_, AccessToken>(
-            r#"SELECT token, client_id, user_id, scope, expires_at, created_at
-               FROM mcp_oauth.access_tokens
-               WHERE token = $1 AND expires_at > NOW()"#,
+            r#"
+            SELECT token, client_id, user_id, scope, expires_at, created_at
+            FROM mcp_oauth.access_tokens
+            WHERE token = $1 AND expires_at > NOW()
+            "#,
         )
         .bind(token)
         .fetch_optional(&self.pool)
@@ -376,9 +393,11 @@ impl TokenStore {
     /// Save a refresh token
     pub async fn save_refresh_token(&self, token: &RefreshToken) -> Result<()> {
         sqlx::query(
-            r#"INSERT INTO mcp_oauth.refresh_tokens
-               (token, access_token, client_id, user_id, expires_at)
-               VALUES ($1, $2, $3, $4, $5)"#,
+            r#"
+            INSERT INTO mcp_oauth.refresh_tokens
+                (token, access_token, client_id, user_id, expires_at)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
         )
         .bind(&token.token)
         .bind(&token.access_token)
@@ -395,9 +414,11 @@ impl TokenStore {
     /// Get a refresh token
     pub async fn get_refresh_token(&self, token: &str) -> Result<Option<RefreshToken>> {
         let refresh_token = sqlx::query_as::<_, RefreshToken>(
-            r#"SELECT token, access_token, client_id, user_id, expires_at, created_at
-               FROM mcp_oauth.refresh_tokens
-               WHERE token = $1 AND (expires_at IS NULL OR expires_at > NOW())"#,
+            r#"
+            SELECT token, access_token, client_id, user_id, expires_at, created_at
+            FROM mcp_oauth.refresh_tokens
+            WHERE token = $1 AND (expires_at IS NULL OR expires_at > NOW())
+            "#,
         )
         .bind(token)
         .fetch_optional(&self.pool)
@@ -428,7 +449,11 @@ impl TokenStore {
         expires_at: Option<OffsetDateTime>,
     ) -> Result<bool> {
         let result = sqlx::query(
-            "UPDATE mcp_oauth.refresh_tokens SET token = $1, access_token = $2, expires_at = $3 WHERE token = $4",
+            r#"
+            UPDATE mcp_oauth.refresh_tokens
+            SET token = $1, access_token = $2, expires_at = $3
+            WHERE token = $4
+            "#,
         )
         .bind(new_token)
         .bind(new_access_token)
@@ -446,7 +471,12 @@ impl TokenStore {
     /// Returns true if the given user has approved the given OAuth client.
     pub async fn is_client_approved(&self, user_id: &str, client_id: &str) -> Result<bool> {
         let exists: Option<(i64,)> = sqlx::query_as(
-            "SELECT 1 FROM mcp_oauth.approved_clients WHERE user_id = $1 AND client_id = $2 LIMIT 1",
+            r#"
+            SELECT 1
+            FROM mcp_oauth.approved_clients
+            WHERE user_id = $1 AND client_id = $2
+            LIMIT 1
+            "#,
         )
         .bind(user_id)
         .bind(client_id)
@@ -460,9 +490,11 @@ impl TokenStore {
     /// Records a user's approval for a given OAuth client.
     pub async fn approve_client(&self, user_id: &str, client_id: &str) -> Result<()> {
         sqlx::query(
-            r#"INSERT INTO mcp_oauth.approved_clients (user_id, client_id)
-               VALUES ($1, $2)
-               ON CONFLICT (user_id, client_id) DO NOTHING"#,
+            r#"
+            INSERT INTO mcp_oauth.approved_clients (user_id, client_id)
+            VALUES ($1, $2)
+            ON CONFLICT (user_id, client_id) DO NOTHING
+            "#,
         )
         .bind(user_id)
         .bind(client_id)
@@ -476,9 +508,12 @@ impl TokenStore {
     /// Create a pending consent record.
     pub async fn save_pending_consent(&self, consent: &PendingConsent) -> Result<()> {
         sqlx::query(
-            r#"INSERT INTO mcp_oauth.pending_consents
-               (id, user_id, client_id, authorization_code, redirect_uri, client_state, scope, csrf_token, expires_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
+            r#"
+            INSERT INTO mcp_oauth.pending_consents
+                (id, user_id, client_id, authorization_code, redirect_uri,
+                client_state, scope, csrf_token, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            "#,
         )
         .bind(&consent.id)
         .bind(&consent.user_id)
@@ -498,9 +533,12 @@ impl TokenStore {
     /// Get a pending consent record (without consuming it).
     pub async fn get_pending_consent(&self, id: &str) -> Result<Option<PendingConsent>> {
         let consent = sqlx::query_as::<_, PendingConsent>(
-            r#"SELECT id, user_id, client_id, authorization_code, redirect_uri, client_state, scope, csrf_token, expires_at, created_at
-               FROM mcp_oauth.pending_consents
-               WHERE id = $1 AND expires_at > NOW()"#,
+            r#"
+            SELECT id, user_id, client_id, authorization_code, redirect_uri,
+                client_state, scope, csrf_token, expires_at, created_at
+            FROM mcp_oauth.pending_consents
+            WHERE id = $1 AND expires_at > NOW()
+            "#,
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -513,9 +551,12 @@ impl TokenStore {
     /// Consume a pending consent record (delete and return it).
     pub async fn consume_pending_consent(&self, id: &str) -> Result<Option<PendingConsent>> {
         let consent = sqlx::query_as::<_, PendingConsent>(
-            r#"DELETE FROM mcp_oauth.pending_consents
-               WHERE id = $1 AND expires_at > NOW()
-               RETURNING id, user_id, client_id, authorization_code, redirect_uri, client_state, scope, csrf_token, expires_at, created_at"#,
+            r#"
+            DELETE FROM mcp_oauth.pending_consents
+            WHERE id = $1 AND expires_at > NOW()
+            RETURNING id, user_id, client_id, authorization_code, redirect_uri,
+                client_state, scope, csrf_token, expires_at, created_at
+            "#,
         )
         .bind(id)
         .fetch_optional(&self.pool)
