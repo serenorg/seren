@@ -19,6 +19,97 @@
     }
   ],
   "paths": {
+    "/api/agentic/balance/{wallet}": {
+      "get": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "GET /api/agentic/balance/:wallet",
+        "description": "Get balance summary for an agent wallet",
+        "operationId": "get_agent_balance_summary",
+        "parameters": [
+          {
+            "name": "wallet",
+            "in": "path",
+            "description": "Agent wallet address (0x...)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Balance retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBalanceSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid wallet address"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agentic/balance/{wallet}/{publisher_id}": {
+      "get": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "GET /api/agentic/balance/:wallet/:publisher_id",
+        "description": "Get balance for an agent at a specific publisher",
+        "operationId": "get_agent_publisher_balance",
+        "parameters": [
+          {
+            "name": "wallet",
+            "in": "path",
+            "description": "Agent wallet address (0x...)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "path",
+            "description": "Publisher ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Balance retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBalanceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid wallet address"
+          },
+          "404": {
+            "description": "No balance found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/api/agentic/databases/validate-token": {
       "post": {
         "tags": [
@@ -89,6 +180,188 @@
           },
           "404": {
             "description": "Endpoint not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agentic/publishers": {
+      "get": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "GET /api/agentic/publishers",
+        "description": "List active publishers in the marketplace",
+        "operationId": "list_marketplace_publishers",
+        "parameters": [
+          {
+            "name": "is_verified",
+            "in": "query",
+            "description": "Filter by verification status",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Search by name or slug",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default: 50, max: 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Offset for pagination",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Publishers retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PublisherResponse"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agentic/publishers/{slug}": {
+      "get": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "GET /api/agentic/publishers/:slug",
+        "description": "Get publisher by slug (public marketplace view)",
+        "operationId": "get_marketplace_publisher",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Publisher slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Publisher retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublisherResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agentic/transactions/{wallet}": {
+      "get": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "GET /api/agentic/transactions/:wallet",
+        "description": "Get transaction history for an agent",
+        "operationId": "get_agent_transactions",
+        "parameters": [
+          {
+            "name": "wallet",
+            "in": "path",
+            "description": "Agent wallet address (0x...)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "query",
+            "description": "Filter by publisher",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "nullable": true
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default: 50, max: 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Offset for pagination",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transactions retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TransactionResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid wallet address"
           },
           "500": {
             "description": "Internal server error"
@@ -1634,6 +1907,286 @@
           },
           "404": {
             "description": "Organization or plan not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/organizations/{organization_id}/publishers": {
+      "get": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "GET /api/organizations/:org_id/publishers",
+        "description": "List publishers owned by an organization",
+        "operationId": "list_org_publishers",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Publishers retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PublisherResponse"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "POST /api/organizations/:org_id/publishers",
+        "description": "Create a new publisher",
+        "operationId": "create_publisher",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePublisherRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Publisher created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublisherResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Not authorized"
+          },
+          "409": {
+            "description": "Publisher slug already exists"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/organizations/{organization_id}/publishers/{publisher_id}": {
+      "get": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "GET /api/organizations/:org_id/publishers/:publisher_id",
+        "description": "Get publisher details",
+        "operationId": "get_org_publisher",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "path",
+            "description": "Publisher ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Publisher retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublisherResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "PUT /api/organizations/:org_id/publishers/:publisher_id",
+        "description": "Update a publisher",
+        "operationId": "update_publisher",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "path",
+            "description": "Publisher ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePublisherRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Publisher updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublisherResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/organizations/{organization_id}/publishers/{publisher_id}/pricing": {
+      "put": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "PUT /api/organizations/:org_id/publishers/:publisher_id/pricing",
+        "description": "Update publisher pricing config",
+        "operationId": "update_publisher_pricing",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "path",
+            "description": "Publisher ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePricingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Pricing updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PricingConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Publisher not found"
           },
           "500": {
             "description": "Internal server error"
@@ -7277,6 +7830,240 @@
         }
       }
     },
+    "/api/x402/balance/{wallet}": {
+      "get": {
+        "tags": [
+          "x402"
+        ],
+        "summary": "Get agent balance summary across all publishers",
+        "operationId": "get_balance_summary",
+        "parameters": [
+          {
+            "name": "wallet",
+            "in": "path",
+            "description": "Agent wallet address",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Balance summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBalanceSummaryResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/x402/balance/{wallet}/{publisher_id}": {
+      "get": {
+        "tags": [
+          "x402"
+        ],
+        "summary": "Get agent balance for a specific publisher",
+        "operationId": "get_publisher_balance",
+        "parameters": [
+          {
+            "name": "wallet",
+            "in": "path",
+            "description": "Agent wallet address",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "path",
+            "description": "Publisher ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Publisher balance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBalanceResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Balance not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/x402/estimate": {
+      "post": {
+        "tags": [
+          "x402"
+        ],
+        "summary": "Estimate query cost without payment",
+        "operationId": "estimate_query",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EstimateRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Cost estimate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstimateResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/x402/internal/authorize": {
+      "post": {
+        "tags": [
+          "x402-internal"
+        ],
+        "summary": "Internal endpoint: Authorize marketplace session for proxy",
+        "description": "Called by SerenDB proxy when an agent connects with x402m: token",
+        "operationId": "internal_authorize",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InternalAuthorizeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Authorization result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalAuthorizeResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        }
+      }
+    },
+    "/api/x402/internal/charge": {
+      "post": {
+        "tags": [
+          "x402-internal"
+        ],
+        "summary": "Internal endpoint: Charge for query execution",
+        "description": "Called by SerenDB proxy after a query completes",
+        "operationId": "internal_charge",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InternalChargeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Charge result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalChargeResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        }
+      }
+    },
+    "/api/x402/query": {
+      "post": {
+        "tags": [
+          "x402"
+        ],
+        "summary": "Execute a paid query",
+        "description": "If no X-PAYMENT header is provided, returns 402 with payment requirements.\nIf X-PAYMENT header is provided, processes payment and executes query.",
+        "operationId": "execute_query",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Query executed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResultResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "402": {
+            "description": "Payment required - see PaymentRequiredResponse in response body"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/projects/{project_id}/branch-protection": {
       "get": {
         "tags": [
@@ -7580,6 +8367,131 @@
           },
           "stripe_payment_method_id": {
             "type": "string"
+          }
+        }
+      },
+      "AgentBalanceResponse": {
+        "type": "object",
+        "description": "Agent balance response",
+        "required": [
+          "agent_wallet",
+          "publisher_id",
+          "balance_usdc",
+          "reserved_usdc",
+          "available_usdc",
+          "total_queries"
+        ],
+        "properties": {
+          "agent_wallet": {
+            "type": "string"
+          },
+          "available_usdc": {
+            "type": "number",
+            "format": "double",
+            "description": "Available balance in USDC"
+          },
+          "balance_usdc": {
+            "type": "number",
+            "format": "double",
+            "description": "Balance in USDC (decimal)"
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "publisher_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "publisher_slug": {
+            "type": "string",
+            "nullable": true
+          },
+          "reserved_usdc": {
+            "type": "number",
+            "format": "double",
+            "description": "Reserved balance in USDC"
+          },
+          "total_queries": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "AgentBalanceSummary": {
+        "type": "object",
+        "description": "Summary of agent balances across all publishers",
+        "required": [
+          "agent_wallet",
+          "total_balance_usdc",
+          "total_reserved_usdc",
+          "total_available_usdc",
+          "publishers_used",
+          "total_queries",
+          "balances"
+        ],
+        "properties": {
+          "agent_wallet": {
+            "type": "string"
+          },
+          "balances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentBalanceResponse"
+            }
+          },
+          "publishers_used": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_available_usdc": {
+            "type": "number",
+            "format": "double"
+          },
+          "total_balance_usdc": {
+            "type": "number",
+            "format": "double"
+          },
+          "total_queries": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_reserved_usdc": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "AgentBalanceSummaryResponse": {
+        "type": "object",
+        "description": "Agent balance summary response",
+        "required": [
+          "agent_wallet",
+          "total_balance_usdc",
+          "total_available_usdc",
+          "publishers"
+        ],
+        "properties": {
+          "agent_wallet": {
+            "type": "string",
+            "description": "Agent wallet address"
+          },
+          "publishers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentBalanceResponse"
+            },
+            "description": "Per-publisher balances"
+          },
+          "total_available_usdc": {
+            "type": "number",
+            "format": "double",
+            "description": "Total available balance (USDC)"
+          },
+          "total_balance_usdc": {
+            "type": "number",
+            "format": "double",
+            "description": "Total balance across all publishers (USDC)"
           }
         }
       },
@@ -8976,6 +9888,67 @@
           }
         }
       },
+      "CreatePublisherRequest": {
+        "type": "object",
+        "description": "Request to create a new publisher",
+        "required": [
+          "name",
+          "slug",
+          "wallet_address"
+        ],
+        "properties": {
+          "api_headers": {
+            "description": "Headers for API requests (will be encrypted)",
+            "nullable": true
+          },
+          "api_url": {
+            "type": "string",
+            "description": "External API URL (required for api source_type)",
+            "nullable": true
+          },
+          "branch_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "SerenDB branch ID (required for serendb source_type)",
+            "nullable": true
+          },
+          "database_name": {
+            "type": "string",
+            "description": "Database name within the SerenDB project (default: serendb)",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "SerenDB project ID (required for serendb source_type)",
+            "nullable": true
+          },
+          "publisher_type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PublisherType"
+              }
+            ],
+            "nullable": true
+          },
+          "slug": {
+            "type": "string"
+          },
+          "source_type": {
+            "$ref": "#/components/schemas/SourceType"
+          },
+          "wallet_address": {
+            "type": "string"
+          }
+        }
+      },
       "CreateReplicationSlotRequest": {
         "type": "object",
         "description": "Request to create a replication slot",
@@ -9816,6 +10789,59 @@
           }
         }
       },
+      "EstimateRequestBody": {
+        "type": "object",
+        "description": "Query estimate request body",
+        "required": [
+          "publisher",
+          "query"
+        ],
+        "properties": {
+          "publisher": {
+            "type": "string",
+            "description": "Publisher slug or UUID"
+          },
+          "query": {
+            "type": "string",
+            "description": "SQL query to estimate"
+          }
+        }
+      },
+      "EstimateResponse": {
+        "type": "object",
+        "description": "Query estimate response",
+        "required": [
+          "estimated_rows",
+          "estimated_cost_usdc",
+          "estimated_cost_atomic",
+          "publisher_name",
+          "publisher_slug"
+        ],
+        "properties": {
+          "estimated_cost_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Estimated cost in atomic units"
+          },
+          "estimated_cost_usdc": {
+            "type": "string",
+            "description": "Estimated cost in USDC"
+          },
+          "estimated_rows": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Estimated rows to be returned"
+          },
+          "publisher_name": {
+            "type": "string",
+            "description": "Publisher name"
+          },
+          "publisher_slug": {
+            "type": "string",
+            "description": "Publisher slug"
+          }
+        }
+      },
       "ForgotPasswordRequest": {
         "type": "object",
         "required": [
@@ -9842,6 +10868,169 @@
           "year": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "InternalAuthorizeRequest": {
+        "type": "object",
+        "description": "Internal authorization request from SerenDB proxy",
+        "required": [
+          "publisher_slug",
+          "agent_wallet"
+        ],
+        "properties": {
+          "agent_wallet": {
+            "type": "string",
+            "description": "Agent's Ethereum wallet address"
+          },
+          "publisher_slug": {
+            "type": "string",
+            "description": "Publisher slug to access"
+          },
+          "signature": {
+            "type": "string",
+            "description": "EIP-712 signature for session (optional for prepaid-only)",
+            "nullable": true
+          }
+        }
+      },
+      "InternalAuthorizeResponse": {
+        "type": "object",
+        "description": "Internal authorization response",
+        "required": [
+          "authorized"
+        ],
+        "properties": {
+          "authorized": {
+            "type": "boolean",
+            "description": "Whether authorization succeeded"
+          },
+          "balance": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ProxyBalanceInfo"
+              }
+            ],
+            "nullable": true
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message if failed",
+            "nullable": true
+          },
+          "pricing": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ProxyPricingInfo"
+              }
+            ],
+            "nullable": true
+          },
+          "publisher": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ProxyPublisherInfo"
+              }
+            ],
+            "nullable": true
+          },
+          "session_expires_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Session expiration (Unix timestamp)",
+            "nullable": true
+          },
+          "session_token": {
+            "type": "string",
+            "description": "Session token for subsequent requests",
+            "nullable": true
+          }
+        }
+      },
+      "InternalChargeRequest": {
+        "type": "object",
+        "description": "Internal charge request from proxy",
+        "required": [
+          "session_token",
+          "publisher_id",
+          "agent_wallet",
+          "query_hash",
+          "estimated_rows",
+          "query_type"
+        ],
+        "properties": {
+          "actual_rows": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Actual rows returned",
+            "nullable": true
+          },
+          "agent_wallet": {
+            "type": "string",
+            "description": "Agent wallet"
+          },
+          "estimated_rows": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Estimated rows"
+          },
+          "execution_time_ms": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Execution time in ms",
+            "nullable": true
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher ID"
+          },
+          "query_hash": {
+            "type": "string",
+            "description": "Query hash for deduplication"
+          },
+          "query_type": {
+            "type": "string",
+            "description": "Query type (SELECT, INSERT, etc.)"
+          },
+          "session_token": {
+            "type": "string",
+            "description": "Session token from authorization"
+          }
+        }
+      },
+      "InternalChargeResponse": {
+        "type": "object",
+        "description": "Internal charge response",
+        "required": [
+          "success",
+          "amount_charged_atomic",
+          "new_balance_atomic"
+        ],
+        "properties": {
+          "amount_charged_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Amount charged in atomic units"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message if failed",
+            "nullable": true
+          },
+          "new_balance_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "New balance after charge"
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Whether charge succeeded"
+          },
+          "transaction_id": {
+            "type": "string",
+            "description": "Transaction ID for audit",
+            "nullable": true
           }
         }
       },
@@ -10106,6 +11295,32 @@
           "storage_gb": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "ListPublishersParams": {
+        "type": "object",
+        "description": "Query parameters for listing publishers",
+        "properties": {
+          "is_verified": {
+            "type": "boolean",
+            "description": "Filter by verification status",
+            "nullable": true
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Maximum number of results (default: 50, max: 100)"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Offset for pagination"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search by name or slug",
+            "nullable": true
           }
         }
       },
@@ -11306,6 +12521,86 @@
           }
         }
       },
+      "PaymentRequiredResponse": {
+        "type": "object",
+        "description": "402 Payment Required response body",
+        "required": [
+          "error",
+          "payment_requirements"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Error message"
+          },
+          "payment_requirements": {
+            "$ref": "#/components/schemas/PaymentRequirements"
+          }
+        }
+      },
+      "PaymentRequirements": {
+        "type": "object",
+        "description": "x402 Payment Requirements - returned in 402 response",
+        "required": [
+          "version",
+          "scheme",
+          "network",
+          "maxAmountRequired",
+          "asset",
+          "receiver",
+          "paymentRequestId",
+          "expires",
+          "eip712TypedData"
+        ],
+        "properties": {
+          "asset": {
+            "type": "string",
+            "description": "Payment asset address (USDC contract)"
+          },
+          "eip712TypedData": {
+            "$ref": "#/components/schemas/Eip712TypedData"
+          },
+          "estimate": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CostEstimate"
+              }
+            ],
+            "nullable": true
+          },
+          "expires": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Expiration timestamp (Unix seconds)"
+          },
+          "maxAmountRequired": {
+            "type": "string",
+            "description": "Maximum amount in atomic units (USDC has 6 decimals)"
+          },
+          "network": {
+            "type": "string",
+            "description": "Network for payment (e.g., \"base\")"
+          },
+          "paymentRequestId": {
+            "type": "string",
+            "description": "Payment request ID for correlation"
+          },
+          "receiver": {
+            "type": "string",
+            "description": "Payment recipient address (gateway or publisher wallet)"
+          },
+          "scheme": {
+            "type": "string",
+            "description": "Payment scheme (e.g., \"exact\")"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "x402 protocol version",
+            "minimum": 0
+          }
+        }
+      },
       "Permission": {
         "type": "object",
         "description": "Permission definition",
@@ -11576,6 +12871,47 @@
           "transaction",
           "session"
         ]
+      },
+      "PricingConfigResponse": {
+        "type": "object",
+        "description": "Pricing config response",
+        "required": [
+          "pricing_model",
+          "base_price_per_1000_rows",
+          "markup_multiplier",
+          "min_charge",
+          "payment_expiry_minutes",
+          "prepaid_enabled",
+          "x402_enabled"
+        ],
+        "properties": {
+          "base_price_per_1000_rows": {
+            "type": "string"
+          },
+          "markup_multiplier": {
+            "type": "string"
+          },
+          "max_charge": {
+            "type": "string",
+            "nullable": true
+          },
+          "min_charge": {
+            "type": "string"
+          },
+          "payment_expiry_minutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "prepaid_enabled": {
+            "type": "boolean"
+          },
+          "pricing_model": {
+            "type": "string"
+          },
+          "x402_enabled": {
+            "type": "boolean"
+          }
+        }
       },
       "Project": {
         "type": "object",
@@ -12094,6 +13430,113 @@
           }
         }
       },
+      "ProxyBalanceInfo": {
+        "type": "object",
+        "description": "Agent balance info returned to proxy",
+        "required": [
+          "balance_atomic",
+          "reserved_atomic",
+          "available_atomic"
+        ],
+        "properties": {
+          "available_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Available balance (balance - reserved)"
+          },
+          "balance_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Balance in atomic units"
+          },
+          "reserved_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Reserved balance in atomic units"
+          }
+        }
+      },
+      "ProxyPricingInfo": {
+        "type": "object",
+        "description": "Pricing info returned to proxy",
+        "required": [
+          "base_price_per_1000_rows",
+          "markup_multiplier",
+          "min_charge",
+          "prepaid_enabled",
+          "x402_enabled"
+        ],
+        "properties": {
+          "base_price_per_1000_rows": {
+            "type": "number",
+            "format": "double",
+            "description": "Base price per 1000 rows (USDC)"
+          },
+          "markup_multiplier": {
+            "type": "number",
+            "format": "double",
+            "description": "Markup multiplier"
+          },
+          "max_charge": {
+            "type": "number",
+            "format": "double",
+            "description": "Maximum charge (USDC)",
+            "nullable": true
+          },
+          "min_charge": {
+            "type": "number",
+            "format": "double",
+            "description": "Minimum charge (USDC)"
+          },
+          "prepaid_enabled": {
+            "type": "boolean",
+            "description": "Whether prepaid balance is accepted"
+          },
+          "x402_enabled": {
+            "type": "boolean",
+            "description": "Whether on-chain x402 is accepted"
+          }
+        }
+      },
+      "ProxyPublisherInfo": {
+        "type": "object",
+        "description": "Publisher info returned to proxy",
+        "required": [
+          "publisher_id",
+          "publisher_name",
+          "publisher_slug",
+          "connection_string",
+          "database_name",
+          "role_name"
+        ],
+        "properties": {
+          "connection_string": {
+            "type": "string",
+            "description": "Connection string (decrypted)"
+          },
+          "database_name": {
+            "type": "string",
+            "description": "Default database name"
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher ID"
+          },
+          "publisher_name": {
+            "type": "string",
+            "description": "Publisher name"
+          },
+          "publisher_slug": {
+            "type": "string",
+            "description": "Publisher slug"
+          },
+          "role_name": {
+            "type": "string",
+            "description": "PostgreSQL role to use"
+          }
+        }
+      },
       "PublicationInfo": {
         "type": "object",
         "description": "Publication response (API output)",
@@ -12196,6 +13639,185 @@
               }
             ],
             "nullable": true
+          }
+        }
+      },
+      "PublisherResponse": {
+        "type": "object",
+        "description": "Publisher response (excludes sensitive fields)",
+        "required": [
+          "id",
+          "organization_id",
+          "name",
+          "slug",
+          "publisher_type",
+          "wallet_address",
+          "source_type",
+          "has_api",
+          "is_active",
+          "is_verified",
+          "total_queries",
+          "total_revenue_usdc",
+          "unique_agents_served",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "branch_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "SerenDB branch ID (for serendb source_type)",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "database_name": {
+            "type": "string",
+            "description": "Database name within the SerenDB project",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "has_api": {
+            "type": "boolean",
+            "description": "Whether this publisher uses an external API"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "is_verified": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pricing": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PricingConfigResponse"
+              }
+            ],
+            "nullable": true
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "SerenDB project ID (for serendb source_type)",
+            "nullable": true
+          },
+          "publisher_type": {
+            "$ref": "#/components/schemas/PublisherType"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "source_type": {
+            "$ref": "#/components/schemas/SourceType"
+          },
+          "total_queries": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_revenue_usdc": {
+            "type": "number",
+            "format": "double",
+            "description": "Total revenue in USDC (decimal)"
+          },
+          "unique_agents_served": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "verified_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "wallet_address": {
+            "type": "string"
+          }
+        }
+      },
+      "PublisherType": {
+        "type": "string",
+        "description": "Type of publisher in the marketplace",
+        "enum": [
+          "individual",
+          "organization",
+          "verified_partner"
+        ]
+      },
+      "QueryRequestBody": {
+        "type": "object",
+        "description": "Query request body",
+        "required": [
+          "publisher",
+          "query"
+        ],
+        "properties": {
+          "database": {
+            "type": "string",
+            "description": "Optional database name",
+            "nullable": true
+          },
+          "publisher": {
+            "type": "string",
+            "description": "Publisher slug or UUID"
+          },
+          "query": {
+            "type": "string",
+            "description": "SQL query to execute"
+          }
+        }
+      },
+      "QueryResultResponse": {
+        "type": "object",
+        "description": "Query result response",
+        "required": [
+          "rows",
+          "row_count",
+          "execution_time_ms",
+          "cost_usdc",
+          "payment_source"
+        ],
+        "properties": {
+          "cost_usdc": {
+            "type": "string",
+            "description": "Actual cost charged in USDC"
+          },
+          "execution_time_ms": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Execution time in milliseconds"
+          },
+          "payment_source": {
+            "type": "string",
+            "description": "Payment source used"
+          },
+          "row_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of rows returned"
+          },
+          "rows": {
+            "type": "array",
+            "items": {},
+            "description": "Query result rows as JSON"
           }
         }
       },
@@ -13183,6 +14805,87 @@
           }
         }
       },
+      "TransactionHistoryParams": {
+        "type": "object",
+        "description": "Query parameters for transaction history",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Maximum number of results (default: 50, max: 100)"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Offset for pagination"
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Filter by publisher",
+            "nullable": true
+          }
+        }
+      },
+      "TransactionResponse": {
+        "type": "object",
+        "description": "Transaction history response",
+        "required": [
+          "id",
+          "agent_wallet",
+          "publisher_id",
+          "amount_usdc",
+          "transaction_type",
+          "balance_after_usdc",
+          "created_at"
+        ],
+        "properties": {
+          "agent_wallet": {
+            "type": "string"
+          },
+          "amount_usdc": {
+            "type": "number",
+            "format": "double",
+            "description": "Amount in USDC (positive = credit, negative = debit)"
+          },
+          "balance_after_usdc": {
+            "type": "number",
+            "format": "double",
+            "description": "Balance after transaction in USDC"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "payment_source": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaymentSource"
+              }
+            ],
+            "nullable": true
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "transaction_type": {
+            "$ref": "#/components/schemas/TransactionType"
+          },
+          "tx_hash": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "UpdateBranchProtectionRequest": {
         "type": "object",
         "description": "Request to update branch protection",
@@ -13299,6 +15002,45 @@
           }
         }
       },
+      "UpdatePricingRequest": {
+        "type": "object",
+        "description": "Request to update pricing config",
+        "properties": {
+          "base_price_per_1000_rows": {
+            "type": "string",
+            "nullable": true
+          },
+          "markup_multiplier": {
+            "type": "string",
+            "nullable": true
+          },
+          "max_charge": {
+            "type": "string",
+            "nullable": true
+          },
+          "min_charge": {
+            "type": "string",
+            "nullable": true
+          },
+          "payment_expiry_minutes": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "prepaid_enabled": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "pricing_model": {
+            "type": "string",
+            "nullable": true
+          },
+          "x402_enabled": {
+            "type": "boolean",
+            "nullable": true
+          }
+        }
+      },
       "UpdateProjectRequest": {
         "type": "object",
         "description": "Request to update a project",
@@ -13371,6 +15113,54 @@
             "items": {
               "type": "string"
             },
+            "nullable": true
+          }
+        }
+      },
+      "UpdatePublisherRequest": {
+        "type": "object",
+        "description": "Request to update a publisher",
+        "properties": {
+          "api_headers": {
+            "description": "Headers for API requests (will be encrypted)",
+            "nullable": true
+          },
+          "api_url": {
+            "type": "string",
+            "description": "External API URL (for api source_type)",
+            "nullable": true
+          },
+          "branch_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "SerenDB branch ID (for serendb source_type)",
+            "nullable": true
+          },
+          "database_name": {
+            "type": "string",
+            "description": "Database name within the SerenDB project",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "is_active": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "SerenDB project ID (for serendb source_type)",
+            "nullable": true
+          },
+          "wallet_address": {
+            "type": "string",
             "nullable": true
           }
         }
@@ -13986,6 +15776,18 @@
     {
       "name": "Branch Protection",
       "description": "Branch protection rules management"
+    },
+    {
+      "name": "agentic",
+      "description": "Agentic marketplace - publishers and agent balances"
+    },
+    {
+      "name": "x402",
+      "description": "x402 payment protocol - paid query execution"
+    },
+    {
+      "name": "x402-internal",
+      "description": "x402 internal endpoints for SerenDB proxy"
     }
   ]
 }
