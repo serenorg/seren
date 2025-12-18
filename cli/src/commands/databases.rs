@@ -52,7 +52,7 @@ pub async fn create(
     let database = response.into_inner();
     println!("{}", "✓ Database created successfully!".green().bold());
     println!();
-    output::print_database(&database, ctx.format)?;
+    output::print_database(&database.data, ctx.format)?;
 
     Ok(())
 }

@@ -39,7 +39,7 @@ pub async fn get(org_id: &str, webhook_id: &str, ctx: &CommandContext) -> Result
     let webhook = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&webhook)?,
-        OutputFormat::Table => output::print_webhooks_table(&[webhook]),
+        OutputFormat::Table => output::print_webhooks_table(&[webhook.data]),
     }
 
     Ok(())
@@ -74,6 +74,7 @@ pub async fn create(
         .map_err(|e| anyhow::anyhow!("Failed to create webhook: {}", e))?;
 
     let created = response.into_inner();
+    let data = &created.data;
     println!("{}", "Webhook created successfully!".green().bold());
     println!();
     println!(
@@ -82,18 +83,18 @@ pub async fn create(
             .yellow()
             .bold()
     );
-    println!("Secret: {}", created.secret.cyan());
+    println!("Secret: {}", data.secret.cyan());
     println!();
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&created)?,
         OutputFormat::Table => {
             // Print basic info without the secret (already shown above)
-            println!("Webhook ID: {}", created.webhook.id);
-            println!("Name: {}", created.webhook.name);
-            println!("URL: {}", created.webhook.url);
-            println!("Events: {}", created.webhook.events.join(", "));
-            println!("Enabled: {}", created.webhook.enabled);
+            println!("Webhook ID: {}", data.webhook.id);
+            println!("Name: {}", data.webhook.name);
+            println!("URL: {}", data.webhook.url);
+            println!("Events: {}", data.webhook.events.join(", "));
+            println!("Enabled: {}", data.webhook.enabled);
         }
     }
 
@@ -133,7 +134,7 @@ pub async fn update(
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&webhook)?,
-        OutputFormat::Table => output::print_webhooks_table(&[webhook]),
+        OutputFormat::Table => output::print_webhooks_table(&[webhook.data]),
     }
 
     Ok(())
@@ -182,7 +183,7 @@ pub async fn rotate_secret(org_id: &str, webhook_id: &str, ctx: &CommandContext)
             .yellow()
             .bold()
     );
-    println!("New Secret: {}", rotated.secret.cyan());
+    println!("New Secret: {}", rotated.data.secret.cyan());
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&rotated)?,

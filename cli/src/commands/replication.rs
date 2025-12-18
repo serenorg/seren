@@ -137,7 +137,7 @@ pub async fn create_publication(
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&publication)?,
-        OutputFormat::Table => output::print_publications_table(&[publication]),
+        OutputFormat::Table => output::print_publications_table(&[publication.data]),
     }
 
     Ok(())
@@ -185,7 +185,7 @@ pub async fn update_publication(
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&publication)?,
-        OutputFormat::Table => output::print_publications_table(&[publication]),
+        OutputFormat::Table => output::print_publications_table(&[publication.data]),
     }
 
     Ok(())
@@ -276,7 +276,7 @@ pub async fn create_slot(
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&slot)?,
-        OutputFormat::Table => output::print_replication_slots_table(&[slot]),
+        OutputFormat::Table => output::print_replication_slots_table(&[slot.data]),
     }
 
     Ok(())

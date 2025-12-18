@@ -79,7 +79,7 @@ pub async fn create(
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&endpoint)?,
-        OutputFormat::Table => output::print_create_endpoint_response(&endpoint, ctx.format)?,
+        OutputFormat::Table => output::print_create_endpoint_response(&endpoint.data, ctx.format)?,
     }
 
     Ok(())
@@ -235,11 +235,12 @@ pub async fn status(
     match ctx.format {
         OutputFormat::Json => output::print_json(&status_info)?,
         OutputFormat::Table => {
+            let data = &status_info.data;
             println!("Endpoint Status:");
-            println!("  ID: {}", status_info.id);
-            println!("  Status: {}", status_info.status);
-            println!("  K8s Ready: {}", status_info.k8s_ready);
-            if let Some(compute_status) = &status_info.compute_status {
+            println!("  ID: {}", data.id);
+            println!("  Status: {}", data.status);
+            println!("  K8s Ready: {}", data.k8s_ready);
+            if let Some(compute_status) = &data.compute_status {
                 println!("  Compute Status: {}", compute_status);
             }
         }

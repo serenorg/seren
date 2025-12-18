@@ -38,7 +38,7 @@ pub async fn get(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Res
     let rule = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&rule)?,
-        OutputFormat::Table => output::print_branch_protection_table(&[rule]),
+        OutputFormat::Table => output::print_branch_protection_table(&[rule.data]),
     }
 
     Ok(())
@@ -82,7 +82,7 @@ pub async fn create(
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&rule)?,
-        OutputFormat::Table => output::print_branch_protection_table(&[rule]),
+        OutputFormat::Table => output::print_branch_protection_table(&[rule.data]),
     }
 
     Ok(())
@@ -126,7 +126,7 @@ pub async fn update(
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&rule)?,
-        OutputFormat::Table => output::print_branch_protection_table(&[rule]),
+        OutputFormat::Table => output::print_branch_protection_table(&[rule.data]),
     }
 
     Ok(())

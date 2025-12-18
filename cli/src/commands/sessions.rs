@@ -54,7 +54,7 @@ pub async fn revoke_others(keep_session_id: &str, ctx: &CommandContext) -> Resul
     let result = response.into_inner();
     println!(
         "{}",
-        format!("Revoked {} other session(s)!", result.revoked_count)
+        format!("Revoked {} other session(s)!", result.data.revoked_count)
             .green()
             .bold()
     );
@@ -80,7 +80,7 @@ pub async fn revoke_all(ctx: &CommandContext) -> Result<()> {
         "{}",
         format!(
             "Revoked {} session(s)! You have been logged out everywhere.",
-            result.revoked_count
+            result.data.revoked_count
         )
         .green()
         .bold()

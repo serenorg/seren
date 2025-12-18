@@ -630,7 +630,7 @@ pub async fn restore(
         .await
     {
         Ok(response) => {
-            let restore_data = response.into_inner();
+            let restore_data = response.into_inner().data;
             println!("{}", "✓ Branch restored successfully!".green().bold());
             println!();
             println!("Restored branch: {}", restore_data.branch.name);

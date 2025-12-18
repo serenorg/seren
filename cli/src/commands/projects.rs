@@ -86,14 +86,14 @@ pub async fn create(
     let project = response.into_inner();
     println!("{}", "✓ Project created successfully!".green().bold());
     println!();
-    output::print_create_project_response(&project, ctx.format)?;
+    output::print_create_project_response(&project.data, ctx.format)?;
 
     // Set context if requested
     if set_context {
-        crate::config::set_context_project(&project.id.to_string())?;
+        crate::config::set_context_project(&project.data.id.to_string())?;
         println!(
             "{}",
-            format!("✓ Set project '{}' as current context", project.name).green()
+            format!("✓ Set project '{}' as current context", project.data.name).green()
         );
     }
 
@@ -102,7 +102,7 @@ pub async fn create(
         // Fetch connection URI for the default branch
         match client
             .get_project_connection_uri(
-                &project.id,
+                &project.data.id,
                 None, // branch_id
                 None, // database_name
                 None, // endpoint_id

@@ -55,7 +55,7 @@ pub async fn endpoint_create(
     println!();
     match ctx.format {
         OutputFormat::Json => output::print_json(&endpoint)?,
-        OutputFormat::Table => output::print_org_vpc_endpoints_table(&[endpoint]),
+        OutputFormat::Table => output::print_org_vpc_endpoints_table(&[endpoint.data]),
     }
 
     Ok(())
@@ -76,7 +76,7 @@ pub async fn endpoint_get(org_id: &str, endpoint_id: &str, ctx: &CommandContext)
     let endpoint = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&endpoint)?,
-        OutputFormat::Table => output::print_org_vpc_endpoints_table(&[endpoint]),
+        OutputFormat::Table => output::print_org_vpc_endpoints_table(&[endpoint.data]),
     }
 
     Ok(())
@@ -149,7 +149,7 @@ pub async fn project_assign(
     println!();
     match ctx.format {
         OutputFormat::Json => output::print_json(&assignment)?,
-        OutputFormat::Table => output::print_project_vpc_endpoints_table(&[assignment]),
+        OutputFormat::Table => output::print_project_vpc_endpoints_table(&[assignment.data]),
     }
 
     Ok(())

@@ -127,10 +127,11 @@ pub async fn create_invite(
     match ctx.format {
         OutputFormat::Json => output::print_json(&invite)?,
         OutputFormat::Table => {
+            let data = &invite.data;
             println!("✓ Invite created");
-            println!("  Email:   {}", invite.email);
-            println!("  Role:    {}", invite.role);
-            println!("  Expires: {}", invite.expires_at);
+            println!("  Email:   {}", data.email);
+            println!("  Role:    {}", data.role);
+            println!("  Expires: {}", data.expires_at);
         }
     }
 
