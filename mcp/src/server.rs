@@ -207,6 +207,71 @@ pub struct DescribeTableSchemaParams {
 }
 
 // ============================================================================
+// Agentic Marketplace Parameter Types (x402 Payment Protocol)
+// ============================================================================
+
+/// Parameters for listing publishers in the agentic marketplace
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ListAgenticPublishersParams {
+    /// Filter to only verified publishers
+    #[serde(default)]
+    pub is_verified: Option<bool>,
+    /// Maximum number of publishers to return
+    #[serde(default)]
+    pub limit: Option<i64>,
+    /// Offset for pagination
+    #[serde(default)]
+    pub offset: Option<i64>,
+    /// Search query to filter publishers by name or description
+    #[serde(default)]
+    pub search: Option<String>,
+}
+
+/// Parameters for getting a specific publisher by slug
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetAgenticPublisherParams {
+    /// Publisher slug (URL-friendly identifier)
+    pub slug: String,
+}
+
+/// Parameters for estimating query cost
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct EstimateQueryCostParams {
+    /// Publisher slug or UUID
+    pub publisher: String,
+    /// SQL query to estimate cost for
+    pub query: String,
+}
+
+/// Parameters for getting agent balance summary
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetAgentBalanceParams {
+    /// Agent wallet address (0x...)
+    pub wallet_address: String,
+}
+
+/// Parameters for getting agent balance at a specific publisher
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetAgentPublisherBalanceParams {
+    /// Agent wallet address (0x...)
+    pub wallet_address: String,
+    /// Publisher ID (UUID)
+    pub publisher_id: Uuid,
+}
+
+/// Parameters for executing a paid query
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ExecutePaidQueryParams {
+    /// Publisher slug or UUID
+    pub publisher: String,
+    /// SQL query to execute
+    pub query: String,
+    /// Database name (optional, defaults to publisher's default database)
+    #[serde(default)]
+    pub database: Option<String>,
+}
+
+// ============================================================================
 // SQL Response Types
 // ============================================================================
 
@@ -1312,6 +1377,148 @@ impl SerenMcpServer {
             "API key {} revoked successfully",
             params.key_id
         ))]))
+    }
+
+    // ========================================================================
+    // Agentic Marketplace Tools (x402 Payment Protocol)
+    // ========================================================================
+
+    #[tool(
+        description = "List all active publishers in the agentic marketplace. Publishers provide databases that AI agents can query with micropayments.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_agentic_publishers(
+        &self,
+        Parameters(params): Parameters<ListAgenticPublishersParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let publishers = api_client
+            .list_marketplace_publishers(
+                params.is_verified,
+                params.limit,
+                params.offset,
+                params.search.as_deref(),
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&publishers)?]))
+    }
+
+    #[tool(
+        description = "Get details about a specific publisher including pricing info by slug",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_agentic_publisher(
+        &self,
+        Parameters(params): Parameters<GetAgenticPublisherParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let publisher = api_client
+            .get_marketplace_publisher(&params.slug)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&publisher)?]))
+    }
+
+    #[tool(
+        description = "Estimate the cost of a SQL query against a publisher's database without executing it",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn estimate_query_cost(
+        &self,
+        Parameters(params): Parameters<EstimateQueryCostParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let body = seren::EstimateRequestBody {
+            publisher: params.publisher,
+            query: params.query,
+        };
+        let estimate = api_client
+            .estimate_query(&body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&estimate)?]))
+    }
+
+    #[tool(
+        description = "Get agent balance summary across all publishers for a given wallet address",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_agent_balance(
+        &self,
+        Parameters(params): Parameters<GetAgentBalanceParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let balance = api_client
+            .get_balance_summary(&params.wallet_address)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&balance)?]))
+    }
+
+    #[tool(
+        description = "Get agent balance for a specific publisher",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_agent_publisher_balance(
+        &self,
+        Parameters(params): Parameters<GetAgentPublisherBalanceParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let balance = api_client
+            .get_publisher_balance(&params.wallet_address, &params.publisher_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&balance)?]))
+    }
+
+    #[tool(
+        description = "Execute a paid SQL query against a publisher's database using the x402 payment protocol. Note: Payment handling (402 responses) requires client-side signature generation.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn execute_paid_query(
+        &self,
+        Parameters(params): Parameters<ExecutePaidQueryParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let body = seren::QueryRequestBody {
+            publisher: params.publisher,
+            query: params.query,
+            database: params.database,
+        };
+        // Note: The generated client doesn't support custom headers for x402 payment flow.
+        // For full x402 support with payment headers, use the HTTP /sql endpoint with x402m: tokens.
+        let result = api_client
+            .execute_query(&body)
+            .await
+            .map_err(|e| {
+                // Check if this is a 402 Payment Required response
+                let error_str = e.to_string();
+                if error_str.contains("402") || error_str.contains("Payment Required") {
+                    return McpError::invalid_request(
+                        format!("Payment Required (402): {}\n\nTo execute paid queries, use the PostgreSQL wire protocol with x402m:<publisher>:<wallet>:<signature> as password, or pre-fund your balance.", error_str),
+                        None,
+                    );
+                }
+                McpError::internal_error(error_str, None)
+            })?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
 }
 
