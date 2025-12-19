@@ -207,7 +207,7 @@ pub struct DescribeTableSchemaParams {
 }
 
 // ============================================================================
-// Agentic Marketplace Parameter Types (x402 Payment Protocol)
+// Agentic Marketplace Parameter Types (agentic paid access)
 // ============================================================================
 
 /// Parameters for listing publishers in the agentic marketplace
@@ -1380,7 +1380,7 @@ impl SerenMcpServer {
     }
 
     // ========================================================================
-    // Agentic Marketplace Tools (x402 Payment Protocol)
+    // Agentic Marketplace Tools (agentic paid access)
     // ========================================================================
 
     #[tool(
@@ -1483,7 +1483,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Execute a paid SQL query against a publisher's database using the x402 payment protocol. Note: Payment handling (402 responses) requires client-side signature generation.",
+        description = "Execute a paid SQL query against a publisher's database using the agentic payment flow (402 with X-PAYMENT headers). Note: Payment handling requires client-side signature generation.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -1501,8 +1501,9 @@ impl SerenMcpServer {
             query: params.query,
             database: params.database,
         };
-        // Note: The generated client doesn't support custom headers for x402 payment flow.
-        // For full x402 support with payment headers, use the HTTP /sql endpoint with x402m: tokens.
+        // Note: The generated client doesn't support custom headers for the 402 payment flow.
+        // For full paid-query support with payment headers, use the PostgreSQL wire protocol with
+        // x402:<publisher>:<wallet>:<signature> tokens.
         let result = api_client
             .execute_query(&body)
             .await
@@ -1511,7 +1512,7 @@ impl SerenMcpServer {
                 let error_str = e.to_string();
                 if error_str.contains("402") || error_str.contains("Payment Required") {
                     return McpError::invalid_request(
-                        format!("Payment Required (402): {}\n\nTo execute paid queries, use the PostgreSQL wire protocol with x402m:<publisher>:<wallet>:<signature> as password, or pre-fund your balance.", error_str),
+                        format!("Payment Required (402): {}\n\nTo execute paid queries, use the PostgreSQL wire protocol with x402:<publisher>:<wallet>:<signature> as password, or pre-fund your balance.", error_str),
                         None,
                     );
                 }

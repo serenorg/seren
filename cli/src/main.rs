@@ -878,7 +878,7 @@ enum BillingAction {
         #[arg(long, default_value_t = true)]
         default: bool,
     },
-    /// Validate an x402 JWT token
+    /// Validate an agentic endpoint token
     ValidateToken {
         /// Token to validate
         token: String,

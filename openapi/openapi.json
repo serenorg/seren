@@ -19,6 +19,50 @@
     }
   ],
   "paths": {
+    "/api/agentic/api": {
+      "post": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "Execute a paid HTTP API request for API publishers",
+        "description": "Supports both x402 v1 and v2 header formats.",
+        "operationId": "execute_api",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "API request executed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResultResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "402": {
+            "description": "Payment required - see PaymentRequiredResponse in response body"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/api/agentic/balance/{wallet}": {
       "get": {
         "tags": [
@@ -187,6 +231,309 @@
         }
       }
     },
+    "/api/agentic/deposits": {
+      "post": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "POST /api/agentic/deposits",
+        "description": "Create a fiat deposit to fund agent prepaid balance\n\nSupports multiple payment providers (Stripe, PayPal, Coinbase, Wire).\nReturns provider-specific client data for completing the payment.",
+        "operationId": "create_deposit",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFiatDepositRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Deposit created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateFiatDepositResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agentic/deposits/{wallet}": {
+      "get": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "GET /api/agentic/deposits/:wallet",
+        "description": "List deposits for an agent wallet",
+        "operationId": "list_deposits",
+        "parameters": [
+          {
+            "name": "wallet",
+            "in": "path",
+            "description": "Agent wallet address (0x...)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "query",
+            "description": "Filter by publisher",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "nullable": true
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "description": "Filter by provider",
+            "required": false,
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/FiatPaymentProvider"
+                }
+              ],
+              "nullable": true
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by status",
+            "required": false,
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/FiatDepositStatus"
+                }
+              ],
+              "nullable": true
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default: 50)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Offset for pagination",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deposits retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FiatDepositResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid wallet address"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agentic/deposits/{wallet}/{deposit_id}": {
+      "get": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "GET /api/agentic/deposits/:wallet/:deposit_id",
+        "description": "Get a specific deposit by ID",
+        "operationId": "get_deposit",
+        "parameters": [
+          {
+            "name": "wallet",
+            "in": "path",
+            "description": "Agent wallet address (0x...)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "deposit_id",
+            "in": "path",
+            "description": "Deposit ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deposit retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FiatDepositResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid wallet address"
+          },
+          "404": {
+            "description": "Deposit not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agentic/estimate": {
+      "post": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "Estimate query cost without payment",
+        "operationId": "estimate_query",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EstimateRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Cost estimate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstimateResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agentic/internal/authorize": {
+      "post": {
+        "tags": [
+          "agentic-internal"
+        ],
+        "summary": "Internal endpoint: Authorize marketplace session for proxy",
+        "description": "Called by SerenDB proxy when an agent connects with marketplace x402 token",
+        "operationId": "internal_authorize",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InternalAuthorizeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Authorization result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalAuthorizeResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        }
+      }
+    },
+    "/api/agentic/internal/charge": {
+      "post": {
+        "tags": [
+          "agentic-internal"
+        ],
+        "summary": "Internal endpoint: Charge for query execution",
+        "description": "Called by SerenDB proxy after a query completes",
+        "operationId": "internal_charge",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InternalChargeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Charge result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalChargeResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        }
+      }
+    },
     "/api/agentic/publishers": {
       "get": {
         "tags": [
@@ -286,6 +633,50 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agentic/query": {
+      "post": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "Execute a paid query",
+        "description": "Supports both x402 v1 and v2 header formats:\n- v1: X-PAYMENT header for payment, X-PAYMENT-RESPONSE for settlement\n- v2: PAYMENT-SIGNATURE header for payment, PAYMENT-RESPONSE for settlement\n\nIf no payment header is provided, returns 402 with payment requirements.",
+        "operationId": "execute_query",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Query executed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResultResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "402": {
+            "description": "Payment required - see PaymentRequiredResponse in response body"
           },
           "404": {
             "description": "Publisher not found"
@@ -7830,240 +8221,6 @@
         }
       }
     },
-    "/api/x402/balance/{wallet}": {
-      "get": {
-        "tags": [
-          "x402"
-        ],
-        "summary": "Get agent balance summary across all publishers",
-        "operationId": "get_balance_summary",
-        "parameters": [
-          {
-            "name": "wallet",
-            "in": "path",
-            "description": "Agent wallet address",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Balance summary",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AgentBalanceSummaryResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/api/x402/balance/{wallet}/{publisher_id}": {
-      "get": {
-        "tags": [
-          "x402"
-        ],
-        "summary": "Get agent balance for a specific publisher",
-        "operationId": "get_publisher_balance",
-        "parameters": [
-          {
-            "name": "wallet",
-            "in": "path",
-            "description": "Agent wallet address",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "publisher_id",
-            "in": "path",
-            "description": "Publisher ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Publisher balance",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AgentBalanceResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Balance not found"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/api/x402/estimate": {
-      "post": {
-        "tags": [
-          "x402"
-        ],
-        "summary": "Estimate query cost without payment",
-        "operationId": "estimate_query",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EstimateRequestBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Cost estimate",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EstimateResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Publisher not found"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/api/x402/internal/authorize": {
-      "post": {
-        "tags": [
-          "x402-internal"
-        ],
-        "summary": "Internal endpoint: Authorize marketplace session for proxy",
-        "description": "Called by SerenDB proxy when an agent connects with x402m: token",
-        "operationId": "internal_authorize",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InternalAuthorizeRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Authorization result",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InternalAuthorizeResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error"
-          }
-        }
-      }
-    },
-    "/api/x402/internal/charge": {
-      "post": {
-        "tags": [
-          "x402-internal"
-        ],
-        "summary": "Internal endpoint: Charge for query execution",
-        "description": "Called by SerenDB proxy after a query completes",
-        "operationId": "internal_charge",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InternalChargeRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Charge result",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InternalChargeResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error"
-          }
-        }
-      }
-    },
-    "/api/x402/query": {
-      "post": {
-        "tags": [
-          "x402"
-        ],
-        "summary": "Execute a paid query",
-        "description": "If no X-PAYMENT header is provided, returns 402 with payment requirements.\nIf X-PAYMENT header is provided, processes payment and executes query.",
-        "operationId": "execute_query",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/QueryRequestBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Query executed successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/QueryResultResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request"
-          },
-          "402": {
-            "description": "Payment required - see PaymentRequiredResponse in response body"
-          },
-          "404": {
-            "description": "Publisher not found"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
     "/projects/{project_id}/branch-protection": {
       "get": {
         "tags": [
@@ -8462,39 +8619,6 @@
           }
         }
       },
-      "AgentBalanceSummaryResponse": {
-        "type": "object",
-        "description": "Agent balance summary response",
-        "required": [
-          "agent_wallet",
-          "total_balance_usdc",
-          "total_available_usdc",
-          "publishers"
-        ],
-        "properties": {
-          "agent_wallet": {
-            "type": "string",
-            "description": "Agent wallet address"
-          },
-          "publishers": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AgentBalanceResponse"
-            },
-            "description": "Per-publisher balances"
-          },
-          "total_available_usdc": {
-            "type": "number",
-            "format": "double",
-            "description": "Total available balance (USDC)"
-          },
-          "total_balance_usdc": {
-            "type": "number",
-            "format": "double",
-            "description": "Total balance across all publishers (USDC)"
-          }
-        }
-      },
       "ApiKeyCreated": {
         "type": "object",
         "description": "Response struct for API key creation (includes the full key ONCE)",
@@ -8626,6 +8750,82 @@
               }
             ],
             "nullable": true
+          }
+        }
+      },
+      "ApiRequestBody": {
+        "type": "object",
+        "description": "API request body for paid HTTP calls",
+        "required": [
+          "publisher"
+        ],
+        "properties": {
+          "body": {
+            "description": "Optional JSON body to send",
+            "nullable": true
+          },
+          "estimated_rows": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Optional estimated rows for pricing (default: 1000)",
+            "nullable": true
+          },
+          "headers": {
+            "type": "object",
+            "description": "Optional request headers (will not override publisher headers)",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "method": {
+            "type": "string",
+            "description": "HTTP method (default: POST)",
+            "nullable": true
+          },
+          "path": {
+            "type": "string",
+            "description": "Optional relative path to append to the publisher base URL",
+            "nullable": true
+          },
+          "publisher": {
+            "type": "string",
+            "description": "Publisher slug or UUID"
+          }
+        }
+      },
+      "ApiResultResponse": {
+        "type": "object",
+        "description": "API result response",
+        "required": [
+          "status",
+          "body",
+          "execution_time_ms",
+          "cost_usdc",
+          "payment_source"
+        ],
+        "properties": {
+          "body": {
+            "description": "Response body (JSON if available, otherwise raw text)"
+          },
+          "cost_usdc": {
+            "type": "string",
+            "description": "Actual cost charged in USDC"
+          },
+          "execution_time_ms": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Execution time in milliseconds"
+          },
+          "payment_source": {
+            "type": "string",
+            "description": "Payment source used"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "description": "HTTP status from publisher",
+            "minimum": 0
           }
         }
       },
@@ -9627,6 +9827,46 @@
           }
         }
       },
+      "CostEstimate": {
+        "type": "object",
+        "description": "Cost estimate breakdown",
+        "required": [
+          "estimated_rows",
+          "base_cost_usdc",
+          "markup_multiplier",
+          "min_charge_usdc",
+          "total_cost_usdc",
+          "total_cost_atomic"
+        ],
+        "properties": {
+          "base_cost_usdc": {
+            "type": "string",
+            "description": "Base cost in USDC (as decimal string)"
+          },
+          "estimated_rows": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Estimated rows to be returned"
+          },
+          "markup_multiplier": {
+            "type": "string",
+            "description": "Markup multiplier"
+          },
+          "min_charge_usdc": {
+            "type": "string",
+            "description": "Minimum charge in USDC"
+          },
+          "total_cost_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total cost in atomic units"
+          },
+          "total_cost_usdc": {
+            "type": "string",
+            "description": "Total cost in USDC (as decimal string)"
+          }
+        }
+      },
       "CreateApiKeyRequest": {
         "type": "object",
         "description": "Request to create a new API key",
@@ -9770,6 +10010,98 @@
           "suspend_timeout_seconds": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "CreateFiatDepositRequest": {
+        "type": "object",
+        "description": "Request to create a fiat deposit for agent prepaid balance",
+        "required": [
+          "agent_wallet",
+          "publisher_id",
+          "amount"
+        ],
+        "properties": {
+          "agent_wallet": {
+            "type": "string",
+            "description": "Agent's Ethereum wallet address (0x...)"
+          },
+          "amount": {
+            "type": "number",
+            "format": "double",
+            "description": "Amount in the currency's standard unit (e.g., 10.00 for $10 USD)"
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217 currency code (default: USD)"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/FiatPaymentProvider"
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher to deposit funds for"
+          }
+        }
+      },
+      "CreateFiatDepositResponse": {
+        "type": "object",
+        "description": "Response after creating a fiat deposit",
+        "required": [
+          "id",
+          "agent_wallet",
+          "publisher_id",
+          "amount",
+          "currency",
+          "amount_usdc",
+          "provider",
+          "payment_id",
+          "status"
+        ],
+        "properties": {
+          "agent_wallet": {
+            "type": "string",
+            "description": "Agent wallet address"
+          },
+          "amount": {
+            "type": "number",
+            "format": "double",
+            "description": "Amount in the deposit currency"
+          },
+          "amount_usdc": {
+            "type": "number",
+            "format": "double",
+            "description": "Amount in USDC that will be credited"
+          },
+          "client_data": {
+            "type": "string",
+            "description": "Data needed to complete payment on client side (e.g., Stripe client_secret)\nOnly included for providers that need client-side completion",
+            "nullable": true
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217 currency code"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Deposit record ID"
+          },
+          "payment_id": {
+            "type": "string",
+            "description": "Provider's payment identifier"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/FiatPaymentProvider"
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher ID"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FiatDepositStatus"
           }
         }
       },
@@ -10020,6 +10352,30 @@
           }
         }
       },
+      "CreditBalanceSummary": {
+        "type": "object",
+        "description": "Summary of an organization's credit balance",
+        "required": [
+          "organization_id",
+          "total_remaining_usd",
+          "grants"
+        ],
+        "properties": {
+          "grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CreditGrantSummary"
+            }
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "total_remaining_usd": {
+            "type": "string"
+          }
+        }
+      },
       "CreditBalanceSummaryResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
@@ -10040,6 +10396,75 @@
           }
         }
       },
+      "CreditGrant": {
+        "type": "object",
+        "description": "A credit grant issued to an organization",
+        "required": [
+          "id",
+          "organization_id",
+          "amount_usd",
+          "remaining_usd",
+          "source",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "amount_usd": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "expiration_notified_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "granted_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "low_balance_notified_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "promo_code_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "remaining_usd": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "CreditGrantResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
@@ -10057,6 +10482,45 @@
               }
             ],
             "nullable": true
+          }
+        }
+      },
+      "CreditGrantSummary": {
+        "type": "object",
+        "description": "Summary of a single credit grant for API responses",
+        "required": [
+          "id",
+          "amount_usd",
+          "remaining_usd",
+          "source",
+          "created_at"
+        ],
+        "properties": {
+          "amount_usd": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "remaining_usd": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
           }
         }
       },
@@ -10084,6 +10548,66 @@
           }
         }
       },
+      "CreditTransaction": {
+        "type": "object",
+        "description": "A transaction recording credit usage",
+        "required": [
+          "id",
+          "credit_grant_id",
+          "amount_usd",
+          "balance_after",
+          "created_at"
+        ],
+        "properties": {
+          "amount_usd": {
+            "type": "string"
+          },
+          "balance_after": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "credit_grant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoice_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        }
+      },
+      "CreditTransactionHistory": {
+        "type": "object",
+        "description": "Credit transaction history response",
+        "required": [
+          "organization_id",
+          "transactions"
+        ],
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "transactions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CreditTransactionRecord"
+            }
+          }
+        }
+      },
       "CreditTransactionHistoryResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
@@ -10100,6 +10624,46 @@
                 "$ref": "#/components/schemas/PaginationMeta"
               }
             ],
+            "nullable": true
+          }
+        }
+      },
+      "CreditTransactionRecord": {
+        "type": "object",
+        "description": "A credit transaction for API responses",
+        "required": [
+          "id",
+          "credit_grant_id",
+          "amount_usd",
+          "balance_after",
+          "created_at"
+        ],
+        "properties": {
+          "amount_usd": {
+            "type": "string"
+          },
+          "balance_after": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "credit_grant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoice_id": {
+            "type": "string",
+            "format": "uuid",
             "nullable": true
           }
         }
@@ -10381,6 +10945,110 @@
           },
           "transaction_id": {
             "type": "string"
+          }
+        }
+      },
+      "Eip712Domain": {
+        "type": "object",
+        "description": "EIP-712 domain (matches ethereum.rs Eip712Domain)",
+        "required": [
+          "name",
+          "version",
+          "chainId",
+          "verifyingContract"
+        ],
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "verifyingContract": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "Eip712Message": {
+        "type": "object",
+        "description": "EIP-712 message for TransferWithAuthorization",
+        "required": [
+          "from",
+          "to",
+          "value",
+          "validAfter",
+          "validBefore",
+          "nonce"
+        ],
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "nonce": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "validAfter": {
+            "type": "string"
+          },
+          "validBefore": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "Eip712TypedData": {
+        "type": "object",
+        "description": "EIP-712 typed data for signing payment authorization",
+        "required": [
+          "types",
+          "primaryType",
+          "domain",
+          "message"
+        ],
+        "properties": {
+          "domain": {
+            "$ref": "#/components/schemas/Eip712Domain"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Eip712Message"
+          },
+          "primaryType": {
+            "type": "string"
+          },
+          "types": {
+            "$ref": "#/components/schemas/Eip712Types"
+          }
+        }
+      },
+      "Eip712Types": {
+        "type": "object",
+        "description": "EIP-712 type definitions",
+        "required": [
+          "EIP712Domain",
+          "TransferWithAuthorization"
+        ],
+        "properties": {
+          "EIP712Domain": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TypedParam"
+            }
+          },
+          "TransferWithAuthorization": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TypedParam"
+            }
           }
         }
       },
@@ -10842,6 +11510,104 @@
           }
         }
       },
+      "FiatDepositResponse": {
+        "type": "object",
+        "description": "Response for deposit status/history (without sensitive client data)",
+        "required": [
+          "id",
+          "agent_wallet",
+          "publisher_id",
+          "amount",
+          "currency",
+          "amount_usdc",
+          "provider",
+          "payment_id",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "agent_wallet": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "format": "double",
+            "description": "Amount in the deposit currency"
+          },
+          "amount_usdc": {
+            "type": "number",
+            "format": "double",
+            "description": "Amount in USDC credited/to be credited"
+          },
+          "charge_id": {
+            "type": "string",
+            "description": "Provider's charge ID (if payment completed)",
+            "nullable": true
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217 currency code"
+          },
+          "failure_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "failure_message": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "payment_id": {
+            "type": "string",
+            "description": "Provider's payment identifier"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/FiatPaymentProvider"
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FiatDepositStatus"
+          }
+        }
+      },
+      "FiatDepositStatus": {
+        "type": "string",
+        "description": "Status of fiat deposit for agent prepaid balance",
+        "enum": [
+          "pending",
+          "processing",
+          "completed",
+          "failed",
+          "refunded",
+          "expired",
+          "cancelled"
+        ]
+      },
+      "FiatPaymentProvider": {
+        "type": "string",
+        "description": "Payment provider for fiat deposits",
+        "enum": [
+          "stripe",
+          "paypal",
+          "coinbase",
+          "wire"
+        ]
+      },
       "ForgotPasswordRequest": {
         "type": "object",
         "required": [
@@ -10951,6 +11717,7 @@
         "type": "object",
         "description": "Internal charge request from proxy",
         "required": [
+          "request_id",
           "session_token",
           "publisher_id",
           "agent_wallet",
@@ -10992,6 +11759,10 @@
           "query_type": {
             "type": "string",
             "description": "Query type (SELECT, INSERT, etc.)"
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Unique request ID for idempotency"
           },
           "session_token": {
             "type": "string",
@@ -11295,6 +12066,46 @@
           "storage_gb": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "ListFiatDepositsParams": {
+        "type": "object",
+        "description": "Query params for listing fiat deposits",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Maximum number of results (default: 50)",
+            "nullable": true
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Offset for pagination",
+            "nullable": true
+          },
+          "provider": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FiatPaymentProvider"
+              }
+            ],
+            "nullable": true
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Filter by publisher",
+            "nullable": true
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FiatDepositStatus"
+              }
+            ],
+            "nullable": true
           }
         }
       },
@@ -12521,26 +13332,101 @@
           }
         }
       },
-      "PaymentRequiredResponse": {
+      "PaymentRequestInfo": {
         "type": "object",
-        "description": "402 Payment Required response body",
+        "description": "Internal payment request tracking (extends with Seren-specific fields)",
         "required": [
-          "error",
-          "payment_requirements"
+          "payment_request_id",
+          "publisher_id",
+          "expires",
+          "eip712TypedData"
         ],
         "properties": {
-          "error": {
-            "type": "string",
-            "description": "Error message"
+          "eip712TypedData": {
+            "$ref": "#/components/schemas/Eip712TypedData"
           },
-          "payment_requirements": {
-            "$ref": "#/components/schemas/PaymentRequirements"
+          "estimate": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CostEstimate"
+              }
+            ],
+            "nullable": true
+          },
+          "expires": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Expiration timestamp (Unix seconds)"
+          },
+          "payment_request_id": {
+            "type": "string",
+            "description": "Payment request ID for correlation"
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher ID"
           }
         }
       },
+      "PaymentRequiredResponse": {
+        "type": "object",
+        "description": "x402 V2 402 Payment Required Response\n\nThe official V2 format with top-level resource info and extensions support.",
+        "required": [
+          "x402Version",
+          "resource",
+          "accepts"
+        ],
+        "properties": {
+          "accepts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentRequirements"
+            },
+            "description": "List of acceptable payment methods"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message explaining why payment is required",
+            "nullable": true
+          },
+          "extensions": {
+            "description": "Optional extensions (V2 feature for protocol extensibility)",
+            "nullable": true
+          },
+          "resource": {
+            "$ref": "#/components/schemas/ResourceInfo"
+          },
+          "x402Version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "x402 protocol version (2 for V2)",
+            "minimum": 0
+          }
+        }
+      },
+      "PaymentRequiredResponseWithInfo": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PaymentRequiredResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "seren"
+            ],
+            "properties": {
+              "seren": {
+                "$ref": "#/components/schemas/PaymentRequestInfo"
+              }
+            }
+          }
+        ],
+        "description": "402 Payment Required response body (with Seren-specific extensions)\nContains both V1 and V2 x402 formats for backwards compatibility"
+      },
       "PaymentRequirements": {
         "type": "object",
-        "description": "x402 Payment Requirements - returned in 402 response",
+        "description": "x402 V1 Payment Requirements - original format for backwards compatibility\n\nKey differences from V2:\n- Uses `maxAmountRequired` instead of `amount`\n- Uses `receiver` instead of `payTo`\n- Embeds `resource`, `description`, `mimeType` directly (V2 moves to top-level)\n- Includes `paymentRequestId` and `expires` directly\n- EIP-712 data embedded in requirements (V2 puts in `extra`)",
         "required": [
           "version",
           "scheme",
@@ -12579,7 +13465,7 @@
           },
           "network": {
             "type": "string",
-            "description": "Network for payment (e.g., \"base\")"
+            "description": "Network for payment (e.g., \"base\", \"base-sepolia\")"
           },
           "paymentRequestId": {
             "type": "string",
@@ -12596,10 +13482,19 @@
           "version": {
             "type": "integer",
             "format": "int32",
-            "description": "x402 protocol version",
+            "description": "x402 protocol version (always 1)",
             "minimum": 0
           }
         }
+      },
+      "PaymentSource": {
+        "type": "string",
+        "description": "Payment source for transactions",
+        "enum": [
+          "x402_onchain",
+          "prepaid_balance",
+          "credits"
+        ]
       },
       "Permission": {
         "type": "object",
@@ -13362,6 +14257,112 @@
           }
         }
       },
+      "PromoCode": {
+        "type": "object",
+        "description": "A promotional code that can be redeemed for credits",
+        "required": [
+          "id",
+          "code",
+          "credit_amount_usd",
+          "one_per_org",
+          "is_active",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "credit_amount_usd": {
+            "type": "string"
+          },
+          "credit_expires_days": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "max_redemptions": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "one_per_org": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "valid_from": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "valid_until": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "PromoCodeRedemption": {
+        "type": "object",
+        "description": "A record of a promo code redemption",
+        "required": [
+          "id",
+          "promo_code_id",
+          "organization_id",
+          "credit_grant_id",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "credit_grant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "promo_code_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "redeemed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        }
+      },
       "PromoCodeRedemptionsResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
@@ -13405,6 +14406,26 @@
             "nullable": true
           }
         }
+      },
+      "PromoCodeWithStats": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PromoCode"
+          },
+          {
+            "type": "object",
+            "required": [
+              "redemption_count"
+            ],
+            "properties": {
+              "redemption_count": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          }
+        ],
+        "description": "Promo code with redemption count for admin views"
       },
       "PromoCodesWithStatsResponse": {
         "type": "object",
@@ -14039,6 +15060,18 @@
           }
         }
       },
+      "RedeemPromoCodeRequest": {
+        "type": "object",
+        "description": "Request to redeem a promo code (user)",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        }
+      },
       "RefundTransactionRequest": {
         "type": "object",
         "required": [
@@ -14297,6 +15330,29 @@
         "properties": {
           "password": {
             "type": "string"
+          }
+        }
+      },
+      "ResourceInfo": {
+        "type": "object",
+        "description": "Resource information for x402 V2\n\nIn V2, resource metadata is a top-level field rather than being\nembedded in each payment requirement.",
+        "required": [
+          "url",
+          "description",
+          "mimeType"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of the resource"
+          },
+          "mimeType": {
+            "type": "string",
+            "description": "MIME type of the resource response"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL of the resource being paid for"
           }
         }
       },
@@ -14760,6 +15816,99 @@
           }
         }
       },
+      "SettlementResponse": {
+        "type": "object",
+        "description": "Settlement response - returned in X-PAYMENT-RESPONSE header (base64 encoded)",
+        "required": [
+          "success",
+          "network",
+          "payer"
+        ],
+        "properties": {
+          "network": {
+            "type": "string",
+            "description": "Network where payment was processed"
+          },
+          "payer": {
+            "type": "string",
+            "description": "Payer wallet address"
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Whether payment was accepted"
+          },
+          "transaction": {
+            "type": "string",
+            "description": "Transaction hash (for on-chain payments)",
+            "nullable": true
+          }
+        }
+      },
+      "SourceType": {
+        "type": "string",
+        "description": "Source type for publisher data",
+        "enum": [
+          "serendb",
+          "api"
+        ]
+      },
+      "SupportedKind": {
+        "type": "object",
+        "description": "Supported payment kind (from facilitator /supported endpoint)",
+        "required": [
+          "x402Version",
+          "scheme",
+          "network"
+        ],
+        "properties": {
+          "extra": {
+            "description": "Extra scheme-specific info",
+            "nullable": true
+          },
+          "network": {
+            "type": "string",
+            "description": "Network in CAIP-2 format"
+          },
+          "scheme": {
+            "type": "string",
+            "description": "Payment scheme"
+          },
+          "x402Version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "x402 protocol version",
+            "minimum": 0
+          }
+        }
+      },
+      "SupportedResponse": {
+        "type": "object",
+        "description": "Response from facilitator /supported endpoint",
+        "required": [
+          "kinds"
+        ],
+        "properties": {
+          "extensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of supported extensions",
+            "nullable": true
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SupportedKind"
+            },
+            "description": "List of supported payment kinds"
+          },
+          "signers": {
+            "description": "Signer addresses by network family",
+            "nullable": true
+          }
+        }
+      },
       "TimestampByLsn": {
         "type": "object",
         "description": "Response for timestamp by LSN query",
@@ -14883,6 +16032,33 @@
           "tx_hash": {
             "type": "string",
             "nullable": true
+          }
+        }
+      },
+      "TransactionType": {
+        "type": "string",
+        "description": "Transaction type for audit log",
+        "enum": [
+          "deposit",
+          "query_charge",
+          "refund",
+          "withdrawal",
+          "settlement"
+        ]
+      },
+      "TypedParam": {
+        "type": "object",
+        "description": "Single typed parameter definition",
+        "required": [
+          "name",
+          "type"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
           }
         }
       },
@@ -15779,15 +16955,11 @@
     },
     {
       "name": "agentic",
-      "description": "Agentic marketplace - publishers and agent balances"
+      "description": "Agentic marketplace and paid query execution"
     },
     {
-      "name": "x402",
-      "description": "x402 payment protocol - paid query execution"
-    },
-    {
-      "name": "x402-internal",
-      "description": "x402 internal endpoints for SerenDB proxy"
+      "name": "agentic-internal",
+      "description": "Agentic internal endpoints for SerenDB proxy"
     }
   ]
 }
