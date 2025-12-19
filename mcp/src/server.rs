@@ -3,6 +3,8 @@
 //! This module provides the MCP server with all tools for managing
 //! Seren database projects, branches, and SQL execution.
 
+use std::collections::HashMap;
+
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -250,6 +252,10 @@ pub struct GetAgentBalanceParams {
     pub wallet_address: String,
 }
 
+/// Parameters for getting prepaid balance summary for the authenticated user
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetUserPrepaidBalanceParams {}
+
 /// Parameters for getting agent balance at a specific publisher
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GetAgentPublisherBalanceParams {
@@ -269,6 +275,34 @@ pub struct ExecutePaidQueryParams {
     /// Database name (optional, defaults to publisher's default database)
     #[serde(default)]
     pub database: Option<String>,
+    /// Optional idempotency key (UUID)
+    #[serde(default)]
+    pub request_id: Option<Uuid>,
+}
+
+/// Parameters for executing a prepaid API request
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ExecutePaidApiParams {
+    /// Publisher slug or UUID
+    pub publisher: String,
+    /// HTTP method (default: POST)
+    #[serde(default)]
+    pub method: Option<String>,
+    /// Optional relative path to append to the publisher base URL
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Optional request headers (will not override publisher headers)
+    #[serde(default)]
+    pub headers: Option<HashMap<String, String>>,
+    /// Optional JSON body to send
+    #[serde(default)]
+    pub body: Option<serde_json::Value>,
+    /// Optional estimated rows for pricing (default: 1000)
+    #[serde(default)]
+    pub estimated_rows: Option<i64>,
+    /// Optional idempotency key (UUID)
+    #[serde(default)]
+    pub request_id: Option<Uuid>,
 }
 
 // ============================================================================
@@ -300,6 +334,22 @@ fn json_content<T: Serialize>(data: &T) -> Result<Content, McpError> {
     let text = serde_json::to_string_pretty(data)
         .map_err(|e| McpError::internal_error(e.to_string(), None))?;
     Ok(Content::text(text))
+}
+
+async fn resolve_publisher_id(
+    api_client: &seren::Client,
+    publisher: &str,
+) -> Result<Uuid, McpError> {
+    if let Ok(uuid) = Uuid::parse_str(publisher) {
+        return Ok(uuid);
+    }
+
+    let publisher = api_client
+        .get_marketplace_publisher(publisher)
+        .await
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?
+        .into_inner();
+    Ok(publisher.id)
 }
 
 fn connection_string_with_database(
@@ -488,28 +538,33 @@ fn validate_sql_query(query: &str) -> Result<(), McpError> {
 // ============================================================================
 
 impl SerenMcpServer {
-    fn api_client(&self, extensions: &Extensions) -> Result<seren::Client, McpError> {
-        let token = match &self.auth {
-            SerenAuth::StaticToken(token) => token.clone(),
+    fn bearer_token(&self, extensions: &Extensions) -> Result<String, McpError> {
+        match &self.auth {
+            SerenAuth::StaticToken(token) => Ok(token.clone()),
             SerenAuth::FromRequestBearer => extract_bearer_token_from_extensions(extensions)
-                .ok_or_else(|| McpError::invalid_request("Missing Bearer token", None))?,
-        };
+                .ok_or_else(|| McpError::invalid_request("Missing Bearer token", None)),
+        }
+    }
 
-        // Build HTTP client with auth header
+    fn build_http_client(&self, token: &str) -> Result<reqwest::Client, McpError> {
         let mut headers = reqwest::header::HeaderMap::new();
         let auth_value = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token))
             .map_err(|e| McpError::internal_error(format!("Invalid token: {}", e), None))?;
         headers.insert(reqwest::header::AUTHORIZATION, auth_value);
 
-        let http_client = reqwest::Client::builder()
+        reqwest::Client::builder()
             .default_headers(headers)
             .timeout(std::time::Duration::from_secs(30))
             .connect_timeout(std::time::Duration::from_secs(10))
             .build()
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to build HTTP client: {}", e), None)
-            })?;
+            })
+    }
 
+    fn api_client(&self, extensions: &Extensions) -> Result<seren::Client, McpError> {
+        let token = self.bearer_token(extensions)?;
+        let http_client = self.build_http_client(&token)?;
         Ok(seren::Client::new_with_client(
             &self.api_base_url,
             http_client,
@@ -1434,8 +1489,9 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
+        let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
         let body = seren::EstimateRequestBody {
-            publisher: params.publisher,
+            publisher_id,
             query: params.query,
         };
         let estimate = api_client
@@ -1457,7 +1513,25 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let balance = api_client
-            .get_balance_summary(&params.wallet_address)
+            .get_agent_balance_summary(&params.wallet_address)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&balance)?]))
+    }
+
+    #[tool(
+        description = "Get prepaid balance summary for the authenticated user (virtual wallet)",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_prepaid_balance(
+        &self,
+        Parameters(_params): Parameters<GetUserPrepaidBalanceParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let balance = api_client
+            .get_user_balance_summary()
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -1475,7 +1549,7 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let balance = api_client
-            .get_publisher_balance(&params.wallet_address, &params.publisher_id)
+            .get_agent_publisher_balance(&params.wallet_address, &params.publisher_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -1483,7 +1557,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Execute a paid SQL query against a publisher's database using the agentic payment flow (402 with X-PAYMENT headers). Note: Payment handling requires client-side signature generation.",
+        description = "Execute a prepaid SQL query against a publisher's database using the authenticated user's virtual wallet. This uses prepaid balance (fiat/Stripe) and does not require x402 signatures.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -1495,30 +1569,115 @@ impl SerenMcpServer {
         Parameters(params): Parameters<ExecutePaidQueryParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        let token = self.bearer_token(&extensions)?;
+        let http_client = self.build_http_client(&token)?;
         let api_client = self.api_client(&extensions)?;
-        let body = seren::QueryRequestBody {
-            publisher: params.publisher,
+        let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
+        let body = seren::UserQueryRequestBody {
+            publisher_id,
             query: params.query,
             database: params.database,
+            request_id: params.request_id,
         };
-        // Note: The generated client doesn't support custom headers for the 402 payment flow.
-        // For full paid-query support with payment headers, use the PostgreSQL wire protocol with
-        // x402:<publisher>:<wallet>:<signature> tokens.
-        let result = api_client
-            .execute_query(&body)
+        let url = format!("{}/api/agentic/user/query", self.api_base_url);
+        let response = http_client
+            .post(url)
+            .json(&body)
+            .send()
             .await
-            .map_err(|e| {
-                // Check if this is a 402 Payment Required response
-                let error_str = e.to_string();
-                if error_str.contains("402") || error_str.contains("Payment Required") {
-                    return McpError::invalid_request(
-                        format!("Payment Required (402): {}\n\nTo execute paid queries, use the PostgreSQL wire protocol with x402:<publisher>:<wallet>:<signature> as password, or pre-fund your balance.", error_str),
-                        None,
-                    );
-                }
-                McpError::internal_error(error_str, None)
-            })?
-            .into_inner();
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        if response.status() == reqwest::StatusCode::PAYMENT_REQUIRED {
+            return Err(McpError::invalid_request(
+                "Insufficient prepaid balance. Fund your wallet in the Seren console and retry."
+                    .to_string(),
+                None,
+            ));
+        }
+        if response.status() == reqwest::StatusCode::CONFLICT {
+            return Err(McpError::invalid_request(
+                "Duplicate request_id. Provide a new UUID and retry.".to_string(),
+                None,
+            ));
+        }
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_body = response.text().await.unwrap_or_default();
+            return Err(McpError::internal_error(
+                format!("Query failed: {} - {}", status, error_body),
+                None,
+            ));
+        }
+
+        let result: seren::QueryResultResponse = response
+            .json()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Execute a prepaid API request against a publisher's endpoint using the authenticated user's virtual wallet. This uses prepaid balance (fiat/Stripe) and does not require x402 signatures.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn execute_paid_api(
+        &self,
+        Parameters(params): Parameters<ExecutePaidApiParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let token = self.bearer_token(&extensions)?;
+        let http_client = self.build_http_client(&token)?;
+        let api_client = self.api_client(&extensions)?;
+        let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
+        let body = seren::UserApiRequestBody {
+            publisher_id,
+            method: params.method,
+            path: params.path,
+            headers: params.headers,
+            body: params.body,
+            estimated_rows: params.estimated_rows,
+            request_id: params.request_id,
+        };
+        let url = format!("{}/api/agentic/user/api", self.api_base_url);
+        let response = http_client
+            .post(url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        if response.status() == reqwest::StatusCode::PAYMENT_REQUIRED {
+            return Err(McpError::invalid_request(
+                "Insufficient prepaid balance. Fund your wallet in the Seren console and retry."
+                    .to_string(),
+                None,
+            ));
+        }
+        if response.status() == reqwest::StatusCode::CONFLICT {
+            return Err(McpError::invalid_request(
+                "Duplicate request_id. Provide a new UUID and retry.".to_string(),
+                None,
+            ));
+        }
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_body = response.text().await.unwrap_or_default();
+            return Err(McpError::internal_error(
+                format!("API request failed: {} - {}", status, error_body),
+                None,
+            ));
+        }
+
+        let result: seren::ApiResultResponse = response
+            .json()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
 }

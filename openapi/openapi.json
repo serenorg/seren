@@ -470,7 +470,7 @@
           "agentic-internal"
         ],
         "summary": "Internal endpoint: Authorize marketplace session for proxy",
-        "description": "Called by SerenDB proxy when an agent connects with marketplace x402 token",
+        "description": "Called by SerenDB proxy when an agent connects with marketplace agentic token.\n\nSupports two authentication modes:\n1. **Virtual wallets** (0xFFFF prefix): Platform-generated wallets for fiat users.\nThese are trusted implicitly - the wallet address itself proves ownership since\nit's deterministically derived from the user's ID.\n2. **Real Ethereum wallets**: Require EIP-191 personal_sign verification.",
         "operationId": "internal_authorize",
         "requestBody": {
           "content": {
@@ -524,6 +524,76 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InternalChargeResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        }
+      }
+    },
+    "/api/agentic/internal/release": {
+      "post": {
+        "tags": [
+          "agentic-internal"
+        ],
+        "summary": "Internal endpoint: Release reserved balance for failed query",
+        "description": "Called by SerenDB proxy when a refundable error occurs",
+        "operationId": "internal_release",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InternalReleaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Release result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalReleaseResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        }
+      }
+    },
+    "/api/agentic/internal/reserve": {
+      "post": {
+        "tags": [
+          "agentic-internal"
+        ],
+        "summary": "Internal endpoint: Reserve balance for query execution",
+        "description": "Called by SerenDB proxy before forwarding a query",
+        "operationId": "internal_reserve",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InternalReserveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Reserve result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalReserveResponse"
                 }
               }
             }
@@ -753,6 +823,169 @@
           },
           "400": {
             "description": "Invalid wallet address"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agentic/user/api": {
+      "post": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "Execute a prepaid API request using the authenticated user's virtual wallet.",
+        "description": "This endpoint is intended for fiat users who fund a prepaid balance via Stripe.",
+        "operationId": "execute_user_api",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserApiRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "API request executed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResultResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "402": {
+            "description": "Insufficient prepaid balance"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "409": {
+            "description": "Duplicate request_id"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agentic/user/balance": {
+      "get": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "GET /api/agentic/user/balance",
+        "description": "Get balance summary for the authenticated user's virtual wallet",
+        "operationId": "get_user_balance_summary",
+        "responses": {
+          "200": {
+            "description": "Balance retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBalanceSummary"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agentic/user/deposits": {
+      "post": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "POST /api/agentic/user/deposits",
+        "description": "Create a fiat deposit using the authenticated user's virtual wallet.\n\nThis is the preferred endpoint for fiat users - no need to manage Ethereum\nwallet addresses. The user's virtual wallet is automatically created if needed.",
+        "operationId": "create_user_deposit",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserDepositRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Deposit created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateFiatDepositResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agentic/user/query": {
+      "post": {
+        "tags": [
+          "agentic"
+        ],
+        "summary": "Execute a prepaid SQL query using the authenticated user's virtual wallet.",
+        "description": "This endpoint is intended for fiat users who fund a prepaid balance via Stripe.",
+        "operationId": "execute_user_query",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserQueryRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Query executed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResultResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "402": {
+            "description": "Insufficient prepaid balance"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "409": {
+            "description": "Duplicate request_id"
           },
           "500": {
             "description": "Internal server error"
@@ -8757,7 +8990,7 @@
         "type": "object",
         "description": "API request body for paid HTTP calls",
         "required": [
-          "publisher"
+          "publisher_id"
         ],
         "properties": {
           "body": {
@@ -8788,9 +9021,10 @@
             "description": "Optional relative path to append to the publisher base URL",
             "nullable": true
           },
-          "publisher": {
+          "publisher_id": {
             "type": "string",
-            "description": "Publisher slug or UUID"
+            "format": "uuid",
+            "description": "Publisher UUID"
           }
         }
       },
@@ -10324,6 +10558,33 @@
           }
         }
       },
+      "CreateUserDepositRequest": {
+        "type": "object",
+        "description": "Request to create a fiat deposit using the authenticated user's virtual wallet.\n\nThis is the preferred endpoint for fiat users - it automatically uses their\nplatform-generated virtual wallet, so they don't need to manage Ethereum addresses.",
+        "required": [
+          "publisher_id",
+          "amount"
+        ],
+        "properties": {
+          "amount": {
+            "type": "number",
+            "format": "double",
+            "description": "Amount in the currency's standard unit (e.g., 10.00 for $10 USD)"
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217 currency code (default: USD)"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/FiatPaymentProvider"
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher to deposit funds for"
+          }
+        }
+      },
       "CreateWebhookRequest": {
         "type": "object",
         "description": "Request to create a webhook",
@@ -11461,13 +11722,14 @@
         "type": "object",
         "description": "Query estimate request body",
         "required": [
-          "publisher",
+          "publisher_id",
           "query"
         ],
         "properties": {
-          "publisher": {
+          "publisher_id": {
             "type": "string",
-            "description": "Publisher slug or UUID"
+            "format": "uuid",
+            "description": "Publisher UUID"
           },
           "query": {
             "type": "string",
@@ -11655,7 +11917,7 @@
           },
           "signature": {
             "type": "string",
-            "description": "EIP-712 signature for session (optional for prepaid-only)",
+            "description": "EIP-191 personal_sign of `seren:marketplace:<publisher_slug>:<agent_wallet>`\nRequired for non-virtual wallets",
             "nullable": true
           }
         }
@@ -11762,7 +12024,8 @@
           },
           "request_id": {
             "type": "string",
-            "description": "Unique request ID for idempotency"
+            "format": "uuid",
+            "description": "Unique request ID for idempotency (UUID v5 for deterministic deduplication)"
           },
           "session_token": {
             "type": "string",
@@ -11802,6 +12065,161 @@
             "type": "string",
             "description": "Transaction ID for audit",
             "nullable": true
+          }
+        }
+      },
+      "InternalReleaseRequest": {
+        "type": "object",
+        "description": "Internal release request from proxy",
+        "required": [
+          "request_id",
+          "session_token",
+          "publisher_id",
+          "agent_wallet"
+        ],
+        "properties": {
+          "agent_wallet": {
+            "type": "string",
+            "description": "Agent wallet"
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher ID"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique request ID for idempotency (UUID v5 for deterministic deduplication)"
+          },
+          "session_token": {
+            "type": "string",
+            "description": "Session token from authorization"
+          }
+        }
+      },
+      "InternalReleaseResponse": {
+        "type": "object",
+        "description": "Internal release response",
+        "required": [
+          "success",
+          "released_amount_atomic",
+          "balance_atomic",
+          "reserved_atomic",
+          "available_atomic"
+        ],
+        "properties": {
+          "available_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Available balance (balance - reserved)"
+          },
+          "balance_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Balance in atomic units"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message if failed",
+            "nullable": true
+          },
+          "released_amount_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Amount released in atomic units"
+          },
+          "reserved_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Reserved balance in atomic units"
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Whether release succeeded"
+          }
+        }
+      },
+      "InternalReserveRequest": {
+        "type": "object",
+        "description": "Internal reserve request from proxy",
+        "required": [
+          "request_id",
+          "session_token",
+          "publisher_id",
+          "agent_wallet",
+          "query_hash",
+          "estimated_rows"
+        ],
+        "properties": {
+          "agent_wallet": {
+            "type": "string",
+            "description": "Agent wallet"
+          },
+          "estimated_rows": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Estimated rows"
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher ID"
+          },
+          "query_hash": {
+            "type": "string",
+            "description": "Query hash for deduplication"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique request ID for idempotency (UUID v5 for deterministic deduplication)"
+          },
+          "session_token": {
+            "type": "string",
+            "description": "Session token from authorization"
+          }
+        }
+      },
+      "InternalReserveResponse": {
+        "type": "object",
+        "description": "Internal reserve response",
+        "required": [
+          "success",
+          "reserved_amount_atomic",
+          "balance_atomic",
+          "reserved_atomic",
+          "available_atomic"
+        ],
+        "properties": {
+          "available_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Available balance (balance - reserved)"
+          },
+          "balance_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Balance in atomic units"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message if failed",
+            "nullable": true
+          },
+          "reserved_amount_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Amount reserved in atomic units"
+          },
+          "reserved_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Reserved balance in atomic units"
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Whether reserve succeeded"
           }
         }
       },
@@ -14787,7 +15205,7 @@
         "type": "object",
         "description": "Query request body",
         "required": [
-          "publisher",
+          "publisher_id",
           "query"
         ],
         "properties": {
@@ -14796,9 +15214,10 @@
             "description": "Optional database name",
             "nullable": true
           },
-          "publisher": {
+          "publisher_id": {
             "type": "string",
-            "description": "Publisher slug or UUID"
+            "format": "uuid",
+            "description": "Publisher UUID"
           },
           "query": {
             "type": "string",
@@ -16534,6 +16953,54 @@
           }
         }
       },
+      "UserApiRequestBody": {
+        "type": "object",
+        "description": "Prepaid user API request body (fiat)",
+        "required": [
+          "publisher_id"
+        ],
+        "properties": {
+          "body": {
+            "description": "Optional JSON body to send",
+            "nullable": true
+          },
+          "estimated_rows": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Optional estimated rows for pricing (default: 1000)",
+            "nullable": true
+          },
+          "headers": {
+            "type": "object",
+            "description": "Optional request headers (will not override publisher headers)",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "method": {
+            "type": "string",
+            "description": "HTTP method (default: POST)",
+            "nullable": true
+          },
+          "path": {
+            "type": "string",
+            "description": "Optional relative path to append to the publisher base URL",
+            "nullable": true
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher UUID"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional idempotency key (UUID)",
+            "nullable": true
+          }
+        }
+      },
       "UserInfo": {
         "type": "object",
         "description": "Combined user view for API responses",
@@ -16584,6 +17051,36 @@
                 "$ref": "#/components/schemas/PaginationMeta"
               }
             ],
+            "nullable": true
+          }
+        }
+      },
+      "UserQueryRequestBody": {
+        "type": "object",
+        "description": "Prepaid user query request body (fiat)",
+        "required": [
+          "publisher_id",
+          "query"
+        ],
+        "properties": {
+          "database": {
+            "type": "string",
+            "description": "Optional database name",
+            "nullable": true
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher UUID"
+          },
+          "query": {
+            "type": "string",
+            "description": "SQL query to execute"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional idempotency key (UUID)",
             "nullable": true
           }
         }

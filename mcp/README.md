@@ -154,6 +154,17 @@ Once configured, you can ask Claude to:
 - "Show me the branches in my project"
 - "Create a development branch from main"
 - "Run this SQL query on my database: SELECT * FROM users LIMIT 10"
+- "Run a prepaid API request against a marketplace publisher"
+
+### Marketplace Prepaid Tools
+
+Use prepaid balance (fiat/Stripe) for marketplace access:
+
+- `get_prepaid_balance` — Check your prepaid balance summary (virtual wallet)
+- `execute_paid_query` — Run a prepaid SQL query against a publisher database
+- `execute_paid_api` — Run a prepaid HTTP request against a publisher API
+
+Both tools accept an optional `request_id` (UUID) for idempotency.
 
 ## Commands
 
