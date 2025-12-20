@@ -14208,6 +14208,15 @@
             "type": "string",
             "nullable": true
           },
+          "max_queries_per_minute": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "max_spend_per_day_usdc": {
+            "type": "string",
+            "nullable": true
+          },
           "min_charge": {
             "type": "string"
           },
@@ -16610,6 +16619,15 @@
             "nullable": true
           },
           "max_charge": {
+            "type": "string",
+            "nullable": true
+          },
+          "max_queries_per_minute": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "max_spend_per_day_usdc": {
             "type": "string",
             "nullable": true
           },
