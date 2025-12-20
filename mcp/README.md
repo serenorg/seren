@@ -161,6 +161,7 @@ Once configured, you can ask Claude to:
 Use prepaid balance (fiat/Stripe) for marketplace access:
 
 - `get_prepaid_balance` — Check your prepaid balance summary (virtual wallet)
+- `create_prepaid_deposit` — Create a prepaid deposit (returns provider client data)
 - `execute_paid_query` — Run a prepaid SQL query against a publisher database
 - `execute_paid_api` — Run a prepaid HTTP request against a publisher API
 

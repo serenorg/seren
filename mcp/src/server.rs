@@ -256,6 +256,21 @@ pub struct GetAgentBalanceParams {
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GetUserPrepaidBalanceParams {}
 
+/// Parameters for creating a prepaid deposit for the authenticated user
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CreatePrepaidDepositParams {
+    /// Publisher slug or UUID
+    pub publisher: String,
+    /// Amount in the currency's standard unit (e.g., 10.00 for $10 USD)
+    pub amount: f64,
+    /// ISO 4217 currency code (default: USD)
+    #[serde(default)]
+    pub currency: Option<String>,
+    /// Payment provider (default: stripe)
+    #[serde(default)]
+    pub provider: Option<String>,
+}
+
 /// Parameters for getting agent balance at a specific publisher
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GetAgentPublisherBalanceParams {
@@ -1536,6 +1551,48 @@ impl SerenMcpServer {
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&balance)?]))
+    }
+
+    #[tool(
+        description = "Create a prepaid deposit for the authenticated user. Returns provider client data (e.g., Stripe client_secret) to complete payment.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn create_prepaid_deposit(
+        &self,
+        Parameters(params): Parameters<CreatePrepaidDepositParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
+        let currency = params.currency.unwrap_or_else(|| "USD".to_string());
+        let provider = params.provider.as_deref().unwrap_or("stripe");
+        let provider_enum = match provider {
+            "stripe" => seren::FiatPaymentProvider::Stripe,
+            "paypal" => seren::FiatPaymentProvider::Paypal,
+            "coinbase" => seren::FiatPaymentProvider::Coinbase,
+            "wire" => seren::FiatPaymentProvider::Wire,
+            _ => {
+                return Err(McpError::invalid_request(
+                    format!("Unsupported provider: {}", provider),
+                    None,
+                ));
+            }
+        };
+
+        let request = seren::CreateUserDepositRequest {
+            publisher_id,
+            amount: params.amount,
+            currency,
+            provider: provider_enum,
+        };
+
+        let deposit = api_client
+            .create_user_deposit(&request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+
+        Ok(CallToolResult::success(vec![json_content(&deposit)?]))
     }
 
     #[tool(
