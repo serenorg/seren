@@ -1,3 +1,4 @@
+pub mod agentic;
 pub mod audit_logs;
 pub mod auth;
 pub mod billing;

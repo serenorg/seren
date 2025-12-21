@@ -320,6 +320,17 @@ pub struct ExecutePaidApiParams {
     pub request_id: Option<Uuid>,
 }
 
+/// Parameters for getting x402 on-chain deposit requirements
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetX402DepositRequirementsParams {
+    /// Publisher slug or UUID
+    pub publisher: String,
+    /// Amount to deposit in USDC (decimal string, e.g., "10.50")
+    pub amount: String,
+    /// Agent wallet address to deposit for (0x...)
+    pub agent_wallet: String,
+}
+
 // ============================================================================
 // SQL Response Types
 // ============================================================================
@@ -359,12 +370,12 @@ async fn resolve_publisher_id(
         return Ok(uuid);
     }
 
-    let publisher = api_client
+    let response = api_client
         .get_marketplace_publisher(publisher)
         .await
         .map_err(|e| McpError::internal_error(e.to_string(), None))?
         .into_inner();
-    Ok(publisher.id)
+    Ok(response.data.id)
 }
 
 fn connection_string_with_database(
@@ -1582,8 +1593,8 @@ impl SerenMcpServer {
         let request = seren::CreateUserDepositRequest {
             publisher_id,
             amount: params.amount,
-            currency,
-            provider: provider_enum,
+            currency: Some(currency),
+            provider: Some(provider_enum),
         };
 
         let deposit = api_client
@@ -1736,6 +1747,65 @@ impl SerenMcpServer {
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Get x402 on-chain deposit requirements for depositing USDC to a publisher. Returns EIP-712 typed data that an agent with an Ethereum wallet must sign to complete the deposit. This is for agents with real crypto wallets; for fiat deposits use create_prepaid_deposit instead.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_x402_deposit_requirements(
+        &self,
+        Parameters(params): Parameters<GetX402DepositRequirementsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
+
+        // Build request without auth - this endpoint returns 402 with payment requirements
+        let http_client = reqwest::Client::new();
+        let body = seren::X402DepositRequest {
+            publisher_id,
+            amount: params.amount,
+        };
+
+        let url = format!("{}/api/agentic/deposit", self.api_base_url);
+        let response = http_client
+            .post(&url)
+            .header("X-AGENT-WALLET", &params.agent_wallet)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        // We expect 402 Payment Required with the EIP-712 data
+        if response.status() == reqwest::StatusCode::PAYMENT_REQUIRED {
+            let requirements: serde_json::Value = response
+                .json()
+                .await
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            return Ok(CallToolResult::success(vec![json_content(&requirements)?]));
+        }
+
+        // If we got 200, the deposit was already paid (unlikely without payment header)
+        if response.status().is_success() {
+            let result: serde_json::Value = response
+                .json()
+                .await
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            return Ok(CallToolResult::success(vec![json_content(&result)?]));
+        }
+
+        // Handle errors
+        let status = response.status();
+        let error_body = response.text().await.unwrap_or_default();
+        Err(McpError::internal_error(
+            format!(
+                "Failed to get deposit requirements: {} - {}",
+                status, error_body
+            ),
+            None,
+        ))
     }
 }
 
