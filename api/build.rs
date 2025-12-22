@@ -26,6 +26,32 @@ fn collect_refs(value: &serde_json::Value, acc: &mut HashSet<String>) {
     }
 }
 
+/// Strip content bodies from 402 responses since progenitor doesn't handle them well.
+/// The 402 Payment Required response has a body in the API but progenitor treats
+/// any response with content as a "success" response type, causing assertion failures.
+fn strip_402_content(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            // If this is a responses object with a "402" key, strip its content
+            if let Some(response_402) = map.get_mut("402") {
+                if let serde_json::Value::Object(resp_obj) = response_402 {
+                    resp_obj.remove("content");
+                }
+            }
+            // Recurse into all values
+            for v in map.values_mut() {
+                strip_402_content(v);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                strip_402_content(v);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn ensure_schema(components: &mut openapiv3::Components, name: &str, schema: Schema) {
     components
         .schemas
@@ -44,7 +70,10 @@ fn main() -> anyhow::Result<()> {
     println!("cargo:rerun-if-changed=../openapi/openapi.json");
 
     let spec_str = fs::read_to_string("../openapi/openapi.json")?;
-    let raw_json: serde_json::Value = serde_json::from_str(&spec_str)?;
+    let mut raw_json: serde_json::Value = serde_json::from_str(&spec_str)?;
+
+    // Strip 402 response content bodies since progenitor can't handle them
+    strip_402_content(&mut raw_json);
 
     let mut refs = HashSet::new();
     collect_refs(&raw_json, &mut refs);

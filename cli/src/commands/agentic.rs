@@ -39,11 +39,14 @@ pub async fn list_publishers(ctx: &CommandContext) -> Result<()> {
                         "No".yellow()
                     }
                 );
-                if let Some(pricing) = &pub_info.pricing {
-                    println!(
-                        "    Pricing:     ${:.6}/1000 rows",
-                        pricing.base_price_per_1000_rows
-                    );
+                if let Some(pricing_list) = &pub_info.pricing {
+                    if let Some(first_pricing) = pricing_list.first() {
+                        let asset = first_pricing.asset_symbol.as_deref().unwrap_or("?");
+                        println!(
+                            "    Pricing:     {:.6} {}/1000 rows",
+                            first_pricing.base_price_per_1000_rows, asset
+                        );
+                    }
                 }
                 println!();
             }
@@ -90,17 +93,26 @@ pub async fn get_publisher(publisher: &str, ctx: &CommandContext) -> Result<()> 
                 "  Active:      {}",
                 if data.is_active { "Yes" } else { "No" }
             );
-            if let Some(pricing) = &data.pricing {
-                println!();
-                println!("{}", "Pricing".bold());
-                println!(
-                    "  Base Price:      ${:.6}/1000 rows",
-                    pricing.base_price_per_1000_rows
-                );
-                println!("  Min Charge:      ${:.6}", pricing.min_charge);
-                println!("  Markup:          {:.2}x", pricing.markup_multiplier);
-                println!("  Prepaid Enabled: {}", pricing.prepaid_enabled);
-                println!("  x402 Enabled:    {}", pricing.x402_enabled);
+            if let Some(pricing_list) = &data.pricing {
+                if !pricing_list.is_empty() {
+                    println!();
+                    println!("{}", "Pricing".bold());
+                    for pricing in pricing_list {
+                        let asset_label = pricing.asset_symbol.as_deref().unwrap_or("Unknown");
+                        println!("  {}:", asset_label);
+                        println!(
+                            "    Base Price:      {:.6} {}/1000 rows",
+                            pricing.base_price_per_1000_rows, asset_label
+                        );
+                        println!(
+                            "    Min Charge:      {:.6} {}",
+                            pricing.min_charge, asset_label
+                        );
+                        println!("    Markup:          {:.2}x", pricing.markup_multiplier);
+                        println!("    Prepaid Enabled: {}", pricing.prepaid_enabled);
+                        println!("    On-chain Enabled: {}", pricing.onchain_enabled);
+                    }
+                }
             }
         }
     }
@@ -117,24 +129,43 @@ pub async fn get_agent_balance(wallet_address: &str, ctx: &CommandContext) -> Re
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get agent balance: {}", e))?;
 
-    let balance = response.into_inner();
+    let summary = response.into_inner();
     match ctx.format {
-        OutputFormat::Json => output::print_json(&balance)?,
+        OutputFormat::Json => output::print_json(&summary)?,
         OutputFormat::Table => {
-            let data = &balance.data;
+            let data = &summary.data;
             println!("{}", "Agent Balance Summary".bold());
             println!();
-            println!("  Wallet:         {}", data.agent_wallet);
-            println!(
-                "  Total Balance:  {}",
-                format!("${:.6}", data.total_balance_usdc).green().bold()
-            );
-            println!("  Total Reserved: ${:.6}", data.total_reserved_usdc);
-            println!(
-                "  Available:      {}",
-                format!("${:.6}", data.total_available_usdc).green()
-            );
-            println!("  Publishers:     {}", data.publishers_used);
+            println!("  Wallet:     {}", data.agent_wallet);
+            println!("  Publishers: {}", data.publishers_used);
+            println!("  Queries:    {}", data.total_queries);
+            println!();
+            if !data.totals_by_asset.is_empty() {
+                println!("{}", "Balances by Asset".bold());
+                for total in &data.totals_by_asset {
+                    println!(
+                        "  {} ({})",
+                        total.asset.symbol.bold(),
+                        total.asset.network_name
+                    );
+                    println!(
+                        "    Balance:   {}",
+                        format!("{:.6} {}", total.total_balance, total.asset.symbol)
+                            .green()
+                            .bold()
+                    );
+                    println!(
+                        "    Reserved:  {:.6} {}",
+                        total.total_reserved, total.asset.symbol
+                    );
+                    println!(
+                        "    Available: {}",
+                        format!("{:.6} {}", total.total_available, total.asset.symbol).green()
+                    );
+                }
+            } else {
+                println!("  No balances found");
+            }
         }
     }
 
@@ -156,24 +187,40 @@ pub async fn get_agent_publisher_balance(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get publisher balance: {}", e))?;
 
-    let balance = response.into_inner();
+    let balances = response.into_inner();
     match ctx.format {
-        OutputFormat::Json => output::print_json(&balance)?,
+        OutputFormat::Json => output::print_json(&balances)?,
         OutputFormat::Table => {
-            let data = &balance.data;
             println!("{}", "Agent Publisher Balance".bold());
             println!();
-            println!("  Wallet:       {}", data.agent_wallet);
-            println!("  Publisher:    {}", data.publisher_id);
-            println!(
-                "  Balance:      {}",
-                format!("${:.6}", data.balance_usdc).green().bold()
-            );
-            println!("  Reserved:     ${:.6}", data.reserved_usdc);
-            println!(
-                "  Available:    {}",
-                format!("${:.6}", data.available_usdc).green()
-            );
+            if balances.is_empty() {
+                println!("  No balances found for this publisher");
+            } else {
+                for bal in balances {
+                    println!("  Wallet:    {}", bal.agent_wallet);
+                    println!("  Publisher: {}", bal.publisher_id);
+                    if let Some(name) = &bal.publisher_name {
+                        println!("  Name:      {}", name);
+                    }
+                    println!(
+                        "  Asset:     {} ({})",
+                        bal.asset.symbol, bal.asset.network_name
+                    );
+                    println!(
+                        "  Balance:   {}",
+                        format!("{:.6} {}", bal.balance, bal.asset.symbol)
+                            .green()
+                            .bold()
+                    );
+                    println!("  Reserved:  {:.6} {}", bal.reserved, bal.asset.symbol);
+                    println!(
+                        "  Available: {}",
+                        format!("{:.6} {}", bal.available, bal.asset.symbol).green()
+                    );
+                    println!("  Queries:   {}", bal.total_queries);
+                    println!();
+                }
+            }
         }
     }
 

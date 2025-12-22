@@ -52,7 +52,14 @@
             "description": "Invalid request"
           },
           "402": {
-            "description": "Payment required - see PaymentRequiredResponse in response body"
+            "description": "Payment required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRequiredResponseWithInfo"
+                }
+              }
+            }
           },
           "404": {
             "description": "Publisher not found"
@@ -69,7 +76,7 @@
           "agentic"
         ],
         "summary": "GET /api/agentic/balance/:wallet",
-        "description": "Get balance summary for an agent wallet",
+        "description": "Get balance summary for an agent wallet (across all publishers and assets)",
         "operationId": "get_agent_balance_summary",
         "parameters": [
           {
@@ -108,7 +115,7 @@
           "agentic"
         ],
         "summary": "GET /api/agentic/balance/:wallet/:publisher_id",
-        "description": "Get balance for an agent at a specific publisher",
+        "description": "Get all balances for an agent at a specific publisher (across all assets)",
         "operationId": "get_agent_publisher_balance",
         "parameters": [
           {
@@ -133,11 +140,14 @@
         ],
         "responses": {
           "200": {
-            "description": "Balance retrieved successfully",
+            "description": "Balances retrieved successfully",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentBalanceDataResponse"
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentBalanceResponse"
+                  }
                 }
               }
             }
@@ -236,14 +246,14 @@
         "tags": [
           "agentic"
         ],
-        "summary": "Deposit USDC via x402 on-chain payment flow",
-        "description": "Allows agents to deposit USDC directly on-chain to their prepaid balance.\nFollows the x402 payment protocol:\n1. First request (no payment header) returns 402 with payment requirements\n2. Second request (with payment header) settles on-chain and credits balance",
-        "operationId": "x402_deposit",
+        "summary": "Deposit configured asset via on-chain payment flow",
+        "description": "Allows agents to deposit the configured asset directly on-chain to their prepaid balance.\nFollows the 402 payment protocol:\n1. First request (no payment header) returns 402 with payment requirements\n2. Second request (with payment header) settles on-chain and credits balance",
+        "operationId": "onchain_deposit",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/X402DepositRequest"
+                "$ref": "#/components/schemas/OnchainDepositRequest"
               }
             }
           },
@@ -255,7 +265,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/X402DepositResponse"
+                  "$ref": "#/components/schemas/OnchainDepositResponse"
                 }
               }
             }
@@ -264,7 +274,14 @@
             "description": "Invalid request"
           },
           "402": {
-            "description": "Payment required - includes PaymentRequirements"
+            "description": "Payment required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRequiredResponseWithInfo"
+                }
+              }
+            }
           },
           "404": {
             "description": "Publisher not found"
@@ -784,7 +801,14 @@
             "description": "Invalid request"
           },
           "402": {
-            "description": "Payment required - see PaymentRequiredResponse in response body"
+            "description": "Payment required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRequiredResponseWithInfo"
+                }
+              }
+            }
           },
           "404": {
             "description": "Publisher not found"
@@ -2790,7 +2814,7 @@
           "agentic"
         ],
         "summary": "PUT /api/organizations/:org_id/publishers/:publisher_id/pricing",
-        "description": "Update publisher pricing config",
+        "description": "Update publisher pricing config for a specific asset",
         "operationId": "update_publisher_pricing",
         "parameters": [
           {
@@ -8818,24 +8842,34 @@
         "required": [
           "agent_wallet",
           "publisher_id",
-          "balance_usdc",
-          "reserved_usdc",
-          "available_usdc",
+          "asset",
+          "balance",
+          "reserved",
+          "available",
+          "balance_atomic",
           "total_queries"
         ],
         "properties": {
           "agent_wallet": {
             "type": "string"
           },
-          "available_usdc": {
-            "type": "number",
-            "format": "double",
-            "description": "Available balance in USDC"
+          "asset": {
+            "$ref": "#/components/schemas/AssetInfo"
           },
-          "balance_usdc": {
+          "available": {
             "type": "number",
             "format": "double",
-            "description": "Balance in USDC (decimal)"
+            "description": "Available balance in asset decimal units"
+          },
+          "balance": {
+            "type": "number",
+            "format": "double",
+            "description": "Balance in asset decimal units"
+          },
+          "balance_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Balance in atomic units (for precision)"
           },
           "publisher_id": {
             "type": "string",
@@ -8849,10 +8883,10 @@
             "type": "string",
             "nullable": true
           },
-          "reserved_usdc": {
+          "reserved": {
             "type": "number",
             "format": "double",
-            "description": "Reserved balance in USDC"
+            "description": "Reserved balance in asset decimal units"
           },
           "total_queries": {
             "type": "integer",
@@ -8862,12 +8896,10 @@
       },
       "AgentBalanceSummary": {
         "type": "object",
-        "description": "Summary of agent balances across all publishers",
+        "description": "Summary of agent balances across all publishers, grouped by asset",
         "required": [
           "agent_wallet",
-          "total_balance_usdc",
-          "total_reserved_usdc",
-          "total_available_usdc",
+          "totals_by_asset",
           "publishers_used",
           "total_queries",
           "balances"
@@ -8880,27 +8912,23 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/AgentBalanceResponse"
-            }
+            },
+            "description": "Individual balances"
           },
           "publishers_used": {
             "type": "integer",
             "format": "int64"
           },
-          "total_available_usdc": {
-            "type": "number",
-            "format": "double"
-          },
-          "total_balance_usdc": {
-            "type": "number",
-            "format": "double"
-          },
           "total_queries": {
             "type": "integer",
             "format": "int64"
           },
-          "total_reserved_usdc": {
-            "type": "number",
-            "format": "double"
+          "totals_by_asset": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetBalanceTotal"
+            },
+            "description": "Total balances per asset"
           }
         }
       },
@@ -9107,16 +9135,21 @@
           "status",
           "body",
           "execution_time_ms",
-          "cost_usdc",
+          "cost",
+          "asset_symbol",
           "payment_source"
         ],
         "properties": {
+          "asset_symbol": {
+            "type": "string",
+            "description": "Asset symbol (e.g., USDC, USDT)"
+          },
           "body": {
             "description": "Response body (JSON if available, otherwise raw text)"
           },
-          "cost_usdc": {
+          "cost": {
             "type": "string",
-            "description": "Actual cost charged in USDC"
+            "description": "Actual cost charged in configured asset"
           },
           "execution_time_ms": {
             "type": "integer",
@@ -9132,6 +9165,84 @@
             "format": "int32",
             "description": "HTTP status from publisher",
             "minimum": 0
+          }
+        }
+      },
+      "AssetBalanceTotal": {
+        "type": "object",
+        "description": "Total balance for a single asset across all publishers",
+        "required": [
+          "asset",
+          "total_balance",
+          "total_reserved",
+          "total_available",
+          "total_balance_atomic"
+        ],
+        "properties": {
+          "asset": {
+            "$ref": "#/components/schemas/AssetInfo"
+          },
+          "total_available": {
+            "type": "number",
+            "format": "double"
+          },
+          "total_balance": {
+            "type": "number",
+            "format": "double"
+          },
+          "total_balance_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_reserved": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "AssetInfo": {
+        "type": "object",
+        "description": "Minimal asset info for API responses",
+        "required": [
+          "id",
+          "symbol",
+          "name",
+          "decimals",
+          "network_id",
+          "network_name",
+          "is_native",
+          "is_stablecoin"
+        ],
+        "properties": {
+          "contract_address": {
+            "type": "string",
+            "nullable": true
+          },
+          "decimals": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_native": {
+            "type": "boolean"
+          },
+          "is_stablecoin": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "network_id": {
+            "type": "string"
+          },
+          "network_name": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
           }
         }
       },
@@ -10138,16 +10249,21 @@
         "description": "Cost estimate breakdown",
         "required": [
           "estimated_rows",
-          "base_cost_usdc",
+          "asset_symbol",
+          "base_cost",
           "markup_multiplier",
-          "min_charge_usdc",
-          "total_cost_usdc",
+          "min_charge",
+          "total_cost",
           "total_cost_atomic"
         ],
         "properties": {
-          "base_cost_usdc": {
+          "asset_symbol": {
             "type": "string",
-            "description": "Base cost in USDC (as decimal string)"
+            "description": "Asset symbol (e.g., USDC, USDT)"
+          },
+          "base_cost": {
+            "type": "string",
+            "description": "Base cost in asset units (as decimal string)"
           },
           "estimated_rows": {
             "type": "integer",
@@ -10158,18 +10274,18 @@
             "type": "string",
             "description": "Markup multiplier"
           },
-          "min_charge_usdc": {
+          "min_charge": {
             "type": "string",
-            "description": "Minimum charge in USDC"
+            "description": "Minimum charge in asset units"
+          },
+          "total_cost": {
+            "type": "string",
+            "description": "Total cost in asset units (as decimal string)"
           },
           "total_cost_atomic": {
             "type": "integer",
             "format": "int64",
             "description": "Total cost in atomic units"
-          },
-          "total_cost_usdc": {
-            "type": "string",
-            "description": "Total cost in USDC (as decimal string)"
           }
         }
       },
@@ -10325,12 +10441,13 @@
         "required": [
           "agent_wallet",
           "publisher_id",
+          "target_asset_id",
           "amount"
         ],
         "properties": {
           "agent_wallet": {
             "type": "string",
-            "description": "Agent's Ethereum wallet address (0x...)"
+            "description": "Agent's wallet address (EVM 0x... or Solana base58)"
           },
           "amount": {
             "type": "number",
@@ -10348,6 +10465,11 @@
             "type": "string",
             "format": "uuid",
             "description": "Publisher to deposit funds for"
+          },
+          "target_asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Target asset to credit after conversion (e.g., USDC on Base)"
           }
         }
       },
@@ -10358,9 +10480,10 @@
           "id",
           "agent_wallet",
           "publisher_id",
+          "target_asset",
           "amount",
           "currency",
-          "amount_usdc",
+          "amount_in_asset",
           "provider",
           "payment_id",
           "status"
@@ -10375,10 +10498,10 @@
             "format": "double",
             "description": "Amount in the deposit currency"
           },
-          "amount_usdc": {
+          "amount_in_asset": {
             "type": "number",
             "format": "double",
-            "description": "Amount in USDC that will be credited"
+            "description": "Amount in target asset that will be credited"
           },
           "client_data": {
             "type": "string",
@@ -10408,6 +10531,9 @@
           },
           "status": {
             "$ref": "#/components/schemas/FiatDepositStatus"
+          },
+          "target_asset": {
+            "$ref": "#/components/schemas/AssetInfo"
           }
         }
       },
@@ -10532,9 +10658,19 @@
         "required": [
           "name",
           "slug",
-          "wallet_address"
+          "wallet_address",
+          "wallet_network_id"
         ],
         "properties": {
+          "accepted_asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Asset IDs the publisher accepts for payment",
+            "nullable": true
+          },
           "api_headers": {
             "description": "Headers for API requests (will be encrypted)",
             "nullable": true
@@ -10583,7 +10719,12 @@
             "$ref": "#/components/schemas/SourceType"
           },
           "wallet_address": {
-            "type": "string"
+            "type": "string",
+            "description": "Wallet address for receiving payments"
+          },
+          "wallet_network_id": {
+            "type": "string",
+            "description": "Network ID for wallet (CAIP-2 format, e.g., \"eip155:8453\" for Base)"
           }
         }
       },
@@ -10632,9 +10773,10 @@
       },
       "CreateUserDepositRequest": {
         "type": "object",
-        "description": "Request to create a fiat deposit using the authenticated user's virtual wallet.\n\nThis is the preferred endpoint for fiat users - it automatically uses their\nplatform-generated virtual wallet, so they don't need to manage Ethereum addresses.",
+        "description": "Request to create a fiat deposit using the authenticated user's virtual wallet.\n\nThis is the preferred endpoint for fiat users - it automatically uses their\nplatform-generated virtual wallet, so they don't need to manage wallet addresses.",
         "required": [
           "publisher_id",
+          "target_asset_id",
           "amount"
         ],
         "properties": {
@@ -10654,6 +10796,11 @@
             "type": "string",
             "format": "uuid",
             "description": "Publisher to deposit funds for"
+          },
+          "target_asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Target asset to credit after conversion"
           }
         }
       },
@@ -11814,20 +11961,25 @@
         "description": "Query estimate response",
         "required": [
           "estimated_rows",
-          "estimated_cost_usdc",
+          "estimated_cost",
+          "asset_symbol",
           "estimated_cost_atomic",
           "publisher_name",
           "publisher_slug"
         ],
         "properties": {
+          "asset_symbol": {
+            "type": "string",
+            "description": "Asset symbol (e.g., USDC, USDT)"
+          },
+          "estimated_cost": {
+            "type": "string",
+            "description": "Estimated cost in configured asset"
+          },
           "estimated_cost_atomic": {
             "type": "integer",
             "format": "int64",
             "description": "Estimated cost in atomic units"
-          },
-          "estimated_cost_usdc": {
-            "type": "string",
-            "description": "Estimated cost in USDC"
           },
           "estimated_rows": {
             "type": "integer",
@@ -11871,9 +12023,10 @@
           "id",
           "agent_wallet",
           "publisher_id",
+          "target_asset",
           "amount",
           "currency",
-          "amount_usdc",
+          "amount_in_asset",
           "provider",
           "payment_id",
           "status",
@@ -11888,10 +12041,10 @@
             "format": "double",
             "description": "Amount in the deposit currency"
           },
-          "amount_usdc": {
+          "amount_in_asset": {
             "type": "number",
             "format": "double",
-            "description": "Amount in USDC credited/to be credited"
+            "description": "Amount in target asset credited/to be credited"
           },
           "charge_id": {
             "type": "string",
@@ -11936,6 +12089,9 @@
           },
           "status": {
             "$ref": "#/components/schemas/FiatDepositStatus"
+          },
+          "target_asset": {
+            "$ref": "#/components/schemas/AssetInfo"
           }
         }
       },
@@ -12025,7 +12181,7 @@
         "properties": {
           "agent_wallet": {
             "type": "string",
-            "description": "Agent's Ethereum wallet address"
+            "description": "Agent's on-chain wallet address"
           },
           "publisher_slug": {
             "type": "string",
@@ -12801,6 +12957,69 @@
                 "$ref": "#/components/schemas/PaginationMeta"
               }
             ],
+            "nullable": true
+          }
+        }
+      },
+      "OnchainDepositRequest": {
+        "type": "object",
+        "description": "Request body for on-chain deposit",
+        "required": [
+          "publisher_id",
+          "amount"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "Amount to deposit in the configured asset (decimal string, e.g., \"10.50\")"
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher to deposit funds for"
+          }
+        }
+      },
+      "OnchainDepositResponse": {
+        "type": "object",
+        "description": "Response after successful on-chain deposit",
+        "required": [
+          "message",
+          "deposited_amount",
+          "balance_amount",
+          "asset_symbol",
+          "publisher_id",
+          "agent_wallet"
+        ],
+        "properties": {
+          "agent_wallet": {
+            "type": "string",
+            "description": "Agent wallet address"
+          },
+          "asset_symbol": {
+            "type": "string",
+            "description": "Asset symbol (e.g., USDC, USDT)"
+          },
+          "balance_amount": {
+            "type": "string",
+            "description": "New balance (configured asset)"
+          },
+          "deposited_amount": {
+            "type": "string",
+            "description": "Amount deposited (configured asset)"
+          },
+          "message": {
+            "type": "string",
+            "description": "Deposit successful message"
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher ID"
+          },
+          "tx_hash": {
+            "type": "string",
+            "description": "On-chain transaction hash",
             "nullable": true
           }
         }
@@ -13872,12 +14091,16 @@
         "required": [
           "payment_request_id",
           "publisher_id",
-          "expires",
-          "eip712TypedData"
+          "expires"
         ],
         "properties": {
           "eip712TypedData": {
-            "$ref": "#/components/schemas/Eip712TypedData"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Eip712TypedData"
+              }
+            ],
+            "nullable": true
           },
           "estimate": {
             "allOf": [
@@ -13956,7 +14179,7 @@
             }
           }
         ],
-        "description": "402 Payment Required response body (with Seren-specific extensions)\nContains both V1 and V2 x402 formats for backwards compatibility"
+        "description": "402 Payment Required response body (with Seren-specific extensions)\nContains both V1 and V2 402 formats for backwards compatibility"
       },
       "PaymentRequirements": {
         "type": "object",
@@ -13975,7 +14198,7 @@
         "properties": {
           "asset": {
             "type": "string",
-            "description": "Payment asset address (USDC contract)"
+            "description": "Payment asset address (token contract)"
           },
           "eip712TypedData": {
             "$ref": "#/components/schemas/Eip712TypedData"
@@ -13995,7 +14218,7 @@
           },
           "maxAmountRequired": {
             "type": "string",
-            "description": "Maximum amount in atomic units (USDC has 6 decimals)"
+            "description": "Maximum amount in atomic units (token decimals)"
           },
           "network": {
             "type": "string",
@@ -14025,7 +14248,7 @@
         "type": "string",
         "description": "Payment source for transactions",
         "enum": [
-          "x402_onchain",
+          "onchain",
           "prepaid_balance",
           "credits"
         ]
@@ -14305,15 +14528,26 @@
         "type": "object",
         "description": "Pricing config response",
         "required": [
+          "asset_id",
           "pricing_model",
           "base_price_per_1000_rows",
           "markup_multiplier",
           "min_charge",
           "payment_expiry_minutes",
           "prepaid_enabled",
-          "x402_enabled"
+          "onchain_enabled"
         ],
         "properties": {
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Asset this pricing applies to"
+          },
+          "asset_symbol": {
+            "type": "string",
+            "description": "Asset symbol for display",
+            "nullable": true
+          },
           "base_price_per_1000_rows": {
             "type": "string"
           },
@@ -14332,6 +14566,9 @@
           "min_charge": {
             "type": "string"
           },
+          "onchain_enabled": {
+            "type": "boolean"
+          },
           "payment_expiry_minutes": {
             "type": "integer",
             "format": "int32"
@@ -14341,9 +14578,6 @@
           },
           "pricing_model": {
             "type": "string"
-          },
-          "x402_enabled": {
-            "type": "boolean"
           }
         }
       },
@@ -15024,13 +15258,13 @@
           "markup_multiplier",
           "min_charge",
           "prepaid_enabled",
-          "x402_enabled"
+          "onchain_enabled"
         ],
         "properties": {
           "base_price_per_1000_rows": {
             "type": "number",
             "format": "double",
-            "description": "Base price per 1000 rows (USDC)"
+            "description": "Base price per 1000 rows (configured asset)"
           },
           "markup_multiplier": {
             "type": "number",
@@ -15040,21 +15274,21 @@
           "max_charge": {
             "type": "number",
             "format": "double",
-            "description": "Maximum charge (USDC)",
+            "description": "Maximum charge (configured asset)",
             "nullable": true
           },
           "min_charge": {
             "type": "number",
             "format": "double",
-            "description": "Minimum charge (USDC)"
+            "description": "Minimum charge (configured asset)"
+          },
+          "onchain_enabled": {
+            "type": "boolean",
+            "description": "Whether on-chain payments are accepted"
           },
           "prepaid_enabled": {
             "type": "boolean",
             "description": "Whether prepaid balance is accepted"
-          },
-          "x402_enabled": {
-            "type": "boolean",
-            "description": "Whether on-chain x402 is accepted"
           }
         }
       },
@@ -15227,44 +15461,35 @@
         "description": "Publisher response (excludes sensitive fields)",
         "required": [
           "id",
-          "organization_id",
           "name",
           "slug",
           "publisher_type",
           "wallet_address",
+          "wallet_network_id",
           "source_type",
-          "has_api",
           "is_active",
           "is_verified",
           "total_queries",
-          "total_revenue_usdc",
           "unique_agents_served",
           "created_at",
           "updated_at"
         ],
         "properties": {
-          "branch_id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "SerenDB branch ID (for serendb source_type)",
+          "accepted_assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetInfo"
+            },
+            "description": "Accepted assets for payment",
             "nullable": true
           },
           "created_at": {
             "type": "string",
             "format": "date-time"
           },
-          "database_name": {
-            "type": "string",
-            "description": "Database name within the SerenDB project",
-            "nullable": true
-          },
           "description": {
             "type": "string",
             "nullable": true
-          },
-          "has_api": {
-            "type": "boolean",
-            "description": "Whether this publisher uses an external API"
           },
           "id": {
             "type": "string",
@@ -15279,22 +15504,12 @@
           "name": {
             "type": "string"
           },
-          "organization_id": {
-            "type": "string",
-            "format": "uuid"
-          },
           "pricing": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/PricingConfigResponse"
-              }
-            ],
-            "nullable": true
-          },
-          "project_id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "SerenDB project ID (for serendb source_type)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PricingConfigResponse"
+            },
+            "description": "Pricing config per asset (if included)",
             "nullable": true
           },
           "publisher_type": {
@@ -15310,11 +15525,6 @@
             "type": "integer",
             "format": "int64"
           },
-          "total_revenue_usdc": {
-            "type": "number",
-            "format": "double",
-            "description": "Total revenue in USDC (decimal)"
-          },
           "unique_agents_served": {
             "type": "integer",
             "format": "int64"
@@ -15323,13 +15533,12 @@
             "type": "string",
             "format": "date-time"
           },
-          "verified_at": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
           "wallet_address": {
             "type": "string"
+          },
+          "wallet_network_id": {
+            "type": "string",
+            "description": "Network for the wallet address"
           }
         }
       },
@@ -15397,13 +15606,18 @@
           "rows",
           "row_count",
           "execution_time_ms",
-          "cost_usdc",
+          "cost",
+          "asset_symbol",
           "payment_source"
         ],
         "properties": {
-          "cost_usdc": {
+          "asset_symbol": {
             "type": "string",
-            "description": "Actual cost charged in USDC"
+            "description": "Asset symbol (e.g., USDC, USDT)"
+          },
+          "cost": {
+            "type": "string",
+            "description": "Actual cost charged in configured asset"
           },
           "execution_time_ms": {
             "type": "integer",
@@ -16587,24 +16801,34 @@
           "id",
           "agent_wallet",
           "publisher_id",
-          "amount_usdc",
+          "asset",
+          "amount",
+          "amount_atomic",
           "transaction_type",
-          "balance_after_usdc",
+          "balance_after",
           "created_at"
         ],
         "properties": {
           "agent_wallet": {
             "type": "string"
           },
-          "amount_usdc": {
+          "amount": {
             "type": "number",
             "format": "double",
-            "description": "Amount in USDC (positive = credit, negative = debit)"
+            "description": "Amount in asset decimal units (positive = credit, negative = debit)"
           },
-          "balance_after_usdc": {
+          "amount_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Amount in atomic units (for precision)"
+          },
+          "asset": {
+            "$ref": "#/components/schemas/AssetInfo"
+          },
+          "balance_after": {
             "type": "number",
             "format": "double",
-            "description": "Balance after transaction in USDC"
+            "description": "Balance after transaction in asset decimal units"
           },
           "created_at": {
             "type": "string",
@@ -16810,7 +17034,15 @@
       "UpdatePricingRequest": {
         "type": "object",
         "description": "Request to update pricing config",
+        "required": [
+          "asset_id"
+        ],
         "properties": {
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Asset ID for this pricing config (required)"
+          },
           "base_price_per_1000_rows": {
             "type": "string",
             "nullable": true
@@ -16832,6 +17064,10 @@
             "type": "string",
             "nullable": true
           },
+          "onchain_enabled": {
+            "type": "boolean",
+            "nullable": true
+          },
           "payment_expiry_minutes": {
             "type": "integer",
             "format": "int32",
@@ -16843,10 +17079,6 @@
           },
           "pricing_model": {
             "type": "string",
-            "nullable": true
-          },
-          "x402_enabled": {
-            "type": "boolean",
             "nullable": true
           }
         }
@@ -16931,6 +17163,15 @@
         "type": "object",
         "description": "Request to update a publisher",
         "properties": {
+          "add_asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Asset IDs to add to accepted assets",
+            "nullable": true
+          },
           "api_headers": {
             "description": "Headers for API requests (will be encrypted)",
             "nullable": true
@@ -16969,8 +17210,23 @@
             "description": "SerenDB project ID (for serendb source_type)",
             "nullable": true
           },
+          "remove_asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Asset IDs to remove from accepted assets",
+            "nullable": true
+          },
           "wallet_address": {
             "type": "string",
+            "description": "New wallet address for receiving payments",
+            "nullable": true
+          },
+          "wallet_network_id": {
+            "type": "string",
+            "description": "Network ID for wallet (must be provided if changing wallet_address)",
             "nullable": true
           }
         }
@@ -17585,64 +17841,6 @@
             "nullable": true
           }
         }
-      },
-      "X402DepositRequest": {
-        "type": "object",
-        "description": "Request body for x402 on-chain deposit",
-        "required": [
-          "publisher_id",
-          "amount"
-        ],
-        "properties": {
-          "amount": {
-            "type": "string",
-            "description": "Amount to deposit in USDC (decimal string, e.g., \"10.50\")"
-          },
-          "publisher_id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Publisher to deposit funds for"
-          }
-        }
-      },
-      "X402DepositResponse": {
-        "type": "object",
-        "description": "Response after successful x402 deposit",
-        "required": [
-          "message",
-          "deposited_usdc",
-          "balance_usdc",
-          "publisher_id",
-          "agent_wallet"
-        ],
-        "properties": {
-          "agent_wallet": {
-            "type": "string",
-            "description": "Agent wallet address"
-          },
-          "balance_usdc": {
-            "type": "string",
-            "description": "New balance in USDC"
-          },
-          "deposited_usdc": {
-            "type": "string",
-            "description": "Amount deposited in USDC"
-          },
-          "message": {
-            "type": "string",
-            "description": "Deposit successful message"
-          },
-          "publisher_id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Publisher ID"
-          },
-          "tx_hash": {
-            "type": "string",
-            "description": "On-chain transaction hash",
-            "nullable": true
-          }
-        }
       }
     }
   },
@@ -17689,7 +17887,7 @@
     },
     {
       "name": "billing",
-      "description": "x402 billing and metering endpoints"
+      "description": "Billing and metering endpoints (x402 token cache)"
     },
     {
       "name": "payments",
