@@ -261,6 +261,8 @@ pub struct GetUserPrepaidBalanceParams {}
 pub struct CreatePrepaidDepositParams {
     /// Publisher slug or UUID
     pub publisher: String,
+    /// Target asset UUID to credit after conversion
+    pub target_asset_id: String,
     /// Amount in the currency's standard unit (e.g., 10.00 for $10 USD)
     pub amount: f64,
     /// ISO 4217 currency code (default: USD)
@@ -1590,8 +1592,12 @@ impl SerenMcpServer {
             }
         };
 
+        let target_asset_id = uuid::Uuid::parse_str(&params.target_asset_id).map_err(|e| {
+            McpError::invalid_request(format!("Invalid target_asset_id: {}", e), None)
+        })?;
         let request = seren::CreateUserDepositRequest {
             publisher_id,
+            target_asset_id,
             amount: params.amount,
             currency: Some(currency),
             provider: Some(provider_enum),
@@ -1763,7 +1769,7 @@ impl SerenMcpServer {
 
         // Build request without auth - this endpoint returns 402 with payment requirements
         let http_client = reqwest::Client::new();
-        let body = seren::X402DepositRequest {
+        let body = seren::OnchainDepositRequest {
             publisher_id,
             amount: params.amount,
         };
