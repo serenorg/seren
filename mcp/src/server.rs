@@ -209,12 +209,12 @@ pub struct DescribeTableSchemaParams {
 }
 
 // ============================================================================
-// Agentic Marketplace Parameter Types (agentic paid access)
+// Agent Marketplace Parameter Types (agent paid access)
 // ============================================================================
 
-/// Parameters for listing publishers in the agentic marketplace
+/// Parameters for listing publishers in the agent marketplace
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct ListAgenticPublishersParams {
+pub struct ListAgentPublishersParams {
     /// Filter to only verified publishers
     #[serde(default)]
     pub is_verified: Option<bool>,
@@ -231,7 +231,7 @@ pub struct ListAgenticPublishersParams {
 
 /// Parameters for getting a specific publisher by slug
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct GetAgenticPublisherParams {
+pub struct GetAgentPublisherParams {
     /// Publisher slug (URL-friendly identifier)
     pub slug: String,
 }
@@ -468,6 +468,45 @@ fn extract_bearer_token_from_extensions(extensions: &Extensions) -> Option<Strin
     }
 }
 
+/// Agent metadata extracted from OAuth client registration
+#[derive(Debug, Clone, Default)]
+struct AgentMetadata {
+    client_id: Option<String>,
+    client_name: Option<String>,
+    software_id: Option<String>,
+    software_version: Option<String>,
+}
+
+fn extract_agent_metadata_from_extensions(extensions: &Extensions) -> AgentMetadata {
+    let parts = match extensions.get::<axum::http::request::Parts>() {
+        Some(p) => p,
+        None => return AgentMetadata::default(),
+    };
+
+    AgentMetadata {
+        client_id: parts
+            .headers
+            .get("x-agent-client-id")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string()),
+        client_name: parts
+            .headers
+            .get("x-agent-client-name")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string()),
+        software_id: parts
+            .headers
+            .get("x-agent-software-id")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string()),
+        software_version: parts
+            .headers
+            .get("x-agent-software-version")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string()),
+    }
+}
+
 // ============================================================================
 // Input Validation Helpers
 // ============================================================================
@@ -574,11 +613,49 @@ impl SerenMcpServer {
         }
     }
 
-    fn build_http_client(&self, token: &str) -> Result<reqwest::Client, McpError> {
+    fn build_http_client(
+        &self,
+        token: &str,
+        agent_metadata: &AgentMetadata,
+    ) -> Result<reqwest::Client, McpError> {
         let mut headers = reqwest::header::HeaderMap::new();
         let auth_value = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token))
             .map_err(|e| McpError::internal_error(format!("Invalid token: {}", e), None))?;
         headers.insert(reqwest::header::AUTHORIZATION, auth_value);
+
+        // Forward agent metadata headers to the backend for tracking
+        if let Some(ref client_id) = agent_metadata.client_id {
+            if let Ok(v) = reqwest::header::HeaderValue::from_str(client_id) {
+                headers.insert(
+                    reqwest::header::HeaderName::from_static("x-agent-client-id"),
+                    v,
+                );
+            }
+        }
+        if let Some(ref client_name) = agent_metadata.client_name {
+            if let Ok(v) = reqwest::header::HeaderValue::from_str(client_name) {
+                headers.insert(
+                    reqwest::header::HeaderName::from_static("x-agent-client-name"),
+                    v,
+                );
+            }
+        }
+        if let Some(ref software_id) = agent_metadata.software_id {
+            if let Ok(v) = reqwest::header::HeaderValue::from_str(software_id) {
+                headers.insert(
+                    reqwest::header::HeaderName::from_static("x-agent-software-id"),
+                    v,
+                );
+            }
+        }
+        if let Some(ref software_version) = agent_metadata.software_version {
+            if let Ok(v) = reqwest::header::HeaderValue::from_str(software_version) {
+                headers.insert(
+                    reqwest::header::HeaderName::from_static("x-agent-software-version"),
+                    v,
+                );
+            }
+        }
 
         reqwest::Client::builder()
             .default_headers(headers)
@@ -592,7 +669,8 @@ impl SerenMcpServer {
 
     fn api_client(&self, extensions: &Extensions) -> Result<seren::Client, McpError> {
         let token = self.bearer_token(extensions)?;
-        let http_client = self.build_http_client(&token)?;
+        let agent_metadata = extract_agent_metadata_from_extensions(extensions);
+        let http_client = self.build_http_client(&token, &agent_metadata)?;
         Ok(seren::Client::new_with_client(
             &self.api_base_url,
             http_client,
@@ -1463,16 +1541,16 @@ impl SerenMcpServer {
     }
 
     // ========================================================================
-    // Agentic Marketplace Tools (agentic paid access)
+    // Agent Marketplace Tools (agent paid access)
     // ========================================================================
 
     #[tool(
-        description = "List all active publishers in the agentic marketplace. Publishers provide databases that AI agents can query with micropayments.",
+        description = "List all active publishers in the agent marketplace. Publishers provide databases that AI agents can query with micropayments.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
-    async fn list_agentic_publishers(
+    async fn list_agent_publishers(
         &self,
-        Parameters(params): Parameters<ListAgenticPublishersParams>,
+        Parameters(params): Parameters<ListAgentPublishersParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
@@ -1493,9 +1571,9 @@ impl SerenMcpServer {
         description = "Get details about a specific publisher including pricing info by slug",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
-    async fn get_agentic_publisher(
+    async fn get_agent_publisher(
         &self,
-        Parameters(params): Parameters<GetAgenticPublisherParams>,
+        Parameters(params): Parameters<GetAgentPublisherParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
@@ -1653,7 +1731,7 @@ impl SerenMcpServer {
             database: params.database,
             request_id: params.request_id,
         };
-        let url = format!("{}/api/agentic/user/query", self.api_base_url);
+        let url = format!("{}/api/agent/user/query", self.api_base_url);
         let response = http_client
             .post(url)
             .json(&body)
@@ -1717,7 +1795,7 @@ impl SerenMcpServer {
             estimated_rows: params.estimated_rows,
             request_id: params.request_id,
         };
-        let url = format!("{}/api/agentic/user/api", self.api_base_url);
+        let url = format!("{}/api/agent/user/api", self.api_base_url);
         let response = http_client
             .post(url)
             .json(&body)
@@ -1774,7 +1852,7 @@ impl SerenMcpServer {
             amount: params.amount,
         };
 
-        let url = format!("{}/api/agentic/deposit", self.api_base_url);
+        let url = format!("{}/api/agent/deposit", self.api_base_url);
         let response = http_client
             .post(&url)
             .header("X-AGENT-WALLET", &params.agent_wallet)

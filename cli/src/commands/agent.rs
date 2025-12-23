@@ -264,7 +264,7 @@ pub async fn get_deposit_requirements(
         Some(host) => defaults::api_base_url(host),
         None => defaults::api_base_url(defaults::DEFAULT_API_HOST),
     };
-    let url = format!("{}/agentic/deposit", base_url);
+    let url = format!("{}/agent/deposit", base_url);
 
     let response = http_client
         .post(&url)

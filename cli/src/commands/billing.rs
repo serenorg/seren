@@ -130,7 +130,7 @@ pub async fn get_usage(
     Ok(())
 }
 
-// Agentic billing commands
+// Agent billing commands
 
 pub async fn validate_token(token: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
@@ -139,7 +139,7 @@ pub async fn validate_token(token: &str, ctx: &CommandContext) -> Result<()> {
         token: token.to_string(),
     };
     let response = client
-        .validate_x402_token(&request)
+        .validate_agent_token(&request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to validate token: {}", e))?;
 

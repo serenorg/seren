@@ -19,10 +19,10 @@
     }
   ],
   "paths": {
-    "/api/agentic/api": {
+    "/api/agent/api": {
       "post": {
         "tags": [
-          "agentic"
+          "agent"
         ],
         "summary": "Execute a paid HTTP API request for API publishers",
         "description": "Supports both x402 v1 and v2 header formats.",
@@ -70,12 +70,12 @@
         }
       }
     },
-    "/api/agentic/balance/{wallet}": {
+    "/api/agent/balance/{wallet}": {
       "get": {
         "tags": [
-          "agentic"
+          "agent"
         ],
-        "summary": "GET /api/agentic/balance/:wallet",
+        "summary": "GET /api/agent/balance/:wallet",
         "description": "Get balance summary for an agent wallet (across all publishers and assets)",
         "operationId": "get_agent_balance_summary",
         "parameters": [
@@ -109,12 +109,12 @@
         }
       }
     },
-    "/api/agentic/balance/{wallet}/{publisher_id}": {
+    "/api/agent/balance/{wallet}/{publisher_id}": {
       "get": {
         "tags": [
-          "agentic"
+          "agent"
         ],
-        "summary": "GET /api/agentic/balance/:wallet/:publisher_id",
+        "summary": "GET /api/agent/balance/:wallet/:publisher_id",
         "description": "Get all balances for an agent at a specific publisher (across all assets)",
         "operationId": "get_agent_publisher_balance",
         "parameters": [
@@ -164,14 +164,14 @@
         }
       }
     },
-    "/api/agentic/databases/validate-token": {
+    "/api/agent/databases/validate-token": {
       "post": {
         "tags": [
           "billing"
         ],
-        "summary": "POST /api/agentic/databases/validate-token",
-        "description": "Validates an x402 JWT token and returns endpoint info and balance",
-        "operationId": "validate_x402_token",
+        "summary": "POST /api/agent/databases/validate-token",
+        "description": "Validates an agent token and returns endpoint info and balance",
+        "operationId": "validate_agent_token",
         "requestBody": {
           "content": {
             "application/json": {
@@ -202,12 +202,12 @@
         }
       }
     },
-    "/api/agentic/databases/{endpoint_id}/balance": {
+    "/api/agent/databases/{endpoint_id}/balance": {
       "get": {
         "tags": [
           "billing"
         ],
-        "summary": "GET /api/agentic/databases/{endpoint_id}/balance",
+        "summary": "GET /api/agent/databases/{endpoint_id}/balance",
         "description": "Get current balance for an endpoint",
         "operationId": "get_balance",
         "parameters": [
@@ -241,10 +241,10 @@
         }
       }
     },
-    "/api/agentic/deposit": {
+    "/api/agent/deposit": {
       "post": {
         "tags": [
-          "agentic"
+          "agent"
         ],
         "summary": "Deposit configured asset via on-chain payment flow",
         "description": "Allows agents to deposit the configured asset directly on-chain to their prepaid balance.\nFollows the 402 payment protocol:\n1. First request (no payment header) returns 402 with payment requirements\n2. Second request (with payment header) settles on-chain and credits balance",
@@ -292,12 +292,12 @@
         }
       }
     },
-    "/api/agentic/deposits": {
+    "/api/agent/deposits": {
       "post": {
         "tags": [
-          "agentic"
+          "agent"
         ],
-        "summary": "POST /api/agentic/deposits",
+        "summary": "POST /api/agent/deposits",
         "description": "Create a fiat deposit to fund agent prepaid balance\n\nSupports multiple payment providers (Stripe, PayPal, Coinbase, Wire).\nReturns provider-specific client data for completing the payment.",
         "operationId": "create_deposit",
         "requestBody": {
@@ -333,12 +333,12 @@
         }
       }
     },
-    "/api/agentic/deposits/{wallet}": {
+    "/api/agent/deposits/{wallet}": {
       "get": {
         "tags": [
-          "agentic"
+          "agent"
         ],
-        "summary": "GET /api/agentic/deposits/:wallet",
+        "summary": "GET /api/agent/deposits/:wallet",
         "description": "List deposits for an agent wallet",
         "operationId": "list_deposits",
         "parameters": [
@@ -433,12 +433,12 @@
         }
       }
     },
-    "/api/agentic/deposits/{wallet}/{deposit_id}": {
+    "/api/agent/deposits/{wallet}/{deposit_id}": {
       "get": {
         "tags": [
-          "agentic"
+          "agent"
         ],
-        "summary": "GET /api/agentic/deposits/:wallet/:deposit_id",
+        "summary": "GET /api/agent/deposits/:wallet/:deposit_id",
         "description": "Get a specific deposit by ID",
         "operationId": "get_deposit",
         "parameters": [
@@ -485,10 +485,10 @@
         }
       }
     },
-    "/api/agentic/estimate": {
+    "/api/agent/estimate": {
       "post": {
         "tags": [
-          "agentic"
+          "agent"
         ],
         "summary": "Estimate query cost without payment",
         "operationId": "estimate_query",
@@ -522,13 +522,13 @@
         }
       }
     },
-    "/api/agentic/internal/authorize": {
+    "/api/agent/internal/authorize": {
       "post": {
         "tags": [
-          "agentic-internal"
+          "agent-internal"
         ],
         "summary": "Internal endpoint: Authorize marketplace session for proxy",
-        "description": "Called by SerenDB proxy when an agent connects with marketplace agentic token.\n\nSupports two authentication modes:\n1. **Virtual wallets** (0xFFFF prefix): Platform-generated wallets for fiat users.\nThese are trusted implicitly - the wallet address itself proves ownership since\nit's deterministically derived from the user's ID.\n2. **Real Ethereum wallets**: Require EIP-191 personal_sign verification.",
+        "description": "Called by SerenDB proxy when an agent connects with marketplace agent token.\n\nSupports two authentication modes:\n1. **Virtual wallets** (0xFFFF prefix): Platform-generated wallets for fiat users.\nThese are trusted implicitly - the wallet address itself proves ownership since\nit's deterministically derived from the user's ID.\n2. **Real Ethereum wallets**: Require EIP-191 personal_sign verification.",
         "operationId": "internal_authorize",
         "requestBody": {
           "content": {
@@ -557,10 +557,10 @@
         }
       }
     },
-    "/api/agentic/internal/charge": {
+    "/api/agent/internal/charge": {
       "post": {
         "tags": [
-          "agentic-internal"
+          "agent-internal"
         ],
         "summary": "Internal endpoint: Charge for query execution",
         "description": "Called by SerenDB proxy after a query completes",
@@ -592,10 +592,10 @@
         }
       }
     },
-    "/api/agentic/internal/release": {
+    "/api/agent/internal/release": {
       "post": {
         "tags": [
-          "agentic-internal"
+          "agent-internal"
         ],
         "summary": "Internal endpoint: Release reserved balance for failed query",
         "description": "Called by SerenDB proxy when a refundable error occurs",
@@ -627,10 +627,10 @@
         }
       }
     },
-    "/api/agentic/internal/reserve": {
+    "/api/agent/internal/reserve": {
       "post": {
         "tags": [
-          "agentic-internal"
+          "agent-internal"
         ],
         "summary": "Internal endpoint: Reserve balance for query execution",
         "description": "Called by SerenDB proxy before forwarding a query",
@@ -662,12 +662,12 @@
         }
       }
     },
-    "/api/agentic/publishers": {
+    "/api/agent/publishers": {
       "get": {
         "tags": [
-          "agentic"
+          "agent"
         ],
-        "summary": "GET /api/agentic/publishers",
+        "summary": "GET /api/agent/publishers",
         "description": "List active publishers in the marketplace",
         "operationId": "list_marketplace_publishers",
         "parameters": [
@@ -729,12 +729,12 @@
         }
       }
     },
-    "/api/agentic/publishers/{slug}": {
+    "/api/agent/publishers/{slug}": {
       "get": {
         "tags": [
-          "agentic"
+          "agent"
         ],
-        "summary": "GET /api/agentic/publishers/:slug",
+        "summary": "GET /api/agent/publishers/:slug",
         "description": "Get publisher by slug (public marketplace view)",
         "operationId": "get_marketplace_publisher",
         "parameters": [
@@ -768,10 +768,10 @@
         }
       }
     },
-    "/api/agentic/query": {
+    "/api/agent/query": {
       "post": {
         "tags": [
-          "agentic"
+          "agent"
         ],
         "summary": "Execute a paid query",
         "description": "Supports both x402 v1 and v2 header formats:\n- v1: X-PAYMENT header for payment, X-PAYMENT-RESPONSE for settlement\n- v2: PAYMENT-SIGNATURE header for payment, PAYMENT-RESPONSE for settlement\n\nIf no payment header is provided, returns 402 with payment requirements.",
@@ -819,12 +819,12 @@
         }
       }
     },
-    "/api/agentic/transactions/{wallet}": {
+    "/api/agent/transactions/{wallet}": {
       "get": {
         "tags": [
-          "agentic"
+          "agent"
         ],
-        "summary": "GET /api/agentic/transactions/:wallet",
+        "summary": "GET /api/agent/transactions/:wallet",
         "description": "Get transaction history for an agent",
         "operationId": "get_agent_transactions",
         "parameters": [
@@ -889,10 +889,10 @@
         }
       }
     },
-    "/api/agentic/user/api": {
+    "/api/agent/user/api": {
       "post": {
         "tags": [
-          "agentic"
+          "agent"
         ],
         "summary": "Execute a prepaid API request using the authenticated user's virtual wallet.",
         "description": "This endpoint is intended for fiat users who fund a prepaid balance via Stripe.",
@@ -936,12 +936,12 @@
         }
       }
     },
-    "/api/agentic/user/balance": {
+    "/api/agent/user/balance": {
       "get": {
         "tags": [
-          "agentic"
+          "agent"
         ],
-        "summary": "GET /api/agentic/user/balance",
+        "summary": "GET /api/agent/user/balance",
         "description": "Get balance summary for the authenticated user's virtual wallet",
         "operationId": "get_user_balance_summary",
         "responses": {
@@ -961,12 +961,12 @@
         }
       }
     },
-    "/api/agentic/user/deposits": {
+    "/api/agent/user/deposits": {
       "post": {
         "tags": [
-          "agentic"
+          "agent"
         ],
-        "summary": "POST /api/agentic/user/deposits",
+        "summary": "POST /api/agent/user/deposits",
         "description": "Create a fiat deposit using the authenticated user's virtual wallet.\n\nThis is the preferred endpoint for fiat users - no need to manage Ethereum\nwallet addresses. The user's virtual wallet is automatically created if needed.",
         "operationId": "create_user_deposit",
         "requestBody": {
@@ -1005,10 +1005,10 @@
         }
       }
     },
-    "/api/agentic/user/query": {
+    "/api/agent/user/query": {
       "post": {
         "tags": [
-          "agentic"
+          "agent"
         ],
         "summary": "Execute a prepaid SQL query using the authenticated user's virtual wallet.",
         "description": "This endpoint is intended for fiat users who fund a prepaid balance via Stripe.",
@@ -2600,7 +2600,7 @@
     "/api/organizations/{organization_id}/publishers": {
       "get": {
         "tags": [
-          "agentic"
+          "agent"
         ],
         "summary": "GET /api/organizations/:org_id/publishers",
         "description": "List publishers owned by an organization",
@@ -2638,7 +2638,7 @@
       },
       "post": {
         "tags": [
-          "agentic"
+          "agent"
         ],
         "summary": "POST /api/organizations/:org_id/publishers",
         "description": "Create a new publisher",
@@ -2694,7 +2694,7 @@
     "/api/organizations/{organization_id}/publishers/{publisher_id}": {
       "get": {
         "tags": [
-          "agentic"
+          "agent"
         ],
         "summary": "GET /api/organizations/:org_id/publishers/:publisher_id",
         "description": "Get publisher details",
@@ -2745,7 +2745,7 @@
       },
       "put": {
         "tags": [
-          "agentic"
+          "agent"
         ],
         "summary": "PUT /api/organizations/:org_id/publishers/:publisher_id",
         "description": "Update a publisher",
@@ -2811,7 +2811,7 @@
     "/api/organizations/{organization_id}/publishers/{publisher_id}/pricing": {
       "put": {
         "tags": [
-          "agentic"
+          "agent"
         ],
         "summary": "PUT /api/organizations/:org_id/publishers/:publisher_id/pricing",
         "description": "Update publisher pricing config for a specific asset",
@@ -17922,12 +17922,12 @@
       "description": "Branch protection rules management"
     },
     {
-      "name": "agentic",
-      "description": "Agentic marketplace and paid query execution"
+      "name": "agent",
+      "description": "Agent marketplace and paid query execution"
     },
     {
-      "name": "agentic-internal",
-      "description": "Agentic internal endpoints for SerenDB proxy"
+      "name": "agent-internal",
+      "description": "Agent internal endpoints for SerenDB proxy"
     }
   ]
 }

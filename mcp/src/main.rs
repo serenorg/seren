@@ -143,10 +143,19 @@ async fn require_oauth_auth(
             .into_response();
     };
 
-    // Validate token against database
-    let is_valid = match state.store.get_access_token(&token).await {
-        Ok(Some(_access_token)) => true, // get_access_token checks expiry
-        Ok(None) => false,
+    // Validate token against database and get client metadata
+    let access_token = match state.store.get_access_token(&token).await {
+        Ok(Some(access_token)) => access_token,
+        Ok(None) => {
+            return (
+                axum::http::StatusCode::UNAUTHORIZED,
+                axum::Json(serde_json::json!({
+                    "error": "invalid_token",
+                    "error_description": "Token is invalid or expired"
+                })),
+            )
+                .into_response();
+        }
         Err(e) => {
             tracing::error!("Token validation error: {}", e);
             return (
@@ -160,15 +169,29 @@ async fn require_oauth_auth(
         }
     };
 
-    if !is_valid {
-        return (
-            axum::http::StatusCode::UNAUTHORIZED,
-            axum::Json(serde_json::json!({
-                "error": "invalid_token",
-                "error_description": "Token is invalid or expired"
-            })),
-        )
-            .into_response();
+    // Look up client metadata for agent tracking
+    if let Ok(Some(client)) = state.store.get_client(&access_token.client_id).await {
+        // Inject agent metadata headers for downstream tracking
+        if let Ok(v) = axum::http::HeaderValue::from_str(&client.id) {
+            req.headers_mut()
+                .insert(axum::http::header::HeaderName::from_static("x-agent-client-id"), v);
+        }
+        if let Ok(v) = axum::http::HeaderValue::from_str(&client.name) {
+            req.headers_mut()
+                .insert(axum::http::header::HeaderName::from_static("x-agent-client-name"), v);
+        }
+        if let Some(ref software_id) = client.software_id {
+            if let Ok(v) = axum::http::HeaderValue::from_str(software_id) {
+                req.headers_mut()
+                    .insert(axum::http::header::HeaderName::from_static("x-agent-software-id"), v);
+            }
+        }
+        if let Some(ref software_version) = client.software_version {
+            if let Ok(v) = axum::http::HeaderValue::from_str(software_version) {
+                req.headers_mut()
+                    .insert(axum::http::header::HeaderName::from_static("x-agent-software-version"), v);
+            }
+        }
     }
 
     // If the request includes a session id, remember/update the token for that session.

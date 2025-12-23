@@ -1,4 +1,4 @@
-pub mod agentic;
+pub mod agent;
 pub mod audit_logs;
 pub mod auth;
 pub mod billing;

@@ -203,15 +203,15 @@ enum Commands {
         #[command(subcommand)]
         action: ReplicationAction,
     },
-    /// Agentic marketplace and x402 payment commands
-    Agentic {
+    /// Agent marketplace and x402 payment commands
+    Agent {
         #[command(subcommand)]
-        action: AgenticAction,
+        action: AgentAction,
     },
 }
 
 #[derive(Subcommand)]
-enum AgenticAction {
+enum AgentAction {
     /// List publishers in the marketplace
     ListPublishers,
     /// Get details about a specific publisher
@@ -915,7 +915,7 @@ enum BillingAction {
         #[arg(long, default_value_t = true)]
         default: bool,
     },
-    /// Validate an agentic endpoint token
+    /// Validate an agent endpoint token
     ValidateToken {
         /// Token to validate
         token: String,
@@ -1888,27 +1888,27 @@ async fn main() -> anyhow::Result<()> {
                 commands::replication::delete_slot(&project_id, &branch_id, &slot_id, &ctx).await?
             }
         },
-        Commands::Agentic { action } => match action {
-            AgenticAction::ListPublishers => commands::agentic::list_publishers(&ctx).await?,
-            AgenticAction::GetPublisher { publisher } => {
-                commands::agentic::get_publisher(&publisher, &ctx).await?
+        Commands::Agent { action } => match action {
+            AgentAction::ListPublishers => commands::agent::list_publishers(&ctx).await?,
+            AgentAction::GetPublisher { publisher } => {
+                commands::agent::get_publisher(&publisher, &ctx).await?
             }
-            AgenticAction::GetAgentBalance { wallet_address } => {
-                commands::agentic::get_agent_balance(&wallet_address, &ctx).await?
+            AgentAction::GetAgentBalance { wallet_address } => {
+                commands::agent::get_agent_balance(&wallet_address, &ctx).await?
             }
-            AgenticAction::GetAgentPublisherBalance {
+            AgentAction::GetAgentPublisherBalance {
                 wallet_address,
                 publisher_id,
             } => {
-                commands::agentic::get_agent_publisher_balance(&wallet_address, &publisher_id, &ctx)
+                commands::agent::get_agent_publisher_balance(&wallet_address, &publisher_id, &ctx)
                     .await?
             }
-            AgenticAction::GetDepositRequirements {
+            AgentAction::GetDepositRequirements {
                 publisher,
                 amount,
                 agent_wallet,
             } => {
-                commands::agentic::get_deposit_requirements(
+                commands::agent::get_deposit_requirements(
                     &publisher,
                     &amount,
                     &agent_wallet,
