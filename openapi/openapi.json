@@ -19,6 +19,449 @@
     }
   ],
   "paths": {
+    "/api/admin/credits/grant": {
+      "post": {
+        "tags": [
+          "admin-credits"
+        ],
+        "summary": "POST /api/admin/credits/grant",
+        "description": "Grant credits to an organization",
+        "operationId": "grant_credits",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantCreditsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Credits granted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreditGrantResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Not authorized (admin only)"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/admin/credits/grants": {
+      "get": {
+        "tags": [
+          "admin-credits"
+        ],
+        "summary": "GET /api/admin/credits/grants",
+        "description": "List all credit grants with optional filters",
+        "operationId": "list_credit_grants",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Filter by organization ID",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "nullable": true
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "description": "Filter by credit source",
+            "required": false,
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/CreditSource"
+                }
+              ],
+              "nullable": true
+            }
+          },
+          {
+            "name": "active_only",
+            "in": "query",
+            "description": "Only show active grants (has remaining balance and not expired)",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default: 50)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Offset for pagination (default: 0)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Credit grants retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreditGrantsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized (admin only)"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/admin/marketplace/settings": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "GET /api/admin/marketplace/settings",
+        "operationId": "get_agent_marketplace_settings",
+        "responses": {
+          "200": {
+            "description": "Agent marketplace settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAgentMarketplaceSettingsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - not a platform admin"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "PUT /api/admin/marketplace/settings",
+        "operationId": "update_agent_marketplace_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAgentMarketplaceSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Agent marketplace settings updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAgentMarketplaceSettingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - not a platform admin"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/admin/organizations": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "GET /api/admin/organizations",
+        "description": "List all organizations with usage metrics.\nRequires platform admin access.",
+        "operationId": "list_all_organizations",
+        "responses": {
+          "200": {
+            "description": "List of all organizations with usage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminOrganizationsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - not a platform admin"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/admin/promo-codes": {
+      "get": {
+        "tags": [
+          "admin-credits"
+        ],
+        "summary": "GET /api/admin/promo-codes",
+        "description": "List all promotional codes with stats",
+        "operationId": "list_promo_codes",
+        "parameters": [
+          {
+            "name": "is_active",
+            "in": "query",
+            "description": "Filter by active status",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default: 50)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Offset for pagination (default: 0)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Promo codes retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoCodesWithStatsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized (admin only)"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "admin-credits"
+        ],
+        "summary": "POST /api/admin/promo-codes",
+        "description": "Create a new promotional code",
+        "operationId": "create_promo_code",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePromoCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Promo code created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoCodeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Not authorized (admin only)"
+          },
+          "409": {
+            "description": "Promo code already exists"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/admin/promo-codes/{id}": {
+      "patch": {
+        "tags": [
+          "admin-credits"
+        ],
+        "summary": "PATCH /api/admin/promo-codes/:id",
+        "description": "Update a promotional code",
+        "operationId": "update_promo_code",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Promo code ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePromoCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Promo code updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoCodeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Not authorized (admin only)"
+          },
+          "404": {
+            "description": "Promo code not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/admin/promo-codes/{id}/redemptions": {
+      "get": {
+        "tags": [
+          "admin-credits"
+        ],
+        "summary": "GET /api/admin/promo-codes/:id/redemptions",
+        "description": "Get redemption history for a promotional code",
+        "operationId": "get_promo_code_redemptions",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Promo code ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Redemptions retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoCodeRedemptionsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized (admin only)"
+          },
+          "404": {
+            "description": "Promo code not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/api/agent/api": {
       "post": {
         "tags": [
@@ -44,6 +487,57 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiResultResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "402": {
+            "description": "Payment required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRequiredResponseWithInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agent/api/stream": {
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "Execute a paid HTTP API request and stream the publisher response back to the client.",
+        "description": "This endpoint is intended for large responses where buffering the entire payload in memory\nis undesirable. Cost/settlement metadata is returned via headers.\n\nSupports both x402 v1 and v2 header formats.",
+        "operationId": "execute_api_stream",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "API response streamed successfully",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -528,7 +1022,7 @@
           "agent-internal"
         ],
         "summary": "Internal endpoint: Authorize marketplace session for proxy",
-        "description": "Called by SerenDB proxy when an agent connects with marketplace agent token.\n\nSupports two authentication modes:\n1. **Virtual wallets** (0xFFFF prefix): Platform-generated wallets for fiat users.\nThese are trusted implicitly - the wallet address itself proves ownership since\nit's deterministically derived from the user's ID.\n2. **Real Ethereum wallets**: Require EIP-191 personal_sign verification.",
+        "description": "Called by SerenDB proxy when an agent connects with marketplace agent token.\n\nSupports two authentication modes:\n1. **Virtual wallets** (0xFFFF prefix): Platform-generated wallets for fiat users.\nThese require a valid SerenCore user JWT (passed in `signature`) to prove ownership.\n2. **Real Ethereum wallets**: Require EIP-191 personal_sign verification.",
         "operationId": "internal_authorize",
         "requestBody": {
           "content": {
@@ -812,6 +1306,31 @@
           },
           "404": {
             "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agent/supported": {
+      "get": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "GET /api/agent/supported",
+        "description": "Returns supported x402 payment kinds for facilitator discovery.",
+        "operationId": "get_supported",
+        "responses": {
+          "200": {
+            "description": "Supported payment kinds",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupportedResponse"
+                }
+              }
+            }
           },
           "500": {
             "description": "Internal server error"
@@ -2789,6 +3308,204 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PublisherDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/organizations/{organization_id}/publishers/{publisher_id}/earnings": {
+      "get": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "GET /api/organizations/:org_id/publishers/:publisher_id/earnings",
+        "description": "List marketplace earnings for a publisher (per asset).",
+        "operationId": "get_org_publisher_earnings",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "path",
+            "description": "Publisher ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Earnings retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PublisherEarningsResponse"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/organizations/{organization_id}/publishers/{publisher_id}/payouts": {
+      "get": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "GET /api/organizations/:org_id/publishers/:publisher_id/payouts",
+        "description": "List payout requests for a publisher.",
+        "operationId": "list_org_publisher_payouts",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "path",
+            "description": "Publisher ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default: 50)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Offset for pagination",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Payouts retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PublisherPayoutResponse"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "POST /api/organizations/:org_id/publishers/:publisher_id/payouts",
+        "description": "Request a payout for a publisher's marketplace earnings.",
+        "operationId": "create_org_publisher_payout",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "path",
+            "description": "Publisher ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePublisherPayoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Payout request created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublisherPayoutResponse"
                 }
               }
             }
@@ -8816,6 +9533,150 @@
           }
         }
       },
+      "AdminAgentMarketplaceSettings": {
+        "type": "object",
+        "required": [
+          "gateway_wallets"
+        ],
+        "properties": {
+          "default_max_queries_per_minute": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "gateway_wallets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminGatewayWallet"
+            }
+          }
+        }
+      },
+      "AdminAgentMarketplaceSettingsResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AdminAgentMarketplaceSettings"
+          },
+          "pagination": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "AdminGatewayWallet": {
+        "type": "object",
+        "required": [
+          "network_id",
+          "network_name",
+          "chain_type",
+          "is_testnet"
+        ],
+        "properties": {
+          "chain_type": {
+            "type": "string"
+          },
+          "is_testnet": {
+            "type": "boolean"
+          },
+          "network_id": {
+            "type": "string"
+          },
+          "network_name": {
+            "type": "string"
+          },
+          "wallet_address": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AdminOrganization": {
+        "type": "object",
+        "description": "Organization data for admin view with usage metrics.",
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "is_personal",
+          "created_at",
+          "owner_email",
+          "plan_name",
+          "storage_bytes",
+          "compute_hours_this_month",
+          "project_count"
+        ],
+        "properties": {
+          "compute_hours_this_month": {
+            "type": "number",
+            "format": "double",
+            "description": "Compute hours used this billing period"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_personal": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner_email": {
+            "type": "string",
+            "description": "Owner's email address"
+          },
+          "plan_name": {
+            "type": "string",
+            "description": "Current plan name (e.g., \"free\", \"launch\", \"scale\")"
+          },
+          "project_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of projects in this organization"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "storage_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total storage used across all projects (bytes)"
+          },
+          "stripe_customer_id": {
+            "type": "string",
+            "description": "Stripe customer ID if billing is enabled",
+            "nullable": true
+          }
+        }
+      },
+      "AdminOrganizationsResponse": {
+        "type": "object",
+        "description": "Response wrapper for admin organizations list.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminOrganization"
+            }
+          }
+        }
+      },
       "AgentBalanceDataResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
@@ -9093,6 +9954,12 @@
           "publisher_id"
         ],
         "properties": {
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional asset id to pay with (defaults to publisher primary asset)",
+            "nullable": true
+          },
           "body": {
             "description": "Optional JSON body to send",
             "nullable": true
@@ -9134,6 +10001,7 @@
         "required": [
           "status",
           "body",
+          "response_bytes",
           "execution_time_ms",
           "cost",
           "asset_symbol",
@@ -9159,6 +10027,12 @@
           "payment_source": {
             "type": "string",
             "description": "Payment source used"
+          },
+          "response_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Size of the publisher response body in bytes (raw, before JSON parsing).",
+            "minimum": 0
           },
           "status": {
             "type": "integer",
@@ -10447,7 +11321,7 @@
         "properties": {
           "agent_wallet": {
             "type": "string",
-            "description": "Agent's wallet address (EVM 0x... or Solana base58)"
+            "description": "Agent's wallet address (EVM 0x...).\n\nNote: Fiat deposits currently only support EVM stablecoins."
           },
           "amount": {
             "type": "number",
@@ -10621,6 +11495,54 @@
           }
         }
       },
+      "CreatePromoCodeRequest": {
+        "type": "object",
+        "description": "Request to create a promo code (admin)",
+        "required": [
+          "code",
+          "credit_amount_usd"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "credit_amount_usd": {
+            "type": "string"
+          },
+          "credit_expires_days": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Days until granted credits expire (None = never)",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "max_redemptions": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Max total redemptions (None = unlimited)",
+            "nullable": true
+          },
+          "one_per_org": {
+            "type": "boolean",
+            "description": "If true, each org can only redeem once"
+          },
+          "valid_from": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Code becomes valid at this time (None = immediately)",
+            "nullable": true
+          },
+          "valid_until": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Code expires at this time (None = never)",
+            "nullable": true
+          }
+        }
+      },
       "CreatePublicationRequest": {
         "type": "object",
         "description": "Request to create a publication",
@@ -10649,6 +11571,31 @@
               "type": "string"
             },
             "description": "Tables to include (empty/null means ALL TABLES)"
+          }
+        }
+      },
+      "CreatePublisherPayoutRequest": {
+        "type": "object",
+        "description": "Request to create a publisher payout.",
+        "required": [
+          "asset_id"
+        ],
+        "properties": {
+          "amount_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Amount to withdraw in atomic units (defaults to max available)",
+            "nullable": true
+          },
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Asset to withdraw (must be an asset accepted by the publisher)"
+          },
+          "destination_wallet": {
+            "type": "string",
+            "description": "Destination wallet override (defaults to the publisher's configured wallet)",
+            "nullable": true
           }
         }
       },
@@ -11027,6 +11974,17 @@
             "nullable": true
           }
         }
+      },
+      "CreditSource": {
+        "type": "string",
+        "description": "Source of a credit grant",
+        "enum": [
+          "manual",
+          "promotional",
+          "trial",
+          "support",
+          "referral"
+        ]
       },
       "CreditTransaction": {
         "type": "object",
@@ -11945,6 +12903,12 @@
           "query"
         ],
         "properties": {
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional asset id to estimate pricing for (defaults to publisher primary asset)",
+            "nullable": true
+          },
           "publisher_id": {
             "type": "string",
             "format": "uuid",
@@ -12171,6 +13135,37 @@
           }
         }
       },
+      "GrantCreditsRequest": {
+        "type": "object",
+        "description": "Request to grant credits to an organization (admin)",
+        "required": [
+          "organization_id",
+          "amount_usd",
+          "source"
+        ],
+        "properties": {
+          "amount_usd": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "expires_in_days": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Days until expiration (None = never expires)",
+            "nullable": true
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source": {
+            "$ref": "#/components/schemas/CreditSource"
+          }
+        }
+      },
       "InternalAuthorizeRequest": {
         "type": "object",
         "description": "Internal authorization request from SerenDB proxy",
@@ -12189,7 +13184,7 @@
           },
           "signature": {
             "type": "string",
-            "description": "EIP-191 personal_sign of `seren:marketplace:<publisher_slug>:<agent_wallet>`\nRequired for non-virtual wallets",
+            "description": "Authorization proof.\n\n- For real on-chain wallets: EIP-191 personal_sign of\n`seren:marketplace:<publisher_slug>:<agent_wallet>`\n- For virtual wallets (0xFFFF...): SerenCore user JWT for proof-of-ownership",
             "nullable": true
           }
         }
@@ -12201,6 +13196,19 @@
           "authorized"
         ],
         "properties": {
+          "agent_wallet": {
+            "type": "string",
+            "description": "Canonical agent wallet address for the authorized session.\n\n- For virtual wallets: derived from the provided SerenCore credential (JWT/API key).\n- For on-chain wallets: the wallet address provided by the agent.",
+            "nullable": true
+          },
+          "asset": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ProxyAssetInfo"
+              }
+            ],
+            "nullable": true
+          },
           "authorized": {
             "type": "boolean",
             "description": "Whether authorization succeeded"
@@ -12799,6 +13807,24 @@
           }
         }
       },
+      "ListPublisherPayoutsParams": {
+        "type": "object",
+        "description": "Query params for listing publisher payouts.",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Maximum number of results (default: 50)",
+            "nullable": true
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Offset for pagination",
+            "nullable": true
+          }
+        }
+      },
       "ListPublishersParams": {
         "type": "object",
         "description": "Query parameters for listing publishers",
@@ -12972,6 +13998,12 @@
           "amount": {
             "type": "string",
             "description": "Amount to deposit in the configured asset (decimal string, e.g., \"10.50\")"
+          },
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional asset id to deposit (defaults to publisher primary asset)",
+            "nullable": true
           },
           "publisher_id": {
             "type": "string",
@@ -14173,24 +15205,78 @@
               "seren"
             ],
             "properties": {
+              "paymentRequirements": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PaymentRequirementsV1"
+                },
+                "description": "Legacy V1 payment requirements (x402 v1) for clients that don't yet support v2."
+              },
               "seren": {
                 "$ref": "#/components/schemas/PaymentRequestInfo"
               }
             }
           }
         ],
-        "description": "402 Payment Required response body (with Seren-specific extensions)\nContains both V1 and V2 402 formats for backwards compatibility"
+        "description": "402 Payment Required response body (with Seren-specific extensions)\nContains both V2 (official) and a legacy V1 requirements list for backwards compatibility."
       },
       "PaymentRequirements": {
+        "type": "object",
+        "description": "x402 V2 Payment Requirements\n\nFollows the official x402 V2 specification.\nSee: https://github.com/coinbase/x402/blob/main/typescript/packages/core/src/types/payments.ts",
+        "required": [
+          "scheme",
+          "network",
+          "asset",
+          "amount",
+          "payTo",
+          "maxTimeoutSeconds",
+          "extra"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "Amount in atomic units (token decimals)"
+          },
+          "asset": {
+            "type": "string",
+            "description": "Payment asset address (token contract)"
+          },
+          "extra": {
+            "description": "Extra information about the payment (scheme-specific)\n\nFor EVM/exact scheme, this typically contains:\n- `name`: Asset name (e.g., \"USD Coin\")\n- `version`: Asset version\n- `eip712TypedData`: EIP-712 typed data for signing (EIP-3009)\n- `paymentRequestId`: Correlation ID\n- `expires`: Expiration timestamp\n- `estimate`: Cost breakdown (optional)\n- `settlementMethod`: \"eip3009\" or \"transfer\""
+          },
+          "maxTimeoutSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Maximum time in seconds for the resource server to respond"
+          },
+          "network": {
+            "type": "string",
+            "description": "Network for payment in CAIP-2 format (e.g., \"eip155:8453\" for Base mainnet)"
+          },
+          "payTo": {
+            "type": "string",
+            "description": "Address to pay value to (publisher or gateway wallet)"
+          },
+          "scheme": {
+            "type": "string",
+            "description": "Payment scheme (e.g., \"exact\")"
+          }
+        }
+      },
+      "PaymentRequirementsV1": {
         "type": "object",
         "description": "x402 V1 Payment Requirements - original format for backwards compatibility\n\nKey differences from V2:\n- Uses `maxAmountRequired` instead of `amount`\n- Uses `receiver` instead of `payTo`\n- Embeds `resource`, `description`, `mimeType` directly (V2 moves to top-level)\n- Includes `paymentRequestId` and `expires` directly\n- EIP-712 data embedded in requirements (V2 puts in `extra`)",
         "required": [
           "version",
           "scheme",
           "network",
+          "resource",
+          "description",
+          "mimeType",
           "maxAmountRequired",
           "asset",
           "receiver",
+          "maxTimeoutSeconds",
           "paymentRequestId",
           "expires",
           "eip712TypedData"
@@ -14199,6 +15285,10 @@
           "asset": {
             "type": "string",
             "description": "Payment asset address (token contract)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of the resource"
           },
           "eip712TypedData": {
             "$ref": "#/components/schemas/Eip712TypedData"
@@ -14220,6 +15310,15 @@
             "type": "string",
             "description": "Maximum amount in atomic units (token decimals)"
           },
+          "maxTimeoutSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Maximum time in seconds for the resource server to respond"
+          },
+          "mimeType": {
+            "type": "string",
+            "description": "MIME type of the resource response"
+          },
           "network": {
             "type": "string",
             "description": "Network for payment (e.g., \"base\", \"base-sepolia\")"
@@ -14231,6 +15330,10 @@
           "receiver": {
             "type": "string",
             "description": "Payment recipient address (gateway or publisher wallet)"
+          },
+          "resource": {
+            "type": "string",
+            "description": "URL of the resource being paid for"
           },
           "scheme": {
             "type": "string",
@@ -14251,6 +15354,17 @@
           "onchain",
           "prepaid_balance",
           "credits"
+        ]
+      },
+      "PayoutStatus": {
+        "type": "string",
+        "description": "Status of a publisher payout request.",
+        "enum": [
+          "queued",
+          "processing",
+          "completed",
+          "failed",
+          "cancelled"
         ]
       },
       "Permission": {
@@ -14577,9 +15691,19 @@
             "type": "boolean"
           },
           "pricing_model": {
-            "type": "string"
+            "$ref": "#/components/schemas/PricingModel"
           }
         }
+      },
+      "PricingModel": {
+        "type": "string",
+        "description": "Pricing model used to interpret pricing units.",
+        "enum": [
+          "per_row",
+          "per_request",
+          "per_byte",
+          "tiered"
+        ]
       },
       "Project": {
         "type": "object",
@@ -15224,6 +16348,42 @@
           }
         }
       },
+      "ProxyAssetInfo": {
+        "type": "object",
+        "description": "Asset info returned to proxy for metering and settlement.",
+        "required": [
+          "asset_id",
+          "asset_symbol",
+          "asset_decimals",
+          "network_id"
+        ],
+        "properties": {
+          "asset_decimals": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Asset decimals",
+            "minimum": 0
+          },
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Asset ID"
+          },
+          "asset_symbol": {
+            "type": "string",
+            "description": "Asset symbol (e.g., \"USDC\")"
+          },
+          "contract_address": {
+            "type": "string",
+            "description": "Token contract address (EVM) or mint address (Solana) when applicable.",
+            "nullable": true
+          },
+          "network_id": {
+            "type": "string",
+            "description": "Network identifier (CAIP-2)"
+          }
+        }
+      },
       "ProxyBalanceInfo": {
         "type": "object",
         "description": "Agent balance info returned to proxy",
@@ -15254,6 +16414,7 @@
         "type": "object",
         "description": "Pricing info returned to proxy",
         "required": [
+          "pricing_model",
           "base_price_per_1000_rows",
           "markup_multiplier",
           "min_charge",
@@ -15289,6 +16450,9 @@
           "prepaid_enabled": {
             "type": "boolean",
             "description": "Whether prepaid balance is accepted"
+          },
+          "pricing_model": {
+            "$ref": "#/components/schemas/PricingModel"
           }
         }
       },
@@ -15456,6 +16620,133 @@
           }
         }
       },
+      "PublisherEarningsResponse": {
+        "type": "object",
+        "description": "Publisher earnings summary response (per asset).",
+        "required": [
+          "publisher_id",
+          "publisher_name",
+          "publisher_slug",
+          "wallet_address",
+          "asset",
+          "total_revenue",
+          "total_withdrawn",
+          "pending_payout",
+          "available",
+          "total_revenue_atomic",
+          "total_withdrawn_atomic",
+          "pending_payout_atomic",
+          "available_atomic",
+          "request_count"
+        ],
+        "properties": {
+          "asset": {
+            "$ref": "#/components/schemas/AssetInfo"
+          },
+          "available": {
+            "type": "number",
+            "format": "double"
+          },
+          "available_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pending_payout": {
+            "type": "number",
+            "format": "double"
+          },
+          "pending_payout_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "publisher_name": {
+            "type": "string"
+          },
+          "publisher_slug": {
+            "type": "string"
+          },
+          "request_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_revenue": {
+            "type": "number",
+            "format": "double"
+          },
+          "total_revenue_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_withdrawn": {
+            "type": "number",
+            "format": "double"
+          },
+          "total_withdrawn_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "wallet_address": {
+            "type": "string"
+          }
+        }
+      },
+      "PublisherPayoutResponse": {
+        "type": "object",
+        "description": "Publisher payout response.",
+        "required": [
+          "id",
+          "publisher_id",
+          "asset",
+          "amount",
+          "amount_atomic",
+          "destination_wallet",
+          "status",
+          "requested_at"
+        ],
+        "properties": {
+          "amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "amount_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "asset": {
+            "$ref": "#/components/schemas/AssetInfo"
+          },
+          "destination_wallet": {
+            "type": "string"
+          },
+          "error_message": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requested_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PayoutStatus"
+          },
+          "tx_hash": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "PublisherResponse": {
         "type": "object",
         "description": "Publisher response (excludes sensitive fields)",
@@ -15583,6 +16874,12 @@
           "query"
         ],
         "properties": {
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional asset id to pay with (defaults to publisher primary asset)",
+            "nullable": true
+          },
           "database": {
             "type": "string",
             "description": "Optional database name",
@@ -16915,6 +18212,25 @@
           }
         }
       },
+      "UpdateAgentMarketplaceSettingsRequest": {
+        "type": "object",
+        "properties": {
+          "default_max_queries_per_minute": {
+            "type": "integer",
+            "format": "int32",
+            "description": "If omitted, leave unchanged. If null, clear the setting.",
+            "nullable": true
+          },
+          "gateway_wallets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UpdateGatewayWalletRequest"
+            },
+            "description": "If omitted, leave gateway wallets unchanged.",
+            "nullable": true
+          }
+        }
+      },
       "UpdateBranchProtectionRequest": {
         "type": "object",
         "description": "Request to update branch protection",
@@ -16979,6 +18295,22 @@
           "suspend_timeout_seconds": {
             "type": "integer",
             "format": "int32",
+            "nullable": true
+          }
+        }
+      },
+      "UpdateGatewayWalletRequest": {
+        "type": "object",
+        "required": [
+          "network_id"
+        ],
+        "properties": {
+          "network_id": {
+            "type": "string"
+          },
+          "wallet_address": {
+            "type": "string",
+            "description": "Set to null to remove the configured wallet for this network.",
             "nullable": true
           }
         }
@@ -17078,7 +18410,11 @@
             "nullable": true
           },
           "pricing_model": {
-            "type": "string",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PricingModel"
+              }
+            ],
             "nullable": true
           }
         }
@@ -17126,6 +18462,30 @@
           },
           "protected_branches_only": {
             "type": "boolean",
+            "nullable": true
+          }
+        }
+      },
+      "UpdatePromoCodeRequest": {
+        "type": "object",
+        "description": "Request to update a promo code (admin)",
+        "properties": {
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "is_active": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "max_redemptions": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "valid_until": {
+            "type": "string",
+            "format": "date-time",
             "nullable": true
           }
         }
@@ -17431,6 +18791,12 @@
           "publisher_id"
         ],
         "properties": {
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional asset id to pay with (defaults to publisher primary asset)",
+            "nullable": true
+          },
           "body": {
             "description": "Optional JSON body to send",
             "nullable": true
@@ -17534,6 +18900,12 @@
           "query"
         ],
         "properties": {
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional asset id to pay with (defaults to publisher primary asset)",
+            "nullable": true
+          },
           "database": {
             "type": "string",
             "description": "Optional database name",
