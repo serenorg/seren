@@ -243,6 +243,9 @@ pub struct EstimateQueryCostParams {
     pub publisher: String,
     /// SQL query to estimate cost for
     pub query: String,
+    /// Optional asset ID for cost estimate (defaults to publisher's default asset)
+    #[serde(default)]
+    pub asset_id: Option<Uuid>,
 }
 
 /// Parameters for getting agent balance summary
@@ -292,6 +295,9 @@ pub struct ExecutePaidQueryParams {
     /// Database name (optional, defaults to publisher's default database)
     #[serde(default)]
     pub database: Option<String>,
+    /// Optional asset ID for payment (defaults to publisher's default asset)
+    #[serde(default)]
+    pub asset_id: Option<Uuid>,
     /// Optional idempotency key (UUID)
     #[serde(default)]
     pub request_id: Option<Uuid>,
@@ -302,6 +308,9 @@ pub struct ExecutePaidQueryParams {
 pub struct ExecutePaidApiParams {
     /// Publisher slug or UUID
     pub publisher: String,
+    /// Optional asset ID for payment (defaults to publisher's default asset)
+    #[serde(default)]
+    pub asset_id: Option<Uuid>,
     /// HTTP method (default: POST)
     #[serde(default)]
     pub method: Option<String>,
@@ -327,10 +336,13 @@ pub struct ExecutePaidApiParams {
 pub struct GetX402DepositRequirementsParams {
     /// Publisher slug or UUID
     pub publisher: String,
-    /// Amount to deposit in USDC (decimal string, e.g., "10.50")
+    /// Amount to deposit (decimal string, e.g., "10.50")
     pub amount: String,
     /// Agent wallet address to deposit for (0x...)
     pub agent_wallet: String,
+    /// Optional asset ID for deposit (defaults to publisher's default asset)
+    #[serde(default)]
+    pub asset_id: Option<Uuid>,
 }
 
 // ============================================================================
@@ -1598,6 +1610,7 @@ impl SerenMcpServer {
         let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
         let body = seren::EstimateRequestBody {
             publisher_id,
+            asset_id: params.asset_id,
             query: params.query,
         };
         let estimate = api_client
@@ -1722,11 +1735,13 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let token = self.bearer_token(&extensions)?;
-        let http_client = self.build_http_client(&token)?;
+        let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
+        let http_client = self.build_http_client(&token, &agent_metadata)?;
         let api_client = self.api_client(&extensions)?;
         let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
         let body = seren::UserQueryRequestBody {
             publisher_id,
+            asset_id: params.asset_id,
             query: params.query,
             database: params.database,
             request_id: params.request_id,
@@ -1783,11 +1798,13 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let token = self.bearer_token(&extensions)?;
-        let http_client = self.build_http_client(&token)?;
+        let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
+        let http_client = self.build_http_client(&token, &agent_metadata)?;
         let api_client = self.api_client(&extensions)?;
         let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
         let body = seren::UserApiRequestBody {
             publisher_id,
+            asset_id: params.asset_id,
             method: params.method,
             path: params.path,
             headers: params.headers,
@@ -1849,6 +1866,7 @@ impl SerenMcpServer {
         let http_client = reqwest::Client::new();
         let body = seren::OnchainDepositRequest {
             publisher_id,
+            asset_id: params.asset_id,
             amount: params.amount,
         };
 
