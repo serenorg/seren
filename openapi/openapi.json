@@ -9536,6 +9536,10 @@
       "AdminAgentMarketplaceSettings": {
         "type": "object",
         "required": [
+          "max_api_response_bytes",
+          "settlement_batch_size",
+          "payout_batch_size",
+          "payment_request_expiry_minutes",
           "gateway_wallets"
         ],
         "properties": {
@@ -9549,6 +9553,26 @@
             "items": {
               "$ref": "#/components/schemas/AdminGatewayWallet"
             }
+          },
+          "max_api_response_bytes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Maximum size in bytes for publisher API responses (default: 10 MiB)"
+          },
+          "payment_request_expiry_minutes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Minutes before payment requests expire"
+          },
+          "payout_batch_size": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of payouts to process per worker run"
+          },
+          "settlement_batch_size": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of settlements to process per worker run"
           }
         }
       },
@@ -18227,6 +18251,30 @@
               "$ref": "#/components/schemas/UpdateGatewayWalletRequest"
             },
             "description": "If omitted, leave gateway wallets unchanged.",
+            "nullable": true
+          },
+          "max_api_response_bytes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Maximum size in bytes for publisher API responses",
+            "nullable": true
+          },
+          "payment_request_expiry_minutes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Minutes before payment requests expire",
+            "nullable": true
+          },
+          "payout_batch_size": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of payouts to process per worker run",
+            "nullable": true
+          },
+          "settlement_batch_size": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of settlements to process per worker run",
             "nullable": true
           }
         }
