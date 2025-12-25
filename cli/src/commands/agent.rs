@@ -4,15 +4,6 @@ use uuid::Uuid;
 
 use crate::{CommandContext, OutputFormat, defaults, output};
 
-fn first_n_categories(categories: &[String], max: usize) -> String {
-    categories
-        .iter()
-        .take(max)
-        .map(|c| c.as_str())
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
 /// List all active publishers in the marketplace
 pub async fn list_publishers(ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
@@ -30,56 +21,7 @@ pub async fn list_publishers(ctx: &CommandContext) -> Result<()> {
     let publishers = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&publishers)?,
-        OutputFormat::Table => {
-            println!("{}", "Marketplace Publishers".bold());
-            println!();
-            for pub_info in &publishers.data {
-                println!("  {} ({})", pub_info.name.bold(), pub_info.slug.dimmed());
-                println!("    ID:          {}", pub_info.id);
-                if let Some(resource) = &pub_info.resource_name {
-                    println!("    Resource:    {}", resource);
-                }
-                if let Some(desc) = pub_info
-                    .resource_description
-                    .as_ref()
-                    .or(pub_info.description.as_ref())
-                {
-                    println!("    Description: {}", desc);
-                }
-                if !pub_info.categories.is_empty() {
-                    println!(
-                        "    Categories:  {}{}",
-                        first_n_categories(&pub_info.categories, 5),
-                        if pub_info.categories.len() > 5 {
-                            "…"
-                        } else {
-                            ""
-                        }
-                    );
-                }
-                println!("    Type:        {:?}", pub_info.publisher_type);
-                println!("    Source:      {:?}", pub_info.source_type);
-                println!(
-                    "    Verified:    {}",
-                    if pub_info.is_verified {
-                        "Yes".green()
-                    } else {
-                        "No".yellow()
-                    }
-                );
-                if let Some(pricing_list) = &pub_info.pricing {
-                    if let Some(first_pricing) = pricing_list.first() {
-                        let asset = first_pricing.asset_symbol.as_deref().unwrap_or("?");
-                        println!(
-                            "    Pricing:     {:.6} {}/1000 rows",
-                            first_pricing.base_price_per_1000_rows, asset
-                        );
-                    }
-                }
-                println!();
-            }
-            println!("Total: {} publishers", publishers.data.len());
-        }
+        OutputFormat::Table => output::print_publishers_table(&publishers.data),
     }
 
     Ok(())
@@ -96,79 +38,7 @@ pub async fn get_publisher(publisher: &str, ctx: &CommandContext) -> Result<()> 
         .map_err(|e| anyhow::anyhow!("Failed to get publisher: {}", e))?;
 
     let pub_info = response.into_inner();
-    match ctx.format {
-        OutputFormat::Json => output::print_json(&pub_info)?,
-        OutputFormat::Table => {
-            let data = &pub_info.data;
-            println!("{}", "Publisher Details".bold());
-            println!();
-            println!("  Name:        {}", data.name.bold());
-            println!("  Slug:        {}", data.slug);
-            println!("  ID:          {}", data.id);
-            if let Some(resource) = &data.resource_name {
-                println!("  Resource:    {}", resource);
-            }
-            if let Some(desc) = data
-                .resource_description
-                .as_ref()
-                .or(data.description.as_ref())
-            {
-                println!("  Description: {}", desc);
-            }
-            if !data.categories.is_empty() {
-                println!(
-                    "  Categories:  {}",
-                    first_n_categories(&data.categories, 20)
-                );
-            }
-            println!("  Type:        {:?}", data.publisher_type);
-            println!("  Source:      {:?}", data.source_type);
-            println!(
-                "  Verified:    {}",
-                if data.is_verified {
-                    "Yes".green()
-                } else {
-                    "No".yellow()
-                }
-            );
-            println!(
-                "  Active:      {}",
-                if data.is_active { "Yes" } else { "No" }
-            );
-            println!("  Wallet:      {}", data.wallet_address);
-            println!("  Network:     {}", data.wallet_network_id);
-            if let Some(usage) = &data.usage_example {
-                println!();
-                println!("{}", "Usage Example".bold());
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(usage)
-                        .unwrap_or_else(|_| "<invalid json>".to_string())
-                );
-            }
-            if let Some(pricing_list) = &data.pricing {
-                if !pricing_list.is_empty() {
-                    println!();
-                    println!("{}", "Pricing".bold());
-                    for pricing in pricing_list {
-                        let asset_label = pricing.asset_symbol.as_deref().unwrap_or("Unknown");
-                        println!("  {}:", asset_label);
-                        println!(
-                            "    Base Price:      {:.6} {}/1000 rows",
-                            pricing.base_price_per_1000_rows, asset_label
-                        );
-                        println!(
-                            "    Min Charge:      {:.6} {}",
-                            pricing.min_charge, asset_label
-                        );
-                        println!("    Markup:          {:.2}x", pricing.markup_multiplier);
-                        println!("    Prepaid Enabled: {}", pricing.prepaid_enabled);
-                        println!("    On-chain Enabled: {}", pricing.onchain_enabled);
-                    }
-                }
-            }
-        }
-    }
+    output::print_marketplace_publisher(&pub_info.data, ctx.format)?;
 
     Ok(())
 }

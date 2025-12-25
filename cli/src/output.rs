@@ -519,6 +519,208 @@ pub fn print_billing_health_table(health: &seren::BillingHealthResponse) {
     }
 }
 
+fn debug_trim_quotes<T: std::fmt::Debug>(value: &T) -> String {
+    format!("{value:?}").trim_matches('"').to_string()
+}
+
+fn join_categories(categories: &[String], max: usize) -> String {
+    let joined = categories
+        .iter()
+        .take(max)
+        .map(|c| c.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    if categories.len() > max {
+        format!("{joined}…")
+    } else {
+        joined
+    }
+}
+
+pub fn print_publishers_table(publishers: &[seren::PublisherResponse]) {
+    if publishers.is_empty() {
+        println!("No publishers found");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("ID").fg(Color::Green),
+        Cell::new("Slug").fg(Color::Green),
+        Cell::new("Name").fg(Color::Green),
+        Cell::new("Source").fg(Color::Green),
+        Cell::new("Active").fg(Color::Green),
+        Cell::new("Verified").fg(Color::Green),
+        Cell::new("Resource").fg(Color::Green),
+        Cell::new("Categories").fg(Color::Green),
+        Cell::new("Base Price").fg(Color::Green),
+    ]);
+
+    for publisher in publishers {
+        let categories = if publisher.categories.is_empty() {
+            "-".to_string()
+        } else {
+            join_categories(&publisher.categories, 5)
+        };
+
+        let base_price = publisher
+            .pricing
+            .as_ref()
+            .and_then(|prices| prices.first())
+            .map(|p| {
+                let symbol = p.asset_symbol.as_deref().unwrap_or("?");
+                format!("{} {}/1000", p.base_price_per_1000_rows, symbol)
+            })
+            .unwrap_or_else(|| "-".to_string());
+
+        table.add_row(vec![
+            Cell::new(publisher.id.to_string()),
+            Cell::new(&publisher.slug),
+            Cell::new(&publisher.name),
+            Cell::new(debug_trim_quotes(&publisher.source_type)),
+            Cell::new(if publisher.is_active { "Yes" } else { "No" }),
+            Cell::new(if publisher.is_verified { "Yes" } else { "No" }),
+            Cell::new(publisher.resource_name.as_deref().unwrap_or("-")),
+            Cell::new(categories),
+            Cell::new(base_price),
+        ]);
+    }
+
+    println!("{}", "Marketplace Publishers".bold());
+    println!("{table}");
+}
+
+pub fn print_marketplace_publisher(
+    publisher: &seren::PublisherResponse,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
+    match format {
+        OutputFormat::Json => print_json(publisher)?,
+        OutputFormat::Table => {
+            let mut table = Table::new();
+            table
+                .load_preset(UTF8_FULL)
+                .set_content_arrangement(ContentArrangement::Dynamic);
+
+            table.set_header(vec![
+                Cell::new("Field").fg(Color::Green),
+                Cell::new("Value").fg(Color::Green),
+            ]);
+
+            table.add_row(vec![Cell::new("ID"), Cell::new(publisher.id.to_string())]);
+            table.add_row(vec![Cell::new("Name"), Cell::new(&publisher.name)]);
+            table.add_row(vec![Cell::new("Slug"), Cell::new(&publisher.slug)]);
+            table.add_row(vec![
+                Cell::new("Publisher Type"),
+                Cell::new(debug_trim_quotes(&publisher.publisher_type)),
+            ]);
+            table.add_row(vec![
+                Cell::new("Source Type"),
+                Cell::new(debug_trim_quotes(&publisher.source_type)),
+            ]);
+            table.add_row(vec![
+                Cell::new("Active"),
+                Cell::new(if publisher.is_active { "Yes" } else { "No" }),
+            ]);
+            table.add_row(vec![
+                Cell::new("Verified"),
+                Cell::new(if publisher.is_verified { "Yes" } else { "No" }),
+            ]);
+            if let Some(name) = &publisher.resource_name {
+                table.add_row(vec![Cell::new("Resource Name"), Cell::new(name)]);
+            }
+            if let Some(desc) = publisher
+                .resource_description
+                .as_ref()
+                .or(publisher.description.as_ref())
+            {
+                table.add_row(vec![Cell::new("Description"), Cell::new(desc)]);
+            }
+            if !publisher.categories.is_empty() {
+                table.add_row(vec![
+                    Cell::new("Categories"),
+                    Cell::new(publisher.categories.join(", ")),
+                ]);
+            }
+            table.add_row(vec![
+                Cell::new("Wallet Address"),
+                Cell::new(&publisher.wallet_address),
+            ]);
+            table.add_row(vec![
+                Cell::new("Wallet Network"),
+                Cell::new(&publisher.wallet_network_id),
+            ]);
+            table.add_row(vec![
+                Cell::new("Total Queries"),
+                Cell::new(publisher.total_queries.to_string()),
+            ]);
+            table.add_row(vec![
+                Cell::new("Agents Served"),
+                Cell::new(publisher.unique_agents_served.to_string()),
+            ]);
+            table.add_row(vec![
+                Cell::new("Created"),
+                Cell::new(publisher.created_at.to_string()),
+            ]);
+            table.add_row(vec![
+                Cell::new("Updated"),
+                Cell::new(publisher.updated_at.to_string()),
+            ]);
+
+            println!("{}", "Publisher Details".bold());
+            println!("{table}");
+
+            if let Some(pricing) = &publisher.pricing {
+                if !pricing.is_empty() {
+                    let mut pricing_table = Table::new();
+                    pricing_table
+                        .load_preset(UTF8_FULL)
+                        .set_content_arrangement(ContentArrangement::Dynamic);
+
+                    pricing_table.set_header(vec![
+                        Cell::new("Asset").fg(Color::Green),
+                        Cell::new("Model").fg(Color::Green),
+                        Cell::new("Base/1000").fg(Color::Green),
+                        Cell::new("Min Charge").fg(Color::Green),
+                        Cell::new("Markup").fg(Color::Green),
+                        Cell::new("Prepaid").fg(Color::Green),
+                        Cell::new("On-chain").fg(Color::Green),
+                    ]);
+
+                    for p in pricing {
+                        let asset = p.asset_symbol.as_deref().unwrap_or("Unknown");
+                        pricing_table.add_row(vec![
+                            Cell::new(asset),
+                            Cell::new(debug_trim_quotes(&p.pricing_model)),
+                            Cell::new(&p.base_price_per_1000_rows),
+                            Cell::new(&p.min_charge),
+                            Cell::new(&p.markup_multiplier),
+                            Cell::new(if p.prepaid_enabled { "Yes" } else { "No" }),
+                            Cell::new(if p.onchain_enabled { "Yes" } else { "No" }),
+                        ]);
+                    }
+
+                    println!();
+                    println!("{}", "Pricing".bold());
+                    println!("{pricing_table}");
+                }
+            }
+
+            if let Some(usage) = &publisher.usage_example {
+                println!();
+                println!("{}", "Usage Example".bold());
+                println!("{}", serde_json::to_string_pretty(usage)?);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub fn print_database(
     database: &seren::DatabaseCreated,
     format: OutputFormat,
