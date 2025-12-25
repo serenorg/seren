@@ -35,17 +35,21 @@ pub async fn show(format: OutputFormat) -> Result<()> {
     match format {
         OutputFormat::Json => output::print_json(&context)?,
         OutputFormat::Table => {
-            println!("Current Context:");
-            if let Some(pid) = &context.project_id {
-                println!("  Project ID: {}", pid);
-            } else {
-                println!("  Project ID: (not set)");
-            }
-            if let Some(oid) = &context.org_id {
-                println!("  Org ID: {}", oid);
-            } else {
-                println!("  Org ID: (not set)");
-            }
+            let rows = [
+                (
+                    "Project ID",
+                    context
+                        .project_id
+                        .as_deref()
+                        .unwrap_or("(not set)")
+                        .to_string(),
+                ),
+                (
+                    "Org ID",
+                    context.org_id.as_deref().unwrap_or("(not set)").to_string(),
+                ),
+            ];
+            output::print_key_value_table(Some("Current Context"), &rows);
         }
     }
 

@@ -206,10 +206,7 @@ pub async fn my_permissions(org_id: &str, ctx: &CommandContext) -> Result<()> {
     match ctx.format {
         OutputFormat::Json => output::print_json(&permissions)?,
         OutputFormat::Table => {
-            println!("Your permissions:");
-            for perm in &permissions {
-                println!("  - {}", perm);
-            }
+            output::print_list_table(Some("Your Permissions"), "Permission", &permissions)
         }
     }
 

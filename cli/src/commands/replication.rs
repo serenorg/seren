@@ -23,20 +23,7 @@ pub async fn get_settings(project_id: &str, ctx: &CommandContext) -> Result<()> 
     let settings = response.into_inner().data;
     match ctx.format {
         OutputFormat::Json => output::print_json(&settings)?,
-        OutputFormat::Table => {
-            println!("{}", "Logical Replication Settings".bold());
-            println!("  Project ID: {}", settings.project_id);
-            println!(
-                "  Enabled: {}",
-                if settings.enabled {
-                    "Yes".green()
-                } else {
-                    "No".red()
-                }
-            );
-            println!("  Publications Count: {}", settings.publications_count);
-            println!("  Slots Count: {}", settings.slots_count);
-        }
+        OutputFormat::Table => output::print_replication_settings(&settings),
     }
 
     Ok(())
@@ -67,7 +54,7 @@ pub async fn enable(project_id: &str, ctx: &CommandContext) -> Result<()> {
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&settings)?,
-        OutputFormat::Table => {}
+        OutputFormat::Table => output::print_replication_settings(&settings.data),
     }
 
     Ok(())

@@ -90,11 +90,7 @@ pub async fn create(
         OutputFormat::Json => output::print_json(&created)?,
         OutputFormat::Table => {
             // Print basic info without the secret (already shown above)
-            println!("Webhook ID: {}", data.webhook.id);
-            println!("Name: {}", data.webhook.name);
-            println!("URL: {}", data.webhook.url);
-            println!("Events: {}", data.webhook.events.join(", "));
-            println!("Enabled: {}", data.webhook.enabled);
+            output::print_webhooks_table(std::slice::from_ref(&data.webhook));
         }
     }
 
@@ -225,12 +221,11 @@ pub async fn list_event_types(ctx: &CommandContext) -> Result<()> {
     let event_types = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&event_types)?,
-        OutputFormat::Table => {
-            println!("{}", "Available Webhook Event Types:".bold());
-            for event_type in &event_types {
-                println!("  - {}", event_type);
-            }
-        }
+        OutputFormat::Table => output::print_list_table(
+            Some("Available Webhook Event Types"),
+            "Event Type",
+            &event_types,
+        ),
     }
 
     Ok(())

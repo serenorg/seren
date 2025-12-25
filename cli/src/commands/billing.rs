@@ -26,10 +26,7 @@ pub async fn generate_invoices(year: i32, month: i32, ctx: &CommandContext) -> R
     match ctx.format {
         OutputFormat::Json => output::print_json(&result)?,
         OutputFormat::Table => {
-            println!("\nInvoice IDs:");
-            for id in &result.data.invoice_ids {
-                println!("  {}", id);
-            }
+            output::print_list_table(Some("Invoice IDs"), "Invoice ID", &result.data.invoice_ids)
         }
     }
 
@@ -49,34 +46,7 @@ pub async fn get_invoice(invoice_id: &str, ctx: &CommandContext) -> Result<()> {
     let invoice = response.into_inner().data;
     match ctx.format {
         OutputFormat::Json => output::print_json(&invoice)?,
-        OutputFormat::Table => {
-            println!("{}", "Invoice Details".bold());
-            println!("  ID:              {}", invoice.id);
-            println!("  Number:          {}", invoice.invoice_number);
-            println!("  Organization:    {}", invoice.organization_id);
-            println!(
-                "  Period:          {} to {}",
-                invoice.period_start, invoice.period_end
-            );
-            println!("  Status:          {}", invoice.status);
-            println!("  Subtotal:        ${:.2}", invoice.subtotal_usd);
-            println!("  Tax:             ${:.2}", invoice.tax_usd);
-            println!(
-                "  Total:           ${:.2}",
-                invoice.total_usd.to_string().bold()
-            );
-
-            if !invoice.line_items.is_empty() {
-                println!("\n{}", "Line Items".bold());
-                for item in &invoice.line_items {
-                    println!("  {} ({})", item.description, item.line_type);
-                    println!(
-                        "    Quantity: {:.2}, Unit Price: ${:.4}, Amount: ${:.2}",
-                        item.quantity, item.unit_price, item.amount_usd
-                    );
-                }
-            }
-        }
+        OutputFormat::Table => output::print_invoice(&invoice),
     }
 
     Ok(())
@@ -146,12 +116,7 @@ pub async fn validate_token(token: &str, ctx: &CommandContext) -> Result<()> {
     let result = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&result)?,
-        OutputFormat::Table => {
-            println!("{}", "Token Valid".green().bold());
-            println!("  Endpoint ID: {}", result.endpoint_id);
-            println!("  Balance:     ${:.4}", result.balance);
-            println!("  Expires At:  {}", result.expires_at);
-        }
+        OutputFormat::Table => output::print_validate_token(&result),
     }
 
     Ok(())
@@ -168,11 +133,7 @@ pub async fn get_balance(endpoint_id: &str, ctx: &CommandContext) -> Result<()> 
     let result = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&result)?,
-        OutputFormat::Table => {
-            println!("{}", "Endpoint Balance".bold());
-            println!("  Endpoint ID: {}", result.endpoint_id);
-            println!("  Balance:     ${:.4}", result.balance);
-        }
+        OutputFormat::Table => output::print_balance(&result),
     }
 
     Ok(())
@@ -239,9 +200,11 @@ pub async fn add_payment_method(
     match ctx.format {
         OutputFormat::Json => output::print_json(&result)?,
         OutputFormat::Table => {
-            println!("{}", "✓ Payment method added successfully".green().bold());
-            println!("  ID:      {}", result.data.id);
-            println!("  Message: {}", result.data.message);
+            let rows = [
+                ("ID", result.data.id.to_string()),
+                ("Message", result.data.message.clone()),
+            ];
+            output::print_key_value_table(Some("Payment Method Added"), &rows);
         }
     }
 

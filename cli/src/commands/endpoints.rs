@@ -234,16 +234,7 @@ pub async fn status(
     let status_info = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&status_info)?,
-        OutputFormat::Table => {
-            let data = &status_info.data;
-            println!("Endpoint Status:");
-            println!("  ID: {}", data.id);
-            println!("  Status: {}", data.status);
-            println!("  K8s Ready: {}", data.k8s_ready);
-            if let Some(compute_status) = &data.compute_status {
-                println!("  Compute Status: {}", compute_status);
-            }
-        }
+        OutputFormat::Table => output::print_endpoint_status(&status_info.data),
     }
 
     Ok(())

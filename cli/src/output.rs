@@ -36,6 +36,53 @@ pub fn print_json<T: Serialize + ?Sized>(data: &T) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn print_key_value_table(title: Option<&str>, rows: &[(&str, String)]) {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("Field").fg(Color::Green),
+        Cell::new("Value").fg(Color::Green),
+    ]);
+
+    for (field, value) in rows {
+        table.add_row(vec![Cell::new(*field), Cell::new(value)]);
+    }
+
+    if let Some(title) = title {
+        if !title.is_empty() {
+            println!("{}", title.bold());
+        }
+    }
+    println!("{table}");
+}
+
+pub fn print_list_table<T: std::fmt::Display>(title: Option<&str>, header: &str, items: &[T]) {
+    if items.is_empty() {
+        println!("No results found");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![Cell::new(header).fg(Color::Green)]);
+    for item in items {
+        table.add_row(vec![Cell::new(item.to_string())]);
+    }
+
+    if let Some(title) = title {
+        if !title.is_empty() {
+            println!("{}", title.bold());
+        }
+    }
+    println!("{table}");
+}
+
 pub fn print_projects_table(projects: &[seren::Project]) {
     if projects.is_empty() {
         println!("No projects found");
@@ -1814,4 +1861,200 @@ pub fn print_schema_diff(diff: &seren::SchemaDiff, format: OutputFormat) -> anyh
         }
     }
     Ok(())
+}
+
+pub fn print_endpoint_status(status: &seren::EndpointStatusInfo) {
+    let mut rows = vec![
+        ("ID", status.id.to_string()),
+        ("Status", status.status.to_string()),
+        ("K8s Ready", status.k8s_ready.to_string()),
+    ];
+
+    if let Some(compute_status) = &status.compute_status {
+        rows.push(("Compute Status", compute_status.to_string()));
+    }
+
+    print_key_value_table(Some("Endpoint Status"), &rows);
+}
+
+pub fn print_replication_settings(settings: &seren::LogicalReplicationSettings) {
+    let rows = [
+        ("Project ID", settings.project_id.to_string()),
+        (
+            "Enabled",
+            if settings.enabled {
+                "Yes".to_string()
+            } else {
+                "No".to_string()
+            },
+        ),
+        (
+            "Publications Count",
+            settings.publications_count.to_string(),
+        ),
+        ("Slots Count", settings.slots_count.to_string()),
+    ];
+
+    print_key_value_table(Some("Logical Replication Settings"), &rows);
+}
+
+pub fn print_agent_balance_summary(summary: &seren::AgentBalanceSummary) {
+    let rows = [
+        ("Wallet", summary.agent_wallet.clone()),
+        ("Publishers", summary.publishers_used.to_string()),
+        ("Queries", summary.total_queries.to_string()),
+    ];
+
+    print_key_value_table(Some("Agent Balance Summary"), &rows);
+
+    if summary.totals_by_asset.is_empty() {
+        println!("No balances found");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("Asset").fg(Color::Green),
+        Cell::new("Network").fg(Color::Green),
+        Cell::new("Balance").fg(Color::Green),
+        Cell::new("Reserved").fg(Color::Green),
+        Cell::new("Available").fg(Color::Green),
+    ]);
+
+    for total in &summary.totals_by_asset {
+        let symbol = &total.asset.symbol;
+        table.add_row(vec![
+            Cell::new(symbol),
+            Cell::new(&total.asset.network_name),
+            Cell::new(format!("{:.6} {}", total.total_balance, symbol)),
+            Cell::new(format!("{:.6} {}", total.total_reserved, symbol)),
+            Cell::new(format!("{:.6} {}", total.total_available, symbol)),
+        ]);
+    }
+
+    println!();
+    println!("{}", "Balances by Asset".bold());
+    println!("{table}");
+}
+
+pub fn print_agent_publisher_balances(balances: &[seren::AgentBalanceResponse]) {
+    if balances.is_empty() {
+        println!("No balances found for this publisher");
+        return;
+    }
+
+    let first = &balances[0];
+
+    let mut rows = vec![
+        ("Wallet", first.agent_wallet.clone()),
+        ("Publisher", first.publisher_id.to_string()),
+    ];
+    if let Some(name) = &first.publisher_name {
+        rows.push(("Name", name.clone()));
+    }
+
+    print_key_value_table(Some("Agent Publisher Balance"), &rows);
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("Asset").fg(Color::Green),
+        Cell::new("Network").fg(Color::Green),
+        Cell::new("Balance").fg(Color::Green),
+        Cell::new("Reserved").fg(Color::Green),
+        Cell::new("Available").fg(Color::Green),
+        Cell::new("Queries").fg(Color::Green),
+    ]);
+
+    for bal in balances {
+        let symbol = &bal.asset.symbol;
+        table.add_row(vec![
+            Cell::new(symbol),
+            Cell::new(&bal.asset.network_name),
+            Cell::new(format!("{:.6} {}", bal.balance, symbol)),
+            Cell::new(format!("{:.6} {}", bal.reserved, symbol)),
+            Cell::new(format!("{:.6} {}", bal.available, symbol)),
+            Cell::new(bal.total_queries.to_string()),
+        ]);
+    }
+
+    println!();
+    println!("{}", "Balances".bold());
+    println!("{table}");
+}
+
+pub fn print_invoice(invoice: &seren::Invoice) {
+    let rows = [
+        ("ID", invoice.id.to_string()),
+        ("Number", invoice.invoice_number.to_string()),
+        ("Organization", invoice.organization_id.to_string()),
+        (
+            "Period",
+            format!("{} → {}", invoice.period_start, invoice.period_end),
+        ),
+        ("Status", invoice.status.to_string()),
+        ("Subtotal", format!("${:.2}", invoice.subtotal_usd)),
+        ("Tax", format!("${:.2}", invoice.tax_usd)),
+        ("Total", format!("${:.2}", invoice.total_usd)),
+    ];
+
+    print_key_value_table(Some("Invoice Details"), &rows);
+
+    if invoice.line_items.is_empty() {
+        return;
+    }
+
+    let mut items_table = Table::new();
+    items_table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    items_table.set_header(vec![
+        Cell::new("Description").fg(Color::Green),
+        Cell::new("Type").fg(Color::Green),
+        Cell::new("Quantity").fg(Color::Green),
+        Cell::new("Unit Price").fg(Color::Green),
+        Cell::new("Amount").fg(Color::Green),
+    ]);
+
+    for item in &invoice.line_items {
+        items_table.add_row(vec![
+            Cell::new(&item.description),
+            Cell::new(&item.line_type),
+            Cell::new(format!("{:.2}", item.quantity)),
+            Cell::new(format!("${:.4}", item.unit_price)),
+            Cell::new(format!("${:.2}", item.amount_usd)),
+        ]);
+    }
+
+    println!();
+    println!("{}", "Line Items".bold());
+    println!("{items_table}");
+}
+
+pub fn print_validate_token(result: &seren::ValidateTokenResponse) {
+    let rows = [
+        ("Endpoint ID", result.endpoint_id.to_string()),
+        ("User ID", result.user_id.to_string()),
+        ("Balance", format!("${:.4}", result.balance)),
+        ("Expires At", result.expires_at.to_string()),
+    ];
+
+    print_key_value_table(Some("Token Valid"), &rows);
+}
+
+pub fn print_balance(result: &seren::BalanceResponse) {
+    let rows = [
+        ("Endpoint ID", result.endpoint_id.to_string()),
+        ("Balance", format!("${:.4}", result.balance)),
+    ];
+
+    print_key_value_table(Some("Endpoint Balance"), &rows);
 }
