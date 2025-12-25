@@ -1908,13 +1908,8 @@ async fn main() -> anyhow::Result<()> {
                 amount,
                 agent_wallet,
             } => {
-                commands::agent::get_deposit_requirements(
-                    &publisher,
-                    &amount,
-                    &agent_wallet,
-                    &ctx,
-                )
-                .await?
+                commands::agent::get_deposit_requirements(&publisher, &amount, &agent_wallet, &ctx)
+                    .await?
             }
         },
     }

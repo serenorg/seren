@@ -173,23 +173,31 @@ async fn require_oauth_auth(
     if let Ok(Some(client)) = state.store.get_client(&access_token.client_id).await {
         // Inject agent metadata headers for downstream tracking
         if let Ok(v) = axum::http::HeaderValue::from_str(&client.id) {
-            req.headers_mut()
-                .insert(axum::http::header::HeaderName::from_static("x-agent-client-id"), v);
+            req.headers_mut().insert(
+                axum::http::header::HeaderName::from_static("x-agent-client-id"),
+                v,
+            );
         }
         if let Ok(v) = axum::http::HeaderValue::from_str(&client.name) {
-            req.headers_mut()
-                .insert(axum::http::header::HeaderName::from_static("x-agent-client-name"), v);
+            req.headers_mut().insert(
+                axum::http::header::HeaderName::from_static("x-agent-client-name"),
+                v,
+            );
         }
         if let Some(ref software_id) = client.software_id {
             if let Ok(v) = axum::http::HeaderValue::from_str(software_id) {
-                req.headers_mut()
-                    .insert(axum::http::header::HeaderName::from_static("x-agent-software-id"), v);
+                req.headers_mut().insert(
+                    axum::http::header::HeaderName::from_static("x-agent-software-id"),
+                    v,
+                );
             }
         }
         if let Some(ref software_version) = client.software_version {
             if let Ok(v) = axum::http::HeaderValue::from_str(software_version) {
-                req.headers_mut()
-                    .insert(axum::http::header::HeaderName::from_static("x-agent-software-version"), v);
+                req.headers_mut().insert(
+                    axum::http::header::HeaderName::from_static("x-agent-software-version"),
+                    v,
+                );
             }
         }
     }

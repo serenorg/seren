@@ -4,6 +4,15 @@ use uuid::Uuid;
 
 use crate::{CommandContext, OutputFormat, defaults, output};
 
+fn first_n_categories(categories: &[String], max: usize) -> String {
+    categories
+        .iter()
+        .take(max)
+        .map(|c| c.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// List all active publishers in the marketplace
 pub async fn list_publishers(ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
@@ -27,10 +36,29 @@ pub async fn list_publishers(ctx: &CommandContext) -> Result<()> {
             for pub_info in &publishers.data {
                 println!("  {} ({})", pub_info.name.bold(), pub_info.slug.dimmed());
                 println!("    ID:          {}", pub_info.id);
-                if let Some(desc) = &pub_info.description {
+                if let Some(resource) = &pub_info.resource_name {
+                    println!("    Resource:    {}", resource);
+                }
+                if let Some(desc) = pub_info
+                    .resource_description
+                    .as_ref()
+                    .or(pub_info.description.as_ref())
+                {
                     println!("    Description: {}", desc);
                 }
+                if !pub_info.categories.is_empty() {
+                    println!(
+                        "    Categories:  {}{}",
+                        first_n_categories(&pub_info.categories, 5),
+                        if pub_info.categories.len() > 5 {
+                            "…"
+                        } else {
+                            ""
+                        }
+                    );
+                }
                 println!("    Type:        {:?}", pub_info.publisher_type);
+                println!("    Source:      {:?}", pub_info.source_type);
                 println!(
                     "    Verified:    {}",
                     if pub_info.is_verified {
@@ -77,10 +105,24 @@ pub async fn get_publisher(publisher: &str, ctx: &CommandContext) -> Result<()> 
             println!("  Name:        {}", data.name.bold());
             println!("  Slug:        {}", data.slug);
             println!("  ID:          {}", data.id);
-            if let Some(desc) = &data.description {
+            if let Some(resource) = &data.resource_name {
+                println!("  Resource:    {}", resource);
+            }
+            if let Some(desc) = data
+                .resource_description
+                .as_ref()
+                .or(data.description.as_ref())
+            {
                 println!("  Description: {}", desc);
             }
+            if !data.categories.is_empty() {
+                println!(
+                    "  Categories:  {}",
+                    first_n_categories(&data.categories, 20)
+                );
+            }
             println!("  Type:        {:?}", data.publisher_type);
+            println!("  Source:      {:?}", data.source_type);
             println!(
                 "  Verified:    {}",
                 if data.is_verified {
@@ -93,6 +135,17 @@ pub async fn get_publisher(publisher: &str, ctx: &CommandContext) -> Result<()> 
                 "  Active:      {}",
                 if data.is_active { "Yes" } else { "No" }
             );
+            println!("  Wallet:      {}", data.wallet_address);
+            println!("  Network:     {}", data.wallet_network_id);
+            if let Some(usage) = &data.usage_example {
+                println!();
+                println!("{}", "Usage Example".bold());
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(usage)
+                        .unwrap_or_else(|_| "<invalid json>".to_string())
+                );
+            }
             if let Some(pricing_list) = &data.pricing {
                 if !pricing_list.is_empty() {
                     println!();
