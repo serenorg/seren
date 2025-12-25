@@ -9025,6 +9025,50 @@
         ]
       }
     },
+    "/api/publishers": {
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "POST /api/publishers",
+        "description": "Create a publisher via organization API key (machine-to-machine).",
+        "operationId": "create_publisher_api_key",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePublisherRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Publisher created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublisherDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "API key required"
+          },
+          "409": {
+            "description": "Publisher slug already exists"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/api/sessions": {
       "get": {
         "tags": [
@@ -9536,6 +9580,7 @@
       "AdminAgentMarketplaceSettings": {
         "type": "object",
         "required": [
+          "x402_platform_fee_usdc",
           "max_api_response_bytes",
           "settlement_batch_size",
           "payout_batch_size",
@@ -9573,6 +9618,10 @@
             "type": "integer",
             "format": "int32",
             "description": "Number of settlements to process per worker run"
+          },
+          "x402_platform_fee_usdc": {
+            "type": "string",
+            "description": "Platform fee (USDC) charged for x402 pass-through payments."
           }
         }
       },
@@ -11642,8 +11691,25 @@
             "description": "Asset IDs the publisher accepts for payment",
             "nullable": true
           },
+          "allowed_passthrough_headers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Whitelist of agent-provided headers allowed to pass through to upstream"
+          },
           "api_headers": {
             "description": "Headers for API requests (will be encrypted)",
+            "nullable": true
+          },
+          "api_key_header": {
+            "type": "string",
+            "description": "Header name to inject upstream_api_key into (e.g., \"Authorization\", \"X-API-Key\")",
+            "nullable": true
+          },
+          "api_key_query_param": {
+            "type": "string",
+            "description": "Query parameter name to inject upstream_api_key into (e.g., \"api_key\")",
             "nullable": true
           },
           "api_url": {
@@ -11651,11 +11717,37 @@
             "description": "External API URL (required for api source_type)",
             "nullable": true
           },
+          "auth_type": {
+            "type": "string",
+            "description": "Upstream auth mode (\"static\" or \"jwt\") (default: static)",
+            "nullable": true
+          },
+          "base_price_per_1000_rows": {
+            "type": "string",
+            "nullable": true
+          },
+          "billing_model": {
+            "type": "string",
+            "description": "Billing model (\"x402_per_request\", \"prepaid_credits\", \"x402_passthrough\")",
+            "nullable": true
+          },
           "branch_id": {
             "type": "string",
             "format": "uuid",
             "description": "SerenDB branch ID (required for serendb source_type)",
             "nullable": true
+          },
+          "cache_ttl_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Cache TTL for API proxy responses",
+            "nullable": true
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "database_name": {
             "type": "string",
@@ -11666,13 +11758,98 @@
             "type": "string",
             "nullable": true
           },
+          "gateway_fee_percent": {
+            "type": "string",
+            "description": "Gateway fee percentage for upstream x402 payments (pass-through).",
+            "nullable": true
+          },
+          "grace_period_minutes": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "hourly_rate": {
+            "type": "string",
+            "nullable": true
+          },
+          "jwt_access_key": {
+            "type": "string",
+            "description": "JWT access key / issuer claim (plaintext)",
+            "nullable": true
+          },
+          "jwt_algorithm": {
+            "type": "string",
+            "description": "JWT signing algorithm (\"HS256\", \"HS384\", \"HS512\") (default: HS256)",
+            "nullable": true
+          },
+          "jwt_expiration_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "description": "JWT expiration seconds (60-86400, default: 1800)",
+            "nullable": true
+          },
+          "jwt_secret_key": {
+            "type": "string",
+            "description": "JWT secret key (will be encrypted)",
+            "nullable": true
+          },
+          "logo_url": {
+            "type": "string",
+            "description": "Optional publisher branding URL",
+            "nullable": true
+          },
+          "low_balance_threshold": {
+            "type": "string",
+            "nullable": true
+          },
+          "markup_multiplier": {
+            "type": "string",
+            "nullable": true
+          },
+          "minimum_balance": {
+            "type": "string",
+            "nullable": true
+          },
           "name": {
             "type": "string"
+          },
+          "ownership_tracking_enabled": {
+            "type": "boolean",
+            "description": "Enable resource ownership tracking (legacy gateway parity)",
+            "nullable": true
+          },
+          "price_per_call": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_delete": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_get": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_patch": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_post": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_put": {
+            "type": "string",
+            "nullable": true
           },
           "project_id": {
             "type": "string",
             "format": "uuid",
             "description": "SerenDB project ID (required for serendb source_type)",
+            "nullable": true
+          },
+          "protected_operations": {
+            "description": "Protected operations configuration",
             "nullable": true
           },
           "publisher_type": {
@@ -11683,11 +11860,37 @@
             ],
             "nullable": true
           },
+          "resource_description": {
+            "type": "string",
+            "nullable": true
+          },
+          "resource_id_response_path": {
+            "type": "string",
+            "description": "JSONPath to resource ID in response body (for ownership tracking)",
+            "nullable": true
+          },
+          "resource_id_url_pattern": {
+            "type": "string",
+            "description": "URL pattern with :resourceId placeholder (for ownership tracking)",
+            "nullable": true
+          },
+          "resource_name": {
+            "type": "string",
+            "nullable": true
+          },
           "slug": {
             "type": "string"
           },
           "source_type": {
             "$ref": "#/components/schemas/SourceType"
+          },
+          "upstream_api_key": {
+            "type": "string",
+            "description": "Upstream static API key (will be encrypted)",
+            "nullable": true
+          },
+          "usage_example": {
+            "nullable": true
           },
           "wallet_address": {
             "type": "string",
@@ -15225,24 +15428,19 @@
           },
           {
             "type": "object",
-            "required": [
-              "seren"
-            ],
             "properties": {
-              "paymentRequirements": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/PaymentRequirementsV1"
-                },
-                "description": "Legacy V1 payment requirements (x402 v1) for clients that don't yet support v2."
-              },
               "seren": {
-                "$ref": "#/components/schemas/PaymentRequestInfo"
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/PaymentRequestInfo"
+                  }
+                ],
+                "nullable": true
               }
             }
           }
         ],
-        "description": "402 Payment Required response body (with Seren-specific extensions)\nContains both V2 (official) and a legacy V1 requirements list for backwards compatibility."
+        "description": "402 Payment Required response body (x402 v2) with Seren-specific extensions."
       },
       "PaymentRequirements": {
         "type": "object",
@@ -15673,7 +15871,9 @@
           "min_charge",
           "payment_expiry_minutes",
           "prepaid_enabled",
-          "onchain_enabled"
+          "onchain_enabled",
+          "minimum_balance",
+          "low_balance_threshold"
         ],
         "properties": {
           "asset_id": {
@@ -15687,6 +15887,18 @@
             "nullable": true
           },
           "base_price_per_1000_rows": {
+            "type": "string"
+          },
+          "grace_period_minutes": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "hourly_rate": {
+            "type": "string",
+            "nullable": true
+          },
+          "low_balance_threshold": {
             "type": "string"
           },
           "markup_multiplier": {
@@ -15704,6 +15916,9 @@
           "min_charge": {
             "type": "string"
           },
+          "minimum_balance": {
+            "type": "string"
+          },
           "onchain_enabled": {
             "type": "boolean"
           },
@@ -15713,6 +15928,30 @@
           },
           "prepaid_enabled": {
             "type": "boolean"
+          },
+          "price_per_call": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_delete": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_get": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_patch": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_post": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_put": {
+            "type": "string",
+            "nullable": true
           },
           "pricing_model": {
             "$ref": "#/components/schemas/PricingModel"
@@ -16778,10 +17017,16 @@
           "id",
           "name",
           "slug",
+          "categories",
           "publisher_type",
           "wallet_address",
           "wallet_network_id",
           "source_type",
+          "billing_model",
+          "gateway_fee_percent",
+          "allowed_passthrough_headers",
+          "cache_ttl_seconds",
+          "ownership_tracking_enabled",
           "is_active",
           "is_verified",
           "total_queries",
@@ -16798,6 +17043,25 @@
             "description": "Accepted assets for payment",
             "nullable": true
           },
+          "allowed_passthrough_headers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "billing_model": {
+            "type": "string"
+          },
+          "cache_ttl_seconds": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
@@ -16805,6 +17069,9 @@
           "description": {
             "type": "string",
             "nullable": true
+          },
+          "gateway_fee_percent": {
+            "type": "string"
           },
           "id": {
             "type": "string",
@@ -16816,8 +17083,15 @@
           "is_verified": {
             "type": "boolean"
           },
+          "logo_url": {
+            "type": "string",
+            "nullable": true
+          },
           "name": {
             "type": "string"
+          },
+          "ownership_tracking_enabled": {
+            "type": "boolean"
           },
           "pricing": {
             "type": "array",
@@ -16827,8 +17101,27 @@
             "description": "Pricing config per asset (if included)",
             "nullable": true
           },
+          "protected_operations": {
+            "nullable": true
+          },
           "publisher_type": {
             "$ref": "#/components/schemas/PublisherType"
+          },
+          "resource_description": {
+            "type": "string",
+            "nullable": true
+          },
+          "resource_id_response_path": {
+            "type": "string",
+            "nullable": true
+          },
+          "resource_id_url_pattern": {
+            "type": "string",
+            "nullable": true
+          },
+          "resource_name": {
+            "type": "string",
+            "nullable": true
           },
           "slug": {
             "type": "string"
@@ -16847,6 +17140,9 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "usage_example": {
+            "nullable": true
           },
           "wallet_address": {
             "type": "string"
@@ -17968,7 +18264,8 @@
         "description": "Source type for publisher data",
         "enum": [
           "serendb",
-          "api"
+          "api",
+          "both"
         ]
       },
       "SupportedKind": {
@@ -18276,6 +18573,11 @@
             "format": "int32",
             "description": "Number of settlements to process per worker run",
             "nullable": true
+          },
+          "x402_platform_fee_usdc": {
+            "type": "string",
+            "description": "Platform fee (USDC) charged for x402 pass-through payments.",
+            "nullable": true
           }
         }
       },
@@ -18427,6 +18729,19 @@
             "type": "string",
             "nullable": true
           },
+          "grace_period_minutes": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "hourly_rate": {
+            "type": "string",
+            "nullable": true
+          },
+          "low_balance_threshold": {
+            "type": "string",
+            "nullable": true
+          },
           "markup_multiplier": {
             "type": "string",
             "nullable": true
@@ -18444,6 +18759,10 @@
             "type": "string",
             "nullable": true
           },
+          "minimum_balance": {
+            "type": "string",
+            "nullable": true
+          },
           "onchain_enabled": {
             "type": "boolean",
             "nullable": true
@@ -18455,6 +18774,30 @@
           },
           "prepaid_enabled": {
             "type": "boolean",
+            "nullable": true
+          },
+          "price_per_call": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_delete": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_get": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_patch": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_post": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_put": {
+            "type": "string",
             "nullable": true
           },
           "pricing_model": {
@@ -18580,8 +18923,26 @@
             "description": "Asset IDs to add to accepted assets",
             "nullable": true
           },
+          "allowed_passthrough_headers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Whitelist of agent-provided headers allowed to pass through to upstream",
+            "nullable": true
+          },
           "api_headers": {
             "description": "Headers for API requests (will be encrypted)",
+            "nullable": true
+          },
+          "api_key_header": {
+            "type": "string",
+            "description": "Header name to inject upstream_api_key into (e.g., \"Authorization\", \"X-API-Key\")",
+            "nullable": true
+          },
+          "api_key_query_param": {
+            "type": "string",
+            "description": "Query parameter name to inject upstream_api_key into (e.g., \"api_key\")",
             "nullable": true
           },
           "api_url": {
@@ -18589,10 +18950,33 @@
             "description": "External API URL (for api source_type)",
             "nullable": true
           },
+          "auth_type": {
+            "type": "string",
+            "description": "Upstream auth mode (\"static\" or \"jwt\")",
+            "nullable": true
+          },
+          "billing_model": {
+            "type": "string",
+            "description": "Billing model (\"x402_per_request\", \"prepaid_credits\", \"x402_passthrough\")",
+            "nullable": true
+          },
           "branch_id": {
             "type": "string",
             "format": "uuid",
             "description": "SerenDB branch ID (for serendb source_type)",
+            "nullable": true
+          },
+          "cache_ttl_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Cache TTL for API proxy responses",
+            "nullable": true
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "nullable": true
           },
           "database_name": {
@@ -18604,18 +18988,58 @@
             "type": "string",
             "nullable": true
           },
+          "gateway_fee_percent": {
+            "type": "string",
+            "description": "Gateway fee percentage for upstream x402 payments (pass-through).",
+            "nullable": true
+          },
           "is_active": {
             "type": "boolean",
+            "nullable": true
+          },
+          "jwt_access_key": {
+            "type": "string",
+            "description": "JWT access key / issuer claim (plaintext)",
+            "nullable": true
+          },
+          "jwt_algorithm": {
+            "type": "string",
+            "description": "JWT signing algorithm (\"HS256\", \"HS384\", \"HS512\")",
+            "nullable": true
+          },
+          "jwt_expiration_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "description": "JWT expiration seconds",
+            "nullable": true
+          },
+          "jwt_secret_key": {
+            "type": "string",
+            "description": "JWT secret key (will be encrypted)",
+            "nullable": true
+          },
+          "logo_url": {
+            "type": "string",
+            "description": "Optional publisher branding URL",
             "nullable": true
           },
           "name": {
             "type": "string",
             "nullable": true
           },
+          "ownership_tracking_enabled": {
+            "type": "boolean",
+            "description": "Enable resource ownership tracking (legacy gateway parity)",
+            "nullable": true
+          },
           "project_id": {
             "type": "string",
             "format": "uuid",
             "description": "SerenDB project ID (for serendb source_type)",
+            "nullable": true
+          },
+          "protected_operations": {
+            "description": "Protected operations configuration",
             "nullable": true
           },
           "remove_asset_ids": {
@@ -18625,6 +19049,32 @@
               "format": "uuid"
             },
             "description": "Asset IDs to remove from accepted assets",
+            "nullable": true
+          },
+          "resource_description": {
+            "type": "string",
+            "nullable": true
+          },
+          "resource_id_response_path": {
+            "type": "string",
+            "description": "JSONPath to resource ID in response body (for ownership tracking)",
+            "nullable": true
+          },
+          "resource_id_url_pattern": {
+            "type": "string",
+            "description": "URL pattern with :resourceId placeholder (for ownership tracking)",
+            "nullable": true
+          },
+          "resource_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "upstream_api_key": {
+            "type": "string",
+            "description": "Upstream static API key (will be encrypted)",
+            "nullable": true
+          },
+          "usage_example": {
             "nullable": true
           },
           "wallet_address": {
