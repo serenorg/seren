@@ -9,6 +9,7 @@ use anyhow::Result;
 use axum::extract::State;
 use axum::response::IntoResponse;
 use config::{AuthConfig, Config};
+use oauth::routes::OAuthState;
 use oauth::store::TokenStore;
 use rmcp::ServiceExt;
 use server::SerenMcpServer;
@@ -66,6 +67,10 @@ struct OAuthAuthState {
     /// We cache the validated token so later requests can be authorized and the token
     /// can be re-injected for downstream API calls.
     session_tokens: Arc<RwLock<HashMap<String, String>>>,
+    /// Shared OAuth state for transparent token refresh.
+    /// When an access token is expired but has a valid refresh token,
+    /// we can refresh it server-side without requiring client action.
+    oauth_state: Arc<OAuthState>,
 }
 
 /// Extract bearer token from Authorization header (case-insensitive scheme per RFC 6750)
@@ -100,6 +105,110 @@ async fn require_simple_auth(
     next.run(req).await
 }
 
+/// Attempt to transparently refresh an expired access token.
+/// Returns (new_access_token, new_token_string) if successful, None if no refresh possible.
+async fn try_transparent_refresh(
+    state: &OAuthAuthState,
+    expired_token: &str,
+) -> Result<Option<(oauth::store::AccessToken, String)>, Box<dyn std::error::Error + Send + Sync>> {
+    use time::{Duration, OffsetDateTime};
+
+    // First, check if the token exists (even if expired)
+    let expired_access_token = match state
+        .store
+        .get_access_token_unchecked(expired_token)
+        .await?
+    {
+        Some(t) => t,
+        None => return Ok(None), // Token doesn't exist at all
+    };
+
+    // Check if it's actually expired (not just invalid)
+    if expired_access_token.expires_at > OffsetDateTime::now_utc() {
+        // Token is not expired, something else is wrong
+        return Ok(None);
+    }
+
+    // Look up the refresh token for this access token
+    let refresh_token = match state
+        .store
+        .get_refresh_token_by_access_token(expired_token)
+        .await?
+    {
+        Some(rt) => rt,
+        None => {
+            tracing::debug!(
+                event = "no_refresh_token",
+                access_token_client_id = %expired_access_token.client_id,
+                "No valid refresh token found for expired access token"
+            );
+            return Ok(None);
+        }
+    };
+
+    // Call upstream to refresh the token using the shared function
+    let token_body = match oauth::routes::exchange_upstream_token(
+        &state.oauth_state.http,
+        &state.oauth_state.upstream_api_base_url,
+        vec![
+            ("grant_type", "refresh_token"),
+            ("refresh_token", &refresh_token.token),
+            ("client_id", &state.oauth_state.upstream_client_id),
+        ],
+        &state.oauth_state.circuit_breaker,
+    )
+    .await
+    {
+        Ok(body) => body,
+        Err(e) => {
+            tracing::debug!(
+                event = "upstream_refresh_failed",
+                error = ?e,
+                "Upstream token refresh returned error"
+            );
+            return Ok(None);
+        }
+    };
+
+    let new_expires_at =
+        OffsetDateTime::now_utc() + Duration::seconds(token_body.expires_in.max(0));
+
+    // Create new access token record
+    let new_access_token = oauth::store::AccessToken {
+        token: token_body.access_token.clone(),
+        client_id: expired_access_token.client_id.clone(),
+        user_id: expired_access_token.user_id.clone(),
+        scope: expired_access_token.scope.clone(),
+        expires_at: new_expires_at,
+        created_at: OffsetDateTime::now_utc(),
+    };
+
+    // Save new access token
+    state.store.save_access_token(&new_access_token).await?;
+
+    // Update refresh token to point to new access token (and rotate if new one provided)
+    let new_refresh_token_str = token_body
+        .refresh_token
+        .unwrap_or_else(|| refresh_token.token.clone());
+
+    state
+        .store
+        .update_refresh_token(
+            &refresh_token.token,
+            &new_refresh_token_str,
+            &token_body.access_token,
+            Some(oauth::store::TokenStore::token_expiry(
+                oauth::store::REFRESH_TOKEN_TTL_HOURS,
+            )),
+        )
+        .await?;
+
+    // Revoke old access token
+    state.store.revoke_access_token(expired_token).await.ok();
+
+    Ok(Some((new_access_token, token_body.access_token)))
+}
+
 /// OAuth token validation middleware (for start:oauth mode)
 async fn require_oauth_auth(
     axum::extract::State(state): axum::extract::State<OAuthAuthState>,
@@ -117,12 +226,14 @@ async fn require_oauth_auth(
 
     // Prefer an explicit Authorization header.
     let mut token = extract_bearer_token(&req).map(|t| t.to_string());
+    let mut token_from_session_cache = false;
 
     // If missing, try to recover the token from the session cache.
     if token.is_none()
         && let Some(ref sid) = session_id
     {
         token = state.session_tokens.read().await.get(sid).cloned();
+        token_from_session_cache = token.is_some();
         // Re-inject Authorization so rmcp can propagate it into Extensions for tools.
         if let Some(ref t) = token
             && let Ok(v) = axum::http::HeaderValue::from_str(&format!("Bearer {}", t))
@@ -143,18 +254,66 @@ async fn require_oauth_auth(
             .into_response();
     };
 
-    // Validate token against database and get client metadata
-    let access_token = match state.store.get_access_token(&token).await {
-        Ok(Some(access_token)) => access_token,
+    // Validate token against database and get client metadata.
+    // If token is expired and came from the session cache (not the client),
+    // attempt a transparent refresh using the refresh token.
+    let (access_token, new_token) = match state.store.get_access_token(&token).await {
+        Ok(Some(access_token)) => (access_token, None),
         Ok(None) => {
-            return (
-                axum::http::StatusCode::UNAUTHORIZED,
-                axum::Json(serde_json::json!({
-                    "error": "invalid_token",
-                    "error_description": "Token is invalid or expired"
-                })),
-            )
-                .into_response();
+            if token_from_session_cache {
+                // Token not valid - check if it exists but is expired
+                match try_transparent_refresh(&state, &token).await {
+                    Ok(Some((new_access_token, new_token_str))) => {
+                        tracing::info!(
+                            event = "transparent_token_refresh",
+                            client_id = %new_access_token.client_id,
+                            user_id = %new_access_token.user_id,
+                            "Transparently refreshed expired access token"
+                        );
+                        (new_access_token, Some(new_token_str))
+                    }
+                    Ok(None) => {
+                        // No refresh token available or refresh failed
+                        tracing::debug!(
+                            event = "token_validation_failed",
+                            "Token is invalid or expired and no refresh token available"
+                        );
+                        return (
+                            axum::http::StatusCode::UNAUTHORIZED,
+                            axum::Json(serde_json::json!({
+                                "error": "invalid_token",
+                                "error_description": "Token is invalid or expired"
+                            })),
+                        )
+                            .into_response();
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            event = "transparent_refresh_failed",
+                            error = %e,
+                            "Failed to transparently refresh token"
+                        );
+                        return (
+                            axum::http::StatusCode::UNAUTHORIZED,
+                            axum::Json(serde_json::json!({
+                                "error": "invalid_token",
+                                "error_description": "Token is invalid or expired"
+                            })),
+                        )
+                            .into_response();
+                    }
+                }
+            } else {
+                // If the client provided this token, the client should be responsible for refresh.
+                return (
+                    axum::http::StatusCode::UNAUTHORIZED,
+                    axum::Json(serde_json::json!({
+                        "error": "invalid_token",
+                        "error_description": "Token is invalid or expired"
+                    })),
+                )
+                    .into_response();
+            }
         }
         Err(e) => {
             tracing::error!("Token validation error: {}", e);
@@ -168,6 +327,9 @@ async fn require_oauth_auth(
                 .into_response();
         }
     };
+
+    // If we got a new token from transparent refresh, update the token variable for session caching
+    let token = new_token.clone().unwrap_or(token);
 
     // Look up client metadata for agent tracking
     if let Ok(Some(client)) = state.store.get_client(&access_token.client_id).await {
@@ -516,7 +678,25 @@ async fn run_oauth(config: Config) -> Result<()> {
     // OAuth state for routes
     let oauth_state = Arc::new(OAuthState {
         store: store.clone(),
-        http: reqwest::Client::new(),
+        http: {
+            let upstream_timeout_secs = std::env::var("OAUTH_UPSTREAM_TIMEOUT_SECS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(15);
+            let upstream_connect_timeout_secs =
+                std::env::var("OAUTH_UPSTREAM_CONNECT_TIMEOUT_SECS")
+                    .ok()
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(5);
+
+            reqwest::Client::builder()
+                .user_agent(format!("seren-mcp/{}", env!("CARGO_PKG_VERSION")))
+                .timeout(std::time::Duration::from_secs(upstream_timeout_secs))
+                .connect_timeout(std::time::Duration::from_secs(
+                    upstream_connect_timeout_secs,
+                ))
+                .build()?
+        },
         server_host: server_host.clone(),
         upstream_client_id: client_id,
         upstream_api_base_url: api_base_url,
@@ -539,6 +719,7 @@ async fn run_oauth(config: Config) -> Result<()> {
             OAuthAuthState {
                 store,
                 session_tokens,
+                oauth_state: oauth_state.clone(),
             },
             require_oauth_auth,
         ));

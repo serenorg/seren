@@ -391,15 +391,16 @@ struct CallbackQuery {
     error_description: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct UpstreamTokenResponse {
-    access_token: String,
-    token_type: String,
-    expires_in: i64,
+/// Response from the upstream serencore OAuth token endpoint.
+#[derive(Debug, serde::Deserialize)]
+pub struct UpstreamTokenResponse {
+    pub access_token: String,
+    pub token_type: String,
+    pub expires_in: i64,
     #[serde(default)]
-    refresh_token: Option<String>,
+    pub refresh_token: Option<String>,
     #[serde(default)]
-    scope: Option<String>,
+    pub scope: Option<String>,
 }
 
 async fn callback(
@@ -495,13 +496,16 @@ async fn callback(
     let upstream_expires_at =
         OffsetDateTime::now_utc() + Duration::seconds(token_body.expires_in.max(0));
 
-    let user_id = fetch_user_id(
-        &state.upstream_api_base_url,
-        &token_body.access_token,
-        &state.circuit_breaker,
-    )
-    .await
-    .ok_or_else(|| OAuthError::ServerError("Failed to fetch user id".into()))?;
+    let user_id = match try_extract_user_id_from_jwt(&token_body.access_token) {
+        Some(user_id) => user_id,
+        None => fetch_user_id(
+            &state.upstream_api_base_url,
+            &token_body.access_token,
+            &state.circuit_breaker,
+        )
+        .await
+        .ok_or_else(|| OAuthError::ServerError("Failed to fetch user id".into()))?,
+    };
 
     // Enforce per-user consent before issuing a downstream authorization code redirect.
     let approved = state
@@ -771,11 +775,11 @@ async fn token(
             )
             .await?;
 
-            // Get the old access token to preserve scope (if it still exists)
+            // Get the old access token to preserve scope (even if expired)
             let preserved_scope = if let Some(ref old_token_id) = refresh_token.access_token {
                 state
                     .store
-                    .get_access_token(old_token_id)
+                    .get_access_token_unchecked(old_token_id)
                     .await
                     .map_err(|e| OAuthError::ServerError(e.to_string()))?
                     .map(|t| t.scope)
@@ -946,7 +950,7 @@ async fn revoke(
 // ============================================================================
 
 #[derive(Debug)]
-enum OAuthError {
+pub(crate) enum OAuthError {
     InvalidRequest(String),
     InvalidClient,
     InvalidGrant(String),
@@ -1022,7 +1026,9 @@ async fn validate_client_credentials(
     Ok(client)
 }
 
-async fn exchange_upstream_token(
+/// Exchange tokens with the upstream serencore OAuth server.
+/// Used for both authorization code exchange and refresh token flows.
+pub async fn exchange_upstream_token(
     http_client: &reqwest::Client,
     upstream_api_base_url: &str,
     params: Vec<(&str, &str)>,
@@ -1066,8 +1072,13 @@ async fn exchange_upstream_token(
             body = %body,
             "Upstream token exchange failed"
         );
-        return Err(OAuthError::InvalidGrant(
-            "Token exchange failed. Please re-authenticate.".into(),
+        if status.is_client_error() {
+            return Err(OAuthError::InvalidGrant(
+                "Token exchange failed. Please re-authenticate.".into(),
+            ));
+        }
+        return Err(OAuthError::ServerError(
+            "Upstream service error. Please try again later.".into(),
         ));
     }
 
@@ -1145,6 +1156,23 @@ fn redirect_with_error(
         redirect_url.query_pairs_mut().append_pair("state", state);
     }
     Ok(Redirect::temporary(redirect_url.as_str()).into_response())
+}
+
+/// Extract the `sub` (user id) claim from a JWT access token.
+///
+/// This avoids an extra network call to `GET /api/users/me` during the OAuth callback.
+/// If the token isn't a JWT (or parsing fails), callers should fall back to the user-info API.
+fn try_extract_user_id_from_jwt(access_token: &str) -> Option<String> {
+    let payload_b64 = access_token.split('.').nth(1)?;
+    use base64::Engine as _;
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload_b64)
+        .ok()?;
+    let payload_json: serde_json::Value = serde_json::from_slice(&payload).ok()?;
+    payload_json
+        .get("sub")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 async fn fetch_user_id(

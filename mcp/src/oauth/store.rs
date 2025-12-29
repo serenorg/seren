@@ -428,6 +428,45 @@ impl TokenStore {
         Ok(refresh_token)
     }
 
+    /// Get a valid refresh token by its associated access token.
+    /// This is used for transparent token refresh when an expired access token is received.
+    pub async fn get_refresh_token_by_access_token(
+        &self,
+        access_token: &str,
+    ) -> Result<Option<RefreshToken>> {
+        let refresh_token = sqlx::query_as::<_, RefreshToken>(
+            r#"
+            SELECT token, access_token, client_id, user_id, expires_at, created_at
+            FROM mcp_oauth.refresh_tokens
+            WHERE access_token = $1 AND (expires_at IS NULL OR expires_at > NOW())
+            "#,
+        )
+        .bind(access_token)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(refresh_token)
+    }
+
+    /// Get an access token without checking expiry (for token refresh flow).
+    /// Returns the token even if expired, so we can look up its refresh token.
+    pub async fn get_access_token_unchecked(&self, token: &str) -> Result<Option<AccessToken>> {
+        let access_token = sqlx::query_as::<_, AccessToken>(
+            r#"
+            SELECT token, client_id, user_id, scope, expires_at, created_at
+            FROM mcp_oauth.access_tokens
+            WHERE token = $1
+            "#,
+        )
+        .bind(token)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(access_token)
+    }
+
     /// Revoke a refresh token and its associated access token
     pub async fn revoke_refresh_token(&self, token: &str) -> Result<bool> {
         // This will cascade delete the access token due to FK constraint
