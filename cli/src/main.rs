@@ -1,4 +1,5 @@
 use clap::{ArgAction, Parser, Subcommand};
+use uuid::Uuid;
 
 mod command_context;
 mod commands;
@@ -239,6 +240,105 @@ enum AgentAction {
         amount: String,
         /// Agent wallet address (0x...)
         agent_wallet: String,
+    },
+    /// Get supported payment protocols and configuration
+    GetSupported,
+    /// Create a new publisher in the marketplace
+    CreatePublisher {
+        /// Publisher name
+        #[arg(long)]
+        name: String,
+        /// URL-friendly slug (unique identifier)
+        #[arg(long)]
+        slug: String,
+        /// Wallet address for receiving payments (0x...)
+        #[arg(long)]
+        wallet_address: String,
+        /// Network ID for the wallet (e.g., "base-sepolia", "base-mainnet")
+        #[arg(long)]
+        wallet_network_id: String,
+        /// Source type: "serendb" or "api"
+        #[arg(long)]
+        source_type: Option<String>,
+        /// Publisher description
+        #[arg(long)]
+        description: Option<String>,
+        /// API URL for API-type publishers
+        #[arg(long)]
+        api_url: Option<String>,
+        /// Project ID for SerenDB publishers
+        #[arg(long)]
+        project_id: Option<Uuid>,
+        /// Branch ID for SerenDB publishers
+        #[arg(long)]
+        branch_id: Option<Uuid>,
+        /// Database name for SerenDB publishers
+        #[arg(long)]
+        database_name: Option<String>,
+        /// Base price per 1000 rows (e.g., "0.001")
+        #[arg(long)]
+        base_price_per_1000_rows: Option<String>,
+        /// Billing model (e.g., "per_row", "per_call", "hourly")
+        #[arg(long)]
+        billing_model: Option<String>,
+    },
+    /// Execute a paid database query using prepaid balance
+    ExecuteQuery {
+        /// Publisher ID (UUID) or slug
+        #[arg(long)]
+        publisher: String,
+        /// SQL query to execute
+        #[arg(long)]
+        query: String,
+        /// Database name (optional, uses publisher default)
+        #[arg(long)]
+        database: Option<String>,
+    },
+    /// Get prepaid balance summary for authenticated user
+    GetPrepaidBalance,
+    /// Create a prepaid deposit (fiat via Stripe)
+    CreatePrepaidDeposit {
+        /// Publisher ID (UUID) or slug
+        #[arg(long)]
+        publisher: String,
+        /// Amount to deposit (e.g., 10.00)
+        #[arg(long)]
+        amount: f64,
+        /// Currency code (default: USD)
+        #[arg(long)]
+        currency: Option<String>,
+    },
+    /// Estimate the cost of a query against a publisher
+    EstimateQueryCost {
+        /// Publisher ID (UUID) or slug
+        #[arg(long)]
+        publisher: String,
+        /// SQL query to estimate
+        #[arg(long)]
+        query: String,
+    },
+    /// List all wallets for authenticated user
+    ListWallets,
+    /// Create a new managed wallet
+    CreateWallet {
+        /// Set this wallet as primary
+        #[arg(long, action = ArgAction::SetTrue)]
+        set_as_primary: bool,
+    },
+    /// Delete a wallet
+    DeleteWallet {
+        /// Wallet ID (UUID)
+        wallet_id: String,
+    },
+    /// Export a managed wallet's private key (security-sensitive)
+    ExportWalletKey {
+        /// Wallet ID (UUID)
+        wallet_id: String,
+    },
+    /// Set a wallet as primary
+    SetWalletPrimary {
+        /// Wallet ID (UUID)
+        wallet_id: String,
     },
 }
 
@@ -1918,6 +2018,76 @@ async fn main() -> anyhow::Result<()> {
             } => {
                 commands::agent::get_deposit_requirements(&publisher, &amount, &agent_wallet, &ctx)
                     .await?
+            }
+            AgentAction::GetSupported => commands::agent::get_supported(&ctx).await?,
+            AgentAction::CreatePublisher {
+                name,
+                slug,
+                wallet_address,
+                wallet_network_id,
+                source_type,
+                description,
+                api_url,
+                project_id,
+                branch_id,
+                database_name,
+                base_price_per_1000_rows,
+                billing_model,
+            } => {
+                commands::agent::create_publisher(
+                    &name,
+                    &slug,
+                    &wallet_address,
+                    &wallet_network_id,
+                    source_type.as_deref(),
+                    description.as_deref(),
+                    api_url.as_deref(),
+                    project_id,
+                    branch_id,
+                    database_name.as_deref(),
+                    base_price_per_1000_rows.as_deref(),
+                    billing_model.as_deref(),
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::ExecuteQuery {
+                publisher,
+                query,
+                database,
+            } => {
+                commands::agent::execute_query(&publisher, &query, database.as_deref(), &ctx)
+                    .await?
+            }
+            AgentAction::GetPrepaidBalance => commands::agent::get_prepaid_balance(&ctx).await?,
+            AgentAction::CreatePrepaidDeposit {
+                publisher,
+                amount,
+                currency,
+            } => {
+                commands::agent::create_prepaid_deposit(
+                    &publisher,
+                    amount,
+                    currency.as_deref(),
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::EstimateQueryCost { publisher, query } => {
+                commands::agent::estimate_query_cost(&publisher, &query, &ctx).await?
+            }
+            AgentAction::ListWallets => commands::agent::list_wallets(&ctx).await?,
+            AgentAction::CreateWallet { set_as_primary } => {
+                commands::agent::create_wallet(set_as_primary, &ctx).await?
+            }
+            AgentAction::DeleteWallet { wallet_id } => {
+                commands::agent::delete_wallet(&wallet_id, &ctx).await?
+            }
+            AgentAction::ExportWalletKey { wallet_id } => {
+                commands::agent::export_wallet_key(&wallet_id, &ctx).await?
+            }
+            AgentAction::SetWalletPrimary { wallet_id } => {
+                commands::agent::set_wallet_primary(&wallet_id, &ctx).await?
             }
         },
     }

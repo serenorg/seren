@@ -380,6 +380,81 @@ pub struct GetX402DepositRequirementsParams {
     pub asset_id: Option<Uuid>,
 }
 
+/// Parameters for creating a publisher (no params, uses empty object)
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetSupportedParams {}
+
+/// Parameters for creating a publisher in the marketplace
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CreatePublisherParams {
+    /// Publisher display name
+    pub name: String,
+    /// URL-friendly slug (unique identifier)
+    pub slug: String,
+    /// Wallet address for receiving payments (0x...)
+    pub wallet_address: String,
+    /// Network ID for wallet (CAIP-2 format, e.g., "eip155:8453" for Base)
+    pub wallet_network_id: String,
+    /// Data source type (serendb or api)
+    #[serde(default)]
+    pub source_type: Option<String>,
+    /// Publisher description
+    #[serde(default)]
+    pub description: Option<String>,
+    /// External API URL (required for api source_type)
+    #[serde(default)]
+    pub api_url: Option<String>,
+    /// SerenDB project ID (required for serendb source_type)
+    #[serde(default)]
+    pub project_id: Option<Uuid>,
+    /// SerenDB branch ID (required for serendb source_type)
+    #[serde(default)]
+    pub branch_id: Option<Uuid>,
+    /// Database name within the SerenDB project (default: serendb)
+    #[serde(default)]
+    pub database_name: Option<String>,
+    /// Base price per 1000 rows (decimal string, e.g., "0.001")
+    #[serde(default)]
+    pub base_price_per_1000_rows: Option<String>,
+    /// Billing model (x402_per_request, prepaid_credits, x402_passthrough)
+    #[serde(default)]
+    pub billing_model: Option<String>,
+    /// Publisher categories (e.g., ["blockchain", "defi"])
+    #[serde(default)]
+    pub categories: Option<Vec<String>>,
+    /// Logo URL for marketplace listing
+    #[serde(default)]
+    pub logo_url: Option<String>,
+}
+
+/// Parameters for executing a paid streaming API request
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ExecutePaidApiStreamParams {
+    /// Publisher slug or UUID
+    pub publisher: String,
+    /// Optional asset ID for payment (defaults to publisher's default asset)
+    #[serde(default)]
+    pub asset_id: Option<Uuid>,
+    /// HTTP method (default: POST)
+    #[serde(default)]
+    pub method: Option<String>,
+    /// Optional relative path to append to the publisher base URL
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Optional request headers (will not override publisher headers)
+    #[serde(default)]
+    pub headers: Option<HashMap<String, String>>,
+    /// Optional JSON body to send
+    #[serde(default)]
+    pub body: Option<serde_json::Value>,
+    /// Optional estimated rows for pricing (default: 1000)
+    #[serde(default)]
+    pub estimated_rows: Option<i64>,
+    /// Optional idempotency key (UUID)
+    #[serde(default)]
+    pub request_id: Option<Uuid>,
+}
+
 // ============================================================================
 // SQL Response Types
 // ============================================================================
@@ -2114,6 +2189,173 @@ impl SerenMcpServer {
             ),
             None,
         ))
+    }
+
+    // ========================================================================
+    // Additional Agent Marketplace Tools
+    // ========================================================================
+
+    #[tool(
+        description = "Get supported payment protocols and configuration. Returns x402 protocol details including supported payment kinds, networks, and facilitator information for payment protocol discovery.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_supported(
+        &self,
+        Parameters(_params): Parameters<GetSupportedParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let supported = api_client
+            .get_supported()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&supported)?]))
+    }
+
+    #[tool(
+        description = "Create a new publisher in the agent marketplace. Publishers provide databases or APIs that AI agents can query with micropayments. Requires API key authentication (organization-level).",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn create_publisher(
+        &self,
+        Parameters(params): Parameters<CreatePublisherParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+
+        // Convert source_type string to enum
+        let source_type = params.source_type.as_deref().map(|s| match s {
+            "serendb" => seren::SourceType::Serendb,
+            "api" => seren::SourceType::Api,
+            _ => seren::SourceType::Serendb, // default
+        });
+
+        let body = seren::CreatePublisherRequest {
+            name: params.name,
+            slug: params.slug,
+            wallet_address: seren::WalletAddress(params.wallet_address),
+            wallet_network_id: params.wallet_network_id,
+            source_type,
+            description: params.description,
+            api_url: params.api_url,
+            project_id: params.project_id,
+            branch_id: params.branch_id,
+            database_name: params.database_name,
+            base_price_per_1000_rows: params.base_price_per_1000_rows,
+            billing_model: params.billing_model,
+            categories: params.categories.unwrap_or_default(),
+            logo_url: params.logo_url,
+            // Set defaults for other fields
+            accepted_asset_ids: None,
+            allowed_passthrough_headers: vec![],
+            api_headers: None,
+            api_key_header: None,
+            api_key_query_param: None,
+            auth_type: None,
+            cache_ttl_seconds: None,
+            gateway_fee_percent: None,
+            grace_period_minutes: None,
+            hourly_rate: None,
+            jwt_access_key: None,
+            jwt_algorithm: None,
+            jwt_expiration_seconds: None,
+            jwt_secret_key: None,
+            low_balance_threshold: None,
+            markup_multiplier: None,
+            minimum_balance: None,
+            ownership_tracking_enabled: None,
+            price_per_call: None,
+            price_per_delete: None,
+            price_per_get: None,
+            price_per_patch: None,
+            price_per_post: None,
+            price_per_put: None,
+            protected_operations: None,
+            publisher_type: None,
+            resource_description: None,
+            resource_id_response_path: None,
+            resource_id_url_pattern: None,
+            resource_name: None,
+            upstream_api_key: None,
+            usage_example: None,
+        };
+
+        let result = api_client
+            .create_publisher_api_key(&body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Execute a paid streaming API request against a publisher's endpoint using the authenticated user's virtual wallet. Returns a streaming response for large payloads. This uses prepaid balance (fiat/Stripe) and does not require x402 signatures.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn execute_paid_api_stream(
+        &self,
+        Parameters(params): Parameters<ExecutePaidApiStreamParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
+
+        let body = seren::ApiRequestBody {
+            publisher_id,
+            asset_id: params.asset_id,
+            method: params.method,
+            path: params.path,
+            headers: params.headers,
+            body: params.body,
+            estimated_rows: params.estimated_rows,
+            request_id: params.request_id,
+        };
+
+        match api_client.execute_api_stream(&body).await {
+            Ok(response) => {
+                // For streaming responses, we collect the full response into memory
+                // In a real streaming scenario, you'd want to handle chunks incrementally
+                use futures::StreamExt;
+                let stream = response.into_inner();
+                futures::pin_mut!(stream);
+
+                let mut collected = Vec::new();
+                while let Some(chunk) = stream.next().await {
+                    match chunk {
+                        Ok(bytes) => collected.extend_from_slice(&bytes),
+                        Err(e) => {
+                            return Err(McpError::internal_error(
+                                format!("Stream error: {}", e),
+                                None,
+                            ));
+                        }
+                    }
+                }
+
+                let text = String::from_utf8_lossy(&collected);
+                Ok(CallToolResult::success(vec![Content::text(
+                    text.to_string(),
+                )]))
+            }
+            Err(e) => {
+                if let Some(status) = e.status() {
+                    if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+                        return Err(McpError::invalid_request(
+                            "Insufficient prepaid balance. Fund your wallet in the Seren console and retry.".to_string(),
+                            None,
+                        ));
+                    }
+                    if status == reqwest::StatusCode::CONFLICT {
+                        return Err(McpError::invalid_request(
+                            "Duplicate request_id. Provide a new UUID and retry.".to_string(),
+                            None,
+                        ));
+                    }
+                }
+                Err(McpError::internal_error(e.to_string(), None))
+            }
+        }
     }
 }
 
