@@ -317,29 +317,6 @@ enum AgentAction {
         #[arg(long)]
         query: String,
     },
-    /// List all wallets for authenticated user
-    ListWallets,
-    /// Create a new managed wallet
-    CreateWallet {
-        /// Set this wallet as primary
-        #[arg(long, action = ArgAction::SetTrue)]
-        set_as_primary: bool,
-    },
-    /// Delete a wallet
-    DeleteWallet {
-        /// Wallet ID (UUID)
-        wallet_id: String,
-    },
-    /// Export a managed wallet's private key (security-sensitive)
-    ExportWalletKey {
-        /// Wallet ID (UUID)
-        wallet_id: String,
-    },
-    /// Set a wallet as primary
-    SetWalletPrimary {
-        /// Wallet ID (UUID)
-        wallet_id: String,
-    },
 }
 
 #[derive(Subcommand)]
@@ -2075,19 +2052,6 @@ async fn main() -> anyhow::Result<()> {
             }
             AgentAction::EstimateQueryCost { publisher, query } => {
                 commands::agent::estimate_query_cost(&publisher, &query, &ctx).await?
-            }
-            AgentAction::ListWallets => commands::agent::list_wallets(&ctx).await?,
-            AgentAction::CreateWallet { set_as_primary } => {
-                commands::agent::create_wallet(set_as_primary, &ctx).await?
-            }
-            AgentAction::DeleteWallet { wallet_id } => {
-                commands::agent::delete_wallet(&wallet_id, &ctx).await?
-            }
-            AgentAction::ExportWalletKey { wallet_id } => {
-                commands::agent::export_wallet_key(&wallet_id, &ctx).await?
-            }
-            AgentAction::SetWalletPrimary { wallet_id } => {
-                commands::agent::set_wallet_primary(&wallet_id, &ctx).await?
             }
         },
     }

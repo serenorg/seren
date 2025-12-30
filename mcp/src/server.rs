@@ -351,21 +351,6 @@ pub struct ExecutePaidApiParams {
     pub request_id: Option<Uuid>,
 }
 
-/// Parameters for creating a managed wallet
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct CreateManagedWalletParams {
-    /// Optional: set as primary wallet
-    #[serde(default)]
-    pub set_as_primary: Option<bool>,
-}
-
-/// Parameters for wallet operations that require a wallet ID
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct WalletIdParams {
-    /// The wallet ID (UUID)
-    pub wallet_id: Uuid,
-}
-
 /// Parameters for getting x402 on-chain deposit requirements
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GetX402DepositRequirementsParams {
@@ -1978,116 +1963,6 @@ impl SerenMcpServer {
                 Err(McpError::internal_error(e.to_string(), None))
             }
         }
-    }
-
-    // ========================================================================
-    // Wallet Management Tools
-    // ========================================================================
-
-    #[tool(
-        description = "Create a new managed EVM wallet. The server generates a keypair and stores the encrypted private key. Use export_wallet_key to retrieve the private key later.",
-        annotations(
-            read_only_hint = false,
-            destructive_hint = false,
-            open_world_hint = false
-        )
-    )]
-    async fn create_managed_wallet(
-        &self,
-        Parameters(params): Parameters<CreateManagedWalletParams>,
-        extensions: Extensions,
-    ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
-        let body = seren::CreateManagedWalletRequest {
-            set_as_primary: Some(params.set_as_primary.unwrap_or(false)),
-        };
-        let result = api_client
-            .create_managed_wallet(&body)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
-    }
-
-    #[tool(
-        description = "List all wallets for the authenticated user. Returns wallet addresses, types (virtual, managed, onchain), and whether each is verified/primary.",
-        annotations(read_only_hint = true, open_world_hint = false)
-    )]
-    async fn list_wallets(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
-        let result = api_client
-            .list_wallets()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
-    }
-
-    #[tool(
-        description = "Export the private key of a managed wallet. WARNING: Store this securely! Anyone with the private key can control the wallet. Only works for 'managed' wallet types.",
-        annotations(
-            read_only_hint = true,
-            destructive_hint = false,
-            open_world_hint = false
-        )
-    )]
-    async fn export_wallet_key(
-        &self,
-        Parameters(params): Parameters<WalletIdParams>,
-        extensions: Extensions,
-    ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
-        let result = api_client
-            .export_wallet_key(&params.wallet_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
-    }
-
-    #[tool(
-        description = "Set a wallet as the primary wallet. The primary wallet is used by default for marketplace operations.",
-        annotations(
-            read_only_hint = false,
-            destructive_hint = false,
-            open_world_hint = false
-        )
-    )]
-    async fn set_wallet_primary(
-        &self,
-        Parameters(params): Parameters<WalletIdParams>,
-        extensions: Extensions,
-    ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
-        let result = api_client
-            .set_wallet_primary(&params.wallet_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
-    }
-
-    #[tool(
-        description = "Delete a wallet (soft delete). Cannot delete the primary wallet - set another wallet as primary first.",
-        annotations(
-            read_only_hint = false,
-            destructive_hint = true,
-            open_world_hint = false
-        )
-    )]
-    async fn delete_wallet(
-        &self,
-        Parameters(params): Parameters<WalletIdParams>,
-        extensions: Extensions,
-    ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
-        api_client
-            .delete_wallet(&params.wallet_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(
-            "Wallet deleted successfully".to_string(),
-        )]))
     }
 
     // ========================================================================
