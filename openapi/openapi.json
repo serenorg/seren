@@ -19,449 +19,6 @@
     }
   ],
   "paths": {
-    "/api/admin/credits/grant": {
-      "post": {
-        "tags": [
-          "admin-credits"
-        ],
-        "summary": "POST /api/admin/credits/grant",
-        "description": "Grant credits to an organization",
-        "operationId": "grant_credits",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GrantCreditsRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Credits granted successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreditGrantResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request"
-          },
-          "403": {
-            "description": "Not authorized (admin only)"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/api/admin/credits/grants": {
-      "get": {
-        "tags": [
-          "admin-credits"
-        ],
-        "summary": "GET /api/admin/credits/grants",
-        "description": "List all credit grants with optional filters",
-        "operationId": "list_credit_grants",
-        "parameters": [
-          {
-            "name": "organization_id",
-            "in": "query",
-            "description": "Filter by organization ID",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "nullable": true
-            }
-          },
-          {
-            "name": "source",
-            "in": "query",
-            "description": "Filter by credit source",
-            "required": false,
-            "schema": {
-              "allOf": [
-                {
-                  "$ref": "#/components/schemas/CreditSource"
-                }
-              ],
-              "nullable": true
-            }
-          },
-          {
-            "name": "active_only",
-            "in": "query",
-            "description": "Only show active grants (has remaining balance and not expired)",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "Maximum number of results (default: 50)",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "description": "Offset for pagination (default: 0)",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Credit grants retrieved",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreditGrantsResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not authorized (admin only)"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/api/admin/marketplace/settings": {
-      "get": {
-        "tags": [
-          "Admin"
-        ],
-        "summary": "GET /api/admin/marketplace/settings",
-        "operationId": "get_agent_marketplace_settings",
-        "responses": {
-          "200": {
-            "description": "Agent marketplace settings",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AdminAgentMarketplaceSettingsResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden - not a platform admin"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      },
-      "put": {
-        "tags": [
-          "Admin"
-        ],
-        "summary": "PUT /api/admin/marketplace/settings",
-        "operationId": "update_agent_marketplace_settings",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateAgentMarketplaceSettingsRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Agent marketplace settings updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AdminAgentMarketplaceSettingsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request"
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden - not a platform admin"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/admin/organizations": {
-      "get": {
-        "tags": [
-          "Admin"
-        ],
-        "summary": "GET /api/admin/organizations",
-        "description": "List all organizations with usage metrics.\nRequires platform admin access.",
-        "operationId": "list_all_organizations",
-        "responses": {
-          "200": {
-            "description": "List of all organizations with usage",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AdminOrganizationsResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden - not a platform admin"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/admin/promo-codes": {
-      "get": {
-        "tags": [
-          "admin-credits"
-        ],
-        "summary": "GET /api/admin/promo-codes",
-        "description": "List all promotional codes with stats",
-        "operationId": "list_promo_codes",
-        "parameters": [
-          {
-            "name": "is_active",
-            "in": "query",
-            "description": "Filter by active status",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "nullable": true
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "Maximum number of results (default: 50)",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "description": "Offset for pagination (default: 0)",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Promo codes retrieved",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PromoCodesWithStatsResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not authorized (admin only)"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "admin-credits"
-        ],
-        "summary": "POST /api/admin/promo-codes",
-        "description": "Create a new promotional code",
-        "operationId": "create_promo_code",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreatePromoCodeRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Promo code created successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PromoCodeResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request"
-          },
-          "403": {
-            "description": "Not authorized (admin only)"
-          },
-          "409": {
-            "description": "Promo code already exists"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/api/admin/promo-codes/{id}": {
-      "patch": {
-        "tags": [
-          "admin-credits"
-        ],
-        "summary": "PATCH /api/admin/promo-codes/:id",
-        "description": "Update a promotional code",
-        "operationId": "update_promo_code",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Promo code ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdatePromoCodeRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Promo code updated successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PromoCodeResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request"
-          },
-          "403": {
-            "description": "Not authorized (admin only)"
-          },
-          "404": {
-            "description": "Promo code not found"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/api/admin/promo-codes/{id}/redemptions": {
-      "get": {
-        "tags": [
-          "admin-credits"
-        ],
-        "summary": "GET /api/admin/promo-codes/:id/redemptions",
-        "description": "Get redemption history for a promotional code",
-        "operationId": "get_promo_code_redemptions",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Promo code ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Redemptions retrieved",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PromoCodeRedemptionsResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not authorized (admin only)"
-          },
-          "404": {
-            "description": "Promo code not found"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
     "/api/agent/api": {
       "post": {
         "tags": [
@@ -564,177 +121,6 @@
         }
       }
     },
-    "/api/agent/balance/{wallet}": {
-      "get": {
-        "tags": [
-          "agent"
-        ],
-        "summary": "GET /api/agent/balance/:wallet",
-        "description": "Get balance summary for an agent wallet (across all publishers and assets)",
-        "operationId": "get_agent_balance_summary",
-        "parameters": [
-          {
-            "name": "wallet",
-            "in": "path",
-            "description": "Agent wallet address (0x...)",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Balance retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AgentBalanceSummaryResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid wallet address"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/api/agent/balance/{wallet}/{publisher_id}": {
-      "get": {
-        "tags": [
-          "agent"
-        ],
-        "summary": "GET /api/agent/balance/:wallet/:publisher_id",
-        "description": "Get all balances for an agent at a specific publisher (across all assets)",
-        "operationId": "get_agent_publisher_balance",
-        "parameters": [
-          {
-            "name": "wallet",
-            "in": "path",
-            "description": "Agent wallet address (0x...)",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "publisher_id",
-            "in": "path",
-            "description": "Publisher ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Balances retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/AgentBalanceResponse"
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid wallet address"
-          },
-          "404": {
-            "description": "No balance found"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/api/agent/databases/validate-token": {
-      "post": {
-        "tags": [
-          "billing"
-        ],
-        "summary": "POST /api/agent/databases/validate-token",
-        "description": "Validates an agent token and returns endpoint info and balance",
-        "operationId": "validate_agent_token",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ValidateTokenRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Token validated successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidateTokenResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Invalid or expired token"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/api/agent/databases/{endpoint_id}/balance": {
-      "get": {
-        "tags": [
-          "billing"
-        ],
-        "summary": "GET /api/agent/databases/{endpoint_id}/balance",
-        "description": "Get current balance for an endpoint",
-        "operationId": "get_balance",
-        "parameters": [
-          {
-            "name": "endpoint_id",
-            "in": "path",
-            "description": "Endpoint ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Balance retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BalanceResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Endpoint not found"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
     "/api/agent/deposit": {
       "post": {
         "tags": [
@@ -786,199 +172,6 @@
         }
       }
     },
-    "/api/agent/deposits": {
-      "post": {
-        "tags": [
-          "agent"
-        ],
-        "summary": "POST /api/agent/deposits",
-        "description": "Create a fiat deposit to fund agent prepaid balance\n\nSupports multiple payment providers (Stripe, PayPal, Coinbase, Wire).\nReturns provider-specific client data for completing the payment.",
-        "operationId": "create_deposit",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateFiatDepositRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Deposit created successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreateFiatDepositResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request"
-          },
-          "404": {
-            "description": "Publisher not found"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/api/agent/deposits/{wallet}": {
-      "get": {
-        "tags": [
-          "agent"
-        ],
-        "summary": "GET /api/agent/deposits/:wallet",
-        "description": "List deposits for an agent wallet",
-        "operationId": "list_deposits",
-        "parameters": [
-          {
-            "name": "wallet",
-            "in": "path",
-            "description": "Agent wallet address (0x...)",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "publisher_id",
-            "in": "query",
-            "description": "Filter by publisher",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "nullable": true
-            }
-          },
-          {
-            "name": "provider",
-            "in": "query",
-            "description": "Filter by provider",
-            "required": false,
-            "schema": {
-              "allOf": [
-                {
-                  "$ref": "#/components/schemas/FiatPaymentProvider"
-                }
-              ],
-              "nullable": true
-            }
-          },
-          {
-            "name": "status",
-            "in": "query",
-            "description": "Filter by status",
-            "required": false,
-            "schema": {
-              "allOf": [
-                {
-                  "$ref": "#/components/schemas/FiatDepositStatus"
-                }
-              ],
-              "nullable": true
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "Maximum number of results (default: 50)",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int64",
-              "nullable": true
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "description": "Offset for pagination",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int64",
-              "nullable": true
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Deposits retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FiatDepositsDataResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid wallet address"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/api/agent/deposits/{wallet}/{deposit_id}": {
-      "get": {
-        "tags": [
-          "agent"
-        ],
-        "summary": "GET /api/agent/deposits/:wallet/:deposit_id",
-        "description": "Get a specific deposit by ID",
-        "operationId": "get_deposit",
-        "parameters": [
-          {
-            "name": "wallet",
-            "in": "path",
-            "description": "Agent wallet address (0x...)",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "deposit_id",
-            "in": "path",
-            "description": "Deposit ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Deposit retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FiatDepositDataResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid wallet address"
-          },
-          "404": {
-            "description": "Deposit not found"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
     "/api/agent/estimate": {
       "post": {
         "tags": [
@@ -1012,146 +205,6 @@
           },
           "500": {
             "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/api/agent/internal/authorize": {
-      "post": {
-        "tags": [
-          "agent-internal"
-        ],
-        "summary": "Internal endpoint: Authorize marketplace session for proxy",
-        "description": "Called by SerenDB proxy when an agent connects with marketplace agent token.\n\nSupports two authentication modes:\n1. **Virtual wallets** (0xFFFF prefix): Platform-generated wallets for fiat users.\nThese require a valid SerenCore user JWT (passed in `signature`) to prove ownership.\n2. **Real Ethereum wallets**: Require EIP-191 personal_sign verification.",
-        "operationId": "internal_authorize",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InternalAuthorizeRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Authorization result",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InternalAuthorizeResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error"
-          }
-        }
-      }
-    },
-    "/api/agent/internal/charge": {
-      "post": {
-        "tags": [
-          "agent-internal"
-        ],
-        "summary": "Internal endpoint: Charge for query execution",
-        "description": "Called by SerenDB proxy after a query completes",
-        "operationId": "internal_charge",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InternalChargeRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Charge result",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InternalChargeResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error"
-          }
-        }
-      }
-    },
-    "/api/agent/internal/release": {
-      "post": {
-        "tags": [
-          "agent-internal"
-        ],
-        "summary": "Internal endpoint: Release reserved balance for failed query",
-        "description": "Called by SerenDB proxy when a refundable error occurs",
-        "operationId": "internal_release",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InternalReleaseRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Release result",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InternalReleaseResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error"
-          }
-        }
-      }
-    },
-    "/api/agent/internal/reserve": {
-      "post": {
-        "tags": [
-          "agent-internal"
-        ],
-        "summary": "Internal endpoint: Reserve balance for query execution",
-        "description": "Called by SerenDB proxy before forwarding a query",
-        "operationId": "internal_reserve",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InternalReserveRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Reserve result",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InternalReserveResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error"
           }
         }
       }
@@ -1216,6 +269,48 @@
                 }
               }
             }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "POST /api/agent/publishers",
+        "description": "Create a publisher via organization API key (machine-to-machine).",
+        "operationId": "create_publisher_api_key",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePublisherRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Publisher created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublisherDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "API key required"
+          },
+          "409": {
+            "description": "Publisher slug already exists"
           },
           "500": {
             "description": "Internal server error"
@@ -1331,76 +426,6 @@
                 }
               }
             }
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/api/agent/transactions/{wallet}": {
-      "get": {
-        "tags": [
-          "agent"
-        ],
-        "summary": "GET /api/agent/transactions/:wallet",
-        "description": "Get transaction history for an agent",
-        "operationId": "get_agent_transactions",
-        "parameters": [
-          {
-            "name": "wallet",
-            "in": "path",
-            "description": "Agent wallet address (0x...)",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "publisher_id",
-            "in": "query",
-            "description": "Filter by publisher",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "nullable": true
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "Maximum number of results (default: 50, max: 100)",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "description": "Offset for pagination",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Transactions retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TransactionsDataResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid wallet address"
           },
           "500": {
             "description": "Internal server error"
@@ -1564,6 +589,577 @@
           },
           "409": {
             "description": "Duplicate request_id"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agent/wallets": {
+      "get": {
+        "tags": [
+          "Wallets"
+        ],
+        "summary": "List all wallets for the current user",
+        "operationId": "list_wallets",
+        "responses": {
+          "200": {
+            "description": "List of user's wallets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletsListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Wallets"
+        ],
+        "summary": "Create a new managed wallet",
+        "description": "Generates a new EVM keypair and stores the encrypted private key.\nThe wallet is immediately verified and ready for use.",
+        "operationId": "create_managed_wallet",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateManagedWalletRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Managed wallet created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedWalletCreatedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/agent/wallets/{wallet_id}": {
+      "delete": {
+        "tags": [
+          "Wallets"
+        ],
+        "summary": "Delete a wallet (soft delete)",
+        "operationId": "delete_wallet",
+        "parameters": [
+          {
+            "name": "wallet_id",
+            "in": "path",
+            "description": "Wallet ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Wallet deleted"
+          },
+          "400": {
+            "description": "Cannot delete primary wallet"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Wallet not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/agent/wallets/{wallet_id}/export": {
+      "get": {
+        "tags": [
+          "Wallets"
+        ],
+        "summary": "Export a managed wallet's private key",
+        "description": "Returns the decrypted private key. This operation is logged for security.\nThe key is only returned once - store it securely.",
+        "operationId": "export_wallet_key",
+        "parameters": [
+          {
+            "name": "wallet_id",
+            "in": "path",
+            "description": "Wallet ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Private key exported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportKeyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Only managed wallets can be exported"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Not your wallet"
+          },
+          "404": {
+            "description": "Wallet not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/agent/wallets/{wallet_id}/set-primary": {
+      "post": {
+        "tags": [
+          "Wallets"
+        ],
+        "summary": "Set a wallet as primary",
+        "operationId": "set_wallet_primary",
+        "parameters": [
+          {
+            "name": "wallet_id",
+            "in": "path",
+            "description": "Wallet ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Wallet set as primary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Wallet not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/agent/wallets/{wallet}/balance": {
+      "get": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "GET /api/agent/wallets/:wallet/balance",
+        "description": "Get balance summary for an agent wallet (across all publishers and assets)",
+        "operationId": "get_agent_balance_summary",
+        "parameters": [
+          {
+            "name": "wallet",
+            "in": "path",
+            "description": "Agent wallet address (0x...) or wallet UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Balance retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBalanceSummaryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid wallet address"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agent/wallets/{wallet}/balance/{publisher_id}": {
+      "get": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "GET /api/agent/wallets/:wallet/balance/:publisher_id",
+        "description": "Get all balances for an agent at a specific publisher (across all assets)",
+        "operationId": "get_agent_publisher_balance",
+        "parameters": [
+          {
+            "name": "wallet",
+            "in": "path",
+            "description": "Agent wallet address (0x...) or wallet UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "path",
+            "description": "Publisher ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Balances retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentBalanceResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid wallet address"
+          },
+          "404": {
+            "description": "No balance found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agent/wallets/{wallet}/deposits": {
+      "get": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "GET /api/agent/wallets/:wallet/deposits",
+        "description": "List deposits for an agent wallet",
+        "operationId": "list_deposits",
+        "parameters": [
+          {
+            "name": "wallet",
+            "in": "path",
+            "description": "Agent wallet address (0x...) or wallet UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "query",
+            "description": "Filter by publisher",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "nullable": true
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "description": "Filter by provider",
+            "required": false,
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/FiatPaymentProvider"
+                }
+              ],
+              "nullable": true
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by status",
+            "required": false,
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/FiatDepositStatus"
+                }
+              ],
+              "nullable": true
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default: 50)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Offset for pagination",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deposits retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FiatDepositsDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid wallet address"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "POST /api/agent/deposits",
+        "description": "Create a fiat deposit to fund agent prepaid balance\n\nSupports multiple payment providers (Stripe, PayPal, Coinbase, Wire).\nReturns provider-specific client data for completing the payment.",
+        "operationId": "create_deposit",
+        "parameters": [
+          {
+            "name": "wallet",
+            "in": "path",
+            "description": "Agent wallet address (0x...) or wallet UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFiatDepositRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Deposit created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateFiatDepositResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agent/wallets/{wallet}/deposits/{deposit_id}": {
+      "get": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "GET /api/agent/wallets/:wallet/deposits/:deposit_id",
+        "description": "Get a specific deposit by ID",
+        "operationId": "get_deposit",
+        "parameters": [
+          {
+            "name": "wallet",
+            "in": "path",
+            "description": "Agent wallet address (0x...) or wallet UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "deposit_id",
+            "in": "path",
+            "description": "Deposit ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deposit retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FiatDepositDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid wallet address"
+          },
+          "404": {
+            "description": "Deposit not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agent/wallets/{wallet}/transactions": {
+      "get": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "GET /api/agent/wallets/:wallet/transactions",
+        "description": "Get transaction history for an agent",
+        "operationId": "get_agent_transactions",
+        "parameters": [
+          {
+            "name": "wallet",
+            "in": "path",
+            "description": "Agent wallet address (0x...) or wallet UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "query",
+            "description": "Filter by publisher",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "nullable": true
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default: 50, max: 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Offset for pagination",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transactions retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionsDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid wallet address"
           },
           "500": {
             "description": "Internal server error"
@@ -1740,47 +1336,6 @@
           },
           "400": {
             "description": "Invalid or expired token"
-          }
-        }
-      }
-    },
-    "/api/billing/deduct": {
-      "post": {
-        "tags": [
-          "billing"
-        ],
-        "summary": "POST /api/billing/deduct",
-        "description": "Deduct balance for a query",
-        "operationId": "deduct_balance",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DeductBalanceRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Balance deducted successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeductBalanceResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Insufficient balance"
-          },
-          "404": {
-            "description": "Endpoint not found"
-          },
-          "500": {
-            "description": "Internal server error"
           }
         }
       }
@@ -2121,44 +1676,6 @@
             "bearer_auth": []
           }
         ]
-      }
-    },
-    "/api/billing/refund": {
-      "post": {
-        "tags": [
-          "billing"
-        ],
-        "summary": "POST /api/billing/refund",
-        "description": "Refund a transaction",
-        "operationId": "refund_transaction",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RefundTransactionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Refund processed successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RefundTransactionResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Transaction not found"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
       }
     },
     "/api/billing/usage/{organization_id}": {
@@ -9025,50 +8542,6 @@
         ]
       }
     },
-    "/api/publishers": {
-      "post": {
-        "tags": [
-          "agent"
-        ],
-        "summary": "POST /api/publishers",
-        "description": "Create a publisher via organization API key (machine-to-machine).",
-        "operationId": "create_publisher_api_key",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreatePublisherRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Publisher created successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PublisherDataResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request"
-          },
-          "401": {
-            "description": "API key required"
-          },
-          "409": {
-            "description": "Publisher slug already exists"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
     "/api/sessions": {
       "get": {
         "tags": [
@@ -9577,54 +9050,6 @@
           }
         }
       },
-      "AdminAgentMarketplaceSettings": {
-        "type": "object",
-        "required": [
-          "x402_platform_fee_usdc",
-          "max_api_response_bytes",
-          "settlement_batch_size",
-          "payout_batch_size",
-          "payment_request_expiry_minutes",
-          "gateway_wallets"
-        ],
-        "properties": {
-          "default_max_queries_per_minute": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
-          },
-          "gateway_wallets": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AdminGatewayWallet"
-            }
-          },
-          "max_api_response_bytes": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Maximum size in bytes for publisher API responses (default: 10 MiB)"
-          },
-          "payment_request_expiry_minutes": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Minutes before payment requests expire"
-          },
-          "payout_batch_size": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Number of payouts to process per worker run"
-          },
-          "settlement_batch_size": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Number of settlements to process per worker run"
-          },
-          "x402_platform_fee_usdc": {
-            "type": "string",
-            "description": "Platform fee (USDC) charged for x402 pass-through payments."
-          }
-        }
-      },
       "AdminAgentMarketplaceSettingsResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
@@ -9642,111 +9067,6 @@
               }
             ],
             "nullable": true
-          }
-        }
-      },
-      "AdminGatewayWallet": {
-        "type": "object",
-        "required": [
-          "network_id",
-          "network_name",
-          "chain_type",
-          "is_testnet"
-        ],
-        "properties": {
-          "chain_type": {
-            "type": "string"
-          },
-          "is_testnet": {
-            "type": "boolean"
-          },
-          "network_id": {
-            "type": "string"
-          },
-          "network_name": {
-            "type": "string"
-          },
-          "wallet_address": {
-            "type": "string",
-            "nullable": true
-          }
-        }
-      },
-      "AdminOrganization": {
-        "type": "object",
-        "description": "Organization data for admin view with usage metrics.",
-        "required": [
-          "id",
-          "name",
-          "slug",
-          "is_personal",
-          "created_at",
-          "owner_email",
-          "plan_name",
-          "storage_bytes",
-          "compute_hours_this_month",
-          "project_count"
-        ],
-        "properties": {
-          "compute_hours_this_month": {
-            "type": "number",
-            "format": "double",
-            "description": "Compute hours used this billing period"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "is_personal": {
-            "type": "boolean"
-          },
-          "name": {
-            "type": "string"
-          },
-          "owner_email": {
-            "type": "string",
-            "description": "Owner's email address"
-          },
-          "plan_name": {
-            "type": "string",
-            "description": "Current plan name (e.g., \"free\", \"launch\", \"scale\")"
-          },
-          "project_count": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Number of projects in this organization"
-          },
-          "slug": {
-            "type": "string"
-          },
-          "storage_bytes": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Total storage used across all projects (bytes)"
-          },
-          "stripe_customer_id": {
-            "type": "string",
-            "description": "Stripe customer ID if billing is enabled",
-            "nullable": true
-          }
-        }
-      },
-      "AdminOrganizationsResponse": {
-        "type": "object",
-        "description": "Response wrapper for admin organizations list.",
-        "required": [
-          "data"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AdminOrganization"
-            }
           }
         }
       },
@@ -9785,7 +9105,7 @@
         ],
         "properties": {
           "agent_wallet": {
-            "type": "string"
+            "$ref": "#/components/schemas/WalletAddress"
           },
           "asset": {
             "$ref": "#/components/schemas/AssetInfo"
@@ -9840,7 +9160,7 @@
         ],
         "properties": {
           "agent_wallet": {
-            "type": "string"
+            "$ref": "#/components/schemas/WalletAddress"
           },
           "balances": {
             "type": "array",
@@ -10980,7 +10300,11 @@
             "format": "uuid"
           },
           "stripe_payment_method_id": {
-            "type": "string",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StripePaymentMethodId"
+              }
+            ],
             "nullable": true
           }
         }
@@ -11384,18 +10708,13 @@
       },
       "CreateFiatDepositRequest": {
         "type": "object",
-        "description": "Request to create a fiat deposit for agent prepaid balance",
+        "description": "Request to create a fiat deposit for agent prepaid balance\n\nNote: The wallet address is provided in the URL path, not in the request body.",
         "required": [
-          "agent_wallet",
           "publisher_id",
           "target_asset_id",
           "amount"
         ],
         "properties": {
-          "agent_wallet": {
-            "type": "string",
-            "description": "Agent's wallet address (EVM 0x...).\n\nNote: Fiat deposits currently only support EVM stablecoins."
-          },
           "amount": {
             "type": "number",
             "format": "double",
@@ -11437,8 +10756,7 @@
         ],
         "properties": {
           "agent_wallet": {
-            "type": "string",
-            "description": "Agent wallet address"
+            "$ref": "#/components/schemas/WalletAddress"
           },
           "amount": {
             "type": "number",
@@ -11481,6 +10799,16 @@
           },
           "target_asset": {
             "$ref": "#/components/schemas/AssetInfo"
+          }
+        }
+      },
+      "CreateManagedWalletRequest": {
+        "type": "object",
+        "description": "Request to create a managed wallet",
+        "properties": {
+          "set_as_primary": {
+            "type": "boolean",
+            "description": "Optional: set as primary wallet"
           }
         }
       },
@@ -11666,8 +10994,11 @@
             "description": "Asset to withdraw (must be an asset accepted by the publisher)"
           },
           "destination_wallet": {
-            "type": "string",
-            "description": "Destination wallet override (defaults to the publisher's configured wallet)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/WalletAddress"
+              }
+            ],
             "nullable": true
           }
         }
@@ -11893,8 +11224,7 @@
             "nullable": true
           },
           "wallet_address": {
-            "type": "string",
-            "description": "Wallet address for receiving payments"
+            "$ref": "#/components/schemas/WalletAddress"
           },
           "wallet_network_id": {
             "type": "string",
@@ -13187,6 +12517,29 @@
           }
         }
       },
+      "ExportKeyResponse": {
+        "type": "object",
+        "description": "Response for wallet key export",
+        "required": [
+          "private_key",
+          "address",
+          "warning"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "The wallet address"
+          },
+          "private_key": {
+            "type": "string",
+            "description": "The private key (hex string starting with 0x)"
+          },
+          "warning": {
+            "type": "string",
+            "description": "Warning message"
+          }
+        }
+      },
       "FiatDepositDataResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
@@ -13225,7 +12578,7 @@
         ],
         "properties": {
           "agent_wallet": {
-            "type": "string"
+            "$ref": "#/components/schemas/WalletAddress"
           },
           "amount": {
             "type": "number",
@@ -13340,7 +12693,7 @@
         ],
         "properties": {
           "email": {
-            "type": "string"
+            "$ref": "#/components/schemas/Email"
           }
         }
       },
@@ -14214,6 +13567,40 @@
           }
         }
       },
+      "ManagedWalletCreatedResponse": {
+        "type": "object",
+        "description": "Response for managed wallet creation",
+        "required": [
+          "id",
+          "address",
+          "wallet_type",
+          "is_primary",
+          "message"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "The EVM wallet address (0x...)"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The wallet ID"
+          },
+          "is_primary": {
+            "type": "boolean",
+            "description": "Whether this is the primary wallet"
+          },
+          "message": {
+            "type": "string",
+            "description": "Message about key export"
+          },
+          "wallet_type": {
+            "type": "string",
+            "description": "Wallet type (always \"managed\")"
+          }
+        }
+      },
       "OnchainDepositRequest": {
         "type": "object",
         "description": "Request body for on-chain deposit",
@@ -14252,8 +13639,7 @@
         ],
         "properties": {
           "agent_wallet": {
-            "type": "string",
-            "description": "Agent wallet address"
+            "$ref": "#/components/schemas/WalletAddress"
           },
           "asset_symbol": {
             "type": "string",
@@ -14443,7 +13829,7 @@
             "type": "string"
           },
           "slug": {
-            "type": "string"
+            "$ref": "#/components/schemas/Slug"
           },
           "stripe_customer_id": {
             "type": "string",
@@ -14670,7 +14056,7 @@
             "format": "date-time"
           },
           "email": {
-            "type": "string"
+            "$ref": "#/components/schemas/Email"
           },
           "id": {
             "type": "string",
@@ -15162,10 +14548,10 @@
             "type": "string"
           },
           "currency": {
-            "type": "string"
+            "$ref": "#/components/schemas/CurrencyCode"
           },
           "payment_intent_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/StripePaymentIntentId"
           }
         }
       },
@@ -15311,7 +14697,7 @@
             "type": "string"
           },
           "currency": {
-            "type": "string"
+            "$ref": "#/components/schemas/CurrencyCode"
           },
           "failed_at": {
             "type": "string",
@@ -15332,11 +14718,15 @@
             "type": "string"
           },
           "stripe_charge_id": {
-            "type": "string",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StripeChargeId"
+              }
+            ],
             "nullable": true
           },
           "stripe_payment_intent_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/StripePaymentIntentId"
           },
           "succeeded_at": {
             "type": "string",
@@ -16953,7 +16343,7 @@
             "format": "int64"
           },
           "wallet_address": {
-            "type": "string"
+            "$ref": "#/components/schemas/WalletAddress"
           }
         }
       },
@@ -16983,7 +16373,7 @@
             "$ref": "#/components/schemas/AssetInfo"
           },
           "destination_wallet": {
-            "type": "string"
+            "$ref": "#/components/schemas/WalletAddress"
           },
           "error_message": {
             "type": "string",
@@ -17145,7 +16535,7 @@
             "nullable": true
           },
           "wallet_address": {
-            "type": "string"
+            "$ref": "#/components/schemas/WalletAddress"
           },
           "wallet_network_id": {
             "type": "string",
@@ -17673,7 +17063,7 @@
         ],
         "properties": {
           "email": {
-            "type": "string"
+            "$ref": "#/components/schemas/Email"
           }
         }
       },
@@ -18428,7 +17818,7 @@
         ],
         "properties": {
           "agent_wallet": {
-            "type": "string"
+            "$ref": "#/components/schemas/WalletAddress"
           },
           "amount": {
             "type": "number",
@@ -18533,54 +17923,6 @@
           }
         }
       },
-      "UpdateAgentMarketplaceSettingsRequest": {
-        "type": "object",
-        "properties": {
-          "default_max_queries_per_minute": {
-            "type": "integer",
-            "format": "int32",
-            "description": "If omitted, leave unchanged. If null, clear the setting.",
-            "nullable": true
-          },
-          "gateway_wallets": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/UpdateGatewayWalletRequest"
-            },
-            "description": "If omitted, leave gateway wallets unchanged.",
-            "nullable": true
-          },
-          "max_api_response_bytes": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Maximum size in bytes for publisher API responses",
-            "nullable": true
-          },
-          "payment_request_expiry_minutes": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Minutes before payment requests expire",
-            "nullable": true
-          },
-          "payout_batch_size": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Number of payouts to process per worker run",
-            "nullable": true
-          },
-          "settlement_batch_size": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Number of settlements to process per worker run",
-            "nullable": true
-          },
-          "x402_platform_fee_usdc": {
-            "type": "string",
-            "description": "Platform fee (USDC) charged for x402 pass-through payments.",
-            "nullable": true
-          }
-        }
-      },
       "UpdateBranchProtectionRequest": {
         "type": "object",
         "description": "Request to update branch protection",
@@ -18645,22 +17987,6 @@
           "suspend_timeout_seconds": {
             "type": "integer",
             "format": "int32",
-            "nullable": true
-          }
-        }
-      },
-      "UpdateGatewayWalletRequest": {
-        "type": "object",
-        "required": [
-          "network_id"
-        ],
-        "properties": {
-          "network_id": {
-            "type": "string"
-          },
-          "wallet_address": {
-            "type": "string",
-            "description": "Set to null to remove the configured wallet for this network.",
             "nullable": true
           }
         }
@@ -19078,8 +18404,11 @@
             "nullable": true
           },
           "wallet_address": {
-            "type": "string",
-            "description": "New wallet address for receiving payments",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/WalletAddress"
+              }
+            ],
             "nullable": true
           },
           "wallet_network_id": {
@@ -19356,7 +18685,7 @@
             "format": "date-time"
           },
           "email": {
-            "type": "string"
+            "$ref": "#/components/schemas/Email"
           },
           "id": {
             "type": "string",
@@ -19512,6 +18841,60 @@
         "properties": {
           "token": {
             "type": "string"
+          }
+        }
+      },
+      "WalletAddress": {
+        "type": "string",
+        "description": "A validated wallet address (EVM or Solana).\n\nThis type ensures wallet addresses are validated at construction time.\nStored as TEXT in the database via SQLx's transparent encoding.\n\n# Examples\n\n```\nuse seren_core::models::WalletAddress;\n\n// EVM address\nlet evm = WalletAddress::new(\"0x1234567890123456789012345678901234567890\").unwrap();\n\n// Solana address\nlet sol = WalletAddress::new(\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\").unwrap();\n\n// Convert to alloy Address for EVM operations\nif let Some(addr) = evm.as_evm() {\n// Use with alloy...\n}\n```",
+        "example": "0x1234567890123456789012345678901234567890"
+      },
+      "WalletInfo": {
+        "type": "object",
+        "description": "Response for wallet info in API",
+        "required": [
+          "id",
+          "wallet_address",
+          "wallet_type",
+          "is_verified",
+          "is_primary",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_primary": {
+            "type": "boolean"
+          },
+          "is_verified": {
+            "type": "boolean"
+          },
+          "wallet_address": {
+            "type": "string"
+          },
+          "wallet_type": {
+            "type": "string"
+          }
+        }
+      },
+      "WalletsListResponse": {
+        "type": "object",
+        "description": "List user's wallets response",
+        "required": [
+          "wallets"
+        ],
+        "properties": {
+          "wallets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WalletInfo"
+            }
           }
         }
       },
@@ -19798,6 +19181,10 @@
     {
       "name": "agent-internal",
       "description": "Agent internal endpoints for SerenDB proxy"
+    },
+    {
+      "name": "Wallets",
+      "description": "Wallet management for managed EVM wallets"
     }
   ]
 }
