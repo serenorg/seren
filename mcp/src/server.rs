@@ -1817,54 +1817,40 @@ impl SerenMcpServer {
         Parameters(params): Parameters<ExecutePaidQueryParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let token = self.bearer_token(&extensions)?;
-        let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
-        let http_client = self.build_http_client(&token, &agent_metadata)?;
         let api_client = self.api_client(&extensions)?;
         let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
-        let body = seren::UserQueryRequestBody {
+        let body = seren::QueryRequestBody {
             publisher_id,
             asset_id: params.asset_id,
             query: params.query,
             database: params.database,
             request_id: params.request_id,
         };
-        let url = format!("{}/api/agent/user/query", self.api_base_url);
-        let response = http_client
-            .post(url)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        if response.status() == reqwest::StatusCode::PAYMENT_REQUIRED {
-            return Err(McpError::invalid_request(
-                "Insufficient prepaid balance. Fund your wallet in the Seren console and retry."
-                    .to_string(),
-                None,
-            ));
+        match api_client.execute_query(&body).await {
+            Ok(response) => {
+                let result = response.into_inner();
+                Ok(CallToolResult::success(vec![json_content(&result)?]))
+            }
+            Err(e) => {
+                // Handle specific error codes with user-friendly messages
+                if let Some(status) = e.status() {
+                    if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+                        return Err(McpError::invalid_request(
+                            "Insufficient prepaid balance. Fund your wallet in the Seren console and retry.".to_string(),
+                            None,
+                        ));
+                    }
+                    if status == reqwest::StatusCode::CONFLICT {
+                        return Err(McpError::invalid_request(
+                            "Duplicate request_id. Provide a new UUID and retry.".to_string(),
+                            None,
+                        ));
+                    }
+                }
+                Err(McpError::internal_error(e.to_string(), None))
+            }
         }
-        if response.status() == reqwest::StatusCode::CONFLICT {
-            return Err(McpError::invalid_request(
-                "Duplicate request_id. Provide a new UUID and retry.".to_string(),
-                None,
-            ));
-        }
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_body = response.text().await.unwrap_or_default();
-            return Err(McpError::internal_error(
-                format!("Query failed: {} - {}", status, error_body),
-                None,
-            ));
-        }
-
-        let result: seren::QueryResultResponse = response
-            .json()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
 
     #[tool(
@@ -1880,12 +1866,9 @@ impl SerenMcpServer {
         Parameters(params): Parameters<ExecutePaidApiParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let token = self.bearer_token(&extensions)?;
-        let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
-        let http_client = self.build_http_client(&token, &agent_metadata)?;
         let api_client = self.api_client(&extensions)?;
         let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
-        let body = seren::UserApiRequestBody {
+        let body = seren::ApiRequestBody {
             publisher_id,
             asset_id: params.asset_id,
             method: params.method,
@@ -1895,42 +1878,31 @@ impl SerenMcpServer {
             estimated_rows: params.estimated_rows,
             request_id: params.request_id,
         };
-        let url = format!("{}/api/agent/user/api", self.api_base_url);
-        let response = http_client
-            .post(url)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        if response.status() == reqwest::StatusCode::PAYMENT_REQUIRED {
-            return Err(McpError::invalid_request(
-                "Insufficient prepaid balance. Fund your wallet in the Seren console and retry."
-                    .to_string(),
-                None,
-            ));
+        match api_client.execute_api(&body).await {
+            Ok(response) => {
+                let result = response.into_inner();
+                Ok(CallToolResult::success(vec![json_content(&result)?]))
+            }
+            Err(e) => {
+                // Handle specific error codes with user-friendly messages
+                if let Some(status) = e.status() {
+                    if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+                        return Err(McpError::invalid_request(
+                            "Insufficient prepaid balance. Fund your wallet in the Seren console and retry.".to_string(),
+                            None,
+                        ));
+                    }
+                    if status == reqwest::StatusCode::CONFLICT {
+                        return Err(McpError::invalid_request(
+                            "Duplicate request_id. Provide a new UUID and retry.".to_string(),
+                            None,
+                        ));
+                    }
+                }
+                Err(McpError::internal_error(e.to_string(), None))
+            }
         }
-        if response.status() == reqwest::StatusCode::CONFLICT {
-            return Err(McpError::invalid_request(
-                "Duplicate request_id. Provide a new UUID and retry.".to_string(),
-                None,
-            ));
-        }
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_body = response.text().await.unwrap_or_default();
-            return Err(McpError::internal_error(
-                format!("API request failed: {} - {}", status, error_body),
-                None,
-            ));
-        }
-
-        let result: seren::ApiResultResponse = response
-            .json()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
 
     // ========================================================================

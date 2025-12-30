@@ -24,8 +24,8 @@
         "tags": [
           "agent"
         ],
-        "summary": "Execute a paid HTTP API request for API publishers",
-        "description": "Supports both x402 v1 and v2 header formats.",
+        "summary": "Execute a paid HTTP API request",
+        "description": "This unified endpoint supports two payment methods:\n\n1. **Prepaid Balance** (Authorization header): Authenticated users can pay with their\nprepaid balance. Include `Authorization: Bearer <token>` header.\n\n2. **On-Chain Payment** (payment protocol headers): Agents can pay with cryptocurrency.\nIf no payment is provided, returns HTTP 402 Payment Required with payment options.\n\nThe endpoint auto-detects which payment method to use based on headers present.",
         "operationId": "execute_api",
         "requestBody": {
           "content": {
@@ -95,6 +95,57 @@
               "text/plain": {
                 "schema": {
                   "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "402": {
+            "description": "Payment required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRequiredResponseWithInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agent/database": {
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "Execute a paid database query",
+        "description": "This unified endpoint supports two payment methods:\n\n1. **Prepaid Balance** (Authorization header): Authenticated users can pay with their\nprepaid balance. Include `Authorization: Bearer <token>` header.\n\n2. **On-Chain Payment** (payment protocol headers): Agents can pay with cryptocurrency.\nIf no payment is provided, returns HTTP 402 Payment Required with payment options.\n\nThe endpoint auto-detects which payment method to use based on headers present.",
+        "operationId": "execute_query",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Query executed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResultResponse"
                 }
               }
             }
@@ -357,57 +408,6 @@
         }
       }
     },
-    "/api/agent/query": {
-      "post": {
-        "tags": [
-          "agent"
-        ],
-        "summary": "Execute a paid query",
-        "description": "Supports both x402 v1 and v2 header formats:\n- v1: X-PAYMENT header for payment, X-PAYMENT-RESPONSE for settlement\n- v2: PAYMENT-SIGNATURE header for payment, PAYMENT-RESPONSE for settlement\n\nIf no payment header is provided, returns 402 with payment requirements.",
-        "operationId": "execute_query",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/QueryRequestBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Query executed successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/QueryResultResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request"
-          },
-          "402": {
-            "description": "Payment required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PaymentRequiredResponseWithInfo"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Publisher not found"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
     "/api/agent/supported": {
       "get": {
         "tags": [
@@ -426,53 +426,6 @@
                 }
               }
             }
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/api/agent/user/api": {
-      "post": {
-        "tags": [
-          "agent"
-        ],
-        "summary": "Execute a prepaid API request using the authenticated user's virtual wallet.",
-        "description": "This endpoint is intended for fiat users who fund a prepaid balance via Stripe.",
-        "operationId": "execute_user_api",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UserApiRequestBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "API request executed successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiResultResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request"
-          },
-          "402": {
-            "description": "Insufficient prepaid balance"
-          },
-          "404": {
-            "description": "Publisher not found"
-          },
-          "409": {
-            "description": "Duplicate request_id"
           },
           "500": {
             "description": "Internal server error"
@@ -542,53 +495,6 @@
           },
           "404": {
             "description": "Publisher not found"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/api/agent/user/query": {
-      "post": {
-        "tags": [
-          "agent"
-        ],
-        "summary": "Execute a prepaid SQL query using the authenticated user's virtual wallet.",
-        "description": "This endpoint is intended for fiat users who fund a prepaid balance via Stripe.",
-        "operationId": "execute_user_query",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UserQueryRequestBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Query executed successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/QueryResultResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request"
-          },
-          "402": {
-            "description": "Insufficient prepaid balance"
-          },
-          "404": {
-            "description": "Publisher not found"
-          },
-          "409": {
-            "description": "Duplicate request_id"
           },
           "500": {
             "description": "Internal server error"
@@ -9385,6 +9291,12 @@
             "type": "string",
             "format": "uuid",
             "description": "Publisher UUID"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional idempotency key (UUID) for deduplication",
+            "nullable": true
           }
         }
       },
@@ -16603,6 +16515,12 @@
           "query": {
             "type": "string",
             "description": "SQL query to execute"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional idempotency key (UUID) for deduplication",
+            "nullable": true
           }
         }
       },
@@ -18611,60 +18529,6 @@
           }
         }
       },
-      "UserApiRequestBody": {
-        "type": "object",
-        "description": "Prepaid user API request body (fiat)",
-        "required": [
-          "publisher_id"
-        ],
-        "properties": {
-          "asset_id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Optional asset id to pay with (defaults to publisher primary asset)",
-            "nullable": true
-          },
-          "body": {
-            "description": "Optional JSON body to send",
-            "nullable": true
-          },
-          "estimated_rows": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Optional estimated rows for pricing (default: 1000)",
-            "nullable": true
-          },
-          "headers": {
-            "type": "object",
-            "description": "Optional request headers (will not override publisher headers)",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "nullable": true
-          },
-          "method": {
-            "type": "string",
-            "description": "HTTP method (default: POST)",
-            "nullable": true
-          },
-          "path": {
-            "type": "string",
-            "description": "Optional relative path to append to the publisher base URL",
-            "nullable": true
-          },
-          "publisher_id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Publisher UUID"
-          },
-          "request_id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Optional idempotency key (UUID)",
-            "nullable": true
-          }
-        }
-      },
       "UserInfo": {
         "type": "object",
         "description": "Combined user view for API responses",
@@ -18715,42 +18579,6 @@
                 "$ref": "#/components/schemas/PaginationMeta"
               }
             ],
-            "nullable": true
-          }
-        }
-      },
-      "UserQueryRequestBody": {
-        "type": "object",
-        "description": "Prepaid user query request body (fiat)",
-        "required": [
-          "publisher_id",
-          "query"
-        ],
-        "properties": {
-          "asset_id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Optional asset id to pay with (defaults to publisher primary asset)",
-            "nullable": true
-          },
-          "database": {
-            "type": "string",
-            "description": "Optional database name",
-            "nullable": true
-          },
-          "publisher_id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Publisher UUID"
-          },
-          "query": {
-            "type": "string",
-            "description": "SQL query to execute"
-          },
-          "request_id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Optional idempotency key (UUID)",
             "nullable": true
           }
         }

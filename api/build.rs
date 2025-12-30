@@ -26,19 +26,17 @@ fn collect_refs(value: &serde_json::Value, acc: &mut HashSet<String>) {
     }
 }
 
-/// Strip content bodies from 402 responses since progenitor doesn't handle them well.
-/// The 402 Payment Required response has a body in the API but progenitor treats
-/// any response with content as a "success" response type, causing assertion failures.
+/// Strip content bodies from 402 responses for progenitor code generation.
+/// Progenitor can only handle one typed response per operation, so we remove
+/// the 402 content schema. The 402 is still documented in the original OpenAPI spec.
 fn strip_402_content(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(map) => {
-            // If this is a responses object with a "402" key, strip its content
             if let Some(response_402) = map.get_mut("402") {
                 if let serde_json::Value::Object(resp_obj) = response_402 {
                     resp_obj.remove("content");
                 }
             }
-            // Recurse into all values
             for v in map.values_mut() {
                 strip_402_content(v);
             }
@@ -72,7 +70,12 @@ fn main() -> anyhow::Result<()> {
     let spec_str = fs::read_to_string("../openapi/openapi.json")?;
     let mut raw_json: serde_json::Value = serde_json::from_str(&spec_str)?;
 
-    // Strip 402 response content bodies since progenitor can't handle them
+    // Strip 402 response content bodies for progenitor code generation.
+    // Progenitor panics with "response_types.len() <= 1" if an operation has
+    // multiple typed responses (e.g., 200 success + 402 payment required).
+    // We still document 402 in the OpenAPI spec - this only affects codegen.
+    // The generated code will use UnexpectedResponse for 402, preserving the
+    // raw response so callers can deserialize the payment requirements manually.
     strip_402_content(&mut raw_json);
 
     let mut refs = HashSet::new();
@@ -150,6 +153,14 @@ fn main() -> anyhow::Result<()> {
             "::jiff::Timestamp",
         )
         .replace("chrono::DateTime<chrono::offset::Utc>", "::jiff::Timestamp");
+
+    // Convert 402 responses from ErrorResponse (which discards body) to UnexpectedResponse
+    // (which preserves the raw response). This allows callers to deserialize 402 bodies
+    // for payment-required flows while keeping 402 documented in the OpenAPI spec.
+    let formatted = formatted.replace(
+        "402u16 => Err(Error::ErrorResponse(ResponseValue::empty(response)))",
+        "402u16 => Err(Error::UnexpectedResponse(response))",
+    );
 
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     fs::create_dir_all(&out_dir)?;
