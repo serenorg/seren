@@ -693,6 +693,11 @@ enum EndpointAction {
         /// Endpoint ID
         id: String,
     },
+    /// Restart an endpoint (rolling restart via Kubernetes)
+    Restart {
+        /// Endpoint ID
+        id: String,
+    },
     /// Get endpoint health status
     Health {
         /// Endpoint ID
@@ -1559,6 +1564,9 @@ async fn main() -> anyhow::Result<()> {
             }
             EndpointAction::Start { id } => {
                 commands::endpoints::start(&project_id, &branch_id, &id, &ctx).await?
+            }
+            EndpointAction::Restart { id } => {
+                commands::endpoints::restart(&project_id, &id, &ctx).await?
             }
             EndpointAction::Health { id } => {
                 commands::endpoints::status(&project_id, &branch_id, &id, &ctx).await?

@@ -239,3 +239,26 @@ pub async fn status(
 
     Ok(())
 }
+
+pub async fn restart(project_id: &str, endpoint_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let endpoint_uuid =
+        Uuid::parse_str(endpoint_id).map_err(|e| anyhow::anyhow!("Invalid endpoint ID: {}", e))?;
+
+    let response = client
+        .restart_project_endpoint(&project_uuid, &endpoint_uuid)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to restart endpoint: {}", e))?;
+
+    let status_info = response.into_inner();
+    println!("{}", "✓ Endpoint restart initiated!".green().bold());
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&status_info)?,
+        OutputFormat::Table => output::print_endpoint_status(&status_info.data),
+    }
+
+    Ok(())
+}
