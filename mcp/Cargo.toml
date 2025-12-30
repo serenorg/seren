@@ -69,6 +69,10 @@ opentelemetry_sdk = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }
 opentelemetry-semantic-conventions = { workspace = true, optional = true }
 
+# Ethereum wallet
+alloy = { workspace = true }
+hex = { workspace = true }
+
 # Utils
 uuid = { workspace = true }
 rand = { workspace = true }

@@ -2,9 +2,17 @@
 //!
 //! This module provides the MCP server with all tools for managing
 //! Seren database projects, branches, and SQL execution.
+//!
+//! # Local Wallet Support
+//!
+//! When running locally, users can provide a `WALLET_PRIVATE_KEY` environment
+//! variable to enable local wallet signing for x402 payments. This allows AI
+//! agents to make crypto payments without relying on the managed wallet API.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use alloy::signers::local::PrivateKeySigner;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -29,6 +37,9 @@ pub struct SerenMcpServer {
     auth: SerenAuth,
     http_client: reqwest::Client,
     tool_router: ToolRouter<Self>,
+    /// Optional local wallet for x402 payments when running locally.
+    /// Loaded from WALLET_PRIVATE_KEY environment variable.
+    local_wallet: Option<Arc<PrivateKeySigner>>,
 }
 
 // ============================================================================
@@ -58,6 +69,15 @@ pub struct EndpointPath {
     pub project_id: Uuid,
     /// The branch ID (UUID)
     pub branch_id: Uuid,
+    /// The endpoint ID (UUID)
+    pub endpoint_id: Uuid,
+}
+
+/// Path parameters for endpoint restart (no branch_id needed)
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct EndpointRestartPath {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
     /// The endpoint ID (UUID)
     pub endpoint_id: Uuid,
 }
@@ -329,6 +349,21 @@ pub struct ExecutePaidApiParams {
     /// Optional idempotency key (UUID)
     #[serde(default)]
     pub request_id: Option<Uuid>,
+}
+
+/// Parameters for creating a managed wallet
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CreateManagedWalletParams {
+    /// Optional: set as primary wallet
+    #[serde(default)]
+    pub set_as_primary: Option<bool>,
+}
+
+/// Parameters for wallet operations that require a wallet ID
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct WalletIdParams {
+    /// The wallet ID (UUID)
+    pub wallet_id: Uuid,
 }
 
 /// Parameters for getting x402 on-chain deposit requirements
@@ -817,14 +852,33 @@ impl SerenMcpServer {
 
 #[tool_router]
 impl SerenMcpServer {
+    /// Try to load a local wallet from the WALLET_PRIVATE_KEY environment variable.
+    ///
+    /// The private key should be a hex string (with or without 0x prefix).
+    fn load_local_wallet() -> Option<Arc<PrivateKeySigner>> {
+        std::env::var("WALLET_PRIVATE_KEY").ok().and_then(|key| {
+            let key = key.strip_prefix("0x").unwrap_or(&key);
+            hex::decode(key)
+                .ok()
+                .and_then(|bytes| bytes.try_into().ok())
+                .and_then(|arr: [u8; 32]| PrivateKeySigner::from_bytes(&arr.into()).ok())
+                .map(Arc::new)
+        })
+    }
+
     /// Create a new Seren MCP Server
     #[allow(clippy::result_large_err)]
     pub fn new(api_key: &str, api_base_url: &str) -> Result<Self, seren::Error> {
+        let local_wallet = Self::load_local_wallet();
+        if local_wallet.is_some() {
+            tracing::info!("Local wallet loaded from WALLET_PRIVATE_KEY");
+        }
         Ok(Self {
             api_base_url: api_base_url.to_string(),
             auth: SerenAuth::StaticToken(api_key.to_string()),
             http_client: reqwest::Client::new(),
             tool_router: Self::tool_router(),
+            local_wallet,
         })
     }
 
@@ -834,11 +888,16 @@ impl SerenMcpServer {
     /// `Authorization: Bearer ...` header (injected into [`Extensions`] by rmcp).
     #[allow(clippy::result_large_err)]
     pub fn new_oauth(api_base_url: &str) -> Result<Self, seren::Error> {
+        let local_wallet = Self::load_local_wallet();
+        if local_wallet.is_some() {
+            tracing::info!("Local wallet loaded from WALLET_PRIVATE_KEY");
+        }
         Ok(Self {
             api_base_url: api_base_url.to_string(),
             auth: SerenAuth::FromRequestBearer,
             http_client: reqwest::Client::new(),
             tool_router: Self::tool_router(),
+            local_wallet,
         })
     }
 
@@ -1478,6 +1537,30 @@ impl SerenMcpServer {
         ))]))
     }
 
+    #[tool(
+        description = "Restart an endpoint (rolling restart via Kubernetes)",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn restart_endpoint(
+        &self,
+        Parameters(params): Parameters<EndpointRestartPath>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .restart_project_endpoint(&params.project_id, &params.endpoint_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let status = response.into_inner();
+        Ok(CallToolResult::success(vec![json_content(&status)?]))
+    }
+
     // ========================================================================
     // API Key Tools
     // ========================================================================
@@ -1848,6 +1931,157 @@ impl SerenMcpServer {
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    // ========================================================================
+    // Wallet Management Tools
+    // ========================================================================
+
+    #[tool(
+        description = "Create a new managed EVM wallet. The server generates a keypair and stores the encrypted private key. Use export_wallet_key to retrieve the private key later.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn create_managed_wallet(
+        &self,
+        Parameters(params): Parameters<CreateManagedWalletParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let body = seren::CreateManagedWalletRequest {
+            set_as_primary: Some(params.set_as_primary.unwrap_or(false)),
+        };
+        let result = api_client
+            .create_managed_wallet(&body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "List all wallets for the authenticated user. Returns wallet addresses, types (virtual, managed, onchain), and whether each is verified/primary.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_wallets(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let result = api_client
+            .list_wallets()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Export the private key of a managed wallet. WARNING: Store this securely! Anyone with the private key can control the wallet. Only works for 'managed' wallet types.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn export_wallet_key(
+        &self,
+        Parameters(params): Parameters<WalletIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let result = api_client
+            .export_wallet_key(&params.wallet_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Set a wallet as the primary wallet. The primary wallet is used by default for marketplace operations.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn set_wallet_primary(
+        &self,
+        Parameters(params): Parameters<WalletIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let result = api_client
+            .set_wallet_primary(&params.wallet_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Delete a wallet (soft delete). Cannot delete the primary wallet - set another wallet as primary first.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn delete_wallet(
+        &self,
+        Parameters(params): Parameters<WalletIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        api_client
+            .delete_wallet(&params.wallet_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![Content::text(
+            "Wallet deleted successfully".to_string(),
+        )]))
+    }
+
+    // ========================================================================
+    // Local Wallet Tools (for users running seren-mcp locally)
+    // ========================================================================
+
+    #[tool(
+        description = "Get the local wallet address. Only available when running seren-mcp locally with WALLET_PRIVATE_KEY environment variable set. Returns the EVM wallet address derived from the private key.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_local_wallet_address(&self) -> Result<CallToolResult, McpError> {
+        let wallet = self.local_wallet.as_ref().ok_or_else(|| {
+            McpError::invalid_request(
+                "Local wallet not configured. Set WALLET_PRIVATE_KEY environment variable."
+                    .to_string(),
+                None,
+            )
+        })?;
+
+        let address = format!("{:?}", wallet.address());
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Local wallet address: {}",
+            address
+        ))]))
+    }
+
+    #[tool(
+        description = "Check if a local wallet is configured. Returns true if WALLET_PRIVATE_KEY is set and a valid wallet is loaded.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn has_local_wallet(&self) -> Result<CallToolResult, McpError> {
+        let has_wallet = self.local_wallet.is_some();
+        let response = serde_json::json!({
+            "has_local_wallet": has_wallet,
+            "message": if has_wallet {
+                "Local wallet is configured and ready for x402 payments"
+            } else {
+                "No local wallet configured. Set WALLET_PRIVATE_KEY to enable local signing."
+            }
+        });
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
