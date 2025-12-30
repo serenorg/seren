@@ -1313,7 +1313,7 @@ impl SerenMcpServer {
             SELECT table_name
             FROM information_schema.tables
             WHERE table_schema = $1
-              AND table_type = 'BASE TABLE'
+                AND table_type = 'BASE TABLE'
             ORDER BY table_name
         "#;
 
@@ -1394,7 +1394,7 @@ impl SerenMcpServer {
                 character_maximum_length
             FROM information_schema.columns
             WHERE table_schema = $1
-              AND table_name = $2
+                AND table_name = $2
             ORDER BY ordinal_position
         "#;
 

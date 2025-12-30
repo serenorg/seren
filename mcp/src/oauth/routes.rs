@@ -1293,48 +1293,48 @@ async fn consent_page(
         r#"<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Approve MCP Client</title>
-  <style>
-    body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background: #0b0f19; color: #e6e8ee; margin: 0; }}
-    .wrap {{ max-width: 720px; margin: 40px auto; padding: 0 16px; }}
-    .card {{ background: #11182a; border: 1px solid #23304a; border-radius: 14px; padding: 22px; }}
-    .title {{ font-size: 20px; font-weight: 700; margin: 0 0 8px; }}
-    .muted {{ color: #a7b0c2; margin: 0 0 18px; }}
-    .row {{ display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px; }}
-    button {{ border: 0; border-radius: 10px; padding: 12px 14px; font-weight: 700; cursor: pointer; }}
-    .approve {{ background: #2d6cdf; color: white; }}
-    .deny {{ background: #2a3246; color: #e6e8ee; }}
-    .box {{ background: #0c1220; border: 1px solid #23304a; border-radius: 10px; padding: 12px; margin-top: 12px; }}
-    code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }}
-  </style>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Approve MCP Client</title>
+    <style>
+        body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background: #0b0f19; color: #e6e8ee; margin: 0; }}
+        .wrap {{ max-width: 720px; margin: 40px auto; padding: 0 16px; }}
+        .card {{ background: #11182a; border: 1px solid #23304a; border-radius: 14px; padding: 22px; }}
+        .title {{ font-size: 20px; font-weight: 700; margin: 0 0 8px; }}
+        .muted {{ color: #a7b0c2; margin: 0 0 18px; }}
+        .row {{ display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px; }}
+        button {{ border: 0; border-radius: 10px; padding: 12px 14px; font-weight: 700; cursor: pointer; }}
+        .approve {{ background: #2d6cdf; color: white; }}
+        .deny {{ background: #2a3246; color: #e6e8ee; }}
+        .box {{ background: #0c1220; border: 1px solid #23304a; border-radius: 10px; padding: 12px; margin-top: 12px; }}
+        code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }}
+    </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="card">
-      <p class="title">Allow <code>{client_name}</code> to access your Seren account?</p>
-      <p class="muted">This will let the MCP client manage your SerenDB projects and run SQL using your account permissions.</p>
-      <div class="box">
-        <div><strong>Client</strong>: {client_name}</div>
-        <div><strong>Requested scope</strong>: <code>{scope}</code></div>
-      </div>
-      <div class="row">
-        <form method="post" action="/consent">
-          <input type="hidden" name="token" value="{token}">
-          <input type="hidden" name="csrf_token" value="{csrf_token}">
-          <input type="hidden" name="action" value="approve">
-          <button class="approve" type="submit">Approve</button>
-        </form>
-        <form method="post" action="/consent">
-          <input type="hidden" name="token" value="{token}">
-          <input type="hidden" name="csrf_token" value="{csrf_token}">
-          <input type="hidden" name="action" value="deny">
-          <button class="deny" type="submit">Deny</button>
-        </form>
-      </div>
+    <div class="wrap">
+        <div class="card">
+            <p class="title">Allow <code>{client_name}</code> to access your Seren account?</p>
+            <p class="muted">This will let the MCP client manage your SerenDB projects and run SQL using your account permissions.</p>
+            <div class="box">
+                <div><strong>Client</strong>: {client_name}</div>
+                <div><strong>Requested scope</strong>: <code>{scope}</code></div>
+            </div>
+            <div class="row">
+                <form method="post" action="/consent">
+                    <input type="hidden" name="token" value="{token}">
+                    <input type="hidden" name="csrf_token" value="{csrf_token}">
+                    <input type="hidden" name="action" value="approve">
+                    <button class="approve" type="submit">Approve</button>
+                </form>
+                <form method="post" action="/consent">
+                    <input type="hidden" name="token" value="{token}">
+                    <input type="hidden" name="csrf_token" value="{csrf_token}">
+                    <input type="hidden" name="action" value="deny">
+                    <button class="deny" type="submit">Deny</button>
+                </form>
+            </div>
+        </div>
     </div>
-  </div>
 </body>
 </html>"#,
         client_name = html_escape(&client.name),
