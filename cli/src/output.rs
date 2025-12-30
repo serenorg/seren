@@ -1900,7 +1900,7 @@ pub fn print_replication_settings(settings: &seren::LogicalReplicationSettings) 
 
 pub fn print_agent_balance_summary(summary: &seren::AgentBalanceSummary) {
     let rows = [
-        ("Wallet", summary.agent_wallet.clone()),
+        ("Wallet", summary.agent_wallet.to_string()),
         ("Publishers", summary.publishers_used.to_string()),
         ("Queries", summary.total_queries.to_string()),
     ];
@@ -1950,11 +1950,11 @@ pub fn print_agent_publisher_balances(balances: &[seren::AgentBalanceResponse]) 
     let first = &balances[0];
 
     let mut rows = vec![
-        ("Wallet", first.agent_wallet.clone()),
+        ("Wallet", first.agent_wallet.to_string()),
         ("Publisher", first.publisher_id.to_string()),
     ];
     if let Some(name) = &first.publisher_name {
-        rows.push(("Name", name.clone()));
+        rows.push(("Name", name.to_string()));
     }
 
     print_key_value_table(Some("Agent Publisher Balance"), &rows);

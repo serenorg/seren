@@ -102,41 +102,16 @@ pub async fn get_usage(
 
 // Agent billing commands
 
-pub async fn validate_token(token: &str, ctx: &CommandContext) -> Result<()> {
-    let client = ctx.client().await?;
-
-    let request = seren::ValidateTokenRequest {
-        token: token.to_string(),
-    };
-    let response = client
-        .validate_agent_token(&request)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to validate token: {}", e))?;
-
-    let result = response.into_inner();
-    match ctx.format {
-        OutputFormat::Json => output::print_json(&result)?,
-        OutputFormat::Table => output::print_validate_token(&result),
-    }
-
-    Ok(())
+// TODO: These endpoints are internal and not in the public OpenAPI spec.
+// They need to be either added to the spec or handled differently.
+#[allow(dead_code)]
+pub async fn validate_token(_token: &str, _ctx: &CommandContext) -> Result<()> {
+    anyhow::bail!("validate_token is not available in the public API")
 }
 
-pub async fn get_balance(endpoint_id: &str, ctx: &CommandContext) -> Result<()> {
-    let client = ctx.client().await?;
-
-    let response = client
-        .get_balance(endpoint_id)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to get balance: {}", e))?;
-
-    let result = response.into_inner();
-    match ctx.format {
-        OutputFormat::Json => output::print_json(&result)?,
-        OutputFormat::Table => output::print_balance(&result),
-    }
-
-    Ok(())
+#[allow(dead_code)]
+pub async fn get_balance(_endpoint_id: &str, _ctx: &CommandContext) -> Result<()> {
+    anyhow::bail!("get_balance is not available in the public API")
 }
 
 pub async fn get_health(ctx: &CommandContext) -> Result<()> {
