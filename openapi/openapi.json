@@ -14,8 +14,8 @@
   },
   "servers": [
     {
-      "url": "/api",
-      "description": "API Base Path"
+      "url": "/",
+      "description": "API Root"
     }
   ],
   "paths": {
@@ -433,95 +433,58 @@
         }
       }
     },
-    "/api/agent/user/balance": {
+    "/api/agent/wallet/balance": {
       "get": {
         "tags": [
-          "agent"
+          "agent-wallet"
         ],
-        "summary": "GET /api/agent/user/balance",
-        "description": "Get balance summary for the authenticated user's virtual wallet",
-        "operationId": "get_user_balance_summary",
+        "summary": "Get wallet balance (funded + promotional)",
+        "operationId": "get_wallet_balance",
         "responses": {
           "200": {
-            "description": "Balance retrieved successfully",
+            "description": "Wallet balance retrieved",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentBalanceSummaryResponse"
+                  "$ref": "#/components/schemas/WalletBalanceDataResponse"
                 }
               }
             }
           },
-          "500": {
-            "description": "Internal server error"
+          "401": {
+            "description": "Unauthorized"
           }
-        }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
-    "/api/agent/user/deposits": {
+    "/api/agent/wallet/bonus/payment-method": {
       "post": {
         "tags": [
-          "agent"
+          "agent-wallet"
         ],
-        "summary": "POST /api/agent/user/deposits",
-        "description": "Create a fiat deposit using the authenticated user's virtual wallet.\n\nThis is the preferred endpoint for fiat users - no need to manage Ethereum\nwallet addresses. The user's virtual wallet is automatically created if needed.",
-        "operationId": "create_user_deposit",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateUserDepositRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Deposit created successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreateFiatDepositResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request"
-          },
-          "401": {
-            "description": "Not authenticated"
-          },
-          "404": {
-            "description": "Publisher not found"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/api/agent/wallets": {
-      "get": {
-        "tags": [
-          "Wallets"
-        ],
-        "summary": "List all wallets for the current user",
-        "operationId": "list_wallets",
+        "summary": "Claim payment method bonus (if not already claimed)",
+        "operationId": "claim_payment_method_bonus",
         "responses": {
           "200": {
-            "description": "List of user's wallets",
+            "description": "Payment method bonus claimed",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WalletsListResponse"
+                  "$ref": "#/components/schemas/BonusClaimDataResponse"
                 }
               }
             }
           },
           "401": {
             "description": "Unauthorized"
+          },
+          "409": {
+            "description": "Bonus already claimed"
           }
         },
         "security": [
@@ -529,131 +492,31 @@
             "bearer_auth": []
           }
         ]
-      },
+      }
+    },
+    "/api/agent/wallet/bonus/signup": {
       "post": {
         "tags": [
-          "Wallets"
+          "agent-wallet"
         ],
-        "summary": "Create a new managed wallet",
-        "description": "Generates a new EVM keypair and stores the encrypted private key.\nThe wallet is immediately verified and ready for use.",
-        "operationId": "create_managed_wallet",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateManagedWalletRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Managed wallet created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ManagedWalletCreatedResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/agent/wallets/{wallet_id}": {
-      "delete": {
-        "tags": [
-          "Wallets"
-        ],
-        "summary": "Delete a wallet (soft delete)",
-        "operationId": "delete_wallet",
-        "parameters": [
-          {
-            "name": "wallet_id",
-            "in": "path",
-            "description": "Wallet ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Wallet deleted"
-          },
-          "400": {
-            "description": "Cannot delete primary wallet"
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "404": {
-            "description": "Wallet not found"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/agent/wallets/{wallet_id}/export": {
-      "get": {
-        "tags": [
-          "Wallets"
-        ],
-        "summary": "Export a managed wallet's private key",
-        "description": "Returns the decrypted private key. This operation is logged for security.\nThe key is only returned once - store it securely.",
-        "operationId": "export_wallet_key",
-        "parameters": [
-          {
-            "name": "wallet_id",
-            "in": "path",
-            "description": "Wallet ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
+        "summary": "Claim signup bonus (if not already claimed)",
+        "operationId": "claim_signup_bonus",
         "responses": {
           "200": {
-            "description": "Private key exported",
+            "description": "Signup bonus claimed",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ExportKeyResponse"
+                  "$ref": "#/components/schemas/BonusClaimDataResponse"
                 }
               }
             }
           },
-          "400": {
-            "description": "Only managed wallets can be exported"
-          },
           "401": {
             "description": "Unauthorized"
           },
-          "403": {
-            "description": "Not your wallet"
-          },
-          "404": {
-            "description": "Wallet not found"
+          "409": {
+            "description": "Bonus already claimed"
           }
         },
         "security": [
@@ -663,41 +526,29 @@
         ]
       }
     },
-    "/api/agent/wallets/{wallet_id}/set-primary": {
+    "/api/agent/wallet/daily/claim": {
       "post": {
         "tags": [
-          "Wallets"
+          "agent-wallet"
         ],
-        "summary": "Set a wallet as primary",
-        "operationId": "set_wallet_primary",
-        "parameters": [
-          {
-            "name": "wallet_id",
-            "in": "path",
-            "description": "Wallet ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
+        "summary": "Claim daily free credits",
+        "operationId": "claim_daily",
         "responses": {
           "200": {
-            "description": "Wallet set as primary",
+            "description": "Daily credits claimed",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WalletInfo"
+                  "$ref": "#/components/schemas/DailyClaimDataResponse"
                 }
               }
             }
           },
+          "400": {
+            "description": "Not eligible for daily claim"
+          },
           "401": {
             "description": "Unauthorized"
-          },
-          "404": {
-            "description": "Wallet not found"
           }
         },
         "security": [
@@ -707,234 +558,59 @@
         ]
       }
     },
-    "/api/agent/wallets/{wallet}/balance": {
+    "/api/agent/wallet/daily/eligibility": {
       "get": {
         "tags": [
-          "agent"
+          "agent-wallet"
         ],
-        "summary": "GET /api/agent/wallets/:wallet/balance",
-        "description": "Get balance summary for an agent wallet (across all publishers and assets)",
-        "operationId": "get_agent_balance_summary",
-        "parameters": [
-          {
-            "name": "wallet",
-            "in": "path",
-            "description": "Agent wallet address (0x...) or wallet UUID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "summary": "Check if user can claim daily credits",
+        "operationId": "check_daily_eligibility",
         "responses": {
           "200": {
-            "description": "Balance retrieved successfully",
+            "description": "Eligibility checked",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentBalanceSummaryResponse"
+                  "$ref": "#/components/schemas/DailyClaimEligibilityDataResponse"
                 }
               }
             }
           },
-          "400": {
-            "description": "Invalid wallet address"
-          },
-          "500": {
-            "description": "Internal server error"
+          "401": {
+            "description": "Unauthorized"
           }
-        }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
-    "/api/agent/wallets/{wallet}/balance/{publisher_id}": {
-      "get": {
-        "tags": [
-          "agent"
-        ],
-        "summary": "GET /api/agent/wallets/:wallet/balance/:publisher_id",
-        "description": "Get all balances for an agent at a specific publisher (across all assets)",
-        "operationId": "get_agent_publisher_balance",
-        "parameters": [
-          {
-            "name": "wallet",
-            "in": "path",
-            "description": "Agent wallet address (0x...) or wallet UUID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "publisher_id",
-            "in": "path",
-            "description": "Publisher ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Balances retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/AgentBalanceResponse"
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid wallet address"
-          },
-          "404": {
-            "description": "No balance found"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/api/agent/wallets/{wallet}/deposits": {
-      "get": {
-        "tags": [
-          "agent"
-        ],
-        "summary": "GET /api/agent/wallets/:wallet/deposits",
-        "description": "List deposits for an agent wallet",
-        "operationId": "list_deposits",
-        "parameters": [
-          {
-            "name": "wallet",
-            "in": "path",
-            "description": "Agent wallet address (0x...) or wallet UUID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "publisher_id",
-            "in": "query",
-            "description": "Filter by publisher",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "nullable": true
-            }
-          },
-          {
-            "name": "provider",
-            "in": "query",
-            "description": "Filter by provider",
-            "required": false,
-            "schema": {
-              "allOf": [
-                {
-                  "$ref": "#/components/schemas/FiatPaymentProvider"
-                }
-              ],
-              "nullable": true
-            }
-          },
-          {
-            "name": "status",
-            "in": "query",
-            "description": "Filter by status",
-            "required": false,
-            "schema": {
-              "allOf": [
-                {
-                  "$ref": "#/components/schemas/FiatDepositStatus"
-                }
-              ],
-              "nullable": true
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "Maximum number of results (default: 50)",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int64",
-              "nullable": true
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "description": "Offset for pagination",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int64",
-              "nullable": true
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Deposits retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FiatDepositsDataResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid wallet address"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      },
+    "/api/agent/wallet/deposit": {
       "post": {
         "tags": [
-          "agent"
+          "agent-wallet"
         ],
-        "summary": "POST /api/agent/deposits",
-        "description": "Create a fiat deposit to fund agent prepaid balance\n\nSupports multiple payment providers (Stripe, PayPal, Coinbase, Wire).\nReturns provider-specific client data for completing the payment.",
+        "summary": "Deposit funds via Stripe",
         "operationId": "create_deposit",
-        "parameters": [
-          {
-            "name": "wallet",
-            "in": "path",
-            "description": "Agent wallet address (0x...) or wallet UUID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateFiatDepositRequest"
+                "$ref": "#/components/schemas/DepositRequest"
               }
             }
           },
           "required": true
         },
         "responses": {
-          "201": {
-            "description": "Deposit created successfully",
+          "200": {
+            "description": "Deposit initiated",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CreateFiatDepositResponse"
+                  "$ref": "#/components/schemas/DepositDataResponse"
                 }
               }
             }
@@ -942,100 +618,96 @@
           "400": {
             "description": "Invalid request"
           },
-          "404": {
-            "description": "Publisher not found"
-          },
-          "500": {
-            "description": "Internal server error"
+          "401": {
+            "description": "Unauthorized"
           }
-        }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
-    "/api/agent/wallets/{wallet}/deposits/{deposit_id}": {
+    "/api/agent/wallet/referral": {
       "get": {
         "tags": [
-          "agent"
+          "agent-wallet"
         ],
-        "summary": "GET /api/agent/wallets/:wallet/deposits/:deposit_id",
-        "description": "Get a specific deposit by ID",
-        "operationId": "get_deposit",
-        "parameters": [
-          {
-            "name": "wallet",
-            "in": "path",
-            "description": "Agent wallet address (0x...) or wallet UUID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "deposit_id",
-            "in": "path",
-            "description": "Deposit ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
+        "summary": "Get user's referral info and code",
+        "operationId": "get_referral_info",
         "responses": {
           "200": {
-            "description": "Deposit retrieved successfully",
+            "description": "Referral info retrieved",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FiatDepositDataResponse"
+                  "$ref": "#/components/schemas/ReferralInfoDataResponse"
                 }
               }
             }
           },
-          "400": {
-            "description": "Invalid wallet address"
-          },
-          "404": {
-            "description": "Deposit not found"
-          },
-          "500": {
-            "description": "Internal server error"
+          "401": {
+            "description": "Unauthorized"
           }
-        }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
-    "/api/agent/wallets/{wallet}/transactions": {
+    "/api/agent/wallet/referral/apply": {
+      "post": {
+        "tags": [
+          "agent-wallet"
+        ],
+        "summary": "Apply a referral code to the current user",
+        "operationId": "apply_referral_code",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyReferralRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Referral code applied"
+          },
+          "400": {
+            "description": "Invalid referral code"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "409": {
+            "description": "Already has a referrer"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/agent/wallet/transactions": {
       "get": {
         "tags": [
-          "agent"
+          "agent-wallet"
         ],
-        "summary": "GET /api/agent/wallets/:wallet/transactions",
-        "description": "Get transaction history for an agent",
-        "operationId": "get_agent_transactions",
+        "summary": "Get transaction history for funded operations",
+        "operationId": "get_transactions",
         "parameters": [
-          {
-            "name": "wallet",
-            "in": "path",
-            "description": "Agent wallet address (0x...) or wallet UUID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "publisher_id",
-            "in": "query",
-            "description": "Filter by publisher",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "nullable": true
-            }
-          },
           {
             "name": "limit",
             "in": "query",
-            "description": "Maximum number of results (default: 50, max: 100)",
+            "description": "Maximum number of transactions to return (default 50, max 100)",
             "required": false,
             "schema": {
               "type": "integer",
@@ -1055,22 +727,24 @@
         ],
         "responses": {
           "200": {
-            "description": "Transactions retrieved successfully",
+            "description": "Transaction history retrieved",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TransactionsDataResponse"
+                  "$ref": "#/components/schemas/WalletTransactionHistoryDataResponse"
                 }
               }
             }
           },
-          "400": {
-            "description": "Invalid wallet address"
-          },
-          "500": {
-            "description": "Internal server error"
+          "401": {
+            "description": "Unauthorized"
           }
-        }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
     "/api/auth/forgot-password": {
@@ -8956,26 +8630,6 @@
           }
         }
       },
-      "AdminAgentMarketplaceSettingsResponse": {
-        "type": "object",
-        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
-        "required": [
-          "data"
-        ],
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/AdminAgentMarketplaceSettings"
-          },
-          "pagination": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/PaginationMeta"
-              }
-            ],
-            "nullable": true
-          }
-        }
-      },
       "AgentBalanceDataResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
@@ -9111,6 +8765,21 @@
             "nullable": true
           }
         }
+      },
+      "AgentCreditSource": {
+        "type": "string",
+        "description": "Source of an agent credit grant (fiat-only, no on-chain deposits)",
+        "enum": [
+          "fiat_purchase",
+          "signup_bonus",
+          "payment_method_bonus",
+          "daily_claim",
+          "referral_reward",
+          "admin_grant",
+          "promo_code",
+          "tier_bonus",
+          "refund"
+        ]
       },
       "ApiKeyCreated": {
         "type": "object",
@@ -9344,6 +9013,18 @@
             "format": "int32",
             "description": "HTTP status from publisher",
             "minimum": 0
+          }
+        }
+      },
+      "ApplyReferralRequest": {
+        "type": "object",
+        "description": "Request to apply a referral code",
+        "required": [
+          "referral_code"
+        ],
+        "properties": {
+          "referral_code": {
+            "type": "string"
           }
         }
       },
@@ -9689,6 +9370,43 @@
           },
           "job": {
             "type": "string"
+          }
+        }
+      },
+      "BonusClaimDataResponse": {
+        "type": "object",
+        "description": "Wrapped bonus claim response for OpenAPI",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/BonusClaimResponse"
+          }
+        }
+      },
+      "BonusClaimResponse": {
+        "type": "object",
+        "description": "Response for claiming bonuses",
+        "required": [
+          "success",
+          "amount_atomic",
+          "amount_usd",
+          "bonus_type"
+        ],
+        "properties": {
+          "amount_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "amount_usd": {
+            "type": "string"
+          },
+          "bonus_type": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
           }
         }
       },
@@ -10714,16 +10432,6 @@
           }
         }
       },
-      "CreateManagedWalletRequest": {
-        "type": "object",
-        "description": "Request to create a managed wallet",
-        "properties": {
-          "set_as_primary": {
-            "type": "boolean",
-            "description": "Optional: set as primary wallet"
-          }
-        }
-      },
       "CreateOrganizationInviteRequest": {
         "type": "object",
         "description": "Request body for creating an organization invite.",
@@ -11575,6 +11283,91 @@
           }
         }
       },
+      "CurrencyCode": {
+        "type": "string",
+        "description": "A validated currency code.\n\nSupports:\n- ISO 4217 fiat currencies (USD, EUR, GBP, etc.)\n- Common crypto currencies (USDC, SOL, ETH, etc.)\n\n# Examples\n\n```\nuse seren_core::models::CurrencyCode;\n\nlet usd = CurrencyCode::new(\"USD\").unwrap();\nlet usdc = CurrencyCode::new(\"USDC\").unwrap();\nassert!(CurrencyCode::new(\"invalid\").is_err());\n```",
+        "example": "USD"
+      },
+      "DailyClaimDataResponse": {
+        "type": "object",
+        "description": "Wrapped daily claim response for OpenAPI",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DailyClaimResponse"
+          }
+        }
+      },
+      "DailyClaimEligibilityDataResponse": {
+        "type": "object",
+        "description": "Wrapped daily eligibility response for OpenAPI",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DailyClaimEligibilityResponse"
+          }
+        }
+      },
+      "DailyClaimEligibilityResponse": {
+        "type": "object",
+        "description": "Response for daily claim eligibility check",
+        "required": [
+          "can_claim",
+          "claims_remaining_this_month"
+        ],
+        "properties": {
+          "can_claim": {
+            "type": "boolean"
+          },
+          "claims_remaining_this_month": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "DailyClaimResponse": {
+        "type": "object",
+        "description": "Response for claiming daily credits",
+        "required": [
+          "success",
+          "amount_atomic",
+          "amount_usd",
+          "balance_atomic",
+          "balance_usd",
+          "claims_remaining_this_month"
+        ],
+        "properties": {
+          "amount_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "amount_usd": {
+            "type": "string"
+          },
+          "balance_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "balance_usd": {
+            "type": "string"
+          },
+          "claims_remaining_this_month": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "Database": {
         "type": "object",
         "description": "Database within a SerenDB branch",
@@ -11855,6 +11648,79 @@
           }
         }
       },
+      "DepositDataResponse": {
+        "type": "object",
+        "description": "Wrapped deposit response for OpenAPI",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DepositResponse"
+          }
+        }
+      },
+      "DepositRequest": {
+        "type": "object",
+        "description": "Request to deposit funds via Stripe",
+        "required": [
+          "amount_cents"
+        ],
+        "properties": {
+          "amount_cents": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Amount in USD cents (minimum 500 = $5.00)"
+          }
+        }
+      },
+      "DepositResponse": {
+        "type": "object",
+        "description": "Response for wallet deposit initiation",
+        "required": [
+          "deposit_id",
+          "stripe_client_secret",
+          "amount_atomic",
+          "bonus_atomic",
+          "total_atomic",
+          "amount_usd",
+          "bonus_usd",
+          "total_usd"
+        ],
+        "properties": {
+          "amount_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Base deposit amount in atomic units"
+          },
+          "amount_usd": {
+            "type": "string"
+          },
+          "bonus_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Tier bonus in atomic units (if applicable)"
+          },
+          "bonus_usd": {
+            "type": "string"
+          },
+          "deposit_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stripe_client_secret": {
+            "type": "string"
+          },
+          "total_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total to be credited in atomic units"
+          },
+          "total_usd": {
+            "type": "string"
+          }
+        }
+      },
       "Eip712Domain": {
         "type": "object",
         "description": "EIP-712 domain (matches ethereum.rs Eip712Domain)",
@@ -11958,6 +11824,11 @@
             }
           }
         }
+      },
+      "Email": {
+        "type": "string",
+        "description": "A validated email address.\n\nThis type ensures email addresses are validated at construction time.\nStored as TEXT in the database via SQLx's transparent encoding.\n\n# Examples\n\n```\nuse seren_core::models::Email;\n\nlet email = Email::new(\"user@example.com\").unwrap();\nassert!(Email::new(\"invalid\").is_err());\n```",
+        "example": "user@example.com"
       },
       "EmailVerified": {
         "type": "object",
@@ -12426,29 +12297,6 @@
           "publisher_slug": {
             "type": "string",
             "description": "Publisher slug"
-          }
-        }
-      },
-      "ExportKeyResponse": {
-        "type": "object",
-        "description": "Response for wallet key export",
-        "required": [
-          "private_key",
-          "address",
-          "warning"
-        ],
-        "properties": {
-          "address": {
-            "type": "string",
-            "description": "The wallet address"
-          },
-          "private_key": {
-            "type": "string",
-            "description": "The private key (hex string starting with 0x)"
-          },
-          "warning": {
-            "type": "string",
-            "description": "Warning message"
           }
         }
       },
@@ -13479,39 +13327,10 @@
           }
         }
       },
-      "ManagedWalletCreatedResponse": {
-        "type": "object",
-        "description": "Response for managed wallet creation",
-        "required": [
-          "id",
-          "address",
-          "wallet_type",
-          "is_primary",
-          "message"
-        ],
-        "properties": {
-          "address": {
-            "type": "string",
-            "description": "The EVM wallet address (0x...)"
-          },
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "The wallet ID"
-          },
-          "is_primary": {
-            "type": "boolean",
-            "description": "Whether this is the primary wallet"
-          },
-          "message": {
-            "type": "string",
-            "description": "Message about key export"
-          },
-          "wallet_type": {
-            "type": "string",
-            "description": "Wallet type (always \"managed\")"
-          }
-        }
+      "NetworkId": {
+        "type": "string",
+        "description": "A validated network identifier.\n\nSupports common blockchain networks. Stored as TEXT in database.\n\n# Known Networks\n- `evm:1` - Ethereum Mainnet\n- `evm:8453` - Base\n- `evm:137` - Polygon\n- `evm:42161` - Arbitrum One\n- `evm:10` - Optimism\n- `solana:mainnet` - Solana Mainnet\n- `solana:devnet` - Solana Devnet\n\n# Examples\n\n```\nuse seren_core::models::NetworkId;\n\nlet eth = NetworkId::new(\"evm:1\").unwrap();\nassert!(eth.is_evm());\n\nlet sol = NetworkId::new(\"solana:mainnet\").unwrap();\nassert!(sol.is_solana());\n```",
+        "example": "evm:8453"
       },
       "OnchainDepositRequest": {
         "type": "object",
@@ -16795,6 +16614,57 @@
           }
         }
       },
+      "ReferralInfoDataResponse": {
+        "type": "object",
+        "description": "Wrapped referral info response for OpenAPI",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ReferralInfoResponse"
+          }
+        }
+      },
+      "ReferralInfoResponse": {
+        "type": "object",
+        "description": "Response for referral info",
+        "required": [
+          "referral_code",
+          "referral_url",
+          "total_referrals",
+          "total_earnings_atomic",
+          "total_earnings_usd",
+          "pending_earnings_atomic",
+          "pending_earnings_usd"
+        ],
+        "properties": {
+          "pending_earnings_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pending_earnings_usd": {
+            "type": "string"
+          },
+          "referral_code": {
+            "type": "string"
+          },
+          "referral_url": {
+            "type": "string"
+          },
+          "total_earnings_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_earnings_usd": {
+            "type": "string"
+          },
+          "total_referrals": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "RefundTransactionRequest": {
         "type": "object",
         "required": [
@@ -17567,6 +17437,11 @@
           }
         }
       },
+      "Slug": {
+        "type": "string",
+        "description": "A validated URL-safe slug.\n\nSlugs must be:\n- 2-64 characters long\n- Lowercase alphanumeric with hyphens\n- Cannot start or end with a hyphen\n- Cannot have consecutive hyphens\n\n# Examples\n\n```\nuse seren_core::models::Slug;\n\nlet slug = Slug::new(\"my-project\").unwrap();\nassert!(Slug::new(\"My Project\").is_err()); // spaces not allowed\nassert!(Slug::new(\"-invalid\").is_err()); // can't start with hyphen\n```",
+        "example": "my-project"
+      },
       "SourceType": {
         "type": "string",
         "description": "Source type for publisher data",
@@ -17575,6 +17450,36 @@
           "api",
           "both"
         ]
+      },
+      "StripeChargeId": {
+        "type": "string",
+        "description": "A Stripe Charge ID (ch_xxx).",
+        "example": "ch_1234567890abcdef"
+      },
+      "StripeCustomerId": {
+        "type": "string",
+        "description": "A Stripe Customer ID (cus_xxx).",
+        "example": "cus_1234567890abcdef"
+      },
+      "StripePaymentIntentId": {
+        "type": "string",
+        "description": "A Stripe Payment Intent ID (pi_xxx).",
+        "example": "pi_1234567890abcdef"
+      },
+      "StripePaymentMethodId": {
+        "type": "string",
+        "description": "A Stripe Payment Method ID (pm_xxx).",
+        "example": "pm_1234567890abcdef"
+      },
+      "StripePriceId": {
+        "type": "string",
+        "description": "A Stripe Price ID (price_xxx).",
+        "example": "price_1234567890abcdef"
+      },
+      "StripeSubscriptionId": {
+        "type": "string",
+        "description": "A Stripe Subscription ID (sub_xxx).",
+        "example": "sub_1234567890abcdef"
       },
       "SupportedKind": {
         "type": "object",
@@ -17717,6 +17622,22 @@
             "format": "uuid",
             "description": "Filter by publisher",
             "nullable": true
+          }
+        }
+      },
+      "TransactionHistoryQuery": {
+        "type": "object",
+        "description": "Query params for transaction history",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Maximum number of transactions to return (default 50, max 100)"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Offset for pagination"
           }
         }
       },
@@ -18677,52 +18598,188 @@
         "description": "A validated wallet address (EVM or Solana).\n\nThis type ensures wallet addresses are validated at construction time.\nStored as TEXT in the database via SQLx's transparent encoding.\n\n# Examples\n\n```\nuse seren_core::models::WalletAddress;\n\n// EVM address\nlet evm = WalletAddress::new(\"0x1234567890123456789012345678901234567890\").unwrap();\n\n// Solana address\nlet sol = WalletAddress::new(\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\").unwrap();\n\n// Convert to alloy Address for EVM operations\nif let Some(addr) = evm.as_evm() {\n// Use with alloy...\n}\n```",
         "example": "0x1234567890123456789012345678901234567890"
       },
-      "WalletInfo": {
+      "WalletBalanceDataResponse": {
         "type": "object",
-        "description": "Response for wallet info in API",
+        "description": "Wrapped wallet balance response for OpenAPI",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/WalletBalanceResponse"
+          }
+        }
+      },
+      "WalletBalanceKind": {
+        "type": "string",
+        "enum": [
+          "funded",
+          "promotional"
+        ]
+      },
+      "WalletBalanceResponse": {
+        "type": "object",
+        "description": "Wallet balance response (funded + promotional)",
+        "required": [
+          "wallet_address",
+          "balance_atomic",
+          "balance_usd",
+          "funded_balance_atomic",
+          "funded_balance_usd",
+          "promotional_balance_atomic",
+          "promotional_balance_usd",
+          "by_source"
+        ],
+        "properties": {
+          "balance_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total wallet balance in atomic units"
+          },
+          "balance_usd": {
+            "type": "string"
+          },
+          "by_source": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WalletSourceBalance"
+            },
+            "description": "Breakdown by source"
+          },
+          "funded_balance_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total funded balance (fiat purchases + tier bonuses)"
+          },
+          "funded_balance_usd": {
+            "type": "string"
+          },
+          "promotional_balance_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total promotional balance (bonuses, daily claims, referrals, admin grants)"
+          },
+          "promotional_balance_usd": {
+            "type": "string"
+          },
+          "wallet_address": {
+            "type": "string"
+          }
+        }
+      },
+      "WalletSourceBalance": {
+        "type": "object",
+        "description": "Balance by source type",
+        "required": [
+          "source",
+          "kind",
+          "balance_atomic",
+          "balance_usd"
+        ],
+        "properties": {
+          "balance_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "balance_usd": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/WalletBalanceKind"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AgentCreditSource"
+          }
+        }
+      },
+      "WalletTransactionHistoryDataResponse": {
+        "type": "object",
+        "description": "Wrapped transaction history response for OpenAPI",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/WalletTransactionHistoryResponse"
+          }
+        }
+      },
+      "WalletTransactionHistoryResponse": {
+        "type": "object",
+        "description": "Response for transaction history",
+        "required": [
+          "transactions",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "transactions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WalletTransactionResponse"
+            }
+          }
+        }
+      },
+      "WalletTransactionResponse": {
+        "type": "object",
+        "description": "Response for a single transaction",
         "required": [
           "id",
-          "wallet_address",
-          "wallet_type",
-          "is_verified",
-          "is_primary",
+          "source",
+          "amount_atomic",
+          "amount_usd",
+          "remaining_atomic",
+          "remaining_usd",
           "created_at"
         ],
         "properties": {
+          "amount_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "amount_usd": {
+            "type": "string"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
           },
           "id": {
             "type": "string",
             "format": "uuid"
           },
-          "is_primary": {
-            "type": "boolean"
+          "remaining_atomic": {
+            "type": "integer",
+            "format": "int64"
           },
-          "is_verified": {
-            "type": "boolean"
-          },
-          "wallet_address": {
+          "remaining_usd": {
             "type": "string"
           },
-          "wallet_type": {
+          "source": {
             "type": "string"
-          }
-        }
-      },
-      "WalletsListResponse": {
-        "type": "object",
-        "description": "List user's wallets response",
-        "required": [
-          "wallets"
-        ],
-        "properties": {
-          "wallets": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/WalletInfo"
-            }
           }
         }
       },
@@ -19011,8 +19068,8 @@
       "description": "Agent internal endpoints for SerenDB proxy"
     },
     {
-      "name": "Wallets",
-      "description": "Wallet management for managed EVM wallets"
+      "name": "agent-wallet",
+      "description": "Wallet (funded + promotional)"
     }
   ]
 }
