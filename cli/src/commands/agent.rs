@@ -43,46 +43,87 @@ pub async fn get_publisher(publisher: &str, ctx: &CommandContext) -> Result<()> 
     Ok(())
 }
 
-/// Get agent balance summary across all publishers
-pub async fn get_agent_balance(wallet_address: &str, ctx: &CommandContext) -> Result<()> {
-    let client = ctx.client().await?;
-
-    let response = client
-        .get_agent_balance_summary(wallet_address)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to get agent balance: {}", e))?;
-
-    let summary = response.into_inner();
-    match ctx.format {
-        OutputFormat::Json => output::print_json(&summary)?,
-        OutputFormat::Table => output::print_agent_balance_summary(&summary.data),
+fn truncate_for_cli(value: &str, max_chars: usize) -> String {
+    let mut chars = value.chars();
+    let truncated: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_none() {
+        return truncated;
     }
-
-    Ok(())
+    format!("{truncated}... (truncated)")
 }
 
-/// Get agent balance for a specific publisher
-pub async fn get_agent_publisher_balance(
-    wallet_address: &str,
-    publisher_id: &str,
-    ctx: &CommandContext,
-) -> Result<()> {
-    let client = ctx.client().await?;
-    let pub_uuid = Uuid::parse_str(publisher_id)
-        .map_err(|e| anyhow::anyhow!("Invalid publisher ID: {}", e))?;
+async fn format_payment_required_response(response: reqwest::Response) -> String {
+    let status = response.status();
+    let body_text = response.text().await.unwrap_or_default();
 
-    let response = client
-        .get_agent_publisher_balance(wallet_address, &pub_uuid)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to get publisher balance: {}", e))?;
+    if let Ok(body_json) = serde_json::from_str::<serde_json::Value>(&body_text) {
+        let payment_response = body_json
+            .get("payment_response")
+            .or_else(|| body_json.get("paymentResponse"));
+        let accepts = payment_response
+            .and_then(|p| p.get("accepts"))
+            .and_then(|a| a.as_array());
 
-    let balances = response.into_inner();
-    match ctx.format {
-        OutputFormat::Json => output::print_json(&balances)?,
-        OutputFormat::Table => output::print_agent_publisher_balances(&balances),
+        if let (Some(_payment_response), Some(accepts)) = (payment_response, accepts) {
+            if let Some(first) = accepts.first() {
+                let scheme = first
+                    .get("scheme")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+
+                if scheme == "prepaid" {
+                    let extra = first.get("extra").unwrap_or(&serde_json::Value::Null);
+                    let required = extra
+                        .get("requiredAmount")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
+                    let available = extra
+                        .get("availableBalance")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
+                    let deficit = extra.get("deficit").and_then(|v| v.as_str()).unwrap_or("?");
+
+                    let top_up = extra.get("topUp").unwrap_or(&serde_json::Value::Null);
+                    let balance_endpoint = top_up
+                        .get("balanceEndpoint")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("/api/agent/wallet/balance");
+                    let deposit_endpoint = top_up
+                        .get("depositEndpoint")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("/api/agent/wallet/deposit");
+
+                    return format!(
+                        "Payment Required (402): insufficient wallet credits (prepaid). Required ${required}, available ${available}, deficit ${deficit}. Top up via {deposit_endpoint} and re-check via {balance_endpoint}."
+                    );
+                }
+            }
+        }
     }
 
-    Ok(())
+    format!(
+        "Payment Required (402): {status} - {}",
+        truncate_for_cli(&body_text, 1200)
+    )
+}
+
+async fn anyhow_from_seren_error(context: &str, err: seren::Error<()>) -> anyhow::Error {
+    match err {
+        seren::Error::UnexpectedResponse(response)
+            if response.status() == reqwest::StatusCode::PAYMENT_REQUIRED =>
+        {
+            anyhow::anyhow!(format_payment_required_response(response).await)
+        }
+        seren::Error::UnexpectedResponse(response) => {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::anyhow!(
+                "{context}: unexpected response {status} - {}",
+                truncate_for_cli(&body, 1200)
+            )
+        }
+        other => anyhow::anyhow!("{context}: {other}"),
+    }
 }
 
 /// Get x402 deposit requirements (EIP-712 data for on-chain USDC deposit)
@@ -122,7 +163,7 @@ pub async fn get_deposit_requirements(
         Some(host) => defaults::api_base_url(host),
         None => defaults::api_base_url(defaults::DEFAULT_API_HOST),
     };
-    let url = format!("{}/agent/deposit", base_url);
+    let url = format!("{}/api/agent/deposit", base_url);
 
     let response = http_client
         .post(&url)
@@ -312,10 +353,10 @@ pub async fn execute_query(
         request_id: None,
     };
 
-    let response = client
-        .execute_query(&body)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to execute query: {}", e))?;
+    let response = match client.execute_query(&body).await {
+        Ok(response) => response,
+        Err(e) => return Err(anyhow_from_seren_error("Failed to execute query", e).await),
+    };
 
     let result = response.into_inner();
     output::print_json(&result)?;
@@ -328,60 +369,46 @@ pub async fn get_prepaid_balance(ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
 
     let response = client
-        .get_user_balance_summary()
+        .get_wallet_balance()
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to get prepaid balance: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to get wallet balance: {}", e))?;
 
     let summary = response.into_inner();
-    output::print_json(&summary)?;
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&summary)?,
+        OutputFormat::Table => output::print_json(&summary)?,
+    }
 
     Ok(())
 }
 
 /// Create a prepaid deposit (fiat)
-pub async fn create_prepaid_deposit(
-    publisher: &str,
-    amount: f64,
-    currency: Option<&str>,
-    ctx: &CommandContext,
-) -> Result<()> {
+pub async fn create_prepaid_deposit(amount: f64, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
 
-    // Resolve publisher to get asset IDs
-    let pub_response = client
-        .get_marketplace_publisher(publisher)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to get publisher: {}", e))?;
-    let pub_data = pub_response.into_inner().data;
+    if amount <= 0.0 {
+        return Err(anyhow::anyhow!("Amount must be positive"));
+    }
 
-    // Use the first accepted asset or fail
-    let target_asset_id = pub_data
-        .accepted_assets
-        .as_ref()
-        .and_then(|assets| assets.first())
-        .map(|asset| asset.id)
-        .ok_or_else(|| anyhow::anyhow!("Publisher has no accepted assets"))?;
+    let amount_cents = (amount * 100.0).round() as i64;
+    if amount_cents < 500 {
+        return Err(anyhow::anyhow!("Minimum deposit is $5.00"));
+    }
 
-    let body = seren::CreateUserDepositRequest {
-        publisher_id: pub_data.id,
-        amount,
-        currency: currency.map(|s| s.to_string()),
-        target_asset_id,
-        provider: None,
+    let body = seren::DepositRequest { amount_cents };
+
+    let response = match client.create_deposit(&body).await {
+        Ok(response) => response,
+        Err(e) => return Err(anyhow_from_seren_error("Failed to create deposit", e).await),
     };
-
-    let response = client
-        .create_user_deposit(&body)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to create deposit: {}", e))?;
 
     let deposit = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&deposit)?,
         OutputFormat::Table => {
-            println!("{}", "Prepaid deposit initiated!".green().bold());
+            println!("{}", "Wallet deposit initiated!".green().bold());
             println!();
-            println!("Complete the payment using your payment provider (e.g., Stripe).");
+            println!("Complete the payment using Stripe with the client secret below.");
             println!();
             output::print_json(&deposit)?;
         }

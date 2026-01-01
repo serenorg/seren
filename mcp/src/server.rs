@@ -268,13 +268,6 @@ pub struct EstimateQueryCostParams {
     pub asset_id: Option<Uuid>,
 }
 
-/// Parameters for getting agent balance summary
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct GetAgentBalanceParams {
-    /// Agent wallet address (0x...)
-    pub wallet_address: String,
-}
-
 /// Parameters for getting prepaid balance summary for the authenticated user
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GetUserPrepaidBalanceParams {}
@@ -282,27 +275,8 @@ pub struct GetUserPrepaidBalanceParams {}
 /// Parameters for creating a prepaid deposit for the authenticated user
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CreatePrepaidDepositParams {
-    /// Publisher slug or UUID
-    pub publisher: String,
-    /// Target asset UUID to credit after conversion
-    pub target_asset_id: String,
-    /// Amount in the currency's standard unit (e.g., 10.00 for $10 USD)
-    pub amount: f64,
-    /// ISO 4217 currency code (default: USD)
-    #[serde(default)]
-    pub currency: Option<String>,
-    /// Payment provider (default: stripe)
-    #[serde(default)]
-    pub provider: Option<String>,
-}
-
-/// Parameters for getting agent balance at a specific publisher
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct GetAgentPublisherBalanceParams {
-    /// Agent wallet address (0x...)
-    pub wallet_address: String,
-    /// Publisher ID (UUID)
-    pub publisher_id: Uuid,
+    /// Amount in USD (e.g., 25.00). Minimum $5.00.
+    pub amount_usd: f64,
 }
 
 /// Parameters for executing a paid query
@@ -469,6 +443,89 @@ fn json_content<T: Serialize>(data: &T) -> Result<Content, McpError> {
     let text = serde_json::to_string_pretty(data)
         .map_err(|e| McpError::internal_error(e.to_string(), None))?;
     Ok(Content::text(text))
+}
+
+fn truncate_for_client(value: &str, max_chars: usize) -> String {
+    let mut chars = value.chars();
+    let truncated: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_none() {
+        return truncated;
+    }
+    format!("{truncated}... (truncated)")
+}
+
+async fn format_payment_required_response(response: reqwest::Response) -> String {
+    let status = response.status();
+    let body_text = response.text().await.unwrap_or_default();
+
+    if let Ok(body_json) = serde_json::from_str::<serde_json::Value>(&body_text) {
+        let payment_response = body_json
+            .get("payment_response")
+            .or_else(|| body_json.get("paymentResponse"));
+        let accepts = payment_response
+            .and_then(|p| p.get("accepts"))
+            .and_then(|a| a.as_array());
+
+        if let (Some(payment_response), Some(accepts)) = (payment_response, accepts) {
+            if let Some(first) = accepts.first() {
+                let scheme = first
+                    .get("scheme")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let network = first
+                    .get("network")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+
+                if scheme == "prepaid" {
+                    let extra = first.get("extra").unwrap_or(&serde_json::Value::Null);
+                    let required = extra
+                        .get("requiredAmount")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
+                    let available = extra
+                        .get("availableBalance")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
+                    let deficit = extra.get("deficit").and_then(|v| v.as_str()).unwrap_or("?");
+
+                    let top_up = extra.get("topUp").unwrap_or(&serde_json::Value::Null);
+                    let balance_endpoint = top_up
+                        .get("balanceEndpoint")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("/api/agent/wallet/balance");
+                    let deposit_endpoint = top_up
+                        .get("depositEndpoint")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("/api/agent/wallet/deposit");
+
+                    let mut message = format!(
+                        "Insufficient wallet credits (prepaid). Required ${required}, available ${available}, deficit ${deficit}. Top up via {deposit_endpoint} and re-check via {balance_endpoint}."
+                    );
+
+                    if let Some(resource_desc) = payment_response
+                        .get("resource")
+                        .and_then(|r| r.get("description"))
+                        .and_then(|v| v.as_str())
+                    {
+                        message.push_str(&format!(" Resource: {resource_desc}."));
+                    }
+
+                    return message;
+                }
+
+                return format!(
+                    "Payment required via {scheme} ({network}). {}",
+                    truncate_for_client(&body_text, 1200)
+                );
+            }
+        }
+    }
+
+    format!(
+        "Payment required ({status}). {}",
+        truncate_for_client(&body_text, 1200)
+    )
 }
 
 async fn resolve_publisher_id(
@@ -818,11 +875,7 @@ impl SerenMcpServer {
             // The full error is returned to the client but not logged
             tracing::error!(status = %status, "SQL execution failed");
             // Truncate error message for client to avoid exposing internal details
-            let client_error = if error_text.len() > 500 {
-                format!("{}... (truncated)", &error_text[..500])
-            } else {
-                error_text
-            };
+            let client_error = truncate_for_client(&error_text, 500);
             return Err(McpError::internal_error(
                 format!("SQL execution failed ({}): {}", status, client_error),
                 None,
@@ -890,11 +943,7 @@ impl SerenMcpServer {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
             tracing::error!(status = %status, "SQL batch execution failed");
-            let client_error = if error_text.len() > 500 {
-                format!("{}... (truncated)", &error_text[..500])
-            } else {
-                error_text
-            };
+            let client_error = truncate_for_client(&error_text, 500);
             return Err(McpError::internal_error(
                 format!("SQL execution failed ({}): {}", status, client_error),
                 None,
@@ -1779,25 +1828,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Get agent balance summary across all publishers for a given wallet address",
-        annotations(read_only_hint = true, open_world_hint = false)
-    )]
-    async fn get_agent_balance(
-        &self,
-        Parameters(params): Parameters<GetAgentBalanceParams>,
-        extensions: Extensions,
-    ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
-        let balance = api_client
-            .get_agent_balance_summary(&params.wallet_address)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&balance)?]))
-    }
-
-    #[tool(
-        description = "Get prepaid balance summary for the authenticated user (virtual wallet)",
+        description = "Get wallet credit balance for the authenticated user (SerenBucks).",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn get_prepaid_balance(
@@ -1807,7 +1838,7 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let balance = api_client
-            .get_user_balance_summary()
+            .get_wallet_balance()
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -1815,7 +1846,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Create a prepaid deposit for the authenticated user. Returns provider client data (e.g., Stripe client_secret) to complete payment.",
+        description = "Create a wallet credit purchase (Stripe) for the authenticated user. Returns a Stripe client_secret to complete payment.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn create_prepaid_deposit(
@@ -1824,58 +1855,23 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
-        let currency = params.currency.unwrap_or_else(|| "USD".to_string());
-        let provider = params.provider.as_deref().unwrap_or("stripe");
-        let provider_enum = match provider {
-            "stripe" => seren::FiatPaymentProvider::Stripe,
-            "paypal" => seren::FiatPaymentProvider::Paypal,
-            "coinbase" => seren::FiatPaymentProvider::Coinbase,
-            "wire" => seren::FiatPaymentProvider::Wire,
-            _ => {
-                return Err(McpError::invalid_request(
-                    format!("Unsupported provider: {}", provider),
-                    None,
-                ));
-            }
-        };
+        let amount_cents = (params.amount_usd * 100.0).round() as i64;
+        if amount_cents < 500 {
+            return Err(McpError::invalid_request(
+                "Minimum deposit is $5.00 (500 cents).".to_string(),
+                None,
+            ));
+        }
 
-        let target_asset_id = uuid::Uuid::parse_str(&params.target_asset_id).map_err(|e| {
-            McpError::invalid_request(format!("Invalid target_asset_id: {}", e), None)
-        })?;
-        let request = seren::CreateUserDepositRequest {
-            publisher_id,
-            target_asset_id,
-            amount: params.amount,
-            currency: Some(currency),
-            provider: Some(provider_enum),
-        };
+        let request = seren::DepositRequest { amount_cents };
 
         let deposit = api_client
-            .create_user_deposit(&request)
+            .create_deposit(&request)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
 
         Ok(CallToolResult::success(vec![json_content(&deposit)?]))
-    }
-
-    #[tool(
-        description = "Get agent balance for a specific publisher",
-        annotations(read_only_hint = true, open_world_hint = false)
-    )]
-    async fn get_agent_publisher_balance(
-        &self,
-        Parameters(params): Parameters<GetAgentPublisherBalanceParams>,
-        extensions: Extensions,
-    ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
-        let balance = api_client
-            .get_agent_publisher_balance(&params.wallet_address, &params.publisher_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&balance)?]))
     }
 
     #[tool(
@@ -1907,22 +1903,45 @@ impl SerenMcpServer {
                 Ok(CallToolResult::success(vec![json_content(&result)?]))
             }
             Err(e) => {
-                // Handle specific error codes with user-friendly messages
-                if let Some(status) = e.status() {
-                    if status == reqwest::StatusCode::PAYMENT_REQUIRED {
-                        return Err(McpError::invalid_request(
-                            "Insufficient prepaid balance. Fund your wallet in the Seren console and retry.".to_string(),
+                match e {
+                    seren::Error::UnexpectedResponse(response) => {
+                        let status = response.status();
+                        if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+                            return Err(McpError::invalid_request(
+                                format_payment_required_response(response).await,
+                                None,
+                            ));
+                        }
+                        if status == reqwest::StatusCode::CONFLICT {
+                            return Err(McpError::invalid_request(
+                                "Duplicate request_id. Provide a new UUID and retry.".to_string(),
+                                None,
+                            ));
+                        }
+                        let body = response.text().await.unwrap_or_default();
+                        Err(McpError::internal_error(
+                            format!(
+                                "Query failed ({}): {}",
+                                status,
+                                truncate_for_client(&body, 1200)
+                            ),
                             None,
-                        ));
+                        ))
                     }
-                    if status == reqwest::StatusCode::CONFLICT {
-                        return Err(McpError::invalid_request(
-                            "Duplicate request_id. Provide a new UUID and retry.".to_string(),
-                            None,
-                        ));
+                    _ => {
+                        // Handle specific error codes with user-friendly messages
+                        if let Some(status) = e.status() {
+                            if status == reqwest::StatusCode::CONFLICT {
+                                return Err(McpError::invalid_request(
+                                    "Duplicate request_id. Provide a new UUID and retry."
+                                        .to_string(),
+                                    None,
+                                ));
+                            }
+                        }
+                        Err(McpError::internal_error(e.to_string(), None))
                     }
                 }
-                Err(McpError::internal_error(e.to_string(), None))
             }
         }
     }
@@ -1959,22 +1978,45 @@ impl SerenMcpServer {
                 Ok(CallToolResult::success(vec![json_content(&result)?]))
             }
             Err(e) => {
-                // Handle specific error codes with user-friendly messages
-                if let Some(status) = e.status() {
-                    if status == reqwest::StatusCode::PAYMENT_REQUIRED {
-                        return Err(McpError::invalid_request(
-                            "Insufficient prepaid balance. Fund your wallet in the Seren console and retry.".to_string(),
+                match e {
+                    seren::Error::UnexpectedResponse(response) => {
+                        let status = response.status();
+                        if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+                            return Err(McpError::invalid_request(
+                                format_payment_required_response(response).await,
+                                None,
+                            ));
+                        }
+                        if status == reqwest::StatusCode::CONFLICT {
+                            return Err(McpError::invalid_request(
+                                "Duplicate request_id. Provide a new UUID and retry.".to_string(),
+                                None,
+                            ));
+                        }
+                        let body = response.text().await.unwrap_or_default();
+                        Err(McpError::internal_error(
+                            format!(
+                                "API call failed ({}): {}",
+                                status,
+                                truncate_for_client(&body, 1200)
+                            ),
                             None,
-                        ));
+                        ))
                     }
-                    if status == reqwest::StatusCode::CONFLICT {
-                        return Err(McpError::invalid_request(
-                            "Duplicate request_id. Provide a new UUID and retry.".to_string(),
-                            None,
-                        ));
+                    _ => {
+                        // Handle specific error codes with user-friendly messages
+                        if let Some(status) = e.status() {
+                            if status == reqwest::StatusCode::CONFLICT {
+                                return Err(McpError::invalid_request(
+                                    "Duplicate request_id. Provide a new UUID and retry."
+                                        .to_string(),
+                                    None,
+                                ));
+                            }
+                        }
+                        Err(McpError::internal_error(e.to_string(), None))
                     }
                 }
-                Err(McpError::internal_error(e.to_string(), None))
             }
         }
     }
@@ -2227,11 +2269,12 @@ impl SerenMcpServer {
                     text.to_string(),
                 )]))
             }
-            Err(e) => {
-                if let Some(status) = e.status() {
+            Err(e) => match e {
+                seren::Error::UnexpectedResponse(response) => {
+                    let status = response.status();
                     if status == reqwest::StatusCode::PAYMENT_REQUIRED {
                         return Err(McpError::invalid_request(
-                            "Insufficient prepaid balance. Fund your wallet in the Seren console and retry.".to_string(),
+                            format_payment_required_response(response).await,
                             None,
                         ));
                     }
@@ -2241,9 +2284,28 @@ impl SerenMcpServer {
                             None,
                         ));
                     }
+                    let body = response.text().await.unwrap_or_default();
+                    Err(McpError::internal_error(
+                        format!(
+                            "Streaming API call failed ({}): {}",
+                            status,
+                            truncate_for_client(&body, 1200)
+                        ),
+                        None,
+                    ))
                 }
-                Err(McpError::internal_error(e.to_string(), None))
-            }
+                _ => {
+                    if let Some(status) = e.status() {
+                        if status == reqwest::StatusCode::CONFLICT {
+                            return Err(McpError::invalid_request(
+                                "Duplicate request_id. Provide a new UUID and retry.".to_string(),
+                                None,
+                            ));
+                        }
+                    }
+                    Err(McpError::internal_error(e.to_string(), None))
+                }
+            },
         }
     }
 }

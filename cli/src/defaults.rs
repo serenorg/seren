@@ -42,12 +42,10 @@ pub fn normalize_api_host(api_host: &str) -> String {
         .to_string()
 }
 
-/// Convert a CLI API host value into the SDK base URL (includes the `/api` prefix).
+/// Convert a CLI API host value into the SDK base URL.
+///
+/// Note: The generated SDK methods already include the `/api/...` path prefix,
+/// so the SDK base URL should *not* include `/api`.
 pub fn api_base_url(api_host: &str) -> String {
-    let host = normalize_api_host(api_host);
-    if host.is_empty() {
-        host
-    } else {
-        format!("{}/api", host)
-    }
+    normalize_api_host(api_host)
 }

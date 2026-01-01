@@ -220,18 +220,6 @@ enum AgentAction {
         /// Publisher ID (UUID) or slug
         publisher: String,
     },
-    /// Get agent balance summary across all publishers
-    GetAgentBalance {
-        /// Agent wallet address (0x...)
-        wallet_address: String,
-    },
-    /// Get agent balance for a specific publisher
-    GetAgentPublisherBalance {
-        /// Agent wallet address (0x...)
-        wallet_address: String,
-        /// Publisher ID (UUID)
-        publisher_id: String,
-    },
     /// Get x402 deposit requirements (EIP-712 data for on-chain USDC deposit)
     GetDepositRequirements {
         /// Publisher ID (UUID) or slug
@@ -296,17 +284,11 @@ enum AgentAction {
     },
     /// Get prepaid balance summary for authenticated user
     GetPrepaidBalance,
-    /// Create a prepaid deposit (fiat via Stripe)
+    /// Create a prepaid wallet deposit (fiat via Stripe)
     CreatePrepaidDeposit {
-        /// Publisher ID (UUID) or slug
-        #[arg(long)]
-        publisher: String,
         /// Amount to deposit (e.g., 10.00)
         #[arg(long)]
         amount: f64,
-        /// Currency code (default: USD)
-        #[arg(long)]
-        currency: Option<String>,
     },
     /// Estimate the cost of a query against a publisher
     EstimateQueryCost {
@@ -1978,16 +1960,6 @@ async fn main() -> anyhow::Result<()> {
             AgentAction::GetPublisher { publisher } => {
                 commands::agent::get_publisher(&publisher, &ctx).await?
             }
-            AgentAction::GetAgentBalance { wallet_address } => {
-                commands::agent::get_agent_balance(&wallet_address, &ctx).await?
-            }
-            AgentAction::GetAgentPublisherBalance {
-                wallet_address,
-                publisher_id,
-            } => {
-                commands::agent::get_agent_publisher_balance(&wallet_address, &publisher_id, &ctx)
-                    .await?
-            }
             AgentAction::GetDepositRequirements {
                 publisher,
                 amount,
@@ -2037,18 +2009,8 @@ async fn main() -> anyhow::Result<()> {
                     .await?
             }
             AgentAction::GetPrepaidBalance => commands::agent::get_prepaid_balance(&ctx).await?,
-            AgentAction::CreatePrepaidDeposit {
-                publisher,
-                amount,
-                currency,
-            } => {
-                commands::agent::create_prepaid_deposit(
-                    &publisher,
-                    amount,
-                    currency.as_deref(),
-                    &ctx,
-                )
-                .await?
+            AgentAction::CreatePrepaidDeposit { amount } => {
+                commands::agent::create_prepaid_deposit(amount, &ctx).await?
             }
             AgentAction::EstimateQueryCost { publisher, query } => {
                 commands::agent::estimate_query_cost(&publisher, &query, &ctx).await?
