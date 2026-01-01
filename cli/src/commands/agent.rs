@@ -376,7 +376,16 @@ pub async fn get_prepaid_balance(ctx: &CommandContext) -> Result<()> {
     let summary = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&summary)?,
-        OutputFormat::Table => output::print_json(&summary)?,
+        OutputFormat::Table => {
+            let data = &summary.data;
+            let rows = [
+                ("Wallet", data.wallet_address.to_string()),
+                ("Total", data.balance_usd.to_string()),
+                ("Funded", data.funded_balance_usd.to_string()),
+                ("Promotional", data.promotional_balance_usd.to_string()),
+            ];
+            output::print_key_value_table(Some("Wallet Balance"), &rows);
+        }
     }
 
     Ok(())
@@ -406,11 +415,18 @@ pub async fn create_prepaid_deposit(amount: f64, ctx: &CommandContext) -> Result
     match ctx.format {
         OutputFormat::Json => output::print_json(&deposit)?,
         OutputFormat::Table => {
-            println!("{}", "Wallet deposit initiated!".green().bold());
-            println!();
-            println!("Complete the payment using Stripe with the client secret below.");
-            println!();
-            output::print_json(&deposit)?;
+            let data = &deposit.data;
+            let rows = [
+                ("Deposit ID", data.deposit_id.to_string()),
+                ("Amount", data.amount_usd.to_string()),
+                ("Bonus", data.bonus_usd.to_string()),
+                ("Total", data.total_usd.to_string()),
+                (
+                    "Stripe Client Secret",
+                    data.stripe_client_secret.to_string(),
+                ),
+            ];
+            output::print_key_value_table(Some("Wallet Deposit"), &rows);
         }
     }
 
