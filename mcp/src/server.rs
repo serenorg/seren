@@ -933,10 +933,17 @@ impl SerenMcpServer {
         if local_wallet.is_some() {
             tracing::info!("Local wallet loaded from WALLET_PRIVATE_KEY");
         }
+        // Configure HTTP client with timeouts to prevent hanging requests
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .pool_idle_timeout(std::time::Duration::from_secs(90))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Ok(Self {
             api_base_url: api_base_url.to_string(),
             auth: SerenAuth::StaticToken(api_key.to_string()),
-            http_client: reqwest::Client::new(),
+            http_client,
             tool_router: Self::tool_router(),
             local_wallet,
         })
@@ -952,10 +959,17 @@ impl SerenMcpServer {
         if local_wallet.is_some() {
             tracing::info!("Local wallet loaded from WALLET_PRIVATE_KEY");
         }
+        // Configure HTTP client with timeouts to prevent hanging requests
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .pool_idle_timeout(std::time::Duration::from_secs(90))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Ok(Self {
             api_base_url: api_base_url.to_string(),
             auth: SerenAuth::FromRequestBearer,
-            http_client: reqwest::Client::new(),
+            http_client,
             tool_router: Self::tool_router(),
             local_wallet,
         })
