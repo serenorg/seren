@@ -32,10 +32,8 @@ fn collect_refs(value: &serde_json::Value, acc: &mut HashSet<String>) {
 fn strip_402_content(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(map) => {
-            if let Some(response_402) = map.get_mut("402") {
-                if let serde_json::Value::Object(resp_obj) = response_402 {
-                    resp_obj.remove("content");
-                }
+            if let Some(serde_json::Value::Object(resp_obj)) = map.get_mut("402") {
+                resp_obj.remove("content");
             }
             for v in map.values_mut() {
                 strip_402_content(v);

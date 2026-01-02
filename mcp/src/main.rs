@@ -4,6 +4,7 @@ mod middleware;
 mod oauth;
 mod server;
 mod telemetry;
+mod wallet;
 
 use anyhow::Result;
 use axum::extract::State;
@@ -346,21 +347,21 @@ async fn require_oauth_auth(
                 v,
             );
         }
-        if let Some(ref software_id) = client.software_id {
-            if let Ok(v) = axum::http::HeaderValue::from_str(software_id) {
-                req.headers_mut().insert(
-                    axum::http::header::HeaderName::from_static("x-agent-software-id"),
-                    v,
-                );
-            }
+        if let Some(ref software_id) = client.software_id
+            && let Ok(v) = axum::http::HeaderValue::from_str(software_id)
+        {
+            req.headers_mut().insert(
+                axum::http::header::HeaderName::from_static("x-agent-software-id"),
+                v,
+            );
         }
-        if let Some(ref software_version) = client.software_version {
-            if let Ok(v) = axum::http::HeaderValue::from_str(software_version) {
-                req.headers_mut().insert(
-                    axum::http::header::HeaderName::from_static("x-agent-software-version"),
-                    v,
-                );
-            }
+        if let Some(ref software_version) = client.software_version
+            && let Ok(v) = axum::http::HeaderValue::from_str(software_version)
+        {
+            req.headers_mut().insert(
+                axum::http::header::HeaderName::from_static("x-agent-software-version"),
+                v,
+            );
         }
     }
 

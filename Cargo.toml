@@ -62,3 +62,4 @@ uuid = { version = "1", features = ["serde", "v4"] }
 # Ethereum wallet support
 alloy = { version = "1.0", default-features = false, features = ["signers", "signer-local"] }
 hex = "0.4"
+etcetera = "0.11"

@@ -73,6 +73,10 @@ opentelemetry-semantic-conventions = { workspace = true, optional = true }
 alloy = { workspace = true }
 hex = { workspace = true }
 
+# Config
+toml = { workspace = true }
+etcetera = { workspace = true }
+
 # Utils
 uuid = { workspace = true }
 rand = { workspace = true }
@@ -89,6 +93,7 @@ lru = "0.16.2"
 
 [dev-dependencies]
 temp-env = { version = "0.3", features = ["async_closure"] }
+tempfile = "3"
 testcontainers = "0.23"
 testcontainers-modules = { version = "0.11", features = ["postgres"] }
 wiremock = "0.6"

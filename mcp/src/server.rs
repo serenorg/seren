@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use alloy::signers::local::PrivateKeySigner;
+use base64::Engine;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -23,6 +23,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use uuid::Uuid;
+
+use crate::wallet::{
+    PaymentRequirements, PrivateKeyWallet, SignerConfig, build_x402_payment_payload,
+};
 
 #[derive(Clone)]
 enum SerenAuth {
@@ -39,7 +43,10 @@ pub struct SerenMcpServer {
     tool_router: ToolRouter<Self>,
     /// Optional local wallet for x402 payments when running locally.
     /// Loaded from WALLET_PRIVATE_KEY environment variable.
-    local_wallet: Option<Arc<PrivateKeySigner>>,
+    /// Only enabled in stdio mode, not in hosted (OAuth/HTTP) modes.
+    wallet: Option<Arc<PrivateKeyWallet>>,
+    /// Signer configuration (auto-approve threshold, etc.)
+    signer_config: SignerConfig,
 }
 
 // ============================================================================
@@ -295,6 +302,10 @@ pub struct ExecutePaidQueryParams {
     /// Optional idempotency key (UUID)
     #[serde(default)]
     pub request_id: Option<Uuid>,
+    /// Set to true to confirm a payment that exceeded the auto-approve limit.
+    /// This is required when the payment amount is above the configured threshold.
+    #[serde(default)]
+    pub confirm: bool,
 }
 
 /// Parameters for executing a prepaid API request
@@ -323,6 +334,10 @@ pub struct ExecutePaidApiParams {
     /// Optional idempotency key (UUID)
     #[serde(default)]
     pub request_id: Option<Uuid>,
+    /// Set to true to confirm a payment that exceeded the auto-approve limit.
+    /// This is required when the payment amount is above the configured threshold.
+    #[serde(default)]
+    pub confirm: bool,
 }
 
 /// Parameters for getting x402 on-chain deposit requirements
@@ -412,6 +427,10 @@ pub struct ExecutePaidApiStreamParams {
     /// Optional idempotency key (UUID)
     #[serde(default)]
     pub request_id: Option<Uuid>,
+    /// Set to true to confirm a payment that exceeded the auto-approve limit.
+    /// This is required when the payment amount is above the configured threshold.
+    #[serde(default)]
+    pub confirm: bool,
 }
 
 // ============================================================================
@@ -454,10 +473,32 @@ fn truncate_for_client(value: &str, max_chars: usize) -> String {
     format!("{truncated}... (truncated)")
 }
 
-async fn format_payment_required_response(response: reqwest::Response) -> String {
-    let status = response.status();
-    let body_text = response.text().await.unwrap_or_default();
+fn payment_required_has_non_prepaid_option(body_text: &str) -> bool {
+    let Ok(body_json) = serde_json::from_str::<serde_json::Value>(body_text) else {
+        return false;
+    };
 
+    let payment_response = body_json
+        .get("payment_response")
+        .or_else(|| body_json.get("paymentResponse"))
+        .unwrap_or(&body_json);
+
+    let Some(accepts) = payment_response
+        .get("accepts")
+        .and_then(|accepts| accepts.as_array())
+    else {
+        return false;
+    };
+
+    accepts.iter().any(|accept| {
+        accept
+            .get("scheme")
+            .and_then(|v| v.as_str())
+            .is_some_and(|scheme| scheme != "prepaid")
+    })
+}
+
+fn format_payment_required_body(status: reqwest::StatusCode, body_text: &str) -> String {
     if let Ok(body_json) = serde_json::from_str::<serde_json::Value>(&body_text) {
         let payment_response = body_json
             .get("payment_response")
@@ -777,6 +818,45 @@ impl SerenMcpServer {
         }
     }
 
+    fn insert_agent_metadata_headers(
+        headers: &mut reqwest::header::HeaderMap,
+        agent_metadata: &AgentMetadata,
+    ) {
+        // Forward agent metadata headers to the backend for tracking
+        if let Some(ref client_id) = agent_metadata.client_id
+            && let Ok(v) = reqwest::header::HeaderValue::from_str(client_id)
+        {
+            headers.insert(
+                reqwest::header::HeaderName::from_static("x-agent-client-id"),
+                v,
+            );
+        }
+        if let Some(ref client_name) = agent_metadata.client_name
+            && let Ok(v) = reqwest::header::HeaderValue::from_str(client_name)
+        {
+            headers.insert(
+                reqwest::header::HeaderName::from_static("x-agent-client-name"),
+                v,
+            );
+        }
+        if let Some(ref software_id) = agent_metadata.software_id
+            && let Ok(v) = reqwest::header::HeaderValue::from_str(software_id)
+        {
+            headers.insert(
+                reqwest::header::HeaderName::from_static("x-agent-software-id"),
+                v,
+            );
+        }
+        if let Some(ref software_version) = agent_metadata.software_version
+            && let Ok(v) = reqwest::header::HeaderValue::from_str(software_version)
+        {
+            headers.insert(
+                reqwest::header::HeaderName::from_static("x-agent-software-version"),
+                v,
+            );
+        }
+    }
+
     fn build_http_client(
         &self,
         token: &str,
@@ -787,39 +867,24 @@ impl SerenMcpServer {
             .map_err(|e| McpError::internal_error(format!("Invalid token: {}", e), None))?;
         headers.insert(reqwest::header::AUTHORIZATION, auth_value);
 
-        // Forward agent metadata headers to the backend for tracking
-        if let Some(ref client_id) = agent_metadata.client_id {
-            if let Ok(v) = reqwest::header::HeaderValue::from_str(client_id) {
-                headers.insert(
-                    reqwest::header::HeaderName::from_static("x-agent-client-id"),
-                    v,
-                );
-            }
-        }
-        if let Some(ref client_name) = agent_metadata.client_name {
-            if let Ok(v) = reqwest::header::HeaderValue::from_str(client_name) {
-                headers.insert(
-                    reqwest::header::HeaderName::from_static("x-agent-client-name"),
-                    v,
-                );
-            }
-        }
-        if let Some(ref software_id) = agent_metadata.software_id {
-            if let Ok(v) = reqwest::header::HeaderValue::from_str(software_id) {
-                headers.insert(
-                    reqwest::header::HeaderName::from_static("x-agent-software-id"),
-                    v,
-                );
-            }
-        }
-        if let Some(ref software_version) = agent_metadata.software_version {
-            if let Ok(v) = reqwest::header::HeaderValue::from_str(software_version) {
-                headers.insert(
-                    reqwest::header::HeaderName::from_static("x-agent-software-version"),
-                    v,
-                );
-            }
-        }
+        Self::insert_agent_metadata_headers(&mut headers, agent_metadata);
+
+        reqwest::Client::builder()
+            .default_headers(headers)
+            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .build()
+            .map_err(|e| {
+                McpError::internal_error(format!("Failed to build HTTP client: {}", e), None)
+            })
+    }
+
+    fn build_public_http_client(
+        &self,
+        agent_metadata: &AgentMetadata,
+    ) -> Result<reqwest::Client, McpError> {
+        let mut headers = reqwest::header::HeaderMap::new();
+        Self::insert_agent_metadata_headers(&mut headers, agent_metadata);
 
         reqwest::Client::builder()
             .default_headers(headers)
@@ -839,6 +904,170 @@ impl SerenMcpServer {
             &self.api_base_url,
             http_client,
         ))
+    }
+
+    async fn execute_x402_roundtrip<T: Serialize>(
+        &self,
+        path: &str,
+        body: &T,
+        confirm: bool,
+        agent_metadata: &AgentMetadata,
+    ) -> Result<reqwest::Response, McpError> {
+        let wallet = self.wallet.as_ref().ok_or_else(|| {
+            McpError::invalid_request(
+                "Local wallet not configured. Set WALLET_PRIVATE_KEY to enable x402 payments."
+                    .to_string(),
+                None,
+            )
+        })?;
+
+        let wallet_address = wallet.address().to_string();
+        let http_client = self.build_public_http_client(agent_metadata)?;
+        let url = format!(
+            "{}/{}",
+            self.api_base_url.trim_end_matches('/'),
+            path.trim_start_matches('/')
+        );
+
+        // First request: trigger 402 (PAYMENT-REQUIRED)
+        let response = http_client
+            .post(&url)
+            .header("X-AGENT-WALLET", &wallet_address)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        // Some publishers may have zero-cost routes; accept success without payment.
+        if response.status().is_success() {
+            return Ok(response);
+        }
+
+        if response.status() != reqwest::StatusCode::PAYMENT_REQUIRED {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(McpError::internal_error(
+                format!(
+                    "x402 request failed ({}): {}",
+                    status,
+                    truncate_for_client(&body, 500)
+                ),
+                None,
+            ));
+        }
+
+        let payment_required = response
+            .headers()
+            .get("PAYMENT-REQUIRED")
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| {
+                McpError::internal_error(
+                    "Missing PAYMENT-REQUIRED header on 402 response".to_string(),
+                    None,
+                )
+            })?;
+
+        let requirements = PaymentRequirements::parse_payment_required_header(payment_required)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let x402_option = requirements.x402_option().ok_or_else(|| {
+            McpError::invalid_request(
+                "Publisher did not provide any x402 payment options".to_string(),
+                None,
+            )
+        })?;
+
+        let amount_atomic: i64 = x402_option
+            .amount
+            .parse()
+            .map_err(|_| McpError::internal_error("Invalid x402 amount".to_string(), None))?;
+        let amount_usd = amount_atomic as f64 / 1_000_000.0;
+
+        if !confirm && !self.signer_config.should_auto_approve(amount_usd) {
+            return Err(McpError::invalid_request(
+                format!(
+                    "Payment requires confirmation (${:.6} > ${:.6}). Re-run with confirm=true or raise auto_approve_limit in your signer config.",
+                    amount_usd, self.signer_config.auto_approve_limit
+                ),
+                None,
+            ));
+        }
+
+        let payload = build_x402_payment_payload(wallet, &requirements, x402_option)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let payload_b64 = base64::engine::general_purpose::STANDARD.encode(
+            serde_json::to_vec(&payload)
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?,
+        );
+
+        // Second request: retry with PAYMENT-SIGNATURE
+        let mut request_builder = http_client
+            .post(&url)
+            .header("X-AGENT-WALLET", &wallet_address)
+            .header("PAYMENT-SIGNATURE", payload_b64);
+
+        if let Some(request_id) = x402_option
+            .extra
+            .get("paymentRequestId")
+            .and_then(|v| v.as_str())
+        {
+            request_builder = request_builder.header("X-PAYMENT-REQUEST-ID", request_id);
+        }
+
+        let paid = request_builder
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        if !paid.status().is_success() {
+            let status = paid.status();
+            let body = paid.text().await.unwrap_or_default();
+            return Err(McpError::invalid_request(
+                format!(
+                    "x402 payment failed ({}): {}",
+                    status,
+                    truncate_for_client(&body, 500)
+                ),
+                None,
+            ));
+        }
+
+        Ok(paid)
+    }
+
+    async fn execute_x402_roundtrip_json<T: Serialize>(
+        &self,
+        path: &str,
+        body: &T,
+        confirm: bool,
+        agent_metadata: &AgentMetadata,
+    ) -> Result<serde_json::Value, McpError> {
+        let response = self
+            .execute_x402_roundtrip(path, body, confirm, agent_metadata)
+            .await?;
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(json)
+    }
+
+    async fn execute_x402_roundtrip_text<T: Serialize>(
+        &self,
+        path: &str,
+        body: &T,
+        confirm: bool,
+        agent_metadata: &AgentMetadata,
+    ) -> Result<String, McpError> {
+        let response = self
+            .execute_x402_roundtrip(path, body, confirm, agent_metadata)
+            .await?;
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(String::from_utf8_lossy(&bytes).to_string())
     }
 
     #[instrument(skip(self, connection_string), fields(query_len = query.len()))]
@@ -964,24 +1193,43 @@ impl SerenMcpServer {
     /// Try to load a local wallet from the WALLET_PRIVATE_KEY environment variable.
     ///
     /// The private key should be a hex string (with or without 0x prefix).
-    fn load_local_wallet() -> Option<Arc<PrivateKeySigner>> {
-        std::env::var("WALLET_PRIVATE_KEY").ok().and_then(|key| {
-            let key = key.strip_prefix("0x").unwrap_or(&key);
-            hex::decode(key)
-                .ok()
-                .and_then(|bytes| bytes.try_into().ok())
-                .and_then(|arr: [u8; 32]| PrivateKeySigner::from_bytes(&arr.into()).ok())
-                .map(Arc::new)
-        })
+    ///
+    /// SECURITY: The private key is NEVER logged, even on error.
+    fn load_wallet_from_env() -> Option<PrivateKeyWallet> {
+        match std::env::var("WALLET_PRIVATE_KEY") {
+            Ok(key) => match PrivateKeyWallet::from_env_or_key(Some(key)) {
+                Ok(Some(w)) => Some(w),
+                Ok(None) => None,
+                Err(e) => {
+                    // SECURITY: Do not log the key, only the error type
+                    tracing::error!("Failed to load wallet from WALLET_PRIVATE_KEY: {}", e);
+                    None
+                }
+            },
+            Err(_) => None,
+        }
     }
 
-    /// Create a new Seren MCP Server
+    /// Create a new Seren MCP Server for stdio mode (local usage).
+    ///
+    /// In stdio mode, the optional wallet from WALLET_PRIVATE_KEY is loaded
+    /// to enable local x402 payment signing.
     #[allow(clippy::result_large_err)]
     pub fn new(api_key: &str, api_base_url: &str) -> Result<Self, seren::Error> {
-        let local_wallet = Self::load_local_wallet();
-        if local_wallet.is_some() {
-            tracing::info!("Local wallet loaded from WALLET_PRIVATE_KEY");
+        let wallet = Self::load_wallet_from_env();
+        let signer_config = SignerConfig::load_or_create();
+
+        // Log wallet status (but NEVER the key itself)
+        if let Some(ref w) = wallet {
+            tracing::info!(
+                wallet_address = %w.address(),
+                auto_approve_limit = %signer_config.auto_approve_limit,
+                "X402 signing enabled"
+            );
+        } else {
+            tracing::debug!("X402 signing disabled (no WALLET_PRIVATE_KEY)");
         }
+
         // Configure HTTP client with timeouts to prevent hanging requests
         let http_client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -994,20 +1242,23 @@ impl SerenMcpServer {
             auth: SerenAuth::StaticToken(api_key.to_string()),
             http_client,
             tool_router: Self::tool_router(),
-            local_wallet,
+            wallet: wallet.map(Arc::new),
+            signer_config,
         })
     }
 
-    /// Create a new Seren MCP Server in OAuth mode.
+    /// Create a new Seren MCP Server in OAuth mode (hosted usage).
     ///
     /// In this mode the Seren API token is taken from each incoming HTTP request's
     /// `Authorization: Bearer ...` header (injected into [`Extensions`] by rmcp).
+    ///
+    /// NOTE: Local wallet is DISABLED in hosted mode for security.
+    /// Users must use prepaid balance or the hosted wallet API.
     #[allow(clippy::result_large_err)]
     pub fn new_oauth(api_base_url: &str) -> Result<Self, seren::Error> {
-        let local_wallet = Self::load_local_wallet();
-        if local_wallet.is_some() {
-            tracing::info!("Local wallet loaded from WALLET_PRIVATE_KEY");
-        }
+        // Hosted mode: explicitly disable local wallet
+        tracing::debug!("X402 local signing disabled (hosted mode)");
+
         // Configure HTTP client with timeouts to prevent hanging requests
         let http_client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -1020,8 +1271,55 @@ impl SerenMcpServer {
             auth: SerenAuth::FromRequestBearer,
             http_client,
             tool_router: Self::tool_router(),
-            local_wallet,
+            wallet: None,
+            signer_config: SignerConfig::default(),
         })
+    }
+
+    /// Check if x402 local signing is available.
+    #[allow(dead_code)]
+    pub fn has_wallet(&self) -> bool {
+        self.wallet.is_some()
+    }
+
+    /// Return a confirmation request to the agent for payments above threshold.
+    ///
+    /// This is used when an x402 payment exceeds the auto_approve_limit and
+    /// the user hasn't confirmed the payment.
+    #[allow(dead_code)]
+    fn confirmation_required(
+        &self,
+        amount_usd: f64,
+        amount_raw: &str,
+        recipient: &str,
+        network: &str,
+    ) -> CallToolResult {
+        let content = serde_json::json!({
+            "status": "confirmation_required",
+            "message": format!(
+                "Payment of ${:.4} requires approval (above ${:.2} auto-approve limit)",
+                amount_usd,
+                self.signer_config.auto_approve_limit
+            ),
+            "payment": {
+                "amount_usd": amount_usd,
+                "amount_raw": amount_raw,
+                "recipient": recipient,
+                "network": network,
+            },
+            "instructions": "To approve, call this tool again with confirm: true"
+        });
+
+        CallToolResult::success(vec![Content::text(content.to_string())])
+    }
+
+    /// Convert raw USDC amount (6 decimals) to USD.
+    #[allow(dead_code)]
+    fn raw_to_usd(amount_raw: &str) -> Option<f64> {
+        amount_raw
+            .parse::<u64>()
+            .ok()
+            .map(|raw| raw as f64 / 1_000_000.0)
     }
 
     #[tool(
@@ -1875,7 +2173,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Execute a prepaid SQL query against a publisher's database using the authenticated user's virtual wallet. This uses prepaid balance (fiat/Stripe) and does not require x402 signatures.",
+        description = "Execute a paid SQL query against a publisher's database. Uses prepaid balance by default. If WALLET_PRIVATE_KEY is configured, x402 crypto payments are also available.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -1888,12 +2186,13 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
+        let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
         let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
         let body = seren::QueryRequestBody {
             publisher_id,
-            asset_id: params.asset_id,
-            query: params.query,
-            database: params.database,
+            asset_id: params.asset_id.clone(),
+            query: params.query.clone(),
+            database: params.database.clone(),
             request_id: params.request_id,
         };
 
@@ -1907,8 +2206,27 @@ impl SerenMcpServer {
                     seren::Error::UnexpectedResponse(response) => {
                         let status = response.status();
                         if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+                            let has_payment_required_header =
+                                response.headers().get("PAYMENT-REQUIRED").is_some();
+                            let body_text = response.text().await.unwrap_or_default();
+
+                            if self.wallet.is_some()
+                                && (has_payment_required_header
+                                    || payment_required_has_non_prepaid_option(&body_text))
+                            {
+                                let result = self
+                                    .execute_x402_roundtrip_json(
+                                        "/api/agent/database",
+                                        &body,
+                                        params.confirm,
+                                        &agent_metadata,
+                                    )
+                                    .await?;
+                                return Ok(CallToolResult::success(vec![json_content(&result)?]));
+                            }
+
                             return Err(McpError::invalid_request(
-                                format_payment_required_response(response).await,
+                                format_payment_required_body(status, &body_text),
                                 None,
                             ));
                         }
@@ -1947,7 +2265,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Execute a prepaid API request against a publisher's endpoint using the authenticated user's virtual wallet. This uses prepaid balance (fiat/Stripe) and does not require x402 signatures.",
+        description = "Execute a paid API request against a publisher's endpoint. Uses prepaid balance by default. If WALLET_PRIVATE_KEY is configured, x402 crypto payments are also available.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -1960,6 +2278,7 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
+        let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
         let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
         let body = seren::ApiRequestBody {
             publisher_id,
@@ -1982,8 +2301,27 @@ impl SerenMcpServer {
                     seren::Error::UnexpectedResponse(response) => {
                         let status = response.status();
                         if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+                            let has_payment_required_header =
+                                response.headers().get("PAYMENT-REQUIRED").is_some();
+                            let body_text = response.text().await.unwrap_or_default();
+
+                            if self.wallet.is_some()
+                                && (has_payment_required_header
+                                    || payment_required_has_non_prepaid_option(&body_text))
+                            {
+                                let result = self
+                                    .execute_x402_roundtrip_json(
+                                        "/api/agent/api",
+                                        &body,
+                                        params.confirm,
+                                        &agent_metadata,
+                                    )
+                                    .await?;
+                                return Ok(CallToolResult::success(vec![json_content(&result)?]));
+                            }
+
                             return Err(McpError::invalid_request(
-                                format_payment_required_response(response).await,
+                                format_payment_required_body(status, &body_text),
                                 None,
                             ));
                         }
@@ -2030,7 +2368,7 @@ impl SerenMcpServer {
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn get_local_wallet_address(&self) -> Result<CallToolResult, McpError> {
-        let wallet = self.local_wallet.as_ref().ok_or_else(|| {
+        let wallet = self.wallet.as_ref().ok_or_else(|| {
             McpError::invalid_request(
                 "Local wallet not configured. Set WALLET_PRIVATE_KEY environment variable."
                     .to_string(),
@@ -2038,7 +2376,7 @@ impl SerenMcpServer {
             )
         })?;
 
-        let address = format!("{:?}", wallet.address());
+        let address = wallet.address().to_string();
         Ok(CallToolResult::success(vec![Content::text(format!(
             "Local wallet address: {}",
             address
@@ -2050,7 +2388,7 @@ impl SerenMcpServer {
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn has_local_wallet(&self) -> Result<CallToolResult, McpError> {
-        let has_wallet = self.local_wallet.is_some();
+        let has_wallet = self.wallet.is_some();
         let response = serde_json::json!({
             "has_local_wallet": has_wallet,
             "message": if has_wallet {
@@ -2221,7 +2559,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Execute a paid streaming API request against a publisher's endpoint using the authenticated user's virtual wallet. Returns a streaming response for large payloads. This uses prepaid balance (fiat/Stripe) and does not require x402 signatures.",
+        description = "Execute a paid streaming API request against a publisher's endpoint. Streaming requires x402 local wallet signing; for prepaid calls use execute_paid_api.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn execute_paid_api_stream(
@@ -2230,6 +2568,7 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
+        let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
         let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
 
         let body = seren::ApiRequestBody {
@@ -2242,6 +2581,18 @@ impl SerenMcpServer {
             estimated_rows: params.estimated_rows,
             request_id: params.request_id,
         };
+
+        if self.wallet.is_some() {
+            let text = self
+                .execute_x402_roundtrip_text(
+                    "/api/agent/api/stream",
+                    &body,
+                    params.confirm,
+                    &agent_metadata,
+                )
+                .await?;
+            return Ok(CallToolResult::success(vec![Content::text(text)]));
+        }
 
         match api_client.execute_api_stream(&body).await {
             Ok(response) => {
@@ -2274,7 +2625,7 @@ impl SerenMcpServer {
                     let status = response.status();
                     if status == reqwest::StatusCode::PAYMENT_REQUIRED {
                         return Err(McpError::invalid_request(
-                            format_payment_required_response(response).await,
+                            "Streaming requests require x402. Configure WALLET_PRIVATE_KEY and retry, or use execute_paid_api for prepaid calls.".to_string(),
                             None,
                         ));
                     }
