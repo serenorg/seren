@@ -59,62 +59,140 @@ pub struct InsufficientCredit {
     pub current_balance: String,
 }
 
-/// Raw 402 response for parsing
+// ============================================================================
+// Response parsing
+// ============================================================================
+
 #[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum RawPaymentResponse {
-    X402 {
-        #[serde(rename = "x402Version")]
-        x402_version: u8,
-        #[serde(default)]
-        resource: Option<X402ResourceInfo>,
-        accepts: Vec<X402PaymentOption>,
-    },
-    InsufficientCredit {
-        #[allow(dead_code)]
-        error: String,
-        #[serde(rename = "minimumRequired")]
-        minimum_required: String,
-        #[serde(rename = "currentBalance")]
-        current_balance: String,
-    },
+#[serde(rename_all = "camelCase")]
+struct InsufficientCreditResponse {
+    #[allow(dead_code)]
+    error: String,
+    minimum_required: String,
+    current_balance: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct X402PaymentOptionV1 {
+    pub scheme: String,
+    pub network: String,
+    pub max_amount_required: String,
+    pub asset: String,
+    pub pay_to: String,
+    pub resource: String,
+    pub description: String,
+    #[serde(default)]
+    pub mime_type: Option<String>,
+    #[serde(default)]
+    pub output_schema: Option<serde_json::Value>,
+    pub max_timeout_seconds: u64,
+    #[serde(default)]
+    pub extra: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct X402PaymentRequiredV1 {
+    pub x402_version: u8,
+    pub error: String,
+    pub accepts: Vec<X402PaymentOptionV1>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct X402PaymentRequiredV2 {
+    pub x402_version: u8,
+    #[serde(default)]
+    pub resource: Option<X402ResourceInfo>,
+    pub accepts: Vec<X402PaymentOption>,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub extensions: Option<serde_json::Value>,
 }
 
 impl PaymentRequirements {
-    fn from_raw(raw: RawPaymentResponse) -> Result<Self, PaymentError> {
-        match raw {
-            RawPaymentResponse::X402 {
-                x402_version,
-                resource,
-                accepts,
-            } => Ok(Self {
-                x402_version: Some(x402_version),
-                resource,
-                accepts: accepts.into_iter().map(PaymentOption::X402).collect(),
-                insufficient_credit: None,
-            }),
-            RawPaymentResponse::InsufficientCredit {
-                minimum_required,
-                current_balance,
-                ..
-            } => Ok(Self {
+    fn parse_json_value(value: serde_json::Value) -> Result<Self, PaymentError> {
+        // Prepaid/credits 402 shape
+        if value.get("minimumRequired").is_some() && value.get("currentBalance").is_some() {
+            let raw: InsufficientCreditResponse = serde_json::from_value(value)
+                .map_err(|e| PaymentError::ParseFailed(e.to_string()))?;
+            return Ok(Self {
                 x402_version: None,
                 resource: None,
                 accepts: vec![PaymentOption::Prepaid],
                 insufficient_credit: Some(InsufficientCredit {
-                    minimum_required,
-                    current_balance,
+                    minimum_required: raw.minimum_required,
+                    current_balance: raw.current_balance,
                 }),
-            }),
+            });
+        }
+
+        let version = value
+            .get("x402Version")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| PaymentError::ParseFailed("Missing x402Version".to_string()))?;
+
+        match version {
+            1 => {
+                let raw: X402PaymentRequiredV1 = serde_json::from_value(value)
+                    .map_err(|e| PaymentError::ParseFailed(e.to_string()))?;
+
+                let resource = raw.accepts.first().map(|opt| X402ResourceInfo {
+                    url: opt.resource.clone(),
+                    description: opt.description.clone(),
+                    mime_type: opt
+                        .mime_type
+                        .clone()
+                        .unwrap_or_else(|| "application/json".to_string()),
+                });
+
+                let accepts = raw
+                    .accepts
+                    .into_iter()
+                    .map(|opt| {
+                        PaymentOption::X402(X402PaymentOption {
+                            scheme: opt.scheme,
+                            network: opt.network,
+                            asset: opt.asset,
+                            amount: opt.max_amount_required,
+                            pay_to: opt.pay_to,
+                            max_timeout_seconds: opt.max_timeout_seconds,
+                            extra: opt.extra.unwrap_or_default(),
+                        })
+                    })
+                    .collect::<Vec<_>>();
+
+                Ok(Self {
+                    x402_version: Some(1),
+                    resource,
+                    accepts,
+                    insufficient_credit: None,
+                })
+            }
+            2 => {
+                let raw: X402PaymentRequiredV2 = serde_json::from_value(value)
+                    .map_err(|e| PaymentError::ParseFailed(e.to_string()))?;
+                Ok(Self {
+                    x402_version: Some(2),
+                    resource: raw.resource,
+                    accepts: raw.accepts.into_iter().map(PaymentOption::X402).collect(),
+                    insufficient_credit: None,
+                })
+            }
+            other => Err(PaymentError::ParseFailed(format!(
+                "Unsupported x402Version: {}",
+                other
+            ))),
         }
     }
 
     /// Parse a 402 response body into payment requirements
     pub fn parse(body: &str) -> Result<Self, PaymentError> {
-        let raw: RawPaymentResponse =
+        let value: serde_json::Value =
             serde_json::from_str(body).map_err(|e| PaymentError::ParseFailed(e.to_string()))?;
-
-        Self::from_raw(raw)
+        Self::parse_json_value(value)
     }
 
     /// Parse a base64-encoded x402 `PAYMENT-REQUIRED` header into payment requirements.
@@ -122,9 +200,9 @@ impl PaymentRequirements {
         let decoded = base64::engine::general_purpose::STANDARD
             .decode(header_b64.trim())
             .map_err(|e| PaymentError::ParseFailed(format!("Invalid PAYMENT-REQUIRED: {}", e)))?;
-        let raw: RawPaymentResponse = serde_json::from_slice(&decoded)
+        let value: serde_json::Value = serde_json::from_slice(&decoded)
             .map_err(|e| PaymentError::ParseFailed(e.to_string()))?;
-        Self::from_raw(raw)
+        Self::parse_json_value(value)
     }
 
     /// Check if x402 on-chain payment is accepted
@@ -228,6 +306,16 @@ pub struct X402PaymentPayload {
     pub payload: X402PayloadInner,
 }
 
+/// x402 v1 PaymentPayload (transport-v1/http)
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct X402PaymentPayloadV1 {
+    pub x402_version: u8,
+    pub scheme: String,
+    pub network: String,
+    pub payload: X402PayloadInner,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct X402PayloadInner {
     pub signature: String,
@@ -245,8 +333,75 @@ pub struct X402Authorization {
     pub nonce: String,
 }
 
+#[derive(Debug, Clone)]
+pub enum BuiltX402PaymentPayload {
+    V1(X402PaymentPayloadV1),
+    V2(X402PaymentPayload),
+}
+
+impl BuiltX402PaymentPayload {
+    pub fn x402_version(&self) -> u8 {
+        match self {
+            BuiltX402PaymentPayload::V1(_) => 1,
+            BuiltX402PaymentPayload::V2(_) => 2,
+        }
+    }
+
+    pub fn header_name(&self) -> &'static str {
+        match self {
+            BuiltX402PaymentPayload::V1(_) => "X-PAYMENT",
+            BuiltX402PaymentPayload::V2(_) => "PAYMENT-SIGNATURE",
+        }
+    }
+
+    pub fn encode_b64(&self) -> Result<String, PaymentError> {
+        let json = match self {
+            BuiltX402PaymentPayload::V1(payload) => serde_json::to_vec(payload),
+            BuiltX402PaymentPayload::V2(payload) => serde_json::to_vec(payload),
+        }
+        .map_err(|e| PaymentError::ParseFailed(e.to_string()))?;
+
+        Ok(base64::engine::general_purpose::STANDARD.encode(json))
+    }
+}
+
+fn chain_id_from_network(network: &str) -> Option<u64> {
+    if let Some(chain_id) = network.strip_prefix("eip155:") {
+        return chain_id.parse().ok();
+    }
+
+    match network {
+        "base" => Some(8453),
+        "base-sepolia" => Some(84532),
+        "ethereum" => Some(1),
+        "ethereum-sepolia" => Some(11155111),
+        "avalanche" => Some(43114),
+        "avalanche-fuji" => Some(43113),
+        _ => None,
+    }
+}
+
 /// Build a complete x402 payment payload
 pub async fn build_x402_payment_payload(
+    wallet: &PrivateKeyWallet,
+    requirements: &PaymentRequirements,
+    option: &X402PaymentOption,
+) -> Result<BuiltX402PaymentPayload, PaymentError> {
+    match requirements.x402_version {
+        Some(1) => Ok(BuiltX402PaymentPayload::V1(
+            build_x402_payment_payload_v1(wallet, option).await?,
+        )),
+        Some(2) => Ok(BuiltX402PaymentPayload::V2(
+            build_x402_payment_payload_v2(wallet, requirements, option).await?,
+        )),
+        other => Err(PaymentError::ParseFailed(format!(
+            "Unsupported x402 version in requirements: {:?}",
+            other
+        ))),
+    }
+}
+
+async fn build_x402_payment_payload_v2(
     wallet: &PrivateKeyWallet,
     requirements: &PaymentRequirements,
     option: &X402PaymentOption,
@@ -256,16 +411,12 @@ pub async fn build_x402_payment_payload(
         PaymentError::ParseFailed("Missing x402 resource info in 402 response".to_string())
     })?;
 
-    let chain_id = option
-        .network
-        .strip_prefix("eip155:")
-        .and_then(|id| id.parse::<u64>().ok())
-        .ok_or_else(|| {
-            PaymentError::SigningFailed(format!(
-                "Unsupported network for EIP-3009 signing: {}",
-                option.network
-            ))
-        })?;
+    let chain_id = chain_id_from_network(&option.network).ok_or_else(|| {
+        PaymentError::SigningFailed(format!(
+            "Unsupported network for EIP-3009 signing: {}",
+            option.network
+        ))
+    })?;
 
     let verifying_contract = option
         .extra
@@ -367,6 +518,133 @@ pub async fn build_x402_payment_payload(
         x402_version: 2,
         resource,
         accepted: option.clone(),
+        payload: X402PayloadInner {
+            signature,
+            authorization: X402Authorization {
+                from: from_address,
+                to: option.pay_to.clone(),
+                value: option.amount.clone(),
+                valid_after: valid_after.to_string(),
+                valid_before: valid_before.to_string(),
+                nonce: format!("0x{}", hex::encode(message.nonce.as_slice())),
+            },
+        },
+    })
+}
+
+async fn build_x402_payment_payload_v1(
+    wallet: &PrivateKeyWallet,
+    option: &X402PaymentOption,
+) -> Result<X402PaymentPayloadV1, PaymentError> {
+    let from_address = wallet.address().to_string();
+
+    let chain_id = chain_id_from_network(&option.network).ok_or_else(|| {
+        PaymentError::SigningFailed(format!(
+            "Unsupported network for EIP-3009 signing: {}",
+            option.network
+        ))
+    })?;
+
+    let verifying_contract = option
+        .extra
+        .get("eip712TypedData")
+        .and_then(|v| v.get("domain"))
+        .and_then(|v| v.get("verifyingContract"))
+        .and_then(|v| v.as_str())
+        .unwrap_or(&option.asset);
+
+    let domain_name = option
+        .extra
+        .get("name")
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            option
+                .extra
+                .get("eip712TypedData")
+                .and_then(|v| v.get("domain"))
+                .and_then(|v| v.get("name"))
+                .and_then(|v| v.as_str())
+        })
+        .unwrap_or("USD Coin");
+
+    let domain_version = option
+        .extra
+        .get("version")
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            option
+                .extra
+                .get("eip712TypedData")
+                .and_then(|v| v.get("domain"))
+                .and_then(|v| v.get("version"))
+                .and_then(|v| v.as_str())
+        })
+        .unwrap_or("2");
+
+    // Calculate validity window
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| PaymentError::ParseFailed(e.to_string()))?
+        .as_secs();
+    let valid_after = option
+        .extra
+        .get("eip712TypedData")
+        .and_then(|v| v.get("message"))
+        .and_then(|v| v.get("validAfter"))
+        .and_then(|v| v.as_str())
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or_else(|| now.saturating_sub(60));
+    let valid_before = option
+        .extra
+        .get("eip712TypedData")
+        .and_then(|v| v.get("message"))
+        .and_then(|v| v.get("validBefore"))
+        .and_then(|v| v.as_str())
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or_else(|| now + option.max_timeout_seconds);
+
+    let nonce = option
+        .extra
+        .get("eip712TypedData")
+        .and_then(|v| v.get("message"))
+        .and_then(|v| v.get("nonce"))
+        .and_then(|v| v.as_str())
+        .and_then(|nonce| {
+            let hex_str = nonce.strip_prefix("0x").unwrap_or(nonce);
+            let bytes = hex::decode(hex_str).ok()?;
+            if bytes.len() != 32 {
+                return None;
+            }
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&bytes);
+            Some(FixedBytes::from(arr))
+        });
+
+    let domain = Eip712Domain {
+        name: Some(domain_name.to_string()),
+        version: Some(domain_version.to_string()),
+        chain_id: Some(U256::from(chain_id)),
+        verifying_contract: verifying_contract.parse().ok(),
+    };
+    let message = build_authorization_message(
+        &from_address,
+        &option.pay_to,
+        &option.amount,
+        valid_after,
+        valid_before,
+        nonce,
+    )
+    .map_err(|e| PaymentError::SigningFailed(e.to_string()))?;
+
+    // Sign
+    let signature = sign_transfer_authorization(wallet, &domain, &message)
+        .await
+        .map_err(|e| PaymentError::SigningFailed(e.to_string()))?;
+
+    Ok(X402PaymentPayloadV1 {
+        x402_version: 1,
+        scheme: option.scheme.clone(),
+        network: option.network.clone(),
         payload: X402PayloadInner {
             signature,
             authorization: X402Authorization {
@@ -555,10 +833,67 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(payload.x402_version, 2);
-        assert!(payload.payload.signature.starts_with("0x"));
-        assert_eq!(payload.payload.authorization.value, "1000000");
-        assert!(payload.payload.authorization.nonce.starts_with("0x"));
+        assert_eq!(payload.x402_version(), 2);
+        match payload {
+            BuiltX402PaymentPayload::V2(payload) => {
+                assert!(payload.payload.signature.starts_with("0x"));
+                assert_eq!(payload.payload.authorization.value, "1000000");
+                assert!(payload.payload.authorization.nonce.starts_with("0x"));
+            }
+            BuiltX402PaymentPayload::V1(_) => panic!("expected v2 payment payload"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_build_payment_payload_v1() {
+        let wallet = PrivateKeyWallet::from_env_or_key(Some(
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80".into(),
+        ))
+        .unwrap()
+        .unwrap();
+
+        let response_body = r#"{
+            "x402Version": 1,
+            "error": "Payment required",
+            "accepts": [{
+                "scheme": "exact",
+                "network": "base-sepolia",
+                "maxAmountRequired": "1000000",
+                "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "payTo": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+                "resource": "/api/agent/database",
+                "description": "SQL query on Test Publisher",
+                "mimeType": "application/json",
+                "maxTimeoutSeconds": 300,
+                "extra": {
+                    "name": "USD Coin",
+                    "version": "2"
+                }
+            }]
+        }"#;
+
+        let requirements = PaymentRequirements::parse(response_body).unwrap();
+        assert_eq!(requirements.x402_version, Some(1));
+
+        let x402_option = requirements.x402_option().unwrap();
+        let payload = build_x402_payment_payload(&wallet, &requirements, x402_option)
+            .await
+            .unwrap();
+
+        assert_eq!(payload.x402_version(), 1);
+        assert_eq!(payload.header_name(), "X-PAYMENT");
+        assert!(!payload.encode_b64().unwrap().is_empty());
+
+        match payload {
+            BuiltX402PaymentPayload::V1(payload) => {
+                assert_eq!(payload.scheme, "exact");
+                assert_eq!(payload.network, "base-sepolia");
+                assert!(payload.payload.signature.starts_with("0x"));
+                assert_eq!(payload.payload.authorization.value, "1000000");
+                assert!(payload.payload.authorization.nonce.starts_with("0x"));
+            }
+            BuiltX402PaymentPayload::V2(_) => panic!("expected v1 payment payload"),
+        }
     }
 
     #[tokio::test]
@@ -597,6 +932,10 @@ mod tests {
         let payload = build_x402_payment_payload(&wallet, &requirements, x402_option)
             .await
             .unwrap();
+
+        let BuiltX402PaymentPayload::V2(payload) = payload else {
+            panic!("expected v2 payment payload");
+        };
 
         let valid_after: u64 = payload
             .payload

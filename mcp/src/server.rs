@@ -12,7 +12,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use base64::Engine;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -956,19 +955,22 @@ impl SerenMcpServer {
             ));
         }
 
-        let payment_required = response
+        let payment_required_header = response
             .headers()
             .get("PAYMENT-REQUIRED")
             .and_then(|v| v.to_str().ok())
-            .ok_or_else(|| {
-                McpError::internal_error(
-                    "Missing PAYMENT-REQUIRED header on 402 response".to_string(),
-                    None,
-                )
-            })?;
+            .map(|s| s.to_string());
 
-        let requirements = PaymentRequirements::parse_payment_required_header(payment_required)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let body_text = response.text().await.unwrap_or_default();
+
+        // Prefer the x402 v2 header transport when present, but fall back to
+        // spec-accurate x402 v1 body parsing when a server uses v1 transport.
+        let requirements = match payment_required_header.as_deref() {
+            Some(header_b64) => PaymentRequirements::parse_payment_required_header(header_b64)
+                .or_else(|_| PaymentRequirements::parse(&body_text)),
+            None => PaymentRequirements::parse(&body_text),
+        }
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         let x402_option = requirements.x402_option().ok_or_else(|| {
             McpError::invalid_request(
                 "Publisher did not provide any x402 payment options".to_string(),
@@ -995,16 +997,15 @@ impl SerenMcpServer {
         let payload = build_x402_payment_payload(wallet, &requirements, x402_option)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let payload_b64 = base64::engine::general_purpose::STANDARD.encode(
-            serde_json::to_vec(&payload)
-                .map_err(|e| McpError::internal_error(e.to_string(), None))?,
-        );
+        let payload_b64 = payload
+            .encode_b64()
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        // Second request: retry with PAYMENT-SIGNATURE
+        // Second request: retry with x402 payment header (v2 = PAYMENT-SIGNATURE, v1 = X-PAYMENT)
         let mut request_builder = http_client
             .post(&url)
             .header("X-AGENT-WALLET", &wallet_address)
-            .header("PAYMENT-SIGNATURE", payload_b64);
+            .header(payload.header_name(), payload_b64);
 
         if let Some(request_id) = x402_option
             .extra
