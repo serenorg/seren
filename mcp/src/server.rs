@@ -533,11 +533,11 @@ fn format_payment_required_body(status: reqwest::StatusCode, body_text: &str) ->
                     let balance_endpoint = top_up
                         .get("balanceEndpoint")
                         .and_then(|v| v.as_str())
-                        .unwrap_or("/api/agent/wallet/balance");
+                        .unwrap_or("/agent/wallet/balance");
                     let deposit_endpoint = top_up
                         .get("depositEndpoint")
                         .and_then(|v| v.as_str())
-                        .unwrap_or("/api/agent/wallet/deposit");
+                        .unwrap_or("/agent/wallet/deposit");
 
                     let mut message = format!(
                         "Insufficient wallet credits (prepaid). Required ${required}, available ${available}, deficit ${deficit}. Top up via {deposit_endpoint} and re-check via {balance_endpoint}."
@@ -2217,7 +2217,7 @@ impl SerenMcpServer {
                             {
                                 let result = self
                                     .execute_x402_roundtrip_json(
-                                        "/api/agent/database",
+                                        "/agent/database",
                                         &body,
                                         params.confirm,
                                         &agent_metadata,
@@ -2312,7 +2312,7 @@ impl SerenMcpServer {
                             {
                                 let result = self
                                     .execute_x402_roundtrip_json(
-                                        "/api/agent/api",
+                                        "/agent/api",
                                         &body,
                                         params.confirm,
                                         &agent_metadata,
@@ -2421,7 +2421,7 @@ impl SerenMcpServer {
             amount: params.amount,
         };
 
-        let url = format!("{}/api/agent/deposit", self.api_base_url);
+        let url = format!("{}/agent/deposit", self.api_base_url);
         let response = http_client
             .post(&url)
             .header("X-AGENT-WALLET", &params.agent_wallet)
@@ -2586,7 +2586,7 @@ impl SerenMcpServer {
         if self.wallet.is_some() {
             let text = self
                 .execute_x402_roundtrip_text(
-                    "/api/agent/api/stream",
+                    "/agent/api/stream",
                     &body,
                     params.confirm,
                     &agent_metadata,

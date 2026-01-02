@@ -8,7 +8,7 @@
 //! - `/register` - Dynamic client registration (RFC 7591)
 //!
 //! This server acts as the OAuth authorization server for MCP clients, but delegates
-//! actual user authentication to upstream `/api/oauth2/*` (Authorization Code + PKCE).
+//! actual user authentication to upstream `/oauth2/*` (Authorization Code + PKCE).
 
 use crate::oauth::circuit_breaker::OAuthCircuitBreaker;
 use crate::oauth::store::{
@@ -37,7 +37,7 @@ pub struct OAuthState {
     pub http: reqwest::Client,
     /// Public base URL of this MCP server (e.g. `https://mcp.serendb.com`).
     pub server_host: String,
-    /// Client id used with upstream `/api/oauth2/*` endpoints.
+    /// Client id used with upstream `/oauth2/*` endpoints.
     pub upstream_client_id: String,
     /// Base URL for upstream API server-to-server calls (e.g. internal cluster URL).
     pub upstream_api_base_url: String,
@@ -1045,7 +1045,7 @@ pub async fn exchange_upstream_token(
     // OAuth endpoints are under /api in serencore, so we need to add /api prefix
     // (The base URL no longer includes /api since the generated API client adds it)
     let token_url = format!(
-        "{}/api/oauth2/token",
+        "{}/oauth2/token",
         upstream_api_base_url.trim_end_matches('/')
     );
 
@@ -1160,7 +1160,7 @@ fn redirect_with_error(
 
 /// Extract the `sub` (user id) claim from a JWT access token.
 ///
-/// This avoids an extra network call to `GET /api/users/me` during the OAuth callback.
+/// This avoids an extra network call to `GET /users/me` during the OAuth callback.
 /// If the token isn't a JWT (or parsing fails), callers should fall back to the user-info API.
 fn try_extract_user_id_from_jwt(access_token: &str) -> Option<String> {
     let payload_b64 = access_token.split('.').nth(1)?;
