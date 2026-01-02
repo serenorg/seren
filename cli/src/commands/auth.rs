@@ -61,11 +61,8 @@ async fn login_oauth() -> Result<()> {
         std::env::var("SEREN_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
 
     let client = BasicClient::new(ClientId::new(client_id.clone()))
-        .set_auth_uri(AuthUrl::new(format!(
-            "{}/api/oauth2/authorize",
-            oauth_host
-        ))?)
-        .set_token_uri(TokenUrl::new(format!("{}/api/oauth2/token", oauth_host))?)
+        .set_auth_uri(AuthUrl::new(format!("{}/oauth2/authorize", oauth_host))?)
+        .set_token_uri(TokenUrl::new(format!("{}/oauth2/token", oauth_host))?)
         .set_auth_type(AuthType::RequestBody)
         .set_redirect_uri(RedirectUrl::new(redirect_url.clone())?);
 
@@ -426,7 +423,7 @@ async fn request_token_refresh(
     refresh_token: &str,
 ) -> Result<OAuthTokenResponse> {
     let base = oauth_host.trim_end_matches('/');
-    let token_url = format!("{}/api/oauth2/token", base);
+    let token_url = format!("{}/oauth2/token", base);
 
     let client = reqwest::Client::new();
     let response = client

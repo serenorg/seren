@@ -87,11 +87,11 @@ async fn format_payment_required_response(response: reqwest::Response) -> String
                     let balance_endpoint = top_up
                         .get("balanceEndpoint")
                         .and_then(|v| v.as_str())
-                        .unwrap_or("/api/agent/wallet/balance");
+                        .unwrap_or("/agent/wallet/balance");
                     let deposit_endpoint = top_up
                         .get("depositEndpoint")
                         .and_then(|v| v.as_str())
-                        .unwrap_or("/api/agent/wallet/deposit");
+                        .unwrap_or("/agent/wallet/deposit");
 
                     return format!(
                         "Payment Required (402): insufficient wallet credits (prepaid). Required ${required}, available ${available}, deficit ${deficit}. Top up via {deposit_endpoint} and re-check via {balance_endpoint}."
@@ -163,7 +163,7 @@ pub async fn get_deposit_requirements(
         Some(host) => defaults::api_base_url(host),
         None => defaults::api_base_url(defaults::DEFAULT_API_HOST),
     };
-    let url = format!("{}/api/agent/deposit", base_url);
+    let url = format!("{}/agent/deposit", base_url);
 
     let response = http_client
         .post(&url)

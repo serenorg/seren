@@ -44,7 +44,7 @@ pub fn normalize_api_host(api_host: &str) -> String {
 
 /// Convert a CLI API host value into the SDK base URL.
 ///
-/// Note: The generated SDK methods already include the `/api/...` path prefix,
+/// Note: The generated SDK methods already include the `/...` path prefix,
 /// so the SDK base URL should *not* include `/api`.
 pub fn api_base_url(api_host: &str) -> String {
     normalize_api_host(api_host)
