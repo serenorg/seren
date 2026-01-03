@@ -41,8 +41,14 @@ impl PrivateKeyWallet {
     /// - Callers should get this from WALLET_PRIVATE_KEY env var
     pub fn from_env_or_key(private_key: Option<String>) -> Result<Option<Self>, WalletError> {
         let key = match private_key {
-            Some(k) if !k.is_empty() => k,
-            _ => return Ok(None),
+            Some(k) => {
+                let k = k.trim();
+                if k.is_empty() {
+                    return Ok(None);
+                }
+                k.to_string()
+            }
+            None => return Ok(None),
         };
 
         // Normalize: ensure 0x prefix

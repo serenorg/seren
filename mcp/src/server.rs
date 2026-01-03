@@ -780,25 +780,44 @@ fn connection_string_with_database(
 }
 
 fn sql_proxy_url_from_connection_string(connection_string: &str) -> Result<String, McpError> {
-    if let Ok(base_url) = std::env::var("SQL_PROXY_URL") {
-        let base_url = base_url.trim();
-        if !base_url.is_empty() {
-            let mut url = reqwest::Url::parse(base_url).map_err(|e| {
-                McpError::internal_error(format!("Invalid SQL_PROXY_URL: {}", e), None)
-            })?;
-            url.set_path("/sql");
-            url.set_query(None);
-            url.set_fragment(None);
-            return Ok(url.to_string());
-        }
-    }
-
     let url = reqwest::Url::parse(connection_string)
         .map_err(|e| McpError::internal_error(format!("Invalid connection string: {}", e), None))?;
-    let host = url.host_str().ok_or_else(|| {
+    let host = url.host().ok_or_else(|| {
         McpError::internal_error("Connection string missing host".to_string(), None)
     })?;
-    Ok(format!("https://{}/sql", host))
+    let host_str = host.to_string();
+
+    // Default to HTTPS for hosted usage, but allow plain HTTP for localhost in tests/dev.
+    let is_localhost = host_str == "localhost" || host_str == "127.0.0.1" || host_str == "::1";
+    let scheme = if is_localhost { "http" } else { "https" };
+
+    let port = url.port();
+    // Postgres connection strings commonly include `:5432`, but SQL-over-HTTP typically runs
+    // on the default HTTPS port. Keep the port when it's explicitly non-Postgres (e.g. local).
+    let include_port = match (scheme, port) {
+        ("http", Some(_)) => true,
+        ("https", Some(p)) => p != 5432 && p != 443,
+        _ => false,
+    };
+
+    let mut out =
+        reqwest::Url::parse(&format!("{scheme}://example.invalid/sql")).expect("valid base url");
+    out.set_host(Some(&host_str)).map_err(|_| {
+        McpError::internal_error("Connection string host invalid".to_string(), None)
+    })?;
+    out.set_path("/sql");
+    out.set_query(None);
+    out.set_fragment(None);
+    if include_port {
+        out.set_port(port).map_err(|_| {
+            McpError::internal_error("Connection string port invalid".to_string(), None)
+        })?;
+    } else {
+        // Ensure we don't accidentally carry over a port from the placeholder URL.
+        out.set_port(None).ok();
+    }
+
+    Ok(out.to_string())
 }
 
 /// Check if read-only mode is enabled.
@@ -3333,33 +3352,31 @@ mod tests {
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
         let proxy = MockServer::start().await;
-        let proxy_uri = proxy.uri();
+        let proxy_url = reqwest::Url::parse(&proxy.uri()).unwrap();
+        let host = proxy_url.host_str().unwrap();
+        let port = proxy_url.port().unwrap();
+        let conn = format!("postgresql://user:pass@{host}:{port}/postgres?sslmode=require");
 
-        temp_env::async_with_vars([("SQL_PROXY_URL", Some(&proxy_uri))], async {
-            let conn = "postgresql://user:pass@db.serendb.com/postgres?sslmode=require";
+        Mock::given(method("POST"))
+            .and(path("/sql"))
+            .and(header("SerenDB-Connection-String", conn.as_str()))
+            .and(header("SerenDB-Pool-Opt-In", "true"))
+            .and(body_json(serde_json::json!({
+                "query": "select $1",
+                "params": [1],
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ok": true,
+            })))
+            .mount(&proxy)
+            .await;
 
-            Mock::given(method("POST"))
-                .and(path("/sql"))
-                .and(header("SerenDB-Connection-String", conn))
-                .and(header("SerenDB-Pool-Opt-In", "true"))
-                .and(body_json(serde_json::json!({
-                    "query": "select $1",
-                    "params": [1],
-                })))
-                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                    "ok": true,
-                })))
-                .mount(&proxy)
-                .await;
-
-            let server = SerenMcpServer::new("test-key", "https://api.serendb.com/api").unwrap();
-            let result = server
-                .execute_sql(conn, "select $1", vec![serde_json::json!(1)])
-                .await
-                .unwrap();
-            assert_eq!(result, serde_json::json!({ "ok": true }));
-        })
-        .await;
+        let server = SerenMcpServer::new("test-key", "https://api.serendb.com").unwrap();
+        let result = server
+            .execute_sql(&conn, "select $1", vec![serde_json::json!(1)])
+            .await
+            .unwrap();
+        assert_eq!(result, serde_json::json!({ "ok": true }));
     }
 
     #[tokio::test]
@@ -3368,43 +3385,41 @@ mod tests {
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
         let proxy = MockServer::start().await;
-        let proxy_uri = proxy.uri();
+        let proxy_url = reqwest::Url::parse(&proxy.uri()).unwrap();
+        let host = proxy_url.host_str().unwrap();
+        let port = proxy_url.port().unwrap();
+        let conn = format!("postgresql://user:pass@{host}:{port}/postgres?sslmode=require");
 
-        temp_env::async_with_vars([("SQL_PROXY_URL", Some(&proxy_uri))], async {
-            let conn = "postgresql://user:pass@db.serendb.com/postgres?sslmode=require";
+        Mock::given(method("POST"))
+            .and(path("/sql"))
+            .and(header("SerenDB-Connection-String", conn.as_str()))
+            .and(header("SerenDB-Pool-Opt-In", "true"))
+            .and(header("SerenDB-Batch-Read-Only", "true"))
+            .and(header("SerenDB-Batch-Isolation-Level", "read_committed"))
+            .and(header("SerenDB-Batch-Deferrable", "true"))
+            .and(body_json(serde_json::json!({
+                "queries": [
+                    {"query": "select 1", "params": []},
+                    {"query": "select 2", "params": []},
+                ],
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ok": true,
+            })))
+            .mount(&proxy)
+            .await;
 
-            Mock::given(method("POST"))
-                .and(path("/sql"))
-                .and(header("SerenDB-Connection-String", conn))
-                .and(header("SerenDB-Pool-Opt-In", "true"))
-                .and(header("SerenDB-Batch-Read-Only", "true"))
-                .and(header("SerenDB-Batch-Isolation-Level", "read_committed"))
-                .and(header("SerenDB-Batch-Deferrable", "true"))
-                .and(body_json(serde_json::json!({
-                    "queries": [
-                        {"query": "select 1", "params": []},
-                        {"query": "select 2", "params": []},
-                    ],
-                })))
-                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                    "ok": true,
-                })))
-                .mount(&proxy)
-                .await;
-
-            let server = SerenMcpServer::new("test-key", "https://api.serendb.com/api").unwrap();
-            let result = server
-                .execute_sql_transaction(
-                    conn,
-                    vec!["select 1".to_string(), "select 2".to_string()],
-                    Some(true),
-                    Some("read_committed".to_string()),
-                    Some(true),
-                )
-                .await
-                .unwrap();
-            assert_eq!(result, serde_json::json!({ "ok": true }));
-        })
-        .await;
+        let server = SerenMcpServer::new("test-key", "https://api.serendb.com").unwrap();
+        let result = server
+            .execute_sql_transaction(
+                &conn,
+                vec!["select 1".to_string(), "select 2".to_string()],
+                Some(true),
+                Some("read_committed".to_string()),
+                Some(true),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result, serde_json::json!({ "ok": true }));
     }
 }

@@ -28,7 +28,6 @@ pub enum AuthConfig {
 impl Config {
     #[allow(clippy::result_large_err)]
     pub fn from_env_for_command(command: &str) -> Result<Self> {
-        // Note: Do NOT include /api suffix - the generated API client already adds it
         let api_base_url =
             std::env::var("API_URL").unwrap_or_else(|_| "https://api.serendb.com".into());
         let oauth_redirect_base_url =

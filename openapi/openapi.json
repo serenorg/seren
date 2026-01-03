@@ -19,7 +19,7 @@
     }
   ],
   "paths": {
-    "/api/agent/api": {
+    "/agent/api": {
       "post": {
         "tags": [
           "agent"
@@ -70,7 +70,7 @@
         }
       }
     },
-    "/api/agent/api/stream": {
+    "/agent/api/stream": {
       "post": {
         "tags": [
           "agent"
@@ -121,7 +121,7 @@
         }
       }
     },
-    "/api/agent/database": {
+    "/agent/database": {
       "post": {
         "tags": [
           "agent"
@@ -172,7 +172,7 @@
         }
       }
     },
-    "/api/agent/deposit": {
+    "/agent/deposit": {
       "post": {
         "tags": [
           "agent"
@@ -223,7 +223,7 @@
         }
       }
     },
-    "/api/agent/estimate": {
+    "/agent/estimate": {
       "post": {
         "tags": [
           "agent"
@@ -260,12 +260,12 @@
         }
       }
     },
-    "/api/agent/publishers": {
+    "/agent/publishers": {
       "get": {
         "tags": [
           "agent"
         ],
-        "summary": "GET /api/agent/publishers",
+        "summary": "GET /agent/publishers",
         "description": "List active publishers in the marketplace",
         "operationId": "list_marketplace_publishers",
         "parameters": [
@@ -330,7 +330,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "POST /api/agent/publishers",
+        "summary": "POST /agent/publishers",
         "description": "Create a publisher via organization API key (machine-to-machine).",
         "operationId": "create_publisher_api_key",
         "requestBody": {
@@ -369,12 +369,12 @@
         }
       }
     },
-    "/api/agent/publishers/{slug}": {
+    "/agent/publishers/{slug}": {
       "get": {
         "tags": [
           "agent"
         ],
-        "summary": "GET /api/agent/publishers/:slug",
+        "summary": "GET /agent/publishers/:slug",
         "description": "Get publisher by slug (public marketplace view)",
         "operationId": "get_marketplace_publisher",
         "parameters": [
@@ -408,12 +408,12 @@
         }
       }
     },
-    "/api/agent/supported": {
+    "/agent/supported": {
       "get": {
         "tags": [
           "agent"
         ],
-        "summary": "GET /api/agent/supported",
+        "summary": "GET /agent/supported",
         "description": "Returns supported x402 payment kinds for facilitator discovery.",
         "operationId": "get_supported",
         "responses": {
@@ -433,7 +433,7 @@
         }
       }
     },
-    "/api/agent/wallet/balance": {
+    "/agent/wallet/balance": {
       "get": {
         "tags": [
           "agent-wallet"
@@ -462,7 +462,7 @@
         ]
       }
     },
-    "/api/agent/wallet/bonus/payment-method": {
+    "/agent/wallet/bonus/payment-method": {
       "post": {
         "tags": [
           "agent-wallet"
@@ -494,7 +494,7 @@
         ]
       }
     },
-    "/api/agent/wallet/bonus/signup": {
+    "/agent/wallet/bonus/signup": {
       "post": {
         "tags": [
           "agent-wallet"
@@ -526,7 +526,7 @@
         ]
       }
     },
-    "/api/agent/wallet/daily/claim": {
+    "/agent/wallet/daily/claim": {
       "post": {
         "tags": [
           "agent-wallet"
@@ -558,7 +558,7 @@
         ]
       }
     },
-    "/api/agent/wallet/daily/eligibility": {
+    "/agent/wallet/daily/eligibility": {
       "get": {
         "tags": [
           "agent-wallet"
@@ -587,7 +587,7 @@
         ]
       }
     },
-    "/api/agent/wallet/deposit": {
+    "/agent/wallet/deposit": {
       "post": {
         "tags": [
           "agent-wallet"
@@ -629,7 +629,7 @@
         ]
       }
     },
-    "/api/agent/wallet/referral": {
+    "/agent/wallet/referral": {
       "get": {
         "tags": [
           "agent-wallet"
@@ -658,7 +658,7 @@
         ]
       }
     },
-    "/api/agent/wallet/referral/apply": {
+    "/agent/wallet/referral/apply": {
       "post": {
         "tags": [
           "agent-wallet"
@@ -696,7 +696,7 @@
         ]
       }
     },
-    "/api/agent/wallet/transactions": {
+    "/agent/wallet/transactions": {
       "get": {
         "tags": [
           "agent-wallet"
@@ -747,12 +747,12 @@
         ]
       }
     },
-    "/api/auth/forgot-password": {
+    "/auth/forgot-password": {
       "post": {
         "tags": [
           "Auth"
         ],
-        "summary": "POST /api/auth/forgot-password",
+        "summary": "POST /auth/forgot-password",
         "description": "Request a password reset email",
         "operationId": "forgot_password",
         "requestBody": {
@@ -782,7 +782,7 @@
         }
       }
     },
-    "/api/auth/me": {
+    "/auth/me": {
       "get": {
         "tags": [
           "Auth"
@@ -812,12 +812,12 @@
         ]
       }
     },
-    "/api/auth/resend-verification": {
+    "/auth/resend-verification": {
       "post": {
         "tags": [
           "Auth"
         ],
-        "summary": "POST /api/auth/resend-verification",
+        "summary": "POST /auth/resend-verification",
         "description": "Resend email verification link",
         "operationId": "resend_verification_email",
         "requestBody": {
@@ -847,12 +847,12 @@
         }
       }
     },
-    "/api/auth/reset-password": {
+    "/auth/reset-password": {
       "post": {
         "tags": [
           "Auth"
         ],
-        "summary": "POST /api/auth/reset-password",
+        "summary": "POST /auth/reset-password",
         "description": "Reset password using a valid token",
         "operationId": "reset_password",
         "requestBody": {
@@ -885,12 +885,12 @@
         }
       }
     },
-    "/api/auth/verify-email": {
+    "/auth/verify-email": {
       "post": {
         "tags": [
           "Auth"
         ],
-        "summary": "POST /api/auth/verify-email",
+        "summary": "POST /auth/verify-email",
         "description": "Verify email address using a token sent during signup\nOn success, automatically logs the user in and returns tokens",
         "operationId": "verify_email",
         "requestBody": {
@@ -920,12 +920,12 @@
         }
       }
     },
-    "/api/billing/health": {
+    "/billing/health": {
       "get": {
         "tags": [
           "billing"
         ],
-        "summary": "GET /api/billing/health",
+        "summary": "GET /billing/health",
         "description": "High-level billing and metering health summary for Seren Core",
         "operationId": "get_billing_health",
         "responses": {
@@ -945,12 +945,12 @@
         }
       }
     },
-    "/api/billing/invoices/generate": {
+    "/billing/invoices/generate": {
       "post": {
         "tags": [
           "billing"
         ],
-        "summary": "POST /api/billing/invoices/generate",
+        "summary": "POST /billing/invoices/generate",
         "description": "Generate monthly invoices for all organizations",
         "operationId": "generate_invoices",
         "requestBody": {
@@ -983,12 +983,12 @@
         }
       }
     },
-    "/api/billing/invoices/{id}": {
+    "/billing/invoices/{id}": {
       "get": {
         "tags": [
           "billing"
         ],
-        "summary": "GET /api/billing/invoices/:id",
+        "summary": "GET /billing/invoices/:id",
         "description": "Get invoice details with line items",
         "operationId": "get_invoice",
         "parameters": [
@@ -1023,12 +1023,12 @@
         }
       }
     },
-    "/api/billing/invoices/{id}/issue": {
+    "/billing/invoices/{id}/issue": {
       "post": {
         "tags": [
           "billing"
         ],
-        "summary": "POST /api/billing/invoices/:id/issue",
+        "summary": "POST /billing/invoices/:id/issue",
         "description": "Issue a draft invoice",
         "operationId": "issue_invoice",
         "parameters": [
@@ -1056,12 +1056,12 @@
         }
       }
     },
-    "/api/billing/invoices/{id}/pay": {
+    "/billing/invoices/{id}/pay": {
       "post": {
         "tags": [
           "payments"
         ],
-        "summary": "POST /api/billing/invoices/:id/pay",
+        "summary": "POST /billing/invoices/:id/pay",
         "description": "Create a payment intent for an invoice",
         "operationId": "create_payment_intent",
         "parameters": [
@@ -1104,12 +1104,12 @@
         ]
       }
     },
-    "/api/billing/invoices/{id}/payments": {
+    "/billing/invoices/{id}/payments": {
       "get": {
         "tags": [
           "payments"
         ],
-        "summary": "GET /api/billing/invoices/:id/payments",
+        "summary": "GET /billing/invoices/:id/payments",
         "description": "Get payment history for an invoice",
         "operationId": "get_payment_history",
         "parameters": [
@@ -1149,12 +1149,12 @@
         ]
       }
     },
-    "/api/billing/payment-methods": {
+    "/billing/payment-methods": {
       "get": {
         "tags": [
           "payments"
         ],
-        "summary": "GET /api/billing/payment-methods",
+        "summary": "GET /billing/payment-methods",
         "description": "List payment methods for the organization",
         "operationId": "list_payment_methods",
         "responses": {
@@ -1182,7 +1182,7 @@
         "tags": [
           "payments"
         ],
-        "summary": "POST /api/billing/payment-methods",
+        "summary": "POST /billing/payment-methods",
         "description": "Add a payment method for the organization",
         "operationId": "add_payment_method",
         "requestBody": {
@@ -1220,12 +1220,12 @@
         ]
       }
     },
-    "/api/billing/payment-methods/{id}": {
+    "/billing/payment-methods/{id}": {
       "delete": {
         "tags": [
           "payments"
         ],
-        "summary": "DELETE /api/billing/payment-methods/{id}",
+        "summary": "DELETE /billing/payment-methods/{id}",
         "description": "Remove a payment method from the organization",
         "operationId": "delete_payment_method",
         "parameters": [
@@ -1258,12 +1258,12 @@
         ]
       }
     },
-    "/api/billing/usage/{organization_id}": {
+    "/billing/usage/{organization_id}": {
       "get": {
         "tags": [
           "billing"
         ],
-        "summary": "GET /api/billing/usage/:organization_id",
+        "summary": "GET /billing/usage/:organization_id",
         "description": "Get usage summary for an organization",
         "operationId": "get_usage_summary",
         "parameters": [
@@ -1316,12 +1316,12 @@
         }
       }
     },
-    "/api/organizations": {
+    "/organizations": {
       "get": {
         "tags": [
           "Organizations"
         ],
-        "summary": "GET /api/organizations",
+        "summary": "GET /organizations",
         "description": "List all organizations for the authenticated user",
         "operationId": "list_organizations",
         "responses": {
@@ -1346,7 +1346,7 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/api_keys": {
+    "/organizations/{organization_id}/api_keys": {
       "get": {
         "tags": [
           "Auth"
@@ -1442,7 +1442,7 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/api_keys/{key_id}": {
+    "/organizations/{organization_id}/api_keys/{key_id}": {
       "delete": {
         "tags": [
           "Auth"
@@ -1489,7 +1489,7 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/audit-logs": {
+    "/organizations/{organization_id}/audit-logs": {
       "get": {
         "tags": [
           "Audit Logs"
@@ -1638,7 +1638,7 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/audit-logs/{log_id}": {
+    "/organizations/{organization_id}/audit-logs/{log_id}": {
       "get": {
         "tags": [
           "Audit Logs"
@@ -1695,12 +1695,12 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/billing/endpoints/{endpoint_id}/events": {
+    "/organizations/{organization_id}/billing/endpoints/{endpoint_id}/events": {
       "get": {
         "tags": [
           "billing"
         ],
-        "summary": "GET /api/organizations/{organization_id}/billing/endpoints/{endpoint_id}/events",
+        "summary": "GET /organizations/{organization_id}/billing/endpoints/{endpoint_id}/events",
         "description": "Debug endpoint: show recent usage_events and compute_usage_events for an endpoint",
         "operationId": "get_endpoint_billing_events",
         "parameters": [
@@ -1745,12 +1745,12 @@
         }
       }
     },
-    "/api/organizations/{organization_id}/consumption": {
+    "/organizations/{organization_id}/consumption": {
       "get": {
         "tags": [
           "billing"
         ],
-        "summary": "GET /api/organizations/{organization_id}/consumption",
+        "summary": "GET /organizations/{organization_id}/consumption",
         "description": "Aggregated organization-level consumption over a billing window.",
         "operationId": "get_organization_consumption",
         "parameters": [
@@ -1813,12 +1813,12 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/invites": {
+    "/organizations/{organization_id}/invites": {
       "get": {
         "tags": [
           "Organizations"
         ],
-        "summary": "GET /api/organizations/{organization_id}/invites",
+        "summary": "GET /organizations/{organization_id}/invites",
         "description": "List pending and historical organization invites.",
         "operationId": "list_invites",
         "parameters": [
@@ -1861,7 +1861,7 @@
         "tags": [
           "Organizations"
         ],
-        "summary": "POST /api/organizations/{organization_id}/invites",
+        "summary": "POST /organizations/{organization_id}/invites",
         "description": "Create a new organization invite and send an email via the configured mailer.",
         "operationId": "create_invite",
         "parameters": [
@@ -1914,12 +1914,12 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/members": {
+    "/organizations/{organization_id}/members": {
       "get": {
         "tags": [
           "Organizations"
         ],
-        "summary": "GET /api/organizations/{organization_id}/members",
+        "summary": "GET /organizations/{organization_id}/members",
         "description": "List organization members with basic user details.",
         "operationId": "list_members",
         "parameters": [
@@ -1959,7 +1959,7 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/members/{member_id}/role": {
+    "/organizations/{organization_id}/members/{member_id}/role": {
       "put": {
         "tags": [
           "RBAC"
@@ -2022,7 +2022,7 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/permissions/check/{permission}": {
+    "/organizations/{organization_id}/permissions/check/{permission}": {
       "get": {
         "tags": [
           "RBAC"
@@ -2075,7 +2075,7 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/permissions/mine": {
+    "/organizations/{organization_id}/permissions/mine": {
       "get": {
         "tags": [
           "RBAC"
@@ -2122,12 +2122,12 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/plan": {
+    "/organizations/{organization_id}/plan": {
       "get": {
         "tags": [
           "Plans"
         ],
-        "summary": "GET /api/organizations/:org_id/plan",
+        "summary": "GET /organizations/:org_id/plan",
         "description": "Get the current plan for an organization",
         "operationId": "get_organization_plan",
         "parameters": [
@@ -2165,7 +2165,7 @@
         "tags": [
           "Plans"
         ],
-        "summary": "POST /api/organizations/:org_id/plan",
+        "summary": "POST /organizations/:org_id/plan",
         "description": "Upgrade or downgrade an organization's plan",
         "operationId": "change_organization_plan",
         "parameters": [
@@ -2213,12 +2213,12 @@
         }
       }
     },
-    "/api/organizations/{organization_id}/publishers": {
+    "/organizations/{organization_id}/publishers": {
       "get": {
         "tags": [
           "agent"
         ],
-        "summary": "GET /api/organizations/:org_id/publishers",
+        "summary": "GET /organizations/:org_id/publishers",
         "description": "List publishers owned by an organization",
         "operationId": "list_org_publishers",
         "parameters": [
@@ -2256,7 +2256,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "POST /api/organizations/:org_id/publishers",
+        "summary": "POST /organizations/:org_id/publishers",
         "description": "Create a new publisher",
         "operationId": "create_publisher",
         "parameters": [
@@ -2307,12 +2307,12 @@
         }
       }
     },
-    "/api/organizations/{organization_id}/publishers/{publisher_id}": {
+    "/organizations/{organization_id}/publishers/{publisher_id}": {
       "get": {
         "tags": [
           "agent"
         ],
-        "summary": "GET /api/organizations/:org_id/publishers/:publisher_id",
+        "summary": "GET /organizations/:org_id/publishers/:publisher_id",
         "description": "Get publisher details",
         "operationId": "get_org_publisher",
         "parameters": [
@@ -2363,7 +2363,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "PUT /api/organizations/:org_id/publishers/:publisher_id",
+        "summary": "PUT /organizations/:org_id/publishers/:publisher_id",
         "description": "Update a publisher",
         "operationId": "update_publisher",
         "parameters": [
@@ -2424,12 +2424,12 @@
         }
       }
     },
-    "/api/organizations/{organization_id}/publishers/{publisher_id}/earnings": {
+    "/organizations/{organization_id}/publishers/{publisher_id}/earnings": {
       "get": {
         "tags": [
           "agent"
         ],
-        "summary": "GET /api/organizations/:org_id/publishers/:publisher_id/earnings",
+        "summary": "GET /organizations/:org_id/publishers/:publisher_id/earnings",
         "description": "List marketplace earnings for a publisher (per asset).",
         "operationId": "get_org_publisher_earnings",
         "parameters": [
@@ -2480,12 +2480,12 @@
         }
       }
     },
-    "/api/organizations/{organization_id}/publishers/{publisher_id}/payouts": {
+    "/organizations/{organization_id}/publishers/{publisher_id}/payouts": {
       "get": {
         "tags": [
           "agent"
         ],
-        "summary": "GET /api/organizations/:org_id/publishers/:publisher_id/payouts",
+        "summary": "GET /organizations/:org_id/publishers/:publisher_id/payouts",
         "description": "List payout requests for a publisher.",
         "operationId": "list_org_publisher_payouts",
         "parameters": [
@@ -2561,7 +2561,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "POST /api/organizations/:org_id/publishers/:publisher_id/payouts",
+        "summary": "POST /organizations/:org_id/publishers/:publisher_id/payouts",
         "description": "Request a payout for a publisher's marketplace earnings.",
         "operationId": "create_org_publisher_payout",
         "parameters": [
@@ -2622,12 +2622,12 @@
         }
       }
     },
-    "/api/organizations/{organization_id}/publishers/{publisher_id}/pricing": {
+    "/organizations/{organization_id}/publishers/{publisher_id}/pricing": {
       "put": {
         "tags": [
           "agent"
         ],
-        "summary": "PUT /api/organizations/:org_id/publishers/:publisher_id/pricing",
+        "summary": "PUT /organizations/:org_id/publishers/:publisher_id/pricing",
         "description": "Update publisher pricing config for a specific asset",
         "operationId": "update_publisher_pricing",
         "parameters": [
@@ -2688,12 +2688,12 @@
         }
       }
     },
-    "/api/organizations/{organization_id}/quota": {
+    "/organizations/{organization_id}/quota": {
       "get": {
         "tags": [
           "Plans"
         ],
-        "summary": "GET /api/organizations/:org_id/quota",
+        "summary": "GET /organizations/:org_id/quota",
         "description": "Get current quota usage for an organization",
         "operationId": "get_quota_usage",
         "parameters": [
@@ -2728,7 +2728,7 @@
         }
       }
     },
-    "/api/organizations/{organization_id}/roles": {
+    "/organizations/{organization_id}/roles": {
       "get": {
         "tags": [
           "RBAC"
@@ -2827,7 +2827,7 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/roles/{role_id}": {
+    "/organizations/{organization_id}/roles/{role_id}": {
       "get": {
         "tags": [
           "RBAC"
@@ -3003,7 +3003,7 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/vpc-endpoints": {
+    "/organizations/{organization_id}/vpc-endpoints": {
       "get": {
         "tags": [
           "VPC"
@@ -3107,7 +3107,7 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/vpc-endpoints/{endpoint_id}": {
+    "/organizations/{organization_id}/vpc-endpoints/{endpoint_id}": {
       "get": {
         "tags": [
           "VPC"
@@ -3204,7 +3204,7 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/vpc/region/{region_id}/vpc_endpoints": {
+    "/organizations/{organization_id}/vpc/region/{region_id}/vpc_endpoints": {
       "get": {
         "tags": [
           "VPC"
@@ -3260,7 +3260,7 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/vpc/region/{region_id}/vpc_endpoints/{endpoint_id}": {
+    "/organizations/{organization_id}/vpc/region/{region_id}/vpc_endpoints/{endpoint_id}": {
       "get": {
         "tags": [
           "VPC"
@@ -3377,7 +3377,7 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/vpc/vpc_endpoints": {
+    "/organizations/{organization_id}/vpc/vpc_endpoints": {
       "get": {
         "tags": [
           "VPC"
@@ -3424,7 +3424,7 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/webhooks": {
+    "/organizations/{organization_id}/webhooks": {
       "get": {
         "tags": [
           "Webhooks"
@@ -3523,7 +3523,7 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/webhooks/{webhook_id}": {
+    "/organizations/{organization_id}/webhooks/{webhook_id}": {
       "get": {
         "tags": [
           "Webhooks"
@@ -3696,7 +3696,7 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/webhooks/{webhook_id}/deliveries": {
+    "/organizations/{organization_id}/webhooks/{webhook_id}/deliveries": {
       "get": {
         "tags": [
           "Webhooks"
@@ -3756,7 +3756,7 @@
         ]
       }
     },
-    "/api/organizations/{organization_id}/webhooks/{webhook_id}/rotate-secret": {
+    "/organizations/{organization_id}/webhooks/{webhook_id}/rotate-secret": {
       "post": {
         "tags": [
           "Webhooks"
@@ -3813,7 +3813,7 @@
         ]
       }
     },
-    "/api/permissions": {
+    "/permissions": {
       "get": {
         "tags": [
           "RBAC"
@@ -3845,12 +3845,12 @@
         ]
       }
     },
-    "/api/plans": {
+    "/plans": {
       "get": {
         "tags": [
           "Plans"
         ],
-        "summary": "GET /api/plans",
+        "summary": "GET /plans",
         "description": "List all available subscription plans",
         "operationId": "list_plans",
         "responses": {
@@ -3870,12 +3870,12 @@
         }
       }
     },
-    "/api/plans/{plan_id}": {
+    "/plans/{plan_id}": {
       "get": {
         "tags": [
           "Plans"
         ],
-        "summary": "GET /api/plans/:plan_id",
+        "summary": "GET /plans/:plan_id",
         "description": "Get details of a specific plan",
         "operationId": "get_plan",
         "parameters": [
@@ -3910,7 +3910,7 @@
         }
       }
     },
-    "/api/projects": {
+    "/projects": {
       "get": {
         "tags": [
           "Projects"
@@ -4000,7 +4000,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}": {
+    "/projects/{project_id}": {
       "get": {
         "tags": [
           "Projects"
@@ -4134,7 +4134,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches": {
+    "/projects/{project_id}/branches": {
       "get": {
         "tags": [
           "Branches"
@@ -4230,7 +4230,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/count": {
+    "/projects/{project_id}/branches/count": {
       "get": {
         "tags": [
           "Branches"
@@ -4267,7 +4267,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}": {
+    "/projects/{project_id}/branches/{branch_id}": {
       "get": {
         "tags": [
           "Branches"
@@ -4431,7 +4431,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/archived": {
+    "/projects/{project_id}/branches/{branch_id}/archived": {
       "patch": {
         "tags": [
           "Branches"
@@ -4492,7 +4492,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/connection-string": {
+    "/projects/{project_id}/branches/{branch_id}/connection-string": {
       "get": {
         "tags": [
           "Branches"
@@ -4567,7 +4567,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/databases": {
+    "/projects/{project_id}/branches/{branch_id}/databases": {
       "get": {
         "tags": [
           "Databases"
@@ -4686,7 +4686,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/databases/{database_id}": {
+    "/projects/{project_id}/branches/{branch_id}/databases/{database_id}": {
       "get": {
         "tags": [
           "Databases"
@@ -4877,7 +4877,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/databases/{database_name}": {
+    "/projects/{project_id}/branches/{branch_id}/databases/{database_name}": {
       "get": {
         "tags": [
           "Databases"
@@ -5065,7 +5065,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/details": {
+    "/projects/{project_id}/branches/{branch_id}/details": {
       "get": {
         "tags": [
           "Branches"
@@ -5119,7 +5119,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/endpoints": {
+    "/projects/{project_id}/branches/{branch_id}/endpoints": {
       "get": {
         "tags": [
           "Endpoints"
@@ -5232,7 +5232,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/endpoints/{endpoint_id}": {
+    "/projects/{project_id}/branches/{branch_id}/endpoints/{endpoint_id}": {
       "delete": {
         "tags": [
           "Endpoints"
@@ -5361,7 +5361,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/endpoints/{endpoint_id}/start": {
+    "/projects/{project_id}/branches/{branch_id}/endpoints/{endpoint_id}/start": {
       "post": {
         "tags": [
           "Endpoints"
@@ -5427,7 +5427,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/endpoints/{endpoint_id}/status": {
+    "/projects/{project_id}/branches/{branch_id}/endpoints/{endpoint_id}/status": {
       "get": {
         "tags": [
           "Endpoints"
@@ -5490,7 +5490,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/endpoints/{endpoint_id}/stop": {
+    "/projects/{project_id}/branches/{branch_id}/endpoints/{endpoint_id}/stop": {
       "post": {
         "tags": [
           "Endpoints"
@@ -5546,7 +5546,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/expiration": {
+    "/projects/{project_id}/branches/{branch_id}/expiration": {
       "patch": {
         "tags": [
           "Branches"
@@ -5603,7 +5603,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/lsn_by_timestamp": {
+    "/projects/{project_id}/branches/{branch_id}/lsn_by_timestamp": {
       "get": {
         "tags": [
           "Branches"
@@ -5666,7 +5666,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/publications": {
+    "/projects/{project_id}/branches/{branch_id}/publications": {
       "get": {
         "tags": [
           "Logical Replication"
@@ -5791,7 +5791,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/publications/{publication_id}": {
+    "/projects/{project_id}/branches/{branch_id}/publications/{publication_id}": {
       "delete": {
         "tags": [
           "Logical Replication"
@@ -5926,7 +5926,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/replication-slots": {
+    "/projects/{project_id}/branches/{branch_id}/replication-slots": {
       "get": {
         "tags": [
           "Logical Replication"
@@ -6051,7 +6051,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/replication-slots/{slot_id}": {
+    "/projects/{project_id}/branches/{branch_id}/replication-slots/{slot_id}": {
       "delete": {
         "tags": [
           "Logical Replication"
@@ -6111,7 +6111,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/reset": {
+    "/projects/{project_id}/branches/{branch_id}/reset": {
       "post": {
         "tags": [
           "Branches"
@@ -6178,7 +6178,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/restore": {
+    "/projects/{project_id}/branches/{branch_id}/restore": {
       "post": {
         "tags": [
           "Branches"
@@ -6245,7 +6245,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/roles": {
+    "/projects/{project_id}/branches/{branch_id}/roles": {
       "get": {
         "tags": [
           "Roles"
@@ -6364,7 +6364,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/roles/{role_id}": {
+    "/projects/{project_id}/branches/{branch_id}/roles/{role_id}": {
       "delete": {
         "tags": [
           "Roles"
@@ -6424,7 +6424,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/roles/{role_id}/reset_password": {
+    "/projects/{project_id}/branches/{branch_id}/roles/{role_id}/reset_password": {
       "post": {
         "tags": [
           "Roles"
@@ -6498,7 +6498,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/roles/{role_name}": {
+    "/projects/{project_id}/branches/{branch_id}/roles/{role_name}": {
       "get": {
         "tags": [
           "Roles"
@@ -6618,7 +6618,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/roles/{role_name}/reset_password": {
+    "/projects/{project_id}/branches/{branch_id}/roles/{role_name}/reset_password": {
       "post": {
         "tags": [
           "Roles"
@@ -6691,7 +6691,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/roles/{role_name}/reveal_password": {
+    "/projects/{project_id}/branches/{branch_id}/roles/{role_name}/reveal_password": {
       "get": {
         "tags": [
           "Roles"
@@ -6754,7 +6754,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/set-default": {
+    "/projects/{project_id}/branches/{branch_id}/set-default": {
       "post": {
         "tags": [
           "Branches"
@@ -6801,7 +6801,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/set_as_default": {
+    "/projects/{project_id}/branches/{branch_id}/set_as_default": {
       "post": {
         "tags": [
           "Branches"
@@ -6848,7 +6848,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/branches/{branch_id}/timestamp_by_lsn": {
+    "/projects/{project_id}/branches/{branch_id}/timestamp_by_lsn": {
       "get": {
         "tags": [
           "Branches"
@@ -6911,7 +6911,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/connection_uri": {
+    "/projects/{project_id}/connection_uri": {
       "get": {
         "tags": [
           "Projects"
@@ -7007,12 +7007,12 @@
         ]
       }
     },
-    "/api/projects/{project_id}/consumption": {
+    "/projects/{project_id}/consumption": {
       "get": {
         "tags": [
           "billing"
         ],
-        "summary": "GET /api/projects/{project_id}/consumption",
+        "summary": "GET /projects/{project_id}/consumption",
         "description": "Aggregated project-level consumption (compute, storage, PITR, network) over a billing window.",
         "operationId": "get_project_consumption",
         "parameters": [
@@ -7078,7 +7078,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/endpoints": {
+    "/projects/{project_id}/endpoints": {
       "get": {
         "tags": [
           "Endpoints"
@@ -7122,7 +7122,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/endpoints/{endpoint_id}": {
+    "/projects/{project_id}/endpoints/{endpoint_id}": {
       "delete": {
         "tags": [
           "Endpoints"
@@ -7231,7 +7231,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/endpoints/{endpoint_id}/restart": {
+    "/projects/{project_id}/endpoints/{endpoint_id}/restart": {
       "post": {
         "tags": [
           "Endpoints"
@@ -7285,7 +7285,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/endpoints/{endpoint_id}/start": {
+    "/projects/{project_id}/endpoints/{endpoint_id}/start": {
       "post": {
         "tags": [
           "Endpoints"
@@ -7339,7 +7339,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/endpoints/{endpoint_id}/suspend": {
+    "/projects/{project_id}/endpoints/{endpoint_id}/suspend": {
       "post": {
         "tags": [
           "Endpoints"
@@ -7386,7 +7386,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/ip-allow": {
+    "/projects/{project_id}/ip-allow": {
       "get": {
         "tags": [
           "IP Allow Lists"
@@ -7488,7 +7488,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/ip-allow/reset": {
+    "/projects/{project_id}/ip-allow/reset": {
       "put": {
         "tags": [
           "IP Allow Lists"
@@ -7542,7 +7542,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/ip-allow/{ip_id}": {
+    "/projects/{project_id}/ip-allow/{ip_id}": {
       "delete": {
         "tags": [
           "IP Allow Lists"
@@ -7589,7 +7589,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/operations": {
+    "/projects/{project_id}/operations": {
       "get": {
         "tags": [
           "Operations"
@@ -7633,7 +7633,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/operations/{operation_id}": {
+    "/projects/{project_id}/operations/{operation_id}": {
       "get": {
         "tags": [
           "Operations"
@@ -7687,7 +7687,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/replication": {
+    "/projects/{project_id}/replication": {
       "get": {
         "tags": [
           "Logical Replication"
@@ -7789,7 +7789,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/size": {
+    "/projects/{project_id}/size": {
       "get": {
         "tags": [
           "Projects"
@@ -7833,7 +7833,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/vpc-endpoints": {
+    "/projects/{project_id}/vpc-endpoints": {
       "get": {
         "tags": [
           "VPC"
@@ -7930,7 +7930,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/vpc-endpoints/{assignment_id}": {
+    "/projects/{project_id}/vpc-endpoints/{assignment_id}": {
       "delete": {
         "tags": [
           "VPC"
@@ -7976,7 +7976,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/vpc_endpoints": {
+    "/projects/{project_id}/vpc_endpoints": {
       "get": {
         "tags": [
           "VPC"
@@ -8023,7 +8023,7 @@
         ]
       }
     },
-    "/api/projects/{project_id}/vpc_endpoints/{vpc_endpoint_id}": {
+    "/projects/{project_id}/vpc_endpoints/{vpc_endpoint_id}": {
       "post": {
         "tags": [
           "VPC"
@@ -8122,7 +8122,7 @@
         ]
       }
     },
-    "/api/sessions": {
+    "/sessions": {
       "get": {
         "tags": [
           "Sessions"
@@ -8154,7 +8154,7 @@
         ]
       }
     },
-    "/api/sessions/revoke-all": {
+    "/sessions/revoke-all": {
       "post": {
         "tags": [
           "Sessions"
@@ -8183,7 +8183,7 @@
         ]
       }
     },
-    "/api/sessions/{session_id}": {
+    "/sessions/{session_id}": {
       "delete": {
         "tags": [
           "Sessions"
@@ -8227,7 +8227,7 @@
         ]
       }
     },
-    "/api/sessions/{session_id}/revoke-others": {
+    "/sessions/{session_id}/revoke-others": {
       "post": {
         "tags": [
           "Sessions"
@@ -8271,7 +8271,7 @@
         ]
       }
     },
-    "/api/webhooks/event-types": {
+    "/webhooks/event-types": {
       "get": {
         "tags": [
           "Webhooks"
@@ -8303,12 +8303,12 @@
         ]
       }
     },
-    "/api/webhooks/stripe": {
+    "/webhooks/stripe": {
       "post": {
         "tags": [
           "webhooks"
         ],
-        "summary": "POST /api/webhooks/stripe",
+        "summary": "POST /webhooks/stripe",
         "description": "Handle Stripe webhook events",
         "operationId": "handle_stripe_webhook",
         "responses": {

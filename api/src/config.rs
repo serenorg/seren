@@ -4,13 +4,7 @@
 const DEFAULT_API_HOST: &str = "https://api.serendb.com";
 
 fn normalize_base_url(url: &str) -> String {
-    let mut normalized = url.trim().trim_end_matches('/').to_string();
-    // Backward compatibility: older callers may pass ".../api" as the base URL.
-    if normalized.ends_with("/api") {
-        normalized.truncate(normalized.len().saturating_sub(4));
-        normalized = normalized.trim_end_matches('/').to_string();
-    }
-    normalized
+    url.trim().trim_end_matches('/').to_string()
 }
 
 /// Configuration for the Seren API client
@@ -20,9 +14,6 @@ pub struct ClientConfig {
     pub bearer_token: Option<String>,
 
     /// Base URL for the API (default: `https://api.serendb.com`)
-    ///
-    /// Note: The OpenAPI paths include the `/api/...` prefix, so the base URL
-    /// should generally *not* include `/api`.
     pub base_url: String,
 
     /// Request timeout in seconds (default: 60)

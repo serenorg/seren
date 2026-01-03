@@ -418,13 +418,24 @@ async fn build_x402_payment_payload_v2(
         ))
     })?;
 
-    let verifying_contract = option
+    let typed_verifying_contract = option
         .extra
         .get("eip712TypedData")
         .and_then(|v| v.get("domain"))
         .and_then(|v| v.get("verifyingContract"))
-        .and_then(|v| v.as_str())
-        .unwrap_or(&option.asset);
+        .and_then(|v| v.as_str());
+    if let Some(vc) = typed_verifying_contract
+        && !vc.eq_ignore_ascii_case(&option.asset)
+    {
+        return Err(PaymentError::SigningFailed(format!(
+            "Mismatched verifyingContract ({}) for asset {}",
+            vc, option.asset
+        )));
+    }
+    let verifying_contract = typed_verifying_contract.unwrap_or(&option.asset);
+    let verifying_contract = verifying_contract.parse().map_err(|_| {
+        PaymentError::SigningFailed("Invalid verifyingContract address".to_string())
+    })?;
 
     let domain_name = option
         .extra
@@ -497,7 +508,7 @@ async fn build_x402_payment_payload_v2(
         name: Some(domain_name.to_string()),
         version: Some(domain_version.to_string()),
         chain_id: Some(U256::from(chain_id)),
-        verifying_contract: verifying_contract.parse().ok(),
+        verifying_contract: Some(verifying_contract),
     };
     let message = build_authorization_message(
         &from_address,
@@ -545,13 +556,24 @@ async fn build_x402_payment_payload_v1(
         ))
     })?;
 
-    let verifying_contract = option
+    let typed_verifying_contract = option
         .extra
         .get("eip712TypedData")
         .and_then(|v| v.get("domain"))
         .and_then(|v| v.get("verifyingContract"))
-        .and_then(|v| v.as_str())
-        .unwrap_or(&option.asset);
+        .and_then(|v| v.as_str());
+    if let Some(vc) = typed_verifying_contract
+        && !vc.eq_ignore_ascii_case(&option.asset)
+    {
+        return Err(PaymentError::SigningFailed(format!(
+            "Mismatched verifyingContract ({}) for asset {}",
+            vc, option.asset
+        )));
+    }
+    let verifying_contract = typed_verifying_contract.unwrap_or(&option.asset);
+    let verifying_contract = verifying_contract.parse().map_err(|_| {
+        PaymentError::SigningFailed("Invalid verifyingContract address".to_string())
+    })?;
 
     let domain_name = option
         .extra
@@ -624,7 +646,7 @@ async fn build_x402_payment_payload_v1(
         name: Some(domain_name.to_string()),
         version: Some(domain_version.to_string()),
         chain_id: Some(U256::from(chain_id)),
-        verifying_contract: verifying_contract.parse().ok(),
+        verifying_contract: Some(verifying_contract),
     };
     let message = build_authorization_message(
         &from_address,

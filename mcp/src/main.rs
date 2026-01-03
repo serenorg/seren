@@ -10,13 +10,14 @@ use anyhow::Result;
 use axum::extract::State;
 use axum::response::IntoResponse;
 use config::{AuthConfig, Config};
+use lru::LruCache;
 use oauth::routes::OAuthState;
 use oauth::store::TokenStore;
 use rmcp::ServiceExt;
 use server::SerenMcpServer;
-use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 
 /// Health check state with optional database store
 #[derive(Clone)]
@@ -61,13 +62,13 @@ struct SimpleAuthState {
 #[derive(Clone)]
 struct OAuthAuthState {
     store: TokenStore,
-    /// Per-session bearer token cache keyed by `Mcp-Session-Id`.
+    /// Per-session bearer token cache keyed by `Mcp-Session-Id` (bounded LRU).
     ///
     /// Some Streamable HTTP clients only send the `Authorization` header on the initial
     /// session-creating request. Subsequent requests carry only `Mcp-Session-Id`.
     /// We cache the validated token so later requests can be authorized and the token
     /// can be re-injected for downstream API calls.
-    session_tokens: Arc<RwLock<HashMap<String, String>>>,
+    session_tokens: Arc<Mutex<LruCache<String, String>>>,
     /// Shared OAuth state for transparent token refresh.
     /// When an access token is expired but has a valid refresh token,
     /// we can refresh it server-side without requiring client action.
@@ -233,15 +234,8 @@ async fn require_oauth_auth(
     if token.is_none()
         && let Some(ref sid) = session_id
     {
-        token = state.session_tokens.read().await.get(sid).cloned();
+        token = state.session_tokens.lock().await.get(sid).cloned();
         token_from_session_cache = token.is_some();
-        // Re-inject Authorization so rmcp can propagate it into Extensions for tools.
-        if let Some(ref t) = token
-            && let Ok(v) = axum::http::HeaderValue::from_str(&format!("Bearer {}", t))
-        {
-            req.headers_mut()
-                .insert(axum::http::header::AUTHORIZATION, v);
-        }
     }
 
     let Some(token) = token else {
@@ -329,8 +323,15 @@ async fn require_oauth_auth(
         }
     };
 
-    // If we got a new token from transparent refresh, update the token variable for session caching
+    // If we got a new token from transparent refresh, update the token variable for session caching.
     let token = new_token.clone().unwrap_or(token);
+
+    // Ensure the request has an up-to-date Authorization header so rmcp can propagate it into
+    // Extensions for downstream tool calls (and so refreshed tokens take effect immediately).
+    if let Ok(v) = axum::http::HeaderValue::from_str(&format!("Bearer {}", token)) {
+        req.headers_mut()
+            .insert(axum::http::header::AUTHORIZATION, v);
+    }
 
     // Look up client metadata for agent tracking
     if let Ok(Some(client)) = state.store.get_client(&access_token.client_id).await {
@@ -369,9 +370,9 @@ async fn require_oauth_auth(
     if let Some(ref sid) = session_id {
         state
             .session_tokens
-            .write()
+            .lock()
             .await
-            .insert(sid.clone(), token.clone());
+            .put(sid.clone(), token.clone());
     }
 
     let method = req.method().clone();
@@ -389,18 +390,14 @@ async fn require_oauth_auth(
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
     {
-        state
-            .session_tokens
-            .write()
-            .await
-            .insert(sid, token.clone());
+        state.session_tokens.lock().await.put(sid, token.clone());
     }
 
     // Best-effort cleanup: when a session is explicitly closed, drop the cached token.
     if method == axum::http::Method::DELETE
         && let Some(sid) = session_id
     {
-        state.session_tokens.write().await.remove(&sid);
+        state.session_tokens.lock().await.pop(&sid);
     }
 
     response
@@ -709,7 +706,10 @@ async fn run_oauth(config: Config) -> Result<()> {
     let health_store = Arc::new(store.clone());
 
     // MCP endpoint with OAuth token validation
-    let session_tokens = Arc::new(RwLock::new(HashMap::<String, String>::new()));
+    const SESSION_TOKEN_CACHE_SIZE: usize = 10_000;
+    let session_tokens = Arc::new(Mutex::new(LruCache::new(
+        NonZeroUsize::new(SESSION_TOKEN_CACHE_SIZE).expect("SESSION_TOKEN_CACHE_SIZE must be > 0"),
+    )));
 
     let mcp_router = axum::Router::new()
         .route(

@@ -1042,8 +1042,6 @@ pub async fn exchange_upstream_token(
         ));
     }
 
-    // OAuth endpoints are under /api in serencore, so we need to add /api prefix
-    // (The base URL no longer includes /api since the generated API client adds it)
     let token_url = format!(
         "{}/oauth2/token",
         upstream_api_base_url.trim_end_matches('/')
@@ -1363,9 +1361,10 @@ async fn consent_submit(
         "Consent form submitted"
     );
 
+    // Fetch consent without consuming so invalid CSRF attempts don't destroy the consent record.
     let consent = state
         .store
-        .consume_pending_consent(&req.token)
+        .get_pending_consent(&req.token)
         .await
         .map_err(|e| OAuthError::ServerError(e.to_string()))?
         .ok_or_else(|| OAuthError::InvalidGrant("Invalid or expired consent request".into()))?;
@@ -1381,6 +1380,14 @@ async fn consent_submit(
     {
         return Err(OAuthError::InvalidRequest("Invalid CSRF token".into()));
     }
+
+    // Consume after CSRF verification to enforce one-time use.
+    let consent = state
+        .store
+        .consume_pending_consent(&req.token)
+        .await
+        .map_err(|e| OAuthError::ServerError(e.to_string()))?
+        .ok_or_else(|| OAuthError::InvalidGrant("Invalid or expired consent request".into()))?;
 
     match req.action.as_str() {
         "approve" => {
