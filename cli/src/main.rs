@@ -299,6 +299,15 @@ enum AgentAction {
         #[arg(long)]
         query: String,
     },
+    /// Get wallet transaction history (deposits, charges, refunds)
+    GetTransactionHistory {
+        /// Maximum number of transactions to return (default 50, max 100)
+        #[arg(long)]
+        limit: Option<i64>,
+        /// Offset for pagination
+        #[arg(long)]
+        offset: Option<i64>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -650,6 +659,11 @@ enum BranchAction {
 enum DatabaseAction {
     /// List all databases
     List,
+    /// Get a specific database
+    Get {
+        /// Database ID
+        id: String,
+    },
     /// Create a new database
     Create {
         /// Database name
@@ -691,6 +705,12 @@ enum RoleAction {
         /// New password
         #[arg(long)]
         password: String,
+    },
+    /// Reveal the current password for a role
+    RevealPassword {
+        /// Role name
+        #[arg(long)]
+        name: String,
     },
 }
 
@@ -1550,6 +1570,9 @@ async fn main() -> anyhow::Result<()> {
                 commands::databases::create(&project_id, &branch_id, &name, owner.as_deref(), &ctx)
                     .await?
             }
+            DatabaseAction::Get { id } => {
+                commands::databases::get(&project_id, &branch_id, &id, &ctx).await?
+            }
             DatabaseAction::Delete { id } => {
                 commands::databases::delete(&project_id, &branch_id, &id, &ctx).await?
             }
@@ -1569,6 +1592,9 @@ async fn main() -> anyhow::Result<()> {
             RoleAction::ResetPassword { id, password } => {
                 commands::roles::reset_password(&project_id, &branch_id, &id, &password, &ctx)
                     .await?
+            }
+            RoleAction::RevealPassword { name } => {
+                commands::roles::reveal_password(&project_id, &branch_id, &name, &ctx).await?
             }
         },
         Commands::Endpoints {
@@ -2014,6 +2040,9 @@ async fn main() -> anyhow::Result<()> {
             }
             AgentAction::EstimateQueryCost { publisher, query } => {
                 commands::agent::estimate_query_cost(&publisher, &query, &ctx).await?
+            }
+            AgentAction::GetTransactionHistory { limit, offset } => {
+                commands::agent::get_transaction_history(limit, offset, &ctx).await?
             }
         },
     }

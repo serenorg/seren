@@ -5,6 +5,44 @@ use uuid::Uuid;
 
 use crate::{CommandContext, OutputFormat, output};
 
+pub async fn get(
+    project_id: &str,
+    branch_id: &str,
+    database_id: &str,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let project_uuid =
+        Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+    let branch_uuid =
+        Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
+    let database_uuid =
+        Uuid::parse_str(database_id).map_err(|e| anyhow::anyhow!("Invalid database ID: {}", e))?;
+
+    let response = client
+        .get_database(&project_uuid, &branch_uuid, &database_uuid)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get database: {}", e))?;
+
+    let database = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&database)?,
+        OutputFormat::Table => {
+            let db = &database.data;
+            println!("{}: {}", "ID".bold(), db.id);
+            println!("{}: {}", "Name".bold(), db.name);
+            println!("{}: {}", "Branch ID".bold(), db.branch_id);
+            if let Some(owner) = &db.owner_name {
+                println!("{}: {}", "Owner".bold(), owner);
+            }
+            println!("{}: {}", "Created".bold(), db.created_at);
+            println!("{}: {}", "Updated".bold(), db.updated_at);
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn list(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
     let project_uuid =

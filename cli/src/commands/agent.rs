@@ -464,3 +464,47 @@ pub async fn estimate_query_cost(publisher: &str, query: &str, ctx: &CommandCont
 
     Ok(())
 }
+
+/// Get wallet transaction history
+pub async fn get_transaction_history(
+    limit: Option<i64>,
+    offset: Option<i64>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+
+    let response = client
+        .get_transactions(limit, offset)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get transaction history: {}", e))?;
+
+    let history = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&history)?,
+        OutputFormat::Table => {
+            let data = &history.data;
+            println!("{}", "Wallet Transaction History".bold());
+            println!(
+                "Showing {} of {} transactions",
+                data.transactions.len(),
+                data.total
+            );
+            println!();
+            if data.transactions.is_empty() {
+                println!("No transactions found.");
+            } else {
+                for tx in &data.transactions {
+                    println!(
+                        "{} | {} | {} | ${}",
+                        tx.created_at,
+                        tx.source,
+                        tx.description.as_deref().unwrap_or("-"),
+                        tx.amount_usd
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
