@@ -1279,16 +1279,33 @@ impl SerenMcpServer {
         connection_string: &str,
         query: &str,
         params: Vec<serde_json::Value>,
+        bearer_token: Option<&str>,
     ) -> Result<serde_json::Value, McpError> {
         let http_url = sql_proxy_url_from_connection_string(connection_string)?;
 
         tracing::debug!(url = %http_url, "Executing SQL query");
 
-        let response = self
-            .http_client
-            .post(&http_url)
+        let mut request_builder = self.http_client.post(&http_url);
+        request_builder = request_builder
             .header("SerenDB-Connection-String", connection_string)
-            .header("SerenDB-Pool-Opt-In", "true")
+            .header("SerenDB-Pool-Opt-In", "true");
+
+        // If the connection string has no password, the proxy expects a Bearer JWT
+        // (e.g. SerenDB auth-broker mode). Only attach Authorization in that case.
+        if reqwest::Url::parse(connection_string)
+            .ok()
+            .and_then(|url| url.password().map(|_| ()))
+            .is_none()
+        {
+            if let Some(token) = bearer_token {
+                if !token.trim().is_empty() {
+                    request_builder = request_builder
+                        .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", token));
+                }
+            }
+        }
+
+        let response = request_builder
             .json(&SqlRequest {
                 query: query.to_string(),
                 params,
@@ -1331,6 +1348,7 @@ impl SerenMcpServer {
         read_only: Option<bool>,
         isolation_level: Option<String>,
         deferrable: Option<bool>,
+        bearer_token: Option<&str>,
     ) -> Result<serde_json::Value, McpError> {
         let http_url = sql_proxy_url_from_connection_string(connection_string)?;
 
@@ -1344,11 +1362,25 @@ impl SerenMcpServer {
             })
             .collect();
 
-        let mut request_builder = self
-            .http_client
-            .post(&http_url)
+        let mut request_builder = self.http_client.post(&http_url);
+        request_builder = request_builder
             .header("SerenDB-Connection-String", connection_string)
             .header("SerenDB-Pool-Opt-In", "true");
+
+        // If the connection string has no password, the proxy expects a Bearer JWT
+        // (e.g. SerenDB auth-broker mode). Only attach Authorization in that case.
+        if reqwest::Url::parse(connection_string)
+            .ok()
+            .and_then(|url| url.password().map(|_| ()))
+            .is_none()
+        {
+            if let Some(token) = bearer_token {
+                if !token.trim().is_empty() {
+                    request_builder = request_builder
+                        .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", token));
+                }
+            }
+        }
 
         if read_only.unwrap_or(false) {
             request_builder = request_builder.header("SerenDB-Batch-Read-Only", "true");
@@ -1782,6 +1814,7 @@ impl SerenMcpServer {
         validate_sql_query(&params.query)?;
 
         // Get connection info from API
+        let bearer_token = self.bearer_token(&extensions)?;
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
             .get_connection_string(&params.path.project_id, &params.path.branch_id, None, None)
@@ -1794,7 +1827,9 @@ impl SerenMcpServer {
             &params.database,
         )?;
 
-        let result = self.execute_sql(&conn_str, &params.query, vec![]).await?;
+        let result = self
+            .execute_sql(&conn_str, &params.query, vec![], Some(&bearer_token))
+            .await?;
 
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
@@ -1833,6 +1868,7 @@ impl SerenMcpServer {
             }
         }
 
+        let bearer_token = self.bearer_token(&extensions)?;
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
             .get_connection_string(&params.path.project_id, &params.path.branch_id, None, None)
@@ -1852,6 +1888,7 @@ impl SerenMcpServer {
                 params.read_only,
                 params.isolation_level,
                 params.deferrable,
+                Some(&bearer_token),
             )
             .await?;
 
@@ -1881,6 +1918,7 @@ impl SerenMcpServer {
             ORDER BY table_name
         "#;
 
+        let bearer_token = self.bearer_token(&extensions)?;
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
             .get_connection_string(&params.path.project_id, &params.path.branch_id, None, None)
@@ -1894,7 +1932,7 @@ impl SerenMcpServer {
         )?;
 
         let result = self
-            .execute_sql(&conn_str, query, vec![schema.into()])
+            .execute_sql(&conn_str, query, vec![schema.into()], Some(&bearer_token))
             .await?;
 
         Ok(CallToolResult::success(vec![json_content(&result)?]))
@@ -1915,6 +1953,7 @@ impl SerenMcpServer {
         let query_trimmed = params.query.trim().trim_end_matches(';');
         let explain_query = format!("EXPLAIN (FORMAT JSON) {query_trimmed}");
 
+        let bearer_token = self.bearer_token(&extensions)?;
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
             .get_connection_string(&params.path.project_id, &params.path.branch_id, None, None)
@@ -1927,7 +1966,9 @@ impl SerenMcpServer {
             &params.database,
         )?;
 
-        let result = self.execute_sql(&conn_str, &explain_query, vec![]).await?;
+        let result = self
+            .execute_sql(&conn_str, &explain_query, vec![], Some(&bearer_token))
+            .await?;
 
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
@@ -1962,6 +2003,7 @@ impl SerenMcpServer {
             ORDER BY ordinal_position
         "#;
 
+        let bearer_token = self.bearer_token(&extensions)?;
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
             .get_connection_string(&params.path.project_id, &params.path.branch_id, None, None)
@@ -1979,6 +2021,7 @@ impl SerenMcpServer {
                 &conn_str,
                 query,
                 vec![schema.into(), params.table_name.into()],
+                Some(&bearer_token),
             )
             .await?;
 
@@ -3373,7 +3416,46 @@ mod tests {
 
         let server = SerenMcpServer::new("test-key", "https://api.serendb.com").unwrap();
         let result = server
-            .execute_sql(&conn, "select $1", vec![serde_json::json!(1)])
+            .execute_sql(&conn, "select $1", vec![serde_json::json!(1)], None)
+            .await
+            .unwrap();
+        assert_eq!(result, serde_json::json!({ "ok": true }));
+    }
+
+    #[tokio::test]
+    async fn execute_sql_includes_bearer_for_passwordless_connection_string() {
+        use wiremock::matchers::{body_json, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let proxy_url = reqwest::Url::parse(&proxy.uri()).unwrap();
+        let host = proxy_url.host_str().unwrap();
+        let port = proxy_url.port().unwrap();
+        let conn = format!("postgresql://user@{host}:{port}/postgres?sslmode=require");
+
+        Mock::given(method("POST"))
+            .and(path("/sql"))
+            .and(header("SerenDB-Connection-String", conn.as_str()))
+            .and(header("SerenDB-Pool-Opt-In", "true"))
+            .and(header("Authorization", "Bearer token123"))
+            .and(body_json(serde_json::json!({
+                "query": "select $1",
+                "params": [1],
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ok": true,
+            })))
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", "https://api.serendb.com").unwrap();
+        let result = server
+            .execute_sql(
+                &conn,
+                "select $1",
+                vec![serde_json::json!(1)],
+                Some("token123"),
+            )
             .await
             .unwrap();
         assert_eq!(result, serde_json::json!({ "ok": true }));
@@ -3417,6 +3499,7 @@ mod tests {
                 Some(true),
                 Some("read_committed".to_string()),
                 Some(true),
+                None,
             )
             .await
             .unwrap();
