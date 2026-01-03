@@ -2833,7 +2833,7 @@ impl SerenMcpServer {
         if self.wallet.is_some() {
             let text = self
                 .execute_x402_roundtrip_text(
-                    "/agent/api/stream",
+                    "/agent/stream",
                     &body,
                     params.confirm,
                     &agent_metadata,

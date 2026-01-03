@@ -70,7 +70,7 @@
         }
       }
     },
-    "/agent/api/stream": {
+    "/agent/stream": {
       "post": {
         "tags": [
           "agent"
