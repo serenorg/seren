@@ -10,6 +10,7 @@
 //! agents to make crypto payments without relying on the managed wallet API.
 
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use rmcp::{
@@ -430,6 +431,188 @@ pub struct ExecutePaidApiStreamParams {
     /// This is required when the payment amount is above the configured threshold.
     #[serde(default)]
     pub confirm: bool,
+}
+
+// ============================================================================
+// Additional Parameter Types for Extended Functionality
+// ============================================================================
+
+// Project update operations
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct UpdateProjectParams {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+    /// New project name
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Block public connections
+    #[serde(default)]
+    pub block_public_connections: Option<bool>,
+    /// Block VPC connections
+    #[serde(default)]
+    pub block_vpc_connections: Option<bool>,
+    /// Enable HIPAA controls
+    #[serde(default)]
+    pub hipaa: Option<bool>,
+    /// Apply IP allow list only to protected branches
+    #[serde(default)]
+    pub protected_branches_only: Option<bool>,
+    /// Default compute unit minimum
+    #[serde(default)]
+    pub compute_unit_min: Option<i32>,
+    /// Default compute unit maximum
+    #[serde(default)]
+    pub compute_unit_max: Option<i32>,
+    /// Enable logical replication (cannot be disabled once enabled)
+    #[serde(default)]
+    pub enable_logical_replication: Option<bool>,
+    /// History retention period in seconds for point-in-time recovery (PITR).
+    /// Default is 21600 (6 hours). Minimum is 3600 (1 hour). Maximum is 2592000 (30 days).
+    #[serde(default)]
+    pub history_retention_seconds: Option<i64>,
+}
+
+// Branch management operations
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct RenameBranchParams {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+    /// The branch ID (UUID)
+    pub branch_id: Uuid,
+    /// New branch name
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SetDefaultBranchParams {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+    /// The branch ID (UUID) to set as default
+    pub branch_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ResetBranchParams {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+    /// The branch ID (UUID) to reset
+    pub branch_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SetBranchExpirationParams {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+    /// The branch ID (UUID)
+    pub branch_id: Uuid,
+    /// Expiration date in RFC3339 format (e.g., "2025-12-31T23:59:59Z"), or null to remove expiration
+    #[serde(default)]
+    pub expires_at: Option<String>,
+}
+
+// Role management operations
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CreateRoleParams {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+    /// The branch ID (UUID)
+    pub branch_id: Uuid,
+    /// Role name
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct DeleteRoleParams {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+    /// The branch ID (UUID)
+    pub branch_id: Uuid,
+    /// Role ID (UUID)
+    pub role_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ResetRolePasswordParams {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+    /// The branch ID (UUID)
+    pub branch_id: Uuid,
+    /// Role ID (UUID)
+    pub role_id: Uuid,
+    /// New password for the role
+    pub password: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct RevealRolePasswordParams {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+    /// The branch ID (UUID)
+    pub branch_id: Uuid,
+    /// Role name
+    pub role_name: String,
+}
+
+// Endpoint management operations
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct UpdateEndpointParams {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+    /// The branch ID (UUID)
+    pub branch_id: Uuid,
+    /// The endpoint ID (UUID)
+    pub endpoint_id: Uuid,
+    /// Minimum autoscaling compute units
+    #[serde(default)]
+    pub autoscaling_min: Option<i32>,
+    /// Maximum autoscaling compute units
+    #[serde(default)]
+    pub autoscaling_max: Option<i32>,
+    /// Suspend timeout in seconds (0 for default, -1 for never)
+    #[serde(default)]
+    pub suspend_timeout_seconds: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetEndpointStatusParams {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+    /// The branch ID (UUID)
+    pub branch_id: Uuid,
+    /// The endpoint ID (UUID)
+    pub endpoint_id: Uuid,
+}
+
+// Database management operations
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct DeleteDatabaseParams {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+    /// The branch ID (UUID)
+    pub branch_id: Uuid,
+    /// Database ID (UUID)
+    pub database_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetDatabaseParams {
+    /// The project ID (UUID)
+    pub project_id: Uuid,
+    /// The branch ID (UUID)
+    pub branch_id: Uuid,
+    /// Database ID (UUID)
+    pub database_id: Uuid,
+}
+
+// Wallet transaction history
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetTransactionHistoryParams {
+    /// Maximum number of transactions to return (default 50, max 100)
+    #[serde(default)]
+    pub limit: Option<i64>,
+    /// Offset for pagination
+    #[serde(default)]
+    pub offset: Option<i64>,
 }
 
 // ============================================================================
@@ -2659,6 +2842,350 @@ impl SerenMcpServer {
                 }
             },
         }
+    }
+
+    // ========================================================================
+    // Project Management Tools
+    // ========================================================================
+
+    #[tool(
+        description = "Update a project's settings including name, security options, and compute defaults",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn update_project(
+        &self,
+        Parameters(params): Parameters<UpdateProjectParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+
+        let request = seren::UpdateProjectRequest {
+            name: params.name,
+            block_public_connections: params.block_public_connections,
+            block_vpc_connections: params.block_vpc_connections,
+            hipaa: params.hipaa,
+            protected_branches_only: params.protected_branches_only,
+            compute_unit_min: params.compute_unit_min,
+            compute_unit_max: params.compute_unit_max,
+            enable_logical_replication: params.enable_logical_replication,
+            history_retention_seconds: params.history_retention_seconds,
+        };
+
+        let project = api_client
+            .update_project(&params.project_id, &request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&project)?]))
+    }
+
+    // ========================================================================
+    // Branch Management Tools
+    // ========================================================================
+
+    #[tool(
+        description = "Rename a branch",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn rename_branch(
+        &self,
+        Parameters(params): Parameters<RenameBranchParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+
+        let request = seren::RenameBranchRequest { name: params.name };
+
+        let branch = api_client
+            .rename_branch(&params.project_id, &params.branch_id, &request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&branch)?]))
+    }
+
+    #[tool(
+        description = "Set a branch as the default branch for the project",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn set_default_branch(
+        &self,
+        Parameters(params): Parameters<SetDefaultBranchParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+
+        let branch = api_client
+            .set_default_branch(&params.project_id, &params.branch_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&branch)?]))
+    }
+
+    #[tool(
+        description = "Reset a branch to its parent's latest state (destroys all data on the branch)",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn reset_branch(
+        &self,
+        Parameters(params): Parameters<ResetBranchParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+
+        let request = seren::ResetBranchRequest { parent: true };
+
+        let branch = api_client
+            .reset_branch(&params.project_id, &params.branch_id, &request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&branch)?]))
+    }
+
+    #[tool(
+        description = "Set or remove branch expiration date",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn set_branch_expiration(
+        &self,
+        Parameters(params): Parameters<SetBranchExpirationParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+
+        // Parse the optional timestamp string to a Timestamp
+        let expires_at = params.expires_at.map(|s| {
+            jiff::Timestamp::from_str(&s).map_err(|e| {
+                McpError::invalid_params(format!("Invalid timestamp format: {}. Expected RFC3339 format like '2025-12-31T23:59:59Z'", e), None)
+            })
+        }).transpose()?;
+
+        let request = seren::SetBranchExpirationRequest { expires_at };
+
+        let branch = api_client
+            .set_branch_expiration(&params.project_id, &params.branch_id, &request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&branch)?]))
+    }
+    // ========================================================================
+    // Role Management Tools
+    // ========================================================================
+
+    #[tool(
+        description = "Create a new database role on a branch",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn create_role(
+        &self,
+        Parameters(params): Parameters<CreateRoleParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+
+        let request = seren::CreateRoleRequest {
+            name: params.name,
+            description: None,
+            permissions: vec![],
+        };
+
+        let role = api_client
+            .create_branch_role(&params.project_id, &params.branch_id, &request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&role)?]))
+    }
+
+    #[tool(
+        description = "Delete a database role from a branch",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn delete_role(
+        &self,
+        Parameters(params): Parameters<DeleteRoleParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+
+        api_client
+            .delete_branch_role(&params.project_id, &params.branch_id, &params.role_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![Content::text(
+            "Role deleted successfully".to_string(),
+        )]))
+    }
+
+    #[tool(
+        description = "Reset a database role's password, generating a new secure password",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn reset_role_password(
+        &self,
+        Parameters(params): Parameters<ResetRolePasswordParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+
+        let request = seren::ResetRolePasswordRequest {
+            password: params.password,
+        };
+
+        let role = api_client
+            .reset_role_password(
+                &params.project_id,
+                &params.branch_id,
+                &params.role_id,
+                &request,
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&role)?]))
+    }
+
+    #[tool(
+        description = "Reveal the current password for a database role",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn reveal_role_password(
+        &self,
+        Parameters(params): Parameters<RevealRolePasswordParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+
+        let role = api_client
+            .reveal_role_password(&params.project_id, &params.branch_id, &params.role_name)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&role)?]))
+    }
+
+    // ========================================================================
+    // Endpoint Management Tools
+    // ========================================================================
+
+    #[tool(
+        description = "Update an endpoint's settings including autoscaling and suspend timeout",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn update_endpoint(
+        &self,
+        Parameters(params): Parameters<UpdateEndpointParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+
+        let request = seren::UpdateEndpointRequest {
+            autoscaling_min: params.autoscaling_min,
+            autoscaling_max: params.autoscaling_max,
+            suspend_timeout_seconds: params.suspend_timeout_seconds,
+            pooler_enabled: None,
+            pooler_mode: None,
+        };
+
+        let endpoint = api_client
+            .update_endpoint(
+                &params.project_id,
+                &params.branch_id,
+                &params.endpoint_id,
+                &request,
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&endpoint)?]))
+    }
+
+    #[tool(
+        description = "Get the current status of an endpoint (running, suspended, etc.)",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_endpoint_status(
+        &self,
+        Parameters(params): Parameters<GetEndpointStatusParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+
+        let status = api_client
+            .get_endpoint_status(&params.project_id, &params.branch_id, &params.endpoint_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&status)?]))
+    }
+
+    // ========================================================================
+    // Database Management Tools
+    // ========================================================================
+
+    #[tool(
+        description = "Get details about a specific database",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_database(
+        &self,
+        Parameters(params): Parameters<GetDatabaseParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+
+        let database = api_client
+            .get_database(&params.project_id, &params.branch_id, &params.database_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&database)?]))
+    }
+
+    #[tool(
+        description = "Delete a database from a branch",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn delete_database(
+        &self,
+        Parameters(params): Parameters<DeleteDatabaseParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+
+        api_client
+            .delete_database(&params.project_id, &params.branch_id, &params.database_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![Content::text(
+            "Database deleted successfully".to_string(),
+        )]))
+    }
+
+    // ========================================================================
+    // Wallet Transaction History
+    // ========================================================================
+
+    #[tool(
+        description = "Get transaction history for your wallet (deposits, charges, refunds)",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_transaction_history(
+        &self,
+        Parameters(params): Parameters<GetTransactionHistoryParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+
+        let transactions = api_client
+            .get_transactions(params.limit, params.offset)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&transactions)?]))
     }
 }
 

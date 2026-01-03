@@ -26,6 +26,7 @@ telemetry = [
 [dependencies]
 # Workspace - shared API client
 seren = { path = "../api" }
+jiff = { workspace = true }
 
 # MCP SDK
 rmcp = { workspace = true }
