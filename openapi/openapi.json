@@ -70,57 +70,6 @@
         }
       }
     },
-    "/agent/stream": {
-      "post": {
-        "tags": [
-          "agent"
-        ],
-        "summary": "Execute a paid HTTP API request and stream the publisher response back to the client.",
-        "description": "This endpoint is intended for large responses where buffering the entire payload in memory\nis undesirable. Cost/settlement metadata is returned via headers.\n\nSupports both x402 v1 and v2 header formats.",
-        "operationId": "execute_api_stream",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApiRequestBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "API response streamed successfully",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request"
-          },
-          "402": {
-            "description": "Payment required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PaymentRequiredResponseWithInfo"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Publisher not found"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
     "/agent/database": {
       "post": {
         "tags": [
@@ -265,7 +214,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "GET /agent/publishers",
+        "summary": "GET /api/agent/publishers",
         "description": "List active publishers in the marketplace",
         "operationId": "list_marketplace_publishers",
         "parameters": [
@@ -330,7 +279,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "POST /agent/publishers",
+        "summary": "POST /api/agent/publishers",
         "description": "Create a publisher via organization API key (machine-to-machine).",
         "operationId": "create_publisher_api_key",
         "requestBody": {
@@ -374,7 +323,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "GET /agent/publishers/:slug",
+        "summary": "GET /api/agent/publishers/:slug",
         "description": "Get publisher by slug (public marketplace view)",
         "operationId": "get_marketplace_publisher",
         "parameters": [
@@ -408,12 +357,63 @@
         }
       }
     },
+    "/agent/stream": {
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "Execute a paid HTTP API request and stream the publisher response back to the client.",
+        "description": "This endpoint is intended for large responses where buffering the entire payload in memory\nis undesirable. Cost/settlement metadata is returned via headers.\n\nSupports x402 v1/v2 headers.",
+        "operationId": "execute_api_stream",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "API response streamed successfully",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "402": {
+            "description": "Payment required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRequiredResponseWithInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/agent/supported": {
       "get": {
         "tags": [
           "agent"
         ],
-        "summary": "GET /agent/supported",
+        "summary": "GET /api/agent/supported",
         "description": "Returns supported x402 payment kinds for facilitator discovery.",
         "operationId": "get_supported",
         "responses": {
@@ -752,7 +752,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "POST /auth/forgot-password",
+        "summary": "POST /api/auth/forgot-password",
         "description": "Request a password reset email",
         "operationId": "forgot_password",
         "requestBody": {
@@ -817,7 +817,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "POST /auth/resend-verification",
+        "summary": "POST /api/auth/resend-verification",
         "description": "Resend email verification link",
         "operationId": "resend_verification_email",
         "requestBody": {
@@ -852,7 +852,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "POST /auth/reset-password",
+        "summary": "POST /api/auth/reset-password",
         "description": "Reset password using a valid token",
         "operationId": "reset_password",
         "requestBody": {
@@ -890,7 +890,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "POST /auth/verify-email",
+        "summary": "POST /api/auth/verify-email",
         "description": "Verify email address using a token sent during signup\nOn success, automatically logs the user in and returns tokens",
         "operationId": "verify_email",
         "requestBody": {
@@ -925,7 +925,7 @@
         "tags": [
           "billing"
         ],
-        "summary": "GET /billing/health",
+        "summary": "GET /api/billing/health",
         "description": "High-level billing and metering health summary for Seren Core",
         "operationId": "get_billing_health",
         "responses": {
@@ -950,7 +950,7 @@
         "tags": [
           "billing"
         ],
-        "summary": "POST /billing/invoices/generate",
+        "summary": "POST /api/billing/invoices/generate",
         "description": "Generate monthly invoices for all organizations",
         "operationId": "generate_invoices",
         "requestBody": {
@@ -988,7 +988,7 @@
         "tags": [
           "billing"
         ],
-        "summary": "GET /billing/invoices/:id",
+        "summary": "GET /api/billing/invoices/:id",
         "description": "Get invoice details with line items",
         "operationId": "get_invoice",
         "parameters": [
@@ -1028,7 +1028,7 @@
         "tags": [
           "billing"
         ],
-        "summary": "POST /billing/invoices/:id/issue",
+        "summary": "POST /api/billing/invoices/:id/issue",
         "description": "Issue a draft invoice",
         "operationId": "issue_invoice",
         "parameters": [
@@ -1061,7 +1061,7 @@
         "tags": [
           "payments"
         ],
-        "summary": "POST /billing/invoices/:id/pay",
+        "summary": "POST /api/billing/invoices/:id/pay",
         "description": "Create a payment intent for an invoice",
         "operationId": "create_payment_intent",
         "parameters": [
@@ -1109,7 +1109,7 @@
         "tags": [
           "payments"
         ],
-        "summary": "GET /billing/invoices/:id/payments",
+        "summary": "GET /api/billing/invoices/:id/payments",
         "description": "Get payment history for an invoice",
         "operationId": "get_payment_history",
         "parameters": [
@@ -1154,7 +1154,7 @@
         "tags": [
           "payments"
         ],
-        "summary": "GET /billing/payment-methods",
+        "summary": "GET /api/billing/payment-methods",
         "description": "List payment methods for the organization",
         "operationId": "list_payment_methods",
         "responses": {
@@ -1182,7 +1182,7 @@
         "tags": [
           "payments"
         ],
-        "summary": "POST /billing/payment-methods",
+        "summary": "POST /api/billing/payment-methods",
         "description": "Add a payment method for the organization",
         "operationId": "add_payment_method",
         "requestBody": {
@@ -1225,7 +1225,7 @@
         "tags": [
           "payments"
         ],
-        "summary": "DELETE /billing/payment-methods/{id}",
+        "summary": "DELETE /api/billing/payment-methods/{id}",
         "description": "Remove a payment method from the organization",
         "operationId": "delete_payment_method",
         "parameters": [
@@ -1263,7 +1263,7 @@
         "tags": [
           "billing"
         ],
-        "summary": "GET /billing/usage/:organization_id",
+        "summary": "GET /api/billing/usage/:organization_id",
         "description": "Get usage summary for an organization",
         "operationId": "get_usage_summary",
         "parameters": [
@@ -1321,7 +1321,7 @@
         "tags": [
           "Organizations"
         ],
-        "summary": "GET /organizations",
+        "summary": "GET /api/organizations",
         "description": "List all organizations for the authenticated user",
         "operationId": "list_organizations",
         "responses": {
@@ -1700,7 +1700,7 @@
         "tags": [
           "billing"
         ],
-        "summary": "GET /organizations/{organization_id}/billing/endpoints/{endpoint_id}/events",
+        "summary": "GET /api/organizations/{organization_id}/billing/endpoints/{endpoint_id}/events",
         "description": "Debug endpoint: show recent usage_events and compute_usage_events for an endpoint",
         "operationId": "get_endpoint_billing_events",
         "parameters": [
@@ -1750,7 +1750,7 @@
         "tags": [
           "billing"
         ],
-        "summary": "GET /organizations/{organization_id}/consumption",
+        "summary": "GET /api/organizations/{organization_id}/consumption",
         "description": "Aggregated organization-level consumption over a billing window.",
         "operationId": "get_organization_consumption",
         "parameters": [
@@ -1818,7 +1818,7 @@
         "tags": [
           "Organizations"
         ],
-        "summary": "GET /organizations/{organization_id}/invites",
+        "summary": "GET /api/organizations/{organization_id}/invites",
         "description": "List pending and historical organization invites.",
         "operationId": "list_invites",
         "parameters": [
@@ -1861,7 +1861,7 @@
         "tags": [
           "Organizations"
         ],
-        "summary": "POST /organizations/{organization_id}/invites",
+        "summary": "POST /api/organizations/{organization_id}/invites",
         "description": "Create a new organization invite and send an email via the configured mailer.",
         "operationId": "create_invite",
         "parameters": [
@@ -1919,7 +1919,7 @@
         "tags": [
           "Organizations"
         ],
-        "summary": "GET /organizations/{organization_id}/members",
+        "summary": "GET /api/organizations/{organization_id}/members",
         "description": "List organization members with basic user details.",
         "operationId": "list_members",
         "parameters": [
@@ -2127,7 +2127,7 @@
         "tags": [
           "Plans"
         ],
-        "summary": "GET /organizations/:org_id/plan",
+        "summary": "GET /api/organizations/:org_id/plan",
         "description": "Get the current plan for an organization",
         "operationId": "get_organization_plan",
         "parameters": [
@@ -2165,7 +2165,7 @@
         "tags": [
           "Plans"
         ],
-        "summary": "POST /organizations/:org_id/plan",
+        "summary": "POST /api/organizations/:org_id/plan",
         "description": "Upgrade or downgrade an organization's plan",
         "operationId": "change_organization_plan",
         "parameters": [
@@ -2218,7 +2218,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "GET /organizations/:org_id/publishers",
+        "summary": "GET /api/organizations/:org_id/publishers",
         "description": "List publishers owned by an organization",
         "operationId": "list_org_publishers",
         "parameters": [
@@ -2256,7 +2256,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "POST /organizations/:org_id/publishers",
+        "summary": "POST /api/organizations/:org_id/publishers",
         "description": "Create a new publisher",
         "operationId": "create_publisher",
         "parameters": [
@@ -2312,7 +2312,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "GET /organizations/:org_id/publishers/:publisher_id",
+        "summary": "GET /api/organizations/:org_id/publishers/:publisher_id",
         "description": "Get publisher details",
         "operationId": "get_org_publisher",
         "parameters": [
@@ -2363,7 +2363,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "PUT /organizations/:org_id/publishers/:publisher_id",
+        "summary": "PUT /api/organizations/:org_id/publishers/:publisher_id",
         "description": "Update a publisher",
         "operationId": "update_publisher",
         "parameters": [
@@ -2429,7 +2429,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "GET /organizations/:org_id/publishers/:publisher_id/earnings",
+        "summary": "GET /api/organizations/:org_id/publishers/:publisher_id/earnings",
         "description": "List marketplace earnings for a publisher (per asset).",
         "operationId": "get_org_publisher_earnings",
         "parameters": [
@@ -2485,7 +2485,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "GET /organizations/:org_id/publishers/:publisher_id/payouts",
+        "summary": "GET /api/organizations/:org_id/publishers/:publisher_id/payouts",
         "description": "List payout requests for a publisher.",
         "operationId": "list_org_publisher_payouts",
         "parameters": [
@@ -2561,7 +2561,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "POST /organizations/:org_id/publishers/:publisher_id/payouts",
+        "summary": "POST /api/organizations/:org_id/publishers/:publisher_id/payouts",
         "description": "Request a payout for a publisher's marketplace earnings.",
         "operationId": "create_org_publisher_payout",
         "parameters": [
@@ -2627,7 +2627,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "PUT /organizations/:org_id/publishers/:publisher_id/pricing",
+        "summary": "PUT /api/organizations/:org_id/publishers/:publisher_id/pricing",
         "description": "Update publisher pricing config for a specific asset",
         "operationId": "update_publisher_pricing",
         "parameters": [
@@ -2693,7 +2693,7 @@
         "tags": [
           "Plans"
         ],
-        "summary": "GET /organizations/:org_id/quota",
+        "summary": "GET /api/organizations/:org_id/quota",
         "description": "Get current quota usage for an organization",
         "operationId": "get_quota_usage",
         "parameters": [
@@ -3850,7 +3850,7 @@
         "tags": [
           "Plans"
         ],
-        "summary": "GET /plans",
+        "summary": "GET /api/plans",
         "description": "List all available subscription plans",
         "operationId": "list_plans",
         "responses": {
@@ -3875,7 +3875,7 @@
         "tags": [
           "Plans"
         ],
-        "summary": "GET /plans/:plan_id",
+        "summary": "GET /api/plans/:plan_id",
         "description": "Get details of a specific plan",
         "operationId": "get_plan",
         "parameters": [
@@ -4116,6 +4116,50 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProjectResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Project not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/projects/{project_id}/branch-protection": {
+      "get": {
+        "tags": [
+          "Branch Protection"
+        ],
+        "summary": "List branch protection rules for a project",
+        "operationId": "list_branch_protection_rules",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of branch protection rules",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchProtectionsResponse"
                 }
               }
             }
@@ -5666,6 +5710,232 @@
         ]
       }
     },
+    "/projects/{project_id}/branches/{branch_id}/protection": {
+      "get": {
+        "tags": [
+          "Branch Protection"
+        ],
+        "summary": "Get branch protection rule for a specific branch",
+        "operationId": "get_branch_protection",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "branch_id",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Branch protection rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchProtectionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Branch or protection rule not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Branch Protection"
+        ],
+        "summary": "Create branch protection rule",
+        "operationId": "create_branch_protection",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "branch_id",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBranchProtectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Branch protection rule created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchProtectionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Branch not found"
+          },
+          "409": {
+            "description": "Protection rule already exists for this branch"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Branch Protection"
+        ],
+        "summary": "Delete branch protection rule",
+        "operationId": "delete_branch_protection",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "branch_id",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Branch protection rule deleted"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Branch or protection rule not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Branch Protection"
+        ],
+        "summary": "Update branch protection rule",
+        "operationId": "update_branch_protection",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "branch_id",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBranchProtectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Branch protection rule updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchProtectionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Branch or protection rule not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/projects/{project_id}/branches/{branch_id}/publications": {
       "get": {
         "tags": [
@@ -7012,7 +7282,7 @@
         "tags": [
           "billing"
         ],
-        "summary": "GET /projects/{project_id}/consumption",
+        "summary": "GET /api/projects/{project_id}/consumption",
         "description": "Aggregated project-level consumption (compute, storage, PITR, network) over a billing window.",
         "operationId": "get_project_consumption",
         "parameters": [
@@ -8308,7 +8578,7 @@
         "tags": [
           "webhooks"
         ],
-        "summary": "POST /webhooks/stripe",
+        "summary": "POST /api/webhooks/stripe",
         "description": "Handle Stripe webhook events",
         "operationId": "handle_stripe_webhook",
         "responses": {
@@ -8322,276 +8592,6 @@
             "description": "Internal server error"
           }
         }
-      }
-    },
-    "/projects/{project_id}/branch-protection": {
-      "get": {
-        "tags": [
-          "Branch Protection"
-        ],
-        "summary": "List branch protection rules for a project",
-        "operationId": "list_branch_protection_rules",
-        "parameters": [
-          {
-            "name": "project_id",
-            "in": "path",
-            "description": "Project ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "List of branch protection rules",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BranchProtectionsResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "404": {
-            "description": "Project not found"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/projects/{project_id}/branches/{branch_id}/protection": {
-      "get": {
-        "tags": [
-          "Branch Protection"
-        ],
-        "summary": "Get branch protection rule for a specific branch",
-        "operationId": "get_branch_protection",
-        "parameters": [
-          {
-            "name": "project_id",
-            "in": "path",
-            "description": "Project ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "branch_id",
-            "in": "path",
-            "description": "Branch ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Branch protection rule",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BranchProtectionResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "404": {
-            "description": "Branch or protection rule not found"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      },
-      "post": {
-        "tags": [
-          "Branch Protection"
-        ],
-        "summary": "Create branch protection rule",
-        "operationId": "create_branch_protection",
-        "parameters": [
-          {
-            "name": "project_id",
-            "in": "path",
-            "description": "Project ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "branch_id",
-            "in": "path",
-            "description": "Branch ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateBranchProtectionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Branch protection rule created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BranchProtectionResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "404": {
-            "description": "Branch not found"
-          },
-          "409": {
-            "description": "Protection rule already exists for this branch"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      },
-      "delete": {
-        "tags": [
-          "Branch Protection"
-        ],
-        "summary": "Delete branch protection rule",
-        "operationId": "delete_branch_protection",
-        "parameters": [
-          {
-            "name": "project_id",
-            "in": "path",
-            "description": "Project ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "branch_id",
-            "in": "path",
-            "description": "Branch ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Branch protection rule deleted"
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "404": {
-            "description": "Branch or protection rule not found"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      },
-      "patch": {
-        "tags": [
-          "Branch Protection"
-        ],
-        "summary": "Update branch protection rule",
-        "operationId": "update_branch_protection",
-        "parameters": [
-          {
-            "name": "project_id",
-            "in": "path",
-            "description": "Project ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "branch_id",
-            "in": "path",
-            "description": "Branch ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateBranchProtectionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Branch protection rule updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BranchProtectionResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "404": {
-            "description": "Branch or protection rule not found"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
       }
     }
   },
@@ -9284,16 +9284,12 @@
       "BalanceResponse": {
         "type": "object",
         "required": [
-          "balance",
-          "endpoint_id"
+          "balance"
         ],
         "properties": {
           "balance": {
             "type": "number",
             "format": "double"
-          },
-          "endpoint_id": {
-            "type": "string"
           }
         }
       },
@@ -12510,13 +12506,13 @@
         "type": "object",
         "description": "Internal authorization request from SerenDB proxy",
         "required": [
-          "publisher_slug",
-          "agent_wallet"
+          "publisher_slug"
         ],
         "properties": {
           "agent_wallet": {
             "type": "string",
-            "description": "Agent's on-chain wallet address"
+            "description": "Agent wallet address.\n\n- For on-chain credentials: this must be the agent's real wallet address.\n- For account-based credentials (JWT/API key): this can be any placeholder;\nSerenCore derives the canonical wallet from the validated identity.",
+            "nullable": true
           },
           "publisher_slug": {
             "type": "string",
@@ -12524,7 +12520,7 @@
           },
           "signature": {
             "type": "string",
-            "description": "Authorization proof.\n\n- For real on-chain wallets: EIP-191 personal_sign of\n`seren:marketplace:<publisher_slug>:<agent_wallet>`\n- For virtual wallets (0xFFFF...): SerenCore user JWT for proof-of-ownership",
+            "description": "Authorization proof.\n\n- For account-based (fiat/prepaid): SerenCore user JWT or API key (`seren_...`)\n- For real on-chain wallets: EIP-191 personal_sign of\n`seren:marketplace:<publisher_slug>:<agent_wallet>`\n- For streaming payments (EIP-3009): JSON payload string",
             "nullable": true
           }
         }
@@ -14608,21 +14604,16 @@
       },
       "PaymentRequirementsV1": {
         "type": "object",
-        "description": "x402 V1 Payment Requirements - original format for backwards compatibility\n\nKey differences from V2:\n- Uses `maxAmountRequired` instead of `amount`\n- Uses `receiver` instead of `payTo`\n- Embeds `resource`, `description`, `mimeType` directly (V2 moves to top-level)\n- Includes `paymentRequestId` and `expires` directly\n- EIP-712 data embedded in requirements (V2 puts in `extra`)",
+        "description": "x402 V1 Payment Requirements.\n\nV1 embeds resource information directly inside each requirement.",
         "required": [
-          "version",
           "scheme",
           "network",
-          "resource",
-          "description",
-          "mimeType",
           "maxAmountRequired",
           "asset",
-          "receiver",
-          "maxTimeoutSeconds",
-          "paymentRequestId",
-          "expires",
-          "eip712TypedData"
+          "payTo",
+          "resource",
+          "description",
+          "maxTimeoutSeconds"
         ],
         "properties": {
           "asset": {
@@ -14633,21 +14624,9 @@
             "type": "string",
             "description": "Human-readable description of the resource"
           },
-          "eip712TypedData": {
-            "$ref": "#/components/schemas/Eip712TypedData"
-          },
-          "estimate": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/CostEstimate"
-              }
-            ],
+          "extra": {
+            "description": "Scheme-specific additional information",
             "nullable": true
-          },
-          "expires": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Expiration timestamp (Unix seconds)"
           },
           "maxAmountRequired": {
             "type": "string",
@@ -14660,17 +14639,18 @@
           },
           "mimeType": {
             "type": "string",
-            "description": "MIME type of the resource response"
+            "description": "MIME type of the resource response",
+            "nullable": true
           },
           "network": {
             "type": "string",
             "description": "Network for payment (e.g., \"base\", \"base-sepolia\")"
           },
-          "paymentRequestId": {
-            "type": "string",
-            "description": "Payment request ID for correlation"
+          "outputSchema": {
+            "description": "Optional JSON schema describing the response format",
+            "nullable": true
           },
-          "receiver": {
+          "payTo": {
             "type": "string",
             "description": "Payment recipient address (gateway or publisher wallet)"
           },
@@ -14681,12 +14661,6 @@
           "scheme": {
             "type": "string",
             "description": "Payment scheme (e.g., \"exact\")"
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32",
-            "description": "x402 protocol version (always 1)",
-            "minimum": 0
           }
         }
       },
@@ -17411,20 +17385,26 @@
       },
       "SettlementResponse": {
         "type": "object",
-        "description": "Settlement response - returned in X-PAYMENT-RESPONSE header (base64 encoded)",
+        "description": "Settlement response - returned in PAYMENT-RESPONSE (v2) / X-PAYMENT-RESPONSE (v1) headers (base64 encoded)",
         "required": [
           "success",
-          "network",
-          "payer"
+          "transaction",
+          "network"
         ],
         "properties": {
+          "errorReason": {
+            "type": "string",
+            "description": "Error reason if settlement failed (omitted if successful)",
+            "nullable": true
+          },
           "network": {
             "type": "string",
             "description": "Network where payment was processed"
           },
           "payer": {
             "type": "string",
-            "description": "Payer wallet address"
+            "description": "Payer wallet address",
+            "nullable": true
           },
           "success": {
             "type": "boolean",
@@ -17432,8 +17412,7 @@
           },
           "transaction": {
             "type": "string",
-            "description": "Transaction hash (for on-chain payments)",
-            "nullable": true
+            "description": "Blockchain transaction hash (empty string if settlement failed)"
           }
         }
       },
@@ -18520,6 +18499,10 @@
           "token"
         ],
         "properties": {
+          "endpoint_id": {
+            "type": "string",
+            "nullable": true
+          },
           "token": {
             "type": "string"
           }
@@ -18528,6 +18511,7 @@
       "ValidateTokenResponse": {
         "type": "object",
         "required": [
+          "valid",
           "endpoint_id",
           "user_id",
           "balance",
@@ -18548,6 +18532,9 @@
           },
           "user_id": {
             "type": "string"
+          },
+          "valid": {
+            "type": "boolean"
           }
         }
       },
