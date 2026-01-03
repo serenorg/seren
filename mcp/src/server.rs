@@ -820,6 +820,16 @@ fn sql_proxy_url_from_connection_string(connection_string: &str) -> Result<Strin
     Ok(out.to_string())
 }
 
+fn connection_string_is_passwordless(connection_string: &str) -> bool {
+    match reqwest::Url::parse(connection_string) {
+        Ok(url) => match url.password() {
+            None => true,
+            Some(password) => password.is_empty(),
+        },
+        Err(_) => false,
+    }
+}
+
 /// Check if read-only mode is enabled.
 ///
 /// Read-only mode can be enabled in two ways:
@@ -1292,11 +1302,7 @@ impl SerenMcpServer {
 
         // If the connection string has no password, the proxy expects a Bearer JWT
         // (e.g. SerenDB auth-broker mode). Only attach Authorization in that case.
-        if reqwest::Url::parse(connection_string)
-            .ok()
-            .and_then(|url| url.password().map(|_| ()))
-            .is_none()
-        {
+        if connection_string_is_passwordless(connection_string) {
             if let Some(token) = bearer_token {
                 if !token.trim().is_empty() {
                     request_builder = request_builder
@@ -1369,11 +1375,7 @@ impl SerenMcpServer {
 
         // If the connection string has no password, the proxy expects a Bearer JWT
         // (e.g. SerenDB auth-broker mode). Only attach Authorization in that case.
-        if reqwest::Url::parse(connection_string)
-            .ok()
-            .and_then(|url| url.password().map(|_| ()))
-            .is_none()
-        {
+        if connection_string_is_passwordless(connection_string) {
             if let Some(token) = bearer_token {
                 if !token.trim().is_empty() {
                     request_builder = request_builder
@@ -3432,6 +3434,45 @@ mod tests {
         let host = proxy_url.host_str().unwrap();
         let port = proxy_url.port().unwrap();
         let conn = format!("postgresql://user@{host}:{port}/postgres?sslmode=require");
+
+        Mock::given(method("POST"))
+            .and(path("/sql"))
+            .and(header("SerenDB-Connection-String", conn.as_str()))
+            .and(header("SerenDB-Pool-Opt-In", "true"))
+            .and(header("Authorization", "Bearer token123"))
+            .and(body_json(serde_json::json!({
+                "query": "select $1",
+                "params": [1],
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ok": true,
+            })))
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", "https://api.serendb.com").unwrap();
+        let result = server
+            .execute_sql(
+                &conn,
+                "select $1",
+                vec![serde_json::json!(1)],
+                Some("token123"),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result, serde_json::json!({ "ok": true }));
+    }
+
+    #[tokio::test]
+    async fn execute_sql_includes_bearer_for_empty_password_connection_string() {
+        use wiremock::matchers::{body_json, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let proxy_url = reqwest::Url::parse(&proxy.uri()).unwrap();
+        let host = proxy_url.host_str().unwrap();
+        let port = proxy_url.port().unwrap();
+        let conn = format!("postgresql://user:@{host}:{port}/postgres?sslmode=require");
 
         Mock::given(method("POST"))
             .and(path("/sql"))
