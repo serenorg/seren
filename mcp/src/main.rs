@@ -275,17 +275,53 @@ async fn require_oauth_auth(
     let mut token_from_session_cache = false;
 
     // If missing, try to recover the token from the session cache.
+    // First check the in-memory LRU cache (fast path), then fall back to database (survives restarts).
     if token.is_none()
         && let Some(ref sid) = session_id
     {
+        // Try LRU cache first
         token = state.session_tokens.lock().await.get(sid).cloned();
-        token_from_session_cache = token.is_some();
-        if token_from_session_cache {
+        if token.is_some() {
+            token_from_session_cache = true;
             tracing::debug!(
-                event = "oauth_auth_token_from_cache",
+                event = "oauth_auth_token_from_lru_cache",
                 session_id = %sid,
-                "Retrieved token from session cache"
+                "Retrieved token from LRU cache"
             );
+        } else {
+            // Fall back to database lookup
+            match state.store.get_session_token(sid).await {
+                Ok(Some(session_token)) => {
+                    token = Some(session_token.access_token.clone());
+                    token_from_session_cache = true;
+                    // Populate the LRU cache for future requests
+                    state
+                        .session_tokens
+                        .lock()
+                        .await
+                        .put(sid.clone(), session_token.access_token);
+                    tracing::debug!(
+                        event = "oauth_auth_token_from_database",
+                        session_id = %sid,
+                        "Retrieved token from database and populated LRU cache"
+                    );
+                }
+                Ok(None) => {
+                    tracing::debug!(
+                        event = "oauth_auth_session_not_in_db",
+                        session_id = %sid,
+                        "Session token not found in database"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        event = "oauth_auth_session_db_error",
+                        session_id = %sid,
+                        error = %e,
+                        "Failed to lookup session token from database"
+                    );
+                }
+            }
         }
     }
 
@@ -428,12 +464,39 @@ async fn require_oauth_auth(
     }
 
     // If the request includes a session id, remember/update the token for that session.
+    // Save to both LRU cache (fast path) and database (persistence across restarts).
     if let Some(ref sid) = session_id {
         state
             .session_tokens
             .lock()
             .await
             .put(sid.clone(), token.clone());
+
+        // Persist to database asynchronously (fire-and-forget to not block request)
+        let store = state.store.clone();
+        let sid_clone = sid.clone();
+        let token_clone = token.clone();
+        let client_id = access_token.client_id.clone();
+        let expires_at = access_token.expires_at;
+        tokio::spawn(async move {
+            if let Err(e) = store
+                .save_session_token(&sid_clone, &token_clone, Some(&client_id), expires_at)
+                .await
+            {
+                tracing::warn!(
+                    event = "session_token_persist_error",
+                    session_id = %sid_clone,
+                    error = %e,
+                    "Failed to persist session token to database"
+                );
+            } else {
+                tracing::debug!(
+                    event = "session_token_persisted",
+                    session_id = %sid_clone,
+                    "Session token persisted to database"
+                );
+            }
+        });
     }
 
     let req_method = req.method().clone();
@@ -471,6 +534,7 @@ async fn require_oauth_auth(
     // For the initial session-creating initialize request, rmcp returns `Mcp-Session-Id`
     // in the response headers. Cache the token under that session id so clients can
     // omit Authorization on subsequent requests.
+    // Save to both LRU cache (fast path) and database (persistence across restarts).
     if let Some(sid) = response
         .headers()
         .get(axum::http::header::HeaderName::from_static(
@@ -480,14 +544,65 @@ async fn require_oauth_auth(
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
     {
-        state.session_tokens.lock().await.put(sid, token.clone());
+        state
+            .session_tokens
+            .lock()
+            .await
+            .put(sid.clone(), token.clone());
+
+        // Persist to database asynchronously (fire-and-forget to not block response)
+        let store = state.store.clone();
+        let sid_clone = sid;
+        let token_clone = token.clone();
+        let client_id = access_token.client_id.clone();
+        let expires_at = access_token.expires_at;
+        tokio::spawn(async move {
+            if let Err(e) = store
+                .save_session_token(&sid_clone, &token_clone, Some(&client_id), expires_at)
+                .await
+            {
+                tracing::warn!(
+                    event = "session_token_persist_error",
+                    session_id = %sid_clone,
+                    error = %e,
+                    "Failed to persist new session token to database"
+                );
+            } else {
+                tracing::debug!(
+                    event = "session_token_persisted",
+                    session_id = %sid_clone,
+                    "New session token persisted to database"
+                );
+            }
+        });
     }
 
     // Best-effort cleanup: when a session is explicitly closed, drop the cached token.
+    // Remove from both LRU cache and database.
     if req_method == axum::http::Method::DELETE
         && let Some(sid) = session_id
     {
         state.session_tokens.lock().await.pop(&sid);
+
+        // Remove from database asynchronously (fire-and-forget)
+        let store = state.store.clone();
+        let sid_clone = sid;
+        tokio::spawn(async move {
+            if let Err(e) = store.delete_session_token(&sid_clone).await {
+                tracing::warn!(
+                    event = "session_token_delete_error",
+                    session_id = %sid_clone,
+                    error = %e,
+                    "Failed to delete session token from database"
+                );
+            } else {
+                tracing::debug!(
+                    event = "session_token_deleted",
+                    session_id = %sid_clone,
+                    "Session token deleted from database"
+                );
+            }
+        });
     }
 
     response

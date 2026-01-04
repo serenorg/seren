@@ -139,6 +139,18 @@ pub struct RefreshToken {
     pub created_at: OffsetDateTime,
 }
 
+/// MCP Session token mapping
+/// Maps MCP session IDs to OAuth access tokens for session persistence across pod restarts
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct McpSessionToken {
+    pub session_id: String,
+    pub access_token: String,
+    pub client_id: Option<String>,
+    pub expires_at: OffsetDateTime,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+}
+
 /// Pending consent prompt during the OAuth callback flow.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct PendingConsent {
@@ -613,6 +625,69 @@ impl TokenStore {
             .await
             .map_err(McpError::Database)?;
         Ok(())
+    }
+
+    // === MCP Session token operations ===
+
+    /// Save or update an MCP session token mapping.
+    /// Uses UPSERT to handle both new sessions and token updates (e.g., after refresh).
+    pub async fn save_session_token(
+        &self,
+        session_id: &str,
+        access_token: &str,
+        client_id: Option<&str>,
+        expires_at: OffsetDateTime,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO mcp_oauth.mcp_session_tokens
+                (session_id, access_token, client_id, expires_at, updated_at)
+            VALUES ($1, $2, $3, $4, NOW())
+            ON CONFLICT (session_id) DO UPDATE SET
+                access_token = EXCLUDED.access_token,
+                client_id = COALESCE(EXCLUDED.client_id, mcp_oauth.mcp_session_tokens.client_id),
+                expires_at = EXCLUDED.expires_at,
+                updated_at = NOW()
+            "#,
+        )
+        .bind(session_id)
+        .bind(access_token)
+        .bind(client_id)
+        .bind(expires_at)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(())
+    }
+
+    /// Get an MCP session token mapping (validates expiry).
+    /// Returns None if the session doesn't exist or is expired.
+    pub async fn get_session_token(&self, session_id: &str) -> Result<Option<McpSessionToken>> {
+        let session_token = sqlx::query_as::<_, McpSessionToken>(
+            r#"
+            SELECT session_id, access_token, client_id, expires_at, created_at, updated_at
+            FROM mcp_oauth.mcp_session_tokens
+            WHERE session_id = $1 AND expires_at > NOW()
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(session_token)
+    }
+
+    /// Delete an MCP session token (used when session is explicitly closed).
+    pub async fn delete_session_token(&self, session_id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM mcp_oauth.mcp_session_tokens WHERE session_id = $1")
+            .bind(session_id)
+            .execute(&self.pool)
+            .await
+            .map_err(McpError::Database)?;
+
+        Ok(result.rows_affected() > 0)
     }
 
     // === Utility operations ===
