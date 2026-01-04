@@ -144,23 +144,24 @@ async fn try_transparent_refresh(
 ) -> Result<Option<(oauth::store::AccessToken, String)>, Box<dyn std::error::Error + Send + Sync>> {
     use time::{Duration, OffsetDateTime};
 
-    // First, check if the token exists (even if expired)
-    let expired_access_token = match state
+    // Try to get the access token metadata. It might have been deleted by cleanup,
+    // but we can still try to find the refresh token by the access token string.
+    let expired_access_token = state
         .store
         .get_access_token_unchecked(expired_token)
-        .await?
-    {
-        Some(t) => t,
-        None => return Ok(None), // Token doesn't exist at all
-    };
+        .await?;
 
-    // Check if it's actually expired (not just invalid)
-    if expired_access_token.expires_at > OffsetDateTime::now_utc() {
-        // Token is not expired, something else is wrong
-        return Ok(None);
+    // If we have the access token row, verify it's actually expired
+    if let Some(ref token) = expired_access_token {
+        if token.expires_at > OffsetDateTime::now_utc() {
+            // Token is not expired, something else is wrong
+            return Ok(None);
+        }
     }
 
-    // Look up the refresh token for this access token
+    // Look up the refresh token for this access token.
+    // This works even if the access_tokens row was deleted by cleanup,
+    // because refresh_tokens.access_token stores the string value, not a FK reference.
     let refresh_token = match state
         .store
         .get_refresh_token_by_access_token(expired_token)
@@ -170,7 +171,7 @@ async fn try_transparent_refresh(
         None => {
             tracing::debug!(
                 event = "no_refresh_token",
-                access_token_client_id = %expired_access_token.client_id,
+                access_token_existed = expired_access_token.is_some(),
                 "No valid refresh token found for expired access token"
             );
             return Ok(None);
@@ -204,12 +205,23 @@ async fn try_transparent_refresh(
     let new_expires_at =
         OffsetDateTime::now_utc() + Duration::seconds(token_body.expires_in.max(0));
 
-    // Create new access token record
+    // Create new access token record.
+    // Use metadata from expired_access_token if available, otherwise fall back to refresh_token.
+    // The refresh_token always has client_id and user_id, but scope might be missing if access token was deleted.
+    let (client_id, user_id, scope) = match expired_access_token {
+        Some(ref at) => (at.client_id.clone(), at.user_id.clone(), at.scope.clone()),
+        None => (
+            refresh_token.client_id.clone(),
+            refresh_token.user_id.clone(),
+            "api".to_string(), // Default scope when access token was cleaned up
+        ),
+    };
+
     let new_access_token = oauth::store::AccessToken {
         token: token_body.access_token.clone(),
-        client_id: expired_access_token.client_id.clone(),
-        user_id: expired_access_token.user_id.clone(),
-        scope: expired_access_token.scope.clone(),
+        client_id,
+        user_id,
+        scope,
         expires_at: new_expires_at,
         created_at: OffsetDateTime::now_utc(),
     };
@@ -473,14 +485,17 @@ async fn require_oauth_auth(
             .put(sid.clone(), token.clone());
 
         // Persist to database asynchronously (fire-and-forget to not block request)
+        // Use refresh token TTL (7 days) for session persistence, not access token expiry (15 min).
+        // This allows sessions to survive across access token refreshes.
         let store = state.store.clone();
         let sid_clone = sid.clone();
         let token_clone = token.clone();
         let client_id = access_token.client_id.clone();
-        let expires_at = access_token.expires_at;
+        let session_expires_at =
+            TokenStore::token_expiry(oauth::store::REFRESH_TOKEN_TTL_HOURS);
         tokio::spawn(async move {
             if let Err(e) = store
-                .save_session_token(&sid_clone, &token_clone, Some(&client_id), expires_at)
+                .save_session_token(&sid_clone, &token_clone, Some(&client_id), session_expires_at)
                 .await
             {
                 tracing::warn!(
@@ -551,14 +566,17 @@ async fn require_oauth_auth(
             .put(sid.clone(), token.clone());
 
         // Persist to database asynchronously (fire-and-forget to not block response)
+        // Use refresh token TTL (7 days) for session persistence, not access token expiry (15 min).
+        // This allows sessions to survive across access token refreshes.
         let store = state.store.clone();
         let sid_clone = sid;
         let token_clone = token.clone();
         let client_id = access_token.client_id.clone();
-        let expires_at = access_token.expires_at;
+        let session_expires_at =
+            TokenStore::token_expiry(oauth::store::REFRESH_TOKEN_TTL_HOURS);
         tokio::spawn(async move {
             if let Err(e) = store
-                .save_session_token(&sid_clone, &token_clone, Some(&client_id), expires_at)
+                .save_session_token(&sid_clone, &token_clone, Some(&client_id), session_expires_at)
                 .await
             {
                 tracing::warn!(
@@ -804,11 +822,9 @@ async fn run_oauth(config: Config) -> Result<()> {
     let store = TokenStore::connect(&database_url).await?;
     tracing::info!("Connected to OAuth database");
 
-    // Run database migrations
-    let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
-    tracing::info!("Running database migrations from {:?}", migrations_dir);
-    let migrator = sqlx::migrate::Migrator::new(migrations_dir).await?;
-    migrator.run(store.pool()).await?;
+    // Run database migrations (embedded at compile time)
+    tracing::info!("Running database migrations");
+    sqlx::migrate!("./migrations").run(store.pool()).await?;
     tracing::info!("Database migrations completed");
 
     let api_base_url = config.api_base_url.clone();
