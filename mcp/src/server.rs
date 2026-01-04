@@ -681,7 +681,7 @@ fn payment_required_has_non_prepaid_option(body_text: &str) -> bool {
 }
 
 fn format_payment_required_body(status: reqwest::StatusCode, body_text: &str) -> String {
-    if let Ok(body_json) = serde_json::from_str::<serde_json::Value>(&body_text) {
+    if let Ok(body_json) = serde_json::from_str::<serde_json::Value>(body_text) {
         let payment_response = body_json
             .get("payment_response")
             .or_else(|| body_json.get("paymentResponse"));
@@ -740,14 +740,14 @@ fn format_payment_required_body(status: reqwest::StatusCode, body_text: &str) ->
 
             return format!(
                 "Payment required via {scheme} ({network}). {}",
-                truncate_for_client(&body_text, 1200)
+                truncate_for_client(body_text, 1200)
             );
         }
     }
 
     format!(
         "Payment required ({status}). {}",
-        truncate_for_client(&body_text, 1200)
+        truncate_for_client(body_text, 1200)
     )
 }
 
@@ -2436,7 +2436,7 @@ impl SerenMcpServer {
         let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
         let body = seren::QueryRequestBody {
             publisher_id,
-            asset_id: params.asset_id.clone(),
+            asset_id: params.asset_id,
             query: params.query.clone(),
             database: params.database.clone(),
             request_id: params.request_id,
@@ -2890,13 +2890,13 @@ impl SerenMcpServer {
                     ))
                 }
                 _ => {
-                    if let Some(status) = e.status() {
-                        if status == reqwest::StatusCode::CONFLICT {
-                            return Err(McpError::invalid_request(
-                                "Duplicate request_id. Provide a new UUID and retry.".to_string(),
-                                None,
-                            ));
-                        }
+                    if let Some(status) = e.status()
+                        && status == reqwest::StatusCode::CONFLICT
+                    {
+                        return Err(McpError::invalid_request(
+                            "Duplicate request_id. Provide a new UUID and retry.".to_string(),
+                            None,
+                        ));
                     }
                     Err(McpError::internal_error(e.to_string(), None))
                 }
@@ -2975,12 +2975,12 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
 
-        let branch = api_client
+        api_client
             .set_default_branch(&params.project_id, &params.branch_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&branch)?]))
+        Ok(CallToolResult::success(vec![json_content(&())?]))
     }
 
     #[tool(
@@ -3024,12 +3024,12 @@ impl SerenMcpServer {
 
         let request = seren::SetBranchExpirationRequest { expires_at };
 
-        let branch = api_client
+        api_client
             .set_branch_expiration(&params.project_id, &params.branch_id, &request)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&branch)?]))
+        Ok(CallToolResult::success(vec![json_content(&())?]))
     }
     // ========================================================================
     // Role Management Tools
