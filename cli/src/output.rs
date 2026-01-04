@@ -51,10 +51,10 @@ pub fn print_key_value_table(title: Option<&str>, rows: &[(&str, String)]) {
         table.add_row(vec![Cell::new(*field), Cell::new(value)]);
     }
 
-    if let Some(title) = title {
-        if !title.is_empty() {
-            println!("{}", title.bold());
-        }
+    if let Some(title) = title
+        && !title.is_empty()
+    {
+        println!("{}", title.bold());
     }
     println!("{table}");
 }
@@ -75,10 +75,10 @@ pub fn print_list_table<T: std::fmt::Display>(title: Option<&str>, header: &str,
         table.add_row(vec![Cell::new(item.to_string())]);
     }
 
-    if let Some(title) = title {
-        if !title.is_empty() {
-            println!("{}", title.bold());
-        }
+    if let Some(title) = title
+        && !title.is_empty()
+    {
+        println!("{}", title.bold());
     }
     println!("{table}");
 }
@@ -721,40 +721,40 @@ pub fn print_marketplace_publisher(
             println!("{}", "Publisher Details".bold());
             println!("{table}");
 
-            if let Some(pricing) = &publisher.pricing {
-                if !pricing.is_empty() {
-                    let mut pricing_table = Table::new();
-                    pricing_table
-                        .load_preset(UTF8_FULL)
-                        .set_content_arrangement(ContentArrangement::Dynamic);
+            if let Some(pricing) = &publisher.pricing
+                && !pricing.is_empty()
+            {
+                let mut pricing_table = Table::new();
+                pricing_table
+                    .load_preset(UTF8_FULL)
+                    .set_content_arrangement(ContentArrangement::Dynamic);
 
-                    pricing_table.set_header(vec![
-                        Cell::new("Asset").fg(Color::Green),
-                        Cell::new("Model").fg(Color::Green),
-                        Cell::new("Base/1000").fg(Color::Green),
-                        Cell::new("Min Charge").fg(Color::Green),
-                        Cell::new("Markup").fg(Color::Green),
-                        Cell::new("Prepaid").fg(Color::Green),
-                        Cell::new("On-chain").fg(Color::Green),
+                pricing_table.set_header(vec![
+                    Cell::new("Asset").fg(Color::Green),
+                    Cell::new("Model").fg(Color::Green),
+                    Cell::new("Base/1000").fg(Color::Green),
+                    Cell::new("Min Charge").fg(Color::Green),
+                    Cell::new("Markup").fg(Color::Green),
+                    Cell::new("Prepaid").fg(Color::Green),
+                    Cell::new("On-chain").fg(Color::Green),
+                ]);
+
+                for p in pricing {
+                    let asset = p.asset_symbol.as_deref().unwrap_or("Unknown");
+                    pricing_table.add_row(vec![
+                        Cell::new(asset),
+                        Cell::new(debug_trim_quotes(&p.pricing_model)),
+                        Cell::new(&p.base_price_per_1000_rows),
+                        Cell::new(&p.min_charge),
+                        Cell::new(&p.markup_multiplier),
+                        Cell::new(if p.prepaid_enabled { "Yes" } else { "No" }),
+                        Cell::new(if p.onchain_enabled { "Yes" } else { "No" }),
                     ]);
-
-                    for p in pricing {
-                        let asset = p.asset_symbol.as_deref().unwrap_or("Unknown");
-                        pricing_table.add_row(vec![
-                            Cell::new(asset),
-                            Cell::new(debug_trim_quotes(&p.pricing_model)),
-                            Cell::new(&p.base_price_per_1000_rows),
-                            Cell::new(&p.min_charge),
-                            Cell::new(&p.markup_multiplier),
-                            Cell::new(if p.prepaid_enabled { "Yes" } else { "No" }),
-                            Cell::new(if p.onchain_enabled { "Yes" } else { "No" }),
-                        ]);
-                    }
-
-                    println!();
-                    println!("{}", "Pricing".bold());
-                    println!("{pricing_table}");
                 }
+
+                println!();
+                println!("{}", "Pricing".bold());
+                println!("{pricing_table}");
             }
 
             if let Some(usage) = &publisher.usage_example {
@@ -2051,10 +2051,7 @@ pub fn print_validate_token(result: &seren::ValidateTokenResponse) {
 }
 
 pub fn print_balance(result: &seren::BalanceResponse) {
-    let rows = [
-        ("Endpoint ID", result.endpoint_id.to_string()),
-        ("Balance", format!("${:.4}", result.balance)),
-    ];
+    let rows = [("Balance", format!("${:.4}", result.balance))];
 
-    print_key_value_table(Some("Endpoint Balance"), &rows);
+    print_key_value_table(Some("Balance"), &rows);
 }

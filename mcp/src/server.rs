@@ -689,59 +689,59 @@ fn format_payment_required_body(status: reqwest::StatusCode, body_text: &str) ->
             .and_then(|p| p.get("accepts"))
             .and_then(|a| a.as_array());
 
-        if let (Some(payment_response), Some(accepts)) = (payment_response, accepts) {
-            if let Some(first) = accepts.first() {
-                let scheme = first
-                    .get("scheme")
+        if let (Some(payment_response), Some(accepts)) = (payment_response, accepts)
+            && let Some(first) = accepts.first()
+        {
+            let scheme = first
+                .get("scheme")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let network = first
+                .get("network")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+
+            if scheme == "prepaid" {
+                let extra = first.get("extra").unwrap_or(&serde_json::Value::Null);
+                let required = extra
+                    .get("requiredAmount")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("unknown");
-                let network = first
-                    .get("network")
+                    .unwrap_or("?");
+                let available = extra
+                    .get("availableBalance")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("unknown");
+                    .unwrap_or("?");
+                let deficit = extra.get("deficit").and_then(|v| v.as_str()).unwrap_or("?");
 
-                if scheme == "prepaid" {
-                    let extra = first.get("extra").unwrap_or(&serde_json::Value::Null);
-                    let required = extra
-                        .get("requiredAmount")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("?");
-                    let available = extra
-                        .get("availableBalance")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("?");
-                    let deficit = extra.get("deficit").and_then(|v| v.as_str()).unwrap_or("?");
+                let top_up = extra.get("topUp").unwrap_or(&serde_json::Value::Null);
+                let balance_endpoint = top_up
+                    .get("balanceEndpoint")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("/agent/wallet/balance");
+                let deposit_endpoint = top_up
+                    .get("depositEndpoint")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("/agent/wallet/deposit");
 
-                    let top_up = extra.get("topUp").unwrap_or(&serde_json::Value::Null);
-                    let balance_endpoint = top_up
-                        .get("balanceEndpoint")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("/agent/wallet/balance");
-                    let deposit_endpoint = top_up
-                        .get("depositEndpoint")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("/agent/wallet/deposit");
+                let mut message = format!(
+                    "Insufficient wallet credits (prepaid). Required ${required}, available ${available}, deficit ${deficit}. Top up via {deposit_endpoint} and re-check via {balance_endpoint}."
+                );
 
-                    let mut message = format!(
-                        "Insufficient wallet credits (prepaid). Required ${required}, available ${available}, deficit ${deficit}. Top up via {deposit_endpoint} and re-check via {balance_endpoint}."
-                    );
-
-                    if let Some(resource_desc) = payment_response
-                        .get("resource")
-                        .and_then(|r| r.get("description"))
-                        .and_then(|v| v.as_str())
-                    {
-                        message.push_str(&format!(" Resource: {resource_desc}."));
-                    }
-
-                    return message;
+                if let Some(resource_desc) = payment_response
+                    .get("resource")
+                    .and_then(|r| r.get("description"))
+                    .and_then(|v| v.as_str())
+                {
+                    message.push_str(&format!(" Resource: {resource_desc}."));
                 }
 
-                return format!(
-                    "Payment required via {scheme} ({network}). {}",
-                    truncate_for_client(&body_text, 1200)
-                );
+                return message;
             }
+
+            return format!(
+                "Payment required via {scheme} ({network}). {}",
+                truncate_for_client(&body_text, 1200)
+            );
         }
     }
 
@@ -1302,13 +1302,12 @@ impl SerenMcpServer {
 
         // If the connection string has no password, the proxy expects a Bearer JWT
         // (e.g. SerenDB auth-broker mode). Only attach Authorization in that case.
-        if connection_string_is_passwordless(connection_string) {
-            if let Some(token) = bearer_token {
-                if !token.trim().is_empty() {
-                    request_builder = request_builder
-                        .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", token));
-                }
-            }
+        if connection_string_is_passwordless(connection_string)
+            && let Some(token) = bearer_token
+            && !token.trim().is_empty()
+        {
+            request_builder =
+                request_builder.header(reqwest::header::AUTHORIZATION, format!("Bearer {}", token));
         }
 
         let response = request_builder
@@ -1375,13 +1374,12 @@ impl SerenMcpServer {
 
         // If the connection string has no password, the proxy expects a Bearer JWT
         // (e.g. SerenDB auth-broker mode). Only attach Authorization in that case.
-        if connection_string_is_passwordless(connection_string) {
-            if let Some(token) = bearer_token {
-                if !token.trim().is_empty() {
-                    request_builder = request_builder
-                        .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", token));
-                }
-            }
+        if connection_string_is_passwordless(connection_string)
+            && let Some(token) = bearer_token
+            && !token.trim().is_empty()
+        {
+            request_builder =
+                request_builder.header(reqwest::header::AUTHORIZATION, format!("Bearer {}", token));
         }
 
         if read_only.unwrap_or(false) {
@@ -2496,14 +2494,13 @@ impl SerenMcpServer {
                     }
                     _ => {
                         // Handle specific error codes with user-friendly messages
-                        if let Some(status) = e.status() {
-                            if status == reqwest::StatusCode::CONFLICT {
-                                return Err(McpError::invalid_request(
-                                    "Duplicate request_id. Provide a new UUID and retry."
-                                        .to_string(),
-                                    None,
-                                ));
-                            }
+                        if let Some(status) = e.status()
+                            && status == reqwest::StatusCode::CONFLICT
+                        {
+                            return Err(McpError::invalid_request(
+                                "Duplicate request_id. Provide a new UUID and retry.".to_string(),
+                                None,
+                            ));
                         }
                         Err(McpError::internal_error(e.to_string(), None))
                     }
@@ -2591,14 +2588,13 @@ impl SerenMcpServer {
                     }
                     _ => {
                         // Handle specific error codes with user-friendly messages
-                        if let Some(status) = e.status() {
-                            if status == reqwest::StatusCode::CONFLICT {
-                                return Err(McpError::invalid_request(
-                                    "Duplicate request_id. Provide a new UUID and retry."
-                                        .to_string(),
-                                    None,
-                                ));
-                            }
+                        if let Some(status) = e.status()
+                            && status == reqwest::StatusCode::CONFLICT
+                        {
+                            return Err(McpError::invalid_request(
+                                "Duplicate request_id. Provide a new UUID and retry.".to_string(),
+                                None,
+                            ));
                         }
                         Err(McpError::internal_error(e.to_string(), None))
                     }

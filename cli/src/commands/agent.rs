@@ -64,39 +64,39 @@ async fn format_payment_required_response(response: reqwest::Response) -> String
             .and_then(|p| p.get("accepts"))
             .and_then(|a| a.as_array());
 
-        if let (Some(_payment_response), Some(accepts)) = (payment_response, accepts) {
-            if let Some(first) = accepts.first() {
-                let scheme = first
-                    .get("scheme")
+        if let (Some(_payment_response), Some(accepts)) = (payment_response, accepts)
+            && let Some(first) = accepts.first()
+        {
+            let scheme = first
+                .get("scheme")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+
+            if scheme == "prepaid" {
+                let extra = first.get("extra").unwrap_or(&serde_json::Value::Null);
+                let required = extra
+                    .get("requiredAmount")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("unknown");
+                    .unwrap_or("?");
+                let available = extra
+                    .get("availableBalance")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let deficit = extra.get("deficit").and_then(|v| v.as_str()).unwrap_or("?");
 
-                if scheme == "prepaid" {
-                    let extra = first.get("extra").unwrap_or(&serde_json::Value::Null);
-                    let required = extra
-                        .get("requiredAmount")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("?");
-                    let available = extra
-                        .get("availableBalance")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("?");
-                    let deficit = extra.get("deficit").and_then(|v| v.as_str()).unwrap_or("?");
+                let top_up = extra.get("topUp").unwrap_or(&serde_json::Value::Null);
+                let balance_endpoint = top_up
+                    .get("balanceEndpoint")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("/agent/wallet/balance");
+                let deposit_endpoint = top_up
+                    .get("depositEndpoint")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("/agent/wallet/deposit");
 
-                    let top_up = extra.get("topUp").unwrap_or(&serde_json::Value::Null);
-                    let balance_endpoint = top_up
-                        .get("balanceEndpoint")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("/agent/wallet/balance");
-                    let deposit_endpoint = top_up
-                        .get("depositEndpoint")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("/agent/wallet/deposit");
-
-                    return format!(
-                        "Payment Required (402): insufficient wallet credits (prepaid). Required ${required}, available ${available}, deficit ${deficit}. Top up via {deposit_endpoint} and re-check via {balance_endpoint}."
-                    );
-                }
+                return format!(
+                    "Payment Required (402): insufficient wallet credits (prepaid). Required ${required}, available ${available}, deficit ${deficit}. Top up via {deposit_endpoint} and re-check via {balance_endpoint}."
+                );
             }
         }
     }

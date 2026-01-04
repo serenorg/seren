@@ -159,23 +159,23 @@ pub async fn create(
 
         // Parse compute units (e.g., "2" or "0.5-3")
         if let Some(cu_str) = cu {
-            if let Some((min, max)) = cu_str.split_once('-') {
-                if let (Ok(min_val), Ok(max_val)) = (min.parse::<f64>(), max.parse::<f64>()) {
-                    settings_map.insert(
-                        "autoscaling_limit_min_cu".to_string(),
-                        Value::Number(
-                            serde_json::Number::from_f64(min_val)
-                                .unwrap_or(serde_json::Number::from(1)),
-                        ),
-                    );
-                    settings_map.insert(
-                        "autoscaling_limit_max_cu".to_string(),
-                        Value::Number(
-                            serde_json::Number::from_f64(max_val)
-                                .unwrap_or(serde_json::Number::from(1)),
-                        ),
-                    );
-                }
+            if let Some((min, max)) = cu_str.split_once('-')
+                && let (Ok(min_val), Ok(max_val)) = (min.parse::<f64>(), max.parse::<f64>())
+            {
+                settings_map.insert(
+                    "autoscaling_limit_min_cu".to_string(),
+                    Value::Number(
+                        serde_json::Number::from_f64(min_val)
+                            .unwrap_or(serde_json::Number::from(1)),
+                    ),
+                );
+                settings_map.insert(
+                    "autoscaling_limit_max_cu".to_string(),
+                    Value::Number(
+                        serde_json::Number::from_f64(max_val)
+                            .unwrap_or(serde_json::Number::from(1)),
+                    ),
+                );
             } else if let Ok(fixed_val) = cu_str.parse::<f64>() {
                 settings_map.insert(
                     "autoscaling_limit_min_cu".to_string(),
