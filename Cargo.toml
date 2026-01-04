@@ -60,6 +60,6 @@ opentelemetry-semantic-conventions = "0.27"
 uuid = { version = "1", features = ["serde", "v4"] }
 
 # Ethereum wallet support
-alloy = { version = "1.0", default-features = false, features = ["signers", "signer-local"] }
+alloy = { version = "1.0", default-features = false, features = ["signers", "signer-local", "sol-types"] }
 hex = "0.4"
 etcetera = "0.11"
