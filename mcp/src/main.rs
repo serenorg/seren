@@ -804,6 +804,13 @@ async fn run_oauth(config: Config) -> Result<()> {
     let store = TokenStore::connect(&database_url).await?;
     tracing::info!("Connected to OAuth database");
 
+    // Run database migrations
+    let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+    tracing::info!("Running database migrations from {:?}", migrations_dir);
+    let migrator = sqlx::migrate::Migrator::new(migrations_dir).await?;
+    migrator.run(store.pool()).await?;
+    tracing::info!("Database migrations completed");
+
     let api_base_url = config.api_base_url.clone();
     let oauth_redirect_base_url = config.oauth_redirect_base_url.clone();
     let api_base_url_for_service = api_base_url.clone();
