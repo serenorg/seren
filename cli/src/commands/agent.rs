@@ -95,7 +95,7 @@ async fn format_payment_required_response(response: reqwest::Response) -> String
                     .unwrap_or("/agent/wallet/deposit");
 
                 return format!(
-                    "Payment Required (402): insufficient wallet credits (prepaid). Required ${required}, available ${available}, deficit ${deficit}. Top up via {deposit_endpoint} and re-check via {balance_endpoint}."
+                    "Payment Required (402): insufficient SerenBucks balance. Required ${required}, available ${available}, deficit ${deficit}. Deposit more via {deposit_endpoint} and check balance via {balance_endpoint}."
                 );
             }
         }
@@ -371,7 +371,7 @@ pub async fn get_prepaid_balance(ctx: &CommandContext) -> Result<()> {
     let response = client
         .get_wallet_balance()
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to get wallet balance: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to get SerenBucks balance: {}", e))?;
 
     let summary = response.into_inner();
     match ctx.format {
@@ -380,11 +380,14 @@ pub async fn get_prepaid_balance(ctx: &CommandContext) -> Result<()> {
             let data = &summary.data;
             let rows = [
                 ("Wallet", data.wallet_address.to_string()),
-                ("Total", data.balance_usd.to_string()),
-                ("Funded", data.funded_balance_usd.to_string()),
-                ("Promotional", data.promotional_balance_usd.to_string()),
+                ("Total", format!("{} SerenBucks", data.balance_usd)),
+                ("Funded", format!("{} SerenBucks", data.funded_balance_usd)),
+                (
+                    "Promotional",
+                    format!("{} SerenBucks", data.promotional_balance_usd),
+                ),
             ];
-            output::print_key_value_table(Some("Wallet Balance"), &rows);
+            output::print_key_value_table(Some("SerenBucks Balance"), &rows);
         }
     }
 
@@ -418,16 +421,18 @@ pub async fn create_prepaid_deposit(amount: f64, ctx: &CommandContext) -> Result
             let data = &deposit.data;
             let rows = [
                 ("Deposit ID", data.deposit_id.to_string()),
-                ("Amount", data.amount_usd.to_string()),
-                ("Bonus", data.bonus_usd.to_string()),
-                ("Total", data.total_usd.to_string()),
+                ("Amount", format!("{} SerenBucks", data.amount_usd)),
+                ("Bonus", format!("{} SerenBucks", data.bonus_usd)),
+                ("Total", format!("{} SerenBucks", data.total_usd)),
             ];
-            output::print_key_value_table(Some("Wallet Deposit"), &rows);
+            output::print_key_value_table(Some("SerenBucks Deposit"), &rows);
             println!();
             println!("Open this URL in your browser to complete payment:");
             println!("  {}", data.checkout_url);
             println!();
-            println!("Credits will be added to your wallet automatically after payment succeeds.");
+            println!(
+                "SerenBucks will be added to your balance automatically after payment succeeds."
+            );
         }
     }
 

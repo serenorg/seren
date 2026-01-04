@@ -724,7 +724,7 @@ fn format_payment_required_body(status: reqwest::StatusCode, body_text: &str) ->
                     .unwrap_or("/agent/wallet/deposit");
 
                 let mut message = format!(
-                    "Insufficient wallet credits (prepaid). Required ${required}, available ${available}, deficit ${deficit}. Top up via {deposit_endpoint} and re-check via {balance_endpoint}."
+                    "Insufficient SerenBucks balance. Required ${required}, available ${available}, deficit ${deficit}. Deposit more via {deposit_endpoint} and check balance via {balance_endpoint}."
                 );
 
                 if let Some(resource_desc) = payment_response
@@ -2372,7 +2372,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Get wallet credit balance for the authenticated user (SerenBucks).",
+        description = "Get your SerenBucks balance. SerenBucks are credits used to pay for API calls and database queries.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn get_prepaid_balance(
@@ -2390,7 +2390,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Create a wallet credit purchase (Stripe) for the authenticated user. Returns a checkout URL that the user can open in their browser to complete payment. After payment, credits are automatically added to the wallet.",
+        description = "Deposit SerenBucks with a credit card via Stripe. Returns a checkout URL to complete payment. After payment, SerenBucks are automatically added to your balance.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn create_prepaid_deposit(
@@ -2402,7 +2402,7 @@ impl SerenMcpServer {
         let amount_cents = (params.amount_usd * 100.0).round() as i64;
         if amount_cents < 500 {
             return Err(McpError::invalid_request(
-                "Minimum deposit is $5.00 (500 cents).".to_string(),
+                "Minimum deposit is $5.00.".to_string(),
                 None,
             ));
         }
@@ -2423,14 +2423,14 @@ impl SerenMcpServer {
             "amount_usd": data.amount_usd,
             "bonus_usd": data.bonus_usd,
             "total_usd": data.total_usd,
-            "instructions": "Open the checkout_url in a browser to complete payment. Credits will be added automatically after payment succeeds."
+            "instructions": "Open the checkout_url in a browser to complete payment. SerenBucks will be added to your balance automatically after payment succeeds."
         });
 
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
-        description = "Execute a paid SQL query against a publisher's database. Uses prepaid balance by default. If WALLET_PRIVATE_KEY is configured, x402 crypto payments are also available.",
+        description = "Execute a paid SQL query against a publisher's database. Uses your SerenBucks balance by default. If WALLET_PRIVATE_KEY is configured, x402 crypto payments are also available.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -2521,7 +2521,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Execute a paid API request against a publisher's endpoint. Uses prepaid balance by default. If WALLET_PRIVATE_KEY is configured, x402 crypto payments are also available.",
+        description = "Execute a paid API request against a publisher's endpoint. Uses your SerenBucks balance by default. If WALLET_PRIVATE_KEY is configured, x402 crypto payments are also available.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -2814,7 +2814,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Execute a paid streaming API request against a publisher's endpoint. Streaming requires x402 local wallet signing; for prepaid calls use execute_paid_api.",
+        description = "Execute a paid streaming API request against a publisher's endpoint. Streaming requires x402 local wallet signing; for SerenBucks payments use execute_paid_api instead.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn execute_paid_api_stream(
@@ -2880,7 +2880,7 @@ impl SerenMcpServer {
                     let status = response.status();
                     if status == reqwest::StatusCode::PAYMENT_REQUIRED {
                         return Err(McpError::invalid_request(
-                            "Streaming requests require x402. Configure WALLET_PRIVATE_KEY and retry, or use execute_paid_api for prepaid calls.".to_string(),
+                            "Streaming requests require x402. Configure WALLET_PRIVATE_KEY and retry, or use execute_paid_api for SerenBucks payments.".to_string(),
                             None,
                         ));
                     }

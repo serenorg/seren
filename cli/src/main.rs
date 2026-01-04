@@ -270,7 +270,7 @@ enum AgentAction {
         #[arg(long)]
         billing_model: Option<String>,
     },
-    /// Execute a paid database query using prepaid balance
+    /// Execute a paid database query using your SerenBucks balance
     ExecuteQuery {
         /// Publisher ID (UUID) or slug
         #[arg(long)]
@@ -282,11 +282,11 @@ enum AgentAction {
         #[arg(long)]
         database: Option<String>,
     },
-    /// Get prepaid balance summary for authenticated user
+    /// Get your SerenBucks balance
     GetPrepaidBalance,
-    /// Create a prepaid wallet deposit (fiat via Stripe)
+    /// Deposit SerenBucks (fiat via Stripe)
     CreatePrepaidDeposit {
-        /// Amount to deposit (e.g., 10.00)
+        /// Amount in USD to deposit (e.g., 10.00)
         #[arg(long)]
         amount: f64,
     },
