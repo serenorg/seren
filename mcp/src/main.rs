@@ -75,6 +75,35 @@ struct OAuthAuthState {
     oauth_state: Arc<OAuthState>,
 }
 
+impl OAuthAuthState {
+    /// Build a 401 Unauthorized response with WWW-Authenticate header.
+    ///
+    /// Per RFC 6750 and the MCP OAuth spec, the WWW-Authenticate header must include
+    /// `resource_metadata` pointing to the OAuth authorization server metadata endpoint.
+    /// This allows clients like Claude Code to automatically discover and initiate OAuth flow.
+    fn unauthorized_response(
+        &self,
+        error: &str,
+        error_description: &str,
+    ) -> axum::response::Response {
+        let server_host = self.oauth_state.server_host.trim_end_matches('/');
+        let www_authenticate = format!(
+            r#"Bearer realm="serendb", resource_metadata="{}/.well-known/oauth-authorization-server""#,
+            server_host
+        );
+
+        (
+            axum::http::StatusCode::UNAUTHORIZED,
+            [(axum::http::header::WWW_AUTHENTICATE, www_authenticate)],
+            axum::Json(serde_json::json!({
+                "error": error,
+                "error_description": error_description
+            })),
+        )
+            .into_response()
+    }
+}
+
 /// Extract bearer token from Authorization header (case-insensitive scheme per RFC 6750)
 fn extract_bearer_token(req: &axum::http::Request<axum::body::Body>) -> Option<&str> {
     req.headers()
@@ -239,14 +268,7 @@ async fn require_oauth_auth(
     }
 
     let Some(token) = token else {
-        return (
-            axum::http::StatusCode::UNAUTHORIZED,
-            axum::Json(serde_json::json!({
-                "error": "unauthorized",
-                "error_description": "Bearer token required"
-            })),
-        )
-            .into_response();
+        return state.unauthorized_response("unauthorized", "Bearer token required");
     };
 
     // Validate token against database and get client metadata.
@@ -273,14 +295,8 @@ async fn require_oauth_auth(
                             event = "token_validation_failed",
                             "Token is invalid or expired and no refresh token available"
                         );
-                        return (
-                            axum::http::StatusCode::UNAUTHORIZED,
-                            axum::Json(serde_json::json!({
-                                "error": "invalid_token",
-                                "error_description": "Token is invalid or expired"
-                            })),
-                        )
-                            .into_response();
+                        return state
+                            .unauthorized_response("invalid_token", "Token is invalid or expired");
                     }
                     Err(e) => {
                         tracing::warn!(
@@ -288,26 +304,13 @@ async fn require_oauth_auth(
                             error = %e,
                             "Failed to transparently refresh token"
                         );
-                        return (
-                            axum::http::StatusCode::UNAUTHORIZED,
-                            axum::Json(serde_json::json!({
-                                "error": "invalid_token",
-                                "error_description": "Token is invalid or expired"
-                            })),
-                        )
-                            .into_response();
+                        return state
+                            .unauthorized_response("invalid_token", "Token is invalid or expired");
                     }
                 }
             } else {
                 // If the client provided this token, the client should be responsible for refresh.
-                return (
-                    axum::http::StatusCode::UNAUTHORIZED,
-                    axum::Json(serde_json::json!({
-                        "error": "invalid_token",
-                        "error_description": "Token is invalid or expired"
-                    })),
-                )
-                    .into_response();
+                return state.unauthorized_response("invalid_token", "Token is invalid or expired");
             }
         }
         Err(e) => {
