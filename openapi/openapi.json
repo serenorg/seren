@@ -11675,7 +11675,7 @@
         "description": "Response for wallet deposit initiation",
         "required": [
           "deposit_id",
-          "stripe_client_secret",
+          "checkout_url",
           "amount_atomic",
           "bonus_atomic",
           "total_atomic",
@@ -11700,12 +11700,13 @@
           "bonus_usd": {
             "type": "string"
           },
+          "checkout_url": {
+            "type": "string",
+            "description": "URL to the Stripe hosted checkout page - open this in a browser to complete payment"
+          },
           "deposit_id": {
             "type": "string",
             "format": "uuid"
-          },
-          "stripe_client_secret": {
-            "type": "string"
           },
           "total_atomic": {
             "type": "integer",

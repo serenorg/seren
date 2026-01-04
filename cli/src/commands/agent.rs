@@ -421,12 +421,13 @@ pub async fn create_prepaid_deposit(amount: f64, ctx: &CommandContext) -> Result
                 ("Amount", data.amount_usd.to_string()),
                 ("Bonus", data.bonus_usd.to_string()),
                 ("Total", data.total_usd.to_string()),
-                (
-                    "Stripe Client Secret",
-                    data.stripe_client_secret.to_string(),
-                ),
             ];
             output::print_key_value_table(Some("Wallet Deposit"), &rows);
+            println!();
+            println!("Open this URL in your browser to complete payment:");
+            println!("  {}", data.checkout_url);
+            println!();
+            println!("Credits will be added to your wallet automatically after payment succeeds.");
         }
     }
 

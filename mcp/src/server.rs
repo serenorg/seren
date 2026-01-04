@@ -2390,7 +2390,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Create a wallet credit purchase (Stripe) for the authenticated user. Returns a Stripe client_secret to complete payment.",
+        description = "Create a wallet credit purchase (Stripe) for the authenticated user. Returns a checkout URL that the user can open in their browser to complete payment. After payment, credits are automatically added to the wallet.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn create_prepaid_deposit(
@@ -2415,7 +2415,18 @@ impl SerenMcpServer {
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
 
-        Ok(CallToolResult::success(vec![json_content(&deposit)?]))
+        // Format a helpful response with the checkout URL
+        let data = &deposit.data;
+        let response = serde_json::json!({
+            "deposit_id": data.deposit_id,
+            "checkout_url": data.checkout_url,
+            "amount_usd": data.amount_usd,
+            "bonus_usd": data.bonus_usd,
+            "total_usd": data.total_usd,
+            "instructions": "Open the checkout_url in a browser to complete payment. Credits will be added automatically after payment succeeds."
+        });
+
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
