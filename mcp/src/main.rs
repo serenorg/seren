@@ -246,6 +246,15 @@ async fn require_oauth_auth(
     mut req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    tracing::debug!(
+        event = "oauth_auth_start",
+        method = %method,
+        uri = %uri,
+        "Starting OAuth authentication"
+    );
+
     let session_id = req
         .headers()
         .get(axum::http::header::HeaderName::from_static(
@@ -254,6 +263,12 @@ async fn require_oauth_auth(
         .and_then(|v| v.to_str().ok())
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty());
+
+    tracing::debug!(
+        event = "oauth_auth_session",
+        session_id = ?session_id,
+        "Session ID from request"
+    );
 
     // Prefer an explicit Authorization header.
     let mut token = extract_bearer_token(&req).map(|t| t.to_string());
@@ -265,18 +280,51 @@ async fn require_oauth_auth(
     {
         token = state.session_tokens.lock().await.get(sid).cloned();
         token_from_session_cache = token.is_some();
+        if token_from_session_cache {
+            tracing::debug!(
+                event = "oauth_auth_token_from_cache",
+                session_id = %sid,
+                "Retrieved token from session cache"
+            );
+        }
     }
 
     let Some(token) = token else {
+        tracing::warn!(
+            event = "oauth_auth_no_token",
+            method = %method,
+            uri = %uri,
+            session_id = ?session_id,
+            "No bearer token found in request or session cache"
+        );
         return state.unauthorized_response("unauthorized", "Bearer token required");
     };
 
     // Validate token against database and get client metadata.
     // If token is expired and came from the session cache (not the client),
     // attempt a transparent refresh using the refresh token.
+    tracing::debug!(
+        event = "oauth_auth_validating_token",
+        token_from_cache = token_from_session_cache,
+        "Validating access token"
+    );
+
     let (access_token, new_token) = match state.store.get_access_token(&token).await {
-        Ok(Some(access_token)) => (access_token, None),
+        Ok(Some(access_token)) => {
+            tracing::debug!(
+                event = "oauth_auth_token_valid",
+                client_id = %access_token.client_id,
+                user_id = %access_token.user_id,
+                "Access token validated successfully"
+            );
+            (access_token, None)
+        }
         Ok(None) => {
+            tracing::debug!(
+                event = "oauth_auth_token_not_found",
+                token_from_cache = token_from_session_cache,
+                "Access token not found in database"
+            );
             if token_from_session_cache {
                 // Token not valid - check if it exists but is expired
                 match try_transparent_refresh(&state, &token).await {
@@ -310,11 +358,21 @@ async fn require_oauth_auth(
                 }
             } else {
                 // If the client provided this token, the client should be responsible for refresh.
+                tracing::debug!(
+                    event = "oauth_auth_token_invalid_from_client",
+                    "Client-provided token is invalid or expired"
+                );
                 return state.unauthorized_response("invalid_token", "Token is invalid or expired");
             }
         }
         Err(e) => {
-            tracing::error!("Token validation error: {}", e);
+            tracing::error!(
+                event = "oauth_auth_token_validation_error",
+                error = %e,
+                method = %method,
+                uri = %uri,
+                "Token validation database error - returning 500"
+            );
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 axum::Json(serde_json::json!({
@@ -378,8 +436,37 @@ async fn require_oauth_auth(
             .put(sid.clone(), token.clone());
     }
 
-    let method = req.method().clone();
+    let req_method = req.method().clone();
+    let req_uri = req.uri().clone();
+    tracing::debug!(
+        event = "oauth_auth_calling_next",
+        method = %req_method,
+        uri = %req_uri,
+        client_id = %access_token.client_id,
+        "Authentication successful, calling next handler"
+    );
+
     let response = next.run(req).await;
+
+    let response_status = response.status();
+    if response_status.is_server_error() {
+        tracing::error!(
+            event = "oauth_auth_response_error",
+            method = %req_method,
+            uri = %req_uri,
+            status = %response_status,
+            client_id = %access_token.client_id,
+            "Handler returned server error after OAuth auth"
+        );
+    } else {
+        tracing::debug!(
+            event = "oauth_auth_response",
+            method = %req_method,
+            uri = %req_uri,
+            status = %response_status,
+            "Request completed"
+        );
+    }
 
     // For the initial session-creating initialize request, rmcp returns `Mcp-Session-Id`
     // in the response headers. Cache the token under that session id so clients can
@@ -397,7 +484,7 @@ async fn require_oauth_auth(
     }
 
     // Best-effort cleanup: when a session is explicitly closed, drop the cached token.
-    if method == axum::http::Method::DELETE
+    if req_method == axum::http::Method::DELETE
         && let Some(sid) = session_id
     {
         state.session_tokens.lock().await.pop(&sid);
