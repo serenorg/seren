@@ -281,24 +281,6 @@ fn default_suggest_type() -> Option<String> {
     Some("both".to_string())
 }
 
-/// Response from the suggest endpoint
-#[derive(Debug, Deserialize, Serialize)]
-pub struct SuggestResponse {
-    pub publishers: Vec<PublisherSuggestion>,
-    pub agents: Vec<serde_json::Value>,
-}
-
-/// A single publisher suggestion
-#[derive(Debug, Deserialize, Serialize)]
-pub struct PublisherSuggestion {
-    pub slug: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub match_reason: String,
-    pub score: f64,
-    pub capabilities: Vec<String>,
-}
-
 /// Parameters for estimating query cost
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct EstimateQueryCostParams {
@@ -2399,22 +2381,17 @@ impl SerenMcpServer {
 
         let url = format!("{}/api/agent/publishers/suggest", base_url);
 
-        // Get auth token
-        let token = match &self.auth {
-            SerenAuth::StaticToken(t) => t.clone(),
-            SerenAuth::FromRequestBearer => {
-                extensions
-                    .get::<String>()
-                    .cloned()
-                    .ok_or_else(|| McpError::internal_error("Missing bearer token", None))?
-            }
-        };
+        // Get auth token using existing helper
+        let token = self.bearer_token(&extensions)?;
 
         // Make HTTP request to suggest endpoint with query params
         let response = self
             .http_client
             .get(&url)
-            .query(&[("query", params.query.as_str()), ("type", query_type.as_str())])
+            .query(&[
+                ("query", params.query.as_str()),
+                ("type", query_type.as_str()),
+            ])
             .query(&[("limit", limit)])
             .header("Authorization", format!("Bearer {}", token))
             .send()
@@ -2431,10 +2408,9 @@ impl SerenMcpServer {
         }
 
         // Parse response as DataResponse<SuggestResponse>
-        let data: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| McpError::internal_error(format!("Failed to parse response: {}", e), None))?;
+        let data: serde_json::Value = response.json().await.map_err(|e| {
+            McpError::internal_error(format!("Failed to parse response: {}", e), None)
+        })?;
 
         // Return the full response
         Ok(CallToolResult::success(vec![json_content(&data)?]))
@@ -2486,10 +2462,7 @@ impl SerenMcpServer {
         description = "Get your complete wallet status including SerenBucks balance and on-chain USDC balance (if local wallet configured). Use this to check payment capabilities before executing paid queries or API calls.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
-    async fn get_wallet_status(
-        &self,
-        extensions: Extensions,
-    ) -> Result<CallToolResult, McpError> {
+    async fn get_wallet_status(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
         // Get SerenBucks balance
         let api_client = self.api_client(&extensions)?;
         let prepaid_balance = api_client
@@ -2503,7 +2476,7 @@ impl SerenMcpServer {
         let (local_wallet_address, onchain_usdc_balance) = if let Some(wallet) = &self.wallet {
             let address = wallet.address();
             let balance = query_usdc_balance(address).await.ok();
-            (Some(format!("{:?}", address)), balance)
+            (Some(address.to_string()), balance)
         } else {
             (None, None)
         };
