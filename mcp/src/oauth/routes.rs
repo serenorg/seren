@@ -1318,14 +1318,20 @@ async fn consent_page(
         csrf_token = html_escape(&consent.csrf_token)
     );
 
+    let server_host = state.server_host.trim_end_matches('/');
+    let csp = format!(
+        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' {}; base-uri 'none'; frame-ancestors 'none'",
+        server_host
+    );
+
     let mut headers = HeaderMap::new();
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(
-            "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://mcp.serendb.com; base-uri 'none'; frame-ancestors 'none'",
-        ),
+        HeaderValue::try_from(csp).unwrap_or_else(|_| {
+            HeaderValue::from_static("default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+        }),
     );
     headers.insert(
         axum::http::header::HeaderName::from_static("x-frame-options"),
