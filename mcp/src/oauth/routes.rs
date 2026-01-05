@@ -538,16 +538,13 @@ async fn callback(
     let upstream_expires_at =
         OffsetDateTime::now_utc() + Duration::seconds(token_body.expires_in.max(0));
 
-    let user_id = match try_extract_user_id_from_jwt(&token_body.access_token) {
-        Some(user_id) => user_id,
-        None => fetch_user_id(
-            &state.upstream_api_base_url,
-            &token_body.access_token,
-            &state.circuit_breaker,
-        )
-        .await
-        .ok_or_else(|| OAuthError::ServerError("Failed to fetch user id".into()))?,
-    };
+    let user_id = fetch_user_id(
+        &state.upstream_api_base_url,
+        &token_body.access_token,
+        &state.circuit_breaker,
+    )
+    .await
+    .ok_or_else(|| OAuthError::ServerError("Failed to fetch user id".into()))?;
 
     // Enforce per-user consent before issuing a downstream authorization code redirect.
     let approved = state
@@ -915,7 +912,7 @@ struct RevokeRequest {
 
 /// Token revocation endpoint per RFC 7009.
 ///
-/// Revokes refresh tokens. Access tokens are JWTs validated via JWKS, so they
+/// Revokes refresh tokens. Access tokens are JWTs issued by this server, so they
 /// cannot be server-side revoked and remain valid until expiry.
 /// Per the spec, this endpoint always returns 200 OK even if the token was
 /// invalid or already revoked.
@@ -1144,23 +1141,6 @@ fn redirect_with_error(
         redirect_url.query_pairs_mut().append_pair("state", state);
     }
     Ok(Redirect::temporary(redirect_url.as_str()).into_response())
-}
-
-/// Extract the `sub` (user id) claim from a JWT access token.
-///
-/// This avoids an extra network call to `GET /users/me` during the OAuth callback.
-/// If the token isn't a JWT (or parsing fails), callers should fall back to the user-info API.
-fn try_extract_user_id_from_jwt(access_token: &str) -> Option<Uuid> {
-    let payload_b64 = access_token.split('.').nth(1)?;
-    use base64::Engine as _;
-    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload_b64)
-        .ok()?;
-    let payload_json: serde_json::Value = serde_json::from_slice(&payload).ok()?;
-    payload_json
-        .get("sub")
-        .and_then(|v| v.as_str())
-        .and_then(|s| Uuid::parse_str(s).ok())
 }
 
 async fn fetch_user_id(

@@ -14,12 +14,11 @@ use uuid::Uuid;
 
 /// PKCE code challenge methods (RFC 7636)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(
-    type_name = "mcp_oauth.pkce_method",
-    rename_all = "SCREAMING_SNAKE_CASE"
-)]
+#[sqlx(type_name = "mcp_oauth.pkce_method")]
 pub enum PkceMethod {
+    #[sqlx(rename = "plain")]
     Plain,
+    #[sqlx(rename = "S256")]
     S256,
 }
 
@@ -446,8 +445,10 @@ impl TokenStore {
             r#"
             UPDATE mcp_oauth.refresh_tokens
             SET token = $1, expires_at = $2,
-                upstream_access_token = $3, upstream_refresh_token = $4, upstream_expires_at = $5
-            WHERE token = $6
+                upstream_access_token = $3,
+                upstream_refresh_token = COALESCE($4, upstream_refresh_token),
+                upstream_expires_at = $5
+            WHERE token = $6 AND (expires_at IS NULL OR expires_at > NOW())
             "#,
         )
         .bind(new_token)
@@ -456,6 +457,35 @@ impl TokenStore {
         .bind(upstream_refresh_token)
         .bind(upstream_expires_at)
         .bind(old_token)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Update the upstream token vault for a refresh token without rotating the MCP refresh token.
+    /// Keeps the existing upstream refresh token if the upstream provider omits it.
+    pub async fn update_upstream_tokens(
+        &self,
+        mcp_refresh_token: &str,
+        upstream_access_token: &str,
+        upstream_refresh_token: Option<&str>,
+        upstream_expires_at: OffsetDateTime,
+    ) -> Result<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE mcp_oauth.refresh_tokens
+            SET upstream_access_token = $2,
+                upstream_refresh_token = COALESCE($3, upstream_refresh_token),
+                upstream_expires_at = $4
+            WHERE token = $1 AND (expires_at IS NULL OR expires_at > NOW())
+            "#,
+        )
+        .bind(mcp_refresh_token)
+        .bind(upstream_access_token)
+        .bind(upstream_refresh_token)
+        .bind(upstream_expires_at)
         .execute(&self.pool)
         .await
         .map_err(McpError::Database)?;

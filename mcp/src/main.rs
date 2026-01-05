@@ -170,6 +170,7 @@ async fn require_oauth_auth(
 
     // Prefer an explicit Authorization header.
     let mut token = extract_bearer_token(&req).map(|t| t.to_string());
+    let mut token_from_session_cache = false;
 
     // If missing, try to recover the token from the session cache.
     // First check the in-memory LRU cache (fast path), then fall back to database (survives restarts).
@@ -179,6 +180,7 @@ async fn require_oauth_auth(
         // Try LRU cache first
         token = state.session_tokens.lock().await.get(sid).cloned();
         if token.is_some() {
+            token_from_session_cache = true;
             tracing::debug!(
                 event = "oauth_auth_token_from_lru_cache",
                 session_id = %sid,
@@ -189,6 +191,7 @@ async fn require_oauth_auth(
             match state.store.get_session_token(sid).await {
                 Ok(Some(session_token)) => {
                     token = Some(session_token.access_token.clone());
+                    token_from_session_cache = true;
                     // Populate the LRU cache for future requests
                     state
                         .session_tokens
@@ -221,7 +224,7 @@ async fn require_oauth_auth(
         }
     }
 
-    let Some(token) = token else {
+    let Some(mut token) = token else {
         tracing::warn!(
             event = "oauth_auth_no_token",
             method = %method,
@@ -255,7 +258,126 @@ async fn require_oauth_auth(
                 error = %e,
                 "MCP JWT validation failed"
             );
-            return state.unauthorized_response("invalid_token", "Token is invalid or expired");
+
+            // Streamable HTTP clients may omit Authorization after the initial request.
+            // If we have a session id, re-issue a fresh MCP access token server-side and continue.
+            if let Some(ref sid) = session_id {
+                tracing::debug!(
+                    event = "oauth_auth_jwt_invalid_attempt_session_reissue",
+                    session_id = %sid,
+                    token_from_session_cache = token_from_session_cache,
+                    "Attempting to re-issue MCP access token from session"
+                );
+
+                let session_token = match state.store.get_session_token(sid).await {
+                    Ok(Some(session_token)) => session_token,
+                    Ok(None) => {
+                        return state.unauthorized_response(
+                            "invalid_token",
+                            "Session not found or expired (re-authentication required)",
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            event = "oauth_auth_session_db_error",
+                            session_id = %sid,
+                            error = %e,
+                            "Failed to lookup session token for re-issue"
+                        );
+                        return (
+                            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                            axum::Json(serde_json::json!({
+                                "error": "server_error",
+                                "error_description": "Session lookup failed",
+                            })),
+                        )
+                            .into_response();
+                    }
+                };
+
+                let Some(session_client_id) = session_token.client_id else {
+                    return state.unauthorized_response(
+                        "invalid_token",
+                        "Session missing client id (re-authentication required)",
+                    );
+                };
+
+                let refresh_token = match state
+                    .store
+                    .get_refresh_token_by_user_client(session_token.user_id, &session_client_id)
+                    .await
+                {
+                    Ok(Some(refresh_token)) => refresh_token,
+                    Ok(None) => {
+                        return state.unauthorized_response(
+                            "invalid_token",
+                            "No active session found for this user/client (re-authentication required)",
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            event = "oauth_auth_refresh_token_db_error",
+                            session_id = %sid,
+                            user_id = %session_token.user_id,
+                            client_id = %session_client_id,
+                            error = %e,
+                            "Failed to lookup refresh token for session re-issue"
+                        );
+                        return (
+                            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                            axum::Json(serde_json::json!({
+                                "error": "server_error",
+                                "error_description": "Token lookup failed",
+                            })),
+                        )
+                            .into_response();
+                    }
+                };
+
+                let (new_token, _) = match state.oauth_state.jwt_signer.sign_access_token(
+                    session_token.user_id,
+                    &session_client_id,
+                    &refresh_token.scope,
+                    None,
+                    None,
+                ) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::error!(
+                            event = "oauth_auth_session_reissue_failed",
+                            session_id = %sid,
+                            error = %e,
+                            "Failed to sign new MCP access token"
+                        );
+                        return (
+                            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                            axum::Json(serde_json::json!({
+                                "error": "server_error",
+                                "error_description": "Token signing failed",
+                            })),
+                        )
+                            .into_response();
+                    }
+                };
+
+                token = new_token;
+
+                match state.oauth_state.jwt_signer.validate_access_token(&token) {
+                    Ok(claims) => claims,
+                    Err(e) => {
+                        tracing::warn!(
+                            event = "oauth_auth_session_reissue_validation_failed",
+                            session_id = %sid,
+                            error = %e,
+                            "Re-issued MCP token failed validation"
+                        );
+                        return state
+                            .unauthorized_response("invalid_token", "Token is invalid or expired");
+                    }
+                }
+            } else {
+                return state.unauthorized_response("invalid_token", "Token is invalid or expired");
+            }
         }
     };
 
@@ -275,7 +397,7 @@ async fn require_oauth_auth(
     };
 
     // Look up upstream token for API calls (server-side only, never exposed to client)
-    let upstream_token = match state
+    let refresh_token = match state
         .store
         .get_refresh_token_by_user_client(user_id, &claims.client_id)
         .await
@@ -287,7 +409,7 @@ async fn require_oauth_auth(
                 client_id = %claims.client_id,
                 "Found upstream token for API calls"
             );
-            Some(refresh_token.upstream_access_token)
+            refresh_token
         }
         Ok(None) => {
             tracing::warn!(
@@ -296,7 +418,10 @@ async fn require_oauth_auth(
                 client_id = %claims.client_id,
                 "No upstream token found - user may need to re-authenticate"
             );
-            None
+            return state.unauthorized_response(
+                "invalid_token",
+                "No active session found for this token (re-authentication required)",
+            );
         }
         Err(e) => {
             tracing::error!(
@@ -306,14 +431,141 @@ async fn require_oauth_auth(
                 error = %e,
                 "Failed to look up upstream token"
             );
-            None
+            return (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                axum::Json(serde_json::json!({
+                    "error": "server_error",
+                    "error_description": "Token lookup failed",
+                })),
+            )
+                .into_response();
         }
     };
 
-    // Inject upstream token for API calls (or fall back to MCP token if not found)
-    // The upstream token is what the backend API expects
-    let api_token = upstream_token.as_ref().unwrap_or(&token);
-    if let Ok(v) = axum::http::HeaderValue::from_str(&format!("Bearer {}", api_token)) {
+    let mcp_refresh_token = refresh_token.token;
+    let upstream_expires_at = refresh_token.upstream_expires_at;
+    let mut upstream_access_token = refresh_token.upstream_access_token;
+    let upstream_refresh_token = refresh_token.upstream_refresh_token;
+
+    // Ensure the upstream access token is fresh for backend API calls.
+    let now = time::OffsetDateTime::now_utc();
+    let refresh_window = time::Duration::seconds(60);
+
+    if upstream_expires_at <= now + refresh_window {
+        tracing::debug!(
+            event = "oauth_auth_upstream_token_expired",
+            user_id = %user_id,
+            client_id = %claims.client_id,
+            "Upstream access token expired or near expiry; refreshing"
+        );
+
+        let Some(upstream_refresh_token) = upstream_refresh_token else {
+            tracing::warn!(
+                event = "oauth_auth_missing_upstream_refresh_token",
+                user_id = %user_id,
+                client_id = %claims.client_id,
+                "Missing upstream refresh token"
+            );
+            return state.unauthorized_response(
+                "invalid_token",
+                "Upstream session cannot be refreshed (re-authentication required)",
+            );
+        };
+
+        let token_body = match crate::oauth::routes::exchange_upstream_token(
+            &state.oauth_state.http,
+            &state.oauth_state.upstream_api_base_url,
+            vec![
+                ("grant_type", "refresh_token"),
+                ("refresh_token", upstream_refresh_token.as_str()),
+                ("client_id", state.oauth_state.upstream_client_id.as_str()),
+            ],
+            &state.oauth_state.circuit_breaker,
+        )
+        .await
+        {
+            Ok(body) => body,
+            Err(crate::oauth::routes::OAuthError::InvalidGrant(_))
+            | Err(crate::oauth::routes::OAuthError::InvalidClient) => {
+                return state.unauthorized_response(
+                    "invalid_token",
+                    "Upstream authorization expired (re-authentication required)",
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    event = "oauth_auth_upstream_refresh_failed",
+                    user_id = %user_id,
+                    client_id = %claims.client_id,
+                    error = ?e,
+                    "Failed to refresh upstream token"
+                );
+                return (
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                    axum::Json(serde_json::json!({
+                        "error": "server_error",
+                        "error_description": "Upstream service temporarily unavailable",
+                    })),
+                )
+                    .into_response();
+            }
+        };
+
+        let crate::oauth::routes::UpstreamTokenResponse {
+            access_token: new_upstream_access_token,
+            expires_in,
+            refresh_token: new_upstream_refresh_token,
+            ..
+        } = token_body;
+
+        let new_upstream_expires_at = now + time::Duration::seconds(expires_in.max(0));
+
+        match state
+            .store
+            .update_upstream_tokens(
+                &mcp_refresh_token,
+                &new_upstream_access_token,
+                new_upstream_refresh_token.as_deref(),
+                new_upstream_expires_at,
+            )
+            .await
+        {
+            Ok(true) => {
+                tracing::debug!(
+                    event = "oauth_auth_upstream_token_refreshed",
+                    user_id = %user_id,
+                    client_id = %claims.client_id,
+                    "Upstream token refreshed and persisted"
+                );
+            }
+            Ok(false) => {
+                tracing::warn!(
+                    event = "oauth_auth_upstream_token_refresh_not_persisted",
+                    user_id = %user_id,
+                    client_id = %claims.client_id,
+                    "Refresh token record disappeared during refresh"
+                );
+                return state.unauthorized_response(
+                    "invalid_token",
+                    "Session revoked (re-authentication required)",
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    event = "oauth_auth_upstream_token_persist_error",
+                    user_id = %user_id,
+                    client_id = %claims.client_id,
+                    error = %e,
+                    "Failed to persist refreshed upstream token"
+                );
+            }
+        }
+
+        upstream_access_token = new_upstream_access_token;
+    }
+
+    // Inject upstream token for API calls (backend expects upstream bearer token).
+    if let Ok(v) = axum::http::HeaderValue::from_str(&format!("Bearer {}", upstream_access_token)) {
         req.headers_mut()
             .insert(axum::http::header::AUTHORIZATION, v);
     }
@@ -377,7 +629,7 @@ async fn require_oauth_auth(
             .put(sid.clone(), token.clone());
 
         // Persist to database asynchronously (fire-and-forget to not block request)
-        // Use refresh token TTL for session expiry (7 days) to allow session persistence
+        // Use refresh token TTL for session expiry to allow session persistence
         let store = state.store.clone();
         let sid_clone = sid.clone();
         let token_clone = token.clone();
@@ -464,7 +716,7 @@ async fn require_oauth_auth(
             .put(sid.clone(), token.clone());
 
         // Persist to database asynchronously (fire-and-forget to not block response)
-        // Use refresh token TTL for session expiry (7 days) to allow session persistence
+        // Use refresh token TTL for session expiry to allow session persistence
         let store = state.store.clone();
         let sid_clone = sid;
         let token_clone = token.clone();
