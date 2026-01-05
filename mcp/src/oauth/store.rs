@@ -12,8 +12,8 @@ use std::sync::{Arc, Mutex};
 use time::{Duration, OffsetDateTime};
 
 // Token TTL constants
-// NOTE: These should match serencore's values in seren-core/src/auth/mod.rs
-// to keep session lifetimes consistent across the stack.
+// NOTE: These should match the upstream API's values to keep session lifetimes
+// consistent across the stack.
 pub const REFRESH_TOKEN_TTL_HOURS: i64 = 365 * 24; // 365 days (1 year)
 
 /// OAuth2 Client registration
@@ -115,7 +115,8 @@ pub struct AuthorizationCode {
     pub upstream_expires_at: OffsetDateTime,
 }
 
-/// Refresh token
+/// MCP refresh token with server-side upstream token storage.
+/// The MCP refresh token is what clients use; upstream tokens are used internally for API calls.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RefreshToken {
     pub token: String,
@@ -124,15 +125,20 @@ pub struct RefreshToken {
     pub scope: String,
     pub expires_at: Option<OffsetDateTime>,
     pub created_at: OffsetDateTime,
+    // Upstream token vault (server-side only, never exposed to clients)
+    pub upstream_access_token: String,
+    pub upstream_refresh_token: Option<String>,
+    pub upstream_expires_at: OffsetDateTime,
 }
 
 /// MCP Session token mapping
-/// Maps MCP session IDs to OAuth access tokens for session persistence across pod restarts
+/// Maps MCP session IDs to MCP access tokens for session persistence across pod restarts
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct McpSessionToken {
     pub session_id: String,
     pub access_token: String,
     pub client_id: Option<String>,
+    pub user_id: String,
     pub expires_at: OffsetDateTime,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
@@ -338,13 +344,14 @@ impl TokenStore {
 
     // === Refresh token operations ===
 
-    /// Save a refresh token
+    /// Save a refresh token with upstream token vault
     pub async fn save_refresh_token(&self, token: &RefreshToken) -> Result<()> {
         sqlx::query(
             r#"
             INSERT INTO mcp_oauth.refresh_tokens
-                (token, client_id, user_id, scope, expires_at)
-            VALUES ($1, $2, $3, $4, $5)
+                (token, client_id, user_id, scope, expires_at,
+                upstream_access_token, upstream_refresh_token, upstream_expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             "#,
         )
         .bind(&token.token)
@@ -352,6 +359,9 @@ impl TokenStore {
         .bind(&token.user_id)
         .bind(&token.scope)
         .bind(token.expires_at)
+        .bind(&token.upstream_access_token)
+        .bind(&token.upstream_refresh_token)
+        .bind(token.upstream_expires_at)
         .execute(&self.pool)
         .await
         .map_err(McpError::Database)?;
@@ -359,11 +369,12 @@ impl TokenStore {
         Ok(())
     }
 
-    /// Get a refresh token
+    /// Get a refresh token (includes upstream token vault)
     pub async fn get_refresh_token(&self, token: &str) -> Result<Option<RefreshToken>> {
         let refresh_token = sqlx::query_as::<_, RefreshToken>(
             r#"
-            SELECT token, client_id, user_id, scope, expires_at, created_at
+            SELECT token, client_id, user_id, scope, expires_at, created_at,
+                upstream_access_token, upstream_refresh_token, upstream_expires_at
             FROM mcp_oauth.refresh_tokens
             WHERE token = $1 AND (expires_at IS NULL OR expires_at > NOW())
             "#,
@@ -388,27 +399,82 @@ impl TokenStore {
     }
 
     /// Update a refresh token with new values (for token rotation)
+    /// Also updates the upstream token vault with refreshed upstream tokens
     pub async fn update_refresh_token(
         &self,
         old_token: &str,
         new_token: &str,
         expires_at: Option<OffsetDateTime>,
+        upstream_access_token: &str,
+        upstream_refresh_token: Option<&str>,
+        upstream_expires_at: OffsetDateTime,
     ) -> Result<bool> {
         let result = sqlx::query(
             r#"
             UPDATE mcp_oauth.refresh_tokens
-            SET token = $1, expires_at = $2
-            WHERE token = $3
+            SET token = $1, expires_at = $2,
+                upstream_access_token = $3, upstream_refresh_token = $4, upstream_expires_at = $5
+            WHERE token = $6
             "#,
         )
         .bind(new_token)
         .bind(expires_at)
+        .bind(upstream_access_token)
+        .bind(upstream_refresh_token)
+        .bind(upstream_expires_at)
         .bind(old_token)
         .execute(&self.pool)
         .await
         .map_err(McpError::Database)?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    /// Get the upstream access token for a given MCP refresh token.
+    /// Reserved for future use when looking up tokens by MCP refresh token.
+    #[allow(dead_code)]
+    pub async fn get_upstream_token(
+        &self,
+        mcp_refresh_token: &str,
+    ) -> Result<Option<(String, OffsetDateTime)>> {
+        let result: Option<(String, OffsetDateTime)> = sqlx::query_as(
+            r#"
+            SELECT upstream_access_token, upstream_expires_at
+            FROM mcp_oauth.refresh_tokens
+            WHERE token = $1 AND (expires_at IS NULL OR expires_at > NOW())
+            "#,
+        )
+        .bind(mcp_refresh_token)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(result)
+    }
+
+    /// Find refresh token by user and client (for looking up upstream tokens during auth)
+    pub async fn get_refresh_token_by_user_client(
+        &self,
+        user_id: &str,
+        client_id: &str,
+    ) -> Result<Option<RefreshToken>> {
+        let refresh_token = sqlx::query_as::<_, RefreshToken>(
+            r#"
+            SELECT token, client_id, user_id, scope, expires_at, created_at,
+                upstream_access_token, upstream_refresh_token, upstream_expires_at
+            FROM mcp_oauth.refresh_tokens
+            WHERE user_id = $1 AND client_id = $2 AND (expires_at IS NULL OR expires_at > NOW())
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(user_id)
+        .bind(client_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(refresh_token)
     }
 
     // === Consent operations ===
@@ -530,16 +596,18 @@ impl TokenStore {
         session_id: &str,
         access_token: &str,
         client_id: Option<&str>,
+        user_id: &str,
         expires_at: OffsetDateTime,
     ) -> Result<()> {
         sqlx::query(
             r#"
             INSERT INTO mcp_oauth.mcp_session_tokens
-                (session_id, access_token, client_id, expires_at, updated_at)
-            VALUES ($1, $2, $3, $4, NOW())
+                (session_id, access_token, client_id, user_id, expires_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, NOW())
             ON CONFLICT (session_id) DO UPDATE SET
                 access_token = EXCLUDED.access_token,
                 client_id = COALESCE(EXCLUDED.client_id, mcp_oauth.mcp_session_tokens.client_id),
+                user_id = EXCLUDED.user_id,
                 expires_at = EXCLUDED.expires_at,
                 updated_at = NOW()
             "#,
@@ -547,6 +615,7 @@ impl TokenStore {
         .bind(session_id)
         .bind(access_token)
         .bind(client_id)
+        .bind(user_id)
         .bind(expires_at)
         .execute(&self.pool)
         .await
@@ -560,7 +629,7 @@ impl TokenStore {
     pub async fn get_session_token(&self, session_id: &str) -> Result<Option<McpSessionToken>> {
         let session_token = sqlx::query_as::<_, McpSessionToken>(
             r#"
-            SELECT session_id, access_token, client_id, expires_at, created_at, updated_at
+            SELECT session_id, access_token, client_id, user_id, expires_at, created_at, updated_at
             FROM mcp_oauth.mcp_session_tokens
             WHERE session_id = $1 AND expires_at > NOW()
             "#,

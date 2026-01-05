@@ -11,6 +11,7 @@
 //! actual user authentication to upstream `/oauth2/*` (Authorization Code + PKCE).
 
 use crate::oauth::circuit_breaker::OAuthCircuitBreaker;
+use crate::oauth::jwt::McpJwtSigner;
 use crate::oauth::store::{
     AuthRequest, AuthorizationCode, REFRESH_TOKEN_TTL_HOURS, RefreshToken, TokenStore,
 };
@@ -45,6 +46,8 @@ pub struct OAuthState {
     pub upstream_oauth_redirect_base_url: String,
     /// Circuit breaker for upstream API resilience.
     pub circuit_breaker: Arc<OAuthCircuitBreaker>,
+    /// JWT signer for MCP-issued access tokens.
+    pub jwt_signer: Arc<McpJwtSigner>,
 }
 
 const SUPPORTED_GRANT_TYPES: &[&str] = &["authorization_code", "refresh_token"];
@@ -81,10 +84,9 @@ async fn protected_resource_metadata(
     let server_host = state.server_host.trim_end_matches('/').to_string();
     Json(ProtectedResourceMetadata {
         resource: format!("{}/mcp", server_host),
-        authorization_servers: vec![format!(
-            "{}/.well-known/oauth-authorization-server",
-            server_host
-        )],
+        // RFC 9728: `authorization_servers` contains authorization server issuer identifiers
+        // (NOT the metadata endpoint URL). The client will discover metadata from the issuer.
+        authorization_servers: vec![server_host.clone()],
         scopes_supported: ALLOWED_SCOPES.iter().map(|s| (*s).into()).collect(),
         bearer_methods_supported: vec!["header".into()],
         resource_documentation: Some("https://mcp.serendb.com".into()),
@@ -428,7 +430,7 @@ struct CallbackQuery {
     error_description: Option<String>,
 }
 
-/// Response from the upstream serencore OAuth token endpoint.
+/// Response from the upstream OAuth token endpoint.
 #[derive(Debug, serde::Deserialize)]
 pub struct UpstreamTokenResponse {
     pub access_token: String,
@@ -720,40 +722,51 @@ async fn token(
                 return Err(OAuthError::InvalidGrant("PKCE verification failed".into()));
             }
 
-            // Save refresh token for token rotation (access tokens are JWTs validated via JWKS)
-            if let Some(refresh_token_str) = auth_code.upstream_refresh_token.as_deref() {
-                let refresh_token = RefreshToken {
-                    token: refresh_token_str.to_string(),
-                    client_id: auth_code.client_id.clone(),
-                    user_id: auth_code.user_id.clone(),
-                    scope: auth_code.scope.clone(),
-                    expires_at: Some(TokenStore::token_expiry(REFRESH_TOKEN_TTL_HOURS)),
-                    created_at: OffsetDateTime::now_utc(),
-                };
-                state
-                    .store
-                    .save_refresh_token(&refresh_token)
-                    .await
-                    .map_err(|e| OAuthError::ServerError(e.to_string()))?;
-            }
+            // Mint MCP access token (JWT signed by this server)
+            let (mcp_access_token, mcp_expires_in) = state
+                .jwt_signer
+                .sign_access_token(
+                    &auth_code.user_id,
+                    &auth_code.client_id,
+                    &auth_code.scope,
+                    None, // email not available here
+                    None, // name not available here
+                )
+                .map_err(|e| OAuthError::ServerError(format!("Failed to sign token: {}", e)))?;
 
-            let expires_in = (auth_code.upstream_expires_at - OffsetDateTime::now_utc())
-                .whole_seconds()
-                .max(0);
+            // Generate MCP refresh token and store upstream tokens server-side
+            let mcp_refresh_token = TokenStore::generate_token();
+            let refresh_token = RefreshToken {
+                token: mcp_refresh_token.clone(),
+                client_id: auth_code.client_id.clone(),
+                user_id: auth_code.user_id.clone(),
+                scope: auth_code.scope.clone(),
+                expires_at: Some(TokenStore::token_expiry(REFRESH_TOKEN_TTL_HOURS)),
+                created_at: OffsetDateTime::now_utc(),
+                // Store upstream tokens server-side (never exposed to clients)
+                upstream_access_token: auth_code.upstream_access_token,
+                upstream_refresh_token: auth_code.upstream_refresh_token,
+                upstream_expires_at: auth_code.upstream_expires_at,
+            };
+            state
+                .store
+                .save_refresh_token(&refresh_token)
+                .await
+                .map_err(|e| OAuthError::ServerError(e.to_string()))?;
 
             debug!(
                 event = "oauth_token_complete",
                 grant_type = "authorization_code",
                 client_id = %auth_code.client_id,
                 user_id = %auth_code.user_id,
-                "Token exchange completed"
+                "Token exchange completed (MCP token issued)"
             );
 
             Ok(Json(TokenResponse {
-                access_token: auth_code.upstream_access_token,
+                access_token: mcp_access_token,
                 token_type: "Bearer".into(),
-                expires_in,
-                refresh_token: auth_code.upstream_refresh_token,
+                expires_in: mcp_expires_in,
+                refresh_token: Some(mcp_refresh_token),
                 scope: auth_code.scope,
             }))
         }
@@ -798,13 +811,22 @@ async fn token(
             )
             .await?;
 
-            // Refresh upstream tokens (access tokens are JWTs validated via JWKS)
+            // Get the stored upstream refresh token for server-side refresh
+            let upstream_refresh_token =
+                refresh_token
+                    .upstream_refresh_token
+                    .as_ref()
+                    .ok_or_else(|| {
+                        OAuthError::ServerError("No upstream refresh token stored".into())
+                    })?;
+
+            // Refresh upstream tokens server-side (using stored upstream refresh token)
             let token_body = exchange_upstream_token(
                 &state.http,
                 &state.upstream_api_base_url,
                 vec![
                     ("grant_type", "refresh_token"),
-                    ("refresh_token", refresh_token_str.as_str()),
+                    ("refresh_token", upstream_refresh_token.as_str()),
                     ("client_id", state.upstream_client_id.as_str()),
                 ],
                 &state.circuit_breaker,
@@ -816,22 +838,34 @@ async fn token(
                 debug!(scope = %granted_scope, "Upstream token refreshed");
             }
 
-            let new_expires_at =
+            let new_upstream_expires_at =
                 OffsetDateTime::now_utc() + Duration::seconds(token_body.expires_in.max(0));
 
-            let new_access_token_str = token_body.access_token;
-            // Always rotate refresh token for security (don't reuse the old one)
-            let new_refresh_token_str = token_body
-                .refresh_token
-                .unwrap_or_else(TokenStore::generate_token);
+            // Mint new MCP access token
+            let (new_mcp_access_token, mcp_expires_in) = state
+                .jwt_signer
+                .sign_access_token(
+                    &refresh_token.user_id,
+                    &refresh_token.client_id,
+                    &refresh_token.scope,
+                    None,
+                    None,
+                )
+                .map_err(|e| OAuthError::ServerError(format!("Failed to sign token: {}", e)))?;
 
-            // Update refresh token row with rotated token
+            // Generate new MCP refresh token (rotation)
+            let new_mcp_refresh_token = TokenStore::generate_token();
+
+            // Update stored upstream tokens and rotate MCP refresh token
             let updated = state
                 .store
                 .update_refresh_token(
                     &refresh_token_str,
-                    &new_refresh_token_str,
+                    &new_mcp_refresh_token,
                     Some(TokenStore::token_expiry(REFRESH_TOKEN_TTL_HOURS)),
+                    &token_body.access_token,
+                    token_body.refresh_token.as_deref(),
+                    new_upstream_expires_at,
                 )
                 .await
                 .map_err(|e| OAuthError::ServerError(e.to_string()))?;
@@ -839,23 +873,19 @@ async fn token(
                 return Err(OAuthError::InvalidGrant("refresh_token not found".into()));
             }
 
-            let expires_in = (new_expires_at - OffsetDateTime::now_utc())
-                .whole_seconds()
-                .max(0);
-
             debug!(
                 event = "oauth_token_complete",
                 grant_type = "refresh_token",
                 client_id = %refresh_token.client_id,
                 user_id = %refresh_token.user_id,
-                "Token refresh completed"
+                "Token refresh completed (MCP token issued)"
             );
 
             Ok(Json(TokenResponse {
-                access_token: new_access_token_str,
+                access_token: new_mcp_access_token,
                 token_type: "Bearer".into(),
-                expires_in,
-                refresh_token: Some(new_refresh_token_str),
+                expires_in: mcp_expires_in,
+                refresh_token: Some(new_mcp_refresh_token),
                 scope: refresh_token.scope,
             }))
         }
@@ -983,7 +1013,7 @@ async fn validate_client_credentials(
     Ok(client)
 }
 
-/// Exchange tokens with the upstream serencore OAuth server.
+/// Exchange tokens with the upstream OAuth server.
 /// Used for both authorization code exchange and refresh token flows.
 pub async fn exchange_upstream_token(
     http_client: &reqwest::Client,

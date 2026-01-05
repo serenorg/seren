@@ -76,8 +76,12 @@ sudo mv seren-mcp /usr/local/bin/
 | `AUTH_TOKEN` | Auth token for `start:http` (bearer) | Required for `start:http` |
 | `DATABASE_URL` | Postgres URL for OAuth token storage | Required for `start:oauth` |
 | `PUBLIC_URL` | Public base URL of this server | Required for `start:oauth` |
+| `JWT_SECRET` | Secret key for signing MCP access tokens (min 32 bytes) | Required for `start:oauth` |
 | `OAUTH_REDIRECT_URL` | Public URL for OAuth browser redirects | Defaults to `API_URL` |
+| `UPSTREAM_TIMEOUT_SECS` | Timeout for upstream API requests | `15` |
+| `UPSTREAM_CONNECT_TIMEOUT_SECS` | Connect timeout for upstream API | `5` |
 | `WALLET_PRIVATE_KEY` | Ethereum private key for x402 crypto payments (local mode only) | Optional |
+| `CLEANUP_TOKEN` | Bearer token to enable /cleanup endpoint | Disabled |
 | `HOST` | Listen host | `0.0.0.0` |
 | `PORT` | Listen port | `3000` |
 | `READ_ONLY` | Enable read-only mode (blocks write operations) | `false` |
@@ -176,24 +180,24 @@ For advanced users who want to pay for marketplace data using cryptocurrency, yo
 
 1. Set the `WALLET_PRIVATE_KEY` environment variable with your Ethereum private key:
 
-   ```bash
-   # In your Claude Desktop config or shell
-   export WALLET_PRIVATE_KEY="0x..."
-   ```
+    ```bash
+    # In your Claude Desktop config or shell
+    export WALLET_PRIVATE_KEY="0x..."
+    ```
 
-1. Configure spending thresholds in your config directory:
+2. Configure spending thresholds in your config directory:
 
-   - Linux/macOS: `~/.config/seren-mcp/signer.toml` (XDG, respects `$XDG_CONFIG_HOME`)
-   - Windows: `%APPDATA%\seren-mcp\signer.toml`
+    - Linux/macOS: `~/.config/seren-mcp/signer.toml` (XDG, respects `$XDG_CONFIG_HOME`)
+    - Windows: `%APPDATA%\seren-mcp\signer.toml`
 
-   ```toml
-   # Auto-approve payments under this amount (in USD)
-   # Payments above this threshold will prompt for confirmation
-   # Set to 0 to always prompt for confirmation
-   auto_approve_limit = 0.10
-   ```
+    ```toml
+    # Auto-approve payments under this amount (in USD)
+    # Payments above this threshold will prompt for confirmation
+    # Set to 0 to always prompt for confirmation
+    auto_approve_limit = 0.10
+    ```
 
-1. The config file is auto-created with safe defaults on first use.
+3. The config file is auto-created with safe defaults on first use.
 
 **How it works:**
 

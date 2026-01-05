@@ -58,7 +58,7 @@ struct SimpleAuthState {
     token: String,
 }
 
-/// Auth state for OAuth mode with JWKS-based JWT validation
+/// Auth state for OAuth mode with MCP JWT validation
 #[derive(Clone)]
 struct OAuthAuthState {
     store: TokenStore,
@@ -71,9 +71,6 @@ struct OAuthAuthState {
     session_tokens: Arc<Mutex<LruCache<String, String>>>,
     /// Shared OAuth state for endpoints and configuration.
     oauth_state: Arc<OAuthState>,
-    /// JWKS cache for JWT signature validation.
-    /// Validates serencore JWTs without database lookup.
-    jwks_cache: Arc<oauth::jwks::JwksCache>,
 }
 
 impl OAuthAuthState {
@@ -89,7 +86,7 @@ impl OAuthAuthState {
     ) -> axum::response::Response {
         let server_host = self.oauth_state.server_host.trim_end_matches('/');
         let www_authenticate = format!(
-            r#"Bearer realm="serendb", resource_metadata="{}/.well-known/oauth-protected-resource""#,
+            r#"Bearer realm="serendb", resource_metadata="{}/.well-known/oauth-protected-resource", scope="api""#,
             server_host
         );
 
@@ -139,9 +136,9 @@ async fn require_simple_auth(
 
 /// OAuth token validation middleware (for start:oauth mode)
 ///
-/// Uses JWKS to validate serencore JWTs without database lookups for token validation.
-/// Session tokens and client_id associations are still stored in the database for
-/// session persistence and agent tracking.
+/// Validates MCP-issued JWTs and looks up upstream tokens for API calls.
+/// MCP tokens are issued by this server and signed with HS256.
+/// Upstream tokens (for backend API calls) are stored server-side and never exposed to clients.
 async fn require_oauth_auth(
     axum::extract::State(state): axum::extract::State<OAuthAuthState>,
     mut req: axum::http::Request<axum::body::Body>,
@@ -173,7 +170,6 @@ async fn require_oauth_auth(
 
     // Prefer an explicit Authorization header.
     let mut token = extract_bearer_token(&req).map(|t| t.to_string());
-    let mut session_client_id: Option<String> = None;
 
     // If missing, try to recover the token from the session cache.
     // First check the in-memory LRU cache (fast path), then fall back to database (survives restarts).
@@ -193,7 +189,6 @@ async fn require_oauth_auth(
             match state.store.get_session_token(sid).await {
                 Ok(Some(session_token)) => {
                     token = Some(session_token.access_token.clone());
-                    session_client_id = session_token.client_id.clone();
                     // Populate the LRU cache for future requests
                     state
                         .session_tokens
@@ -203,7 +198,7 @@ async fn require_oauth_auth(
                     tracing::debug!(
                         event = "oauth_auth_token_from_database",
                         session_id = %sid,
-                        client_id = ?session_client_id,
+                        user_id = %session_token.user_id,
                         "Retrieved token from database and populated LRU cache"
                     );
                 }
@@ -237,19 +232,20 @@ async fn require_oauth_auth(
         return state.unauthorized_response("unauthorized", "Bearer token required");
     };
 
-    // Validate JWT using JWKS (no database lookup needed for token validation)
+    // Validate MCP-issued JWT (signed by this server with HS256)
     tracing::debug!(
-        event = "oauth_auth_validating_jwt",
-        "Validating JWT using JWKS"
+        event = "oauth_auth_validating_mcp_jwt",
+        "Validating MCP-issued JWT"
     );
 
-    let claims = match state.jwks_cache.validate_token(&token).await {
+    let claims = match state.oauth_state.jwt_signer.validate_access_token(&token) {
         Ok(claims) => {
             tracing::debug!(
                 event = "oauth_auth_jwt_valid",
                 user_id = %claims.sub,
-                email = %claims.email,
-                "JWT validated successfully via JWKS"
+                client_id = %claims.client_id,
+                scope = %claims.scope,
+                "MCP JWT validated successfully"
             );
             claims
         }
@@ -257,24 +253,56 @@ async fn require_oauth_auth(
             tracing::debug!(
                 event = "oauth_auth_jwt_invalid",
                 error = %e,
-                "JWT validation failed"
+                "MCP JWT validation failed"
             );
             return state.unauthorized_response("invalid_token", "Token is invalid or expired");
         }
     };
 
-    // Extract JWT expiration for session persistence
-    let jwt_exp = time::OffsetDateTime::from_unix_timestamp(claims.exp)
-        .unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    // Get client_id from JWT claims (MCP tokens include client_id)
+    let client_id = Some(claims.client_id.clone());
+    let user_id = claims.sub.clone();
 
-    // Get client_id from session token (if available from previous session).
-    // Since access tokens are JWTs validated via JWKS, we don't have a token→client mapping.
-    // Client tracking is populated when the session is first created with a client_id.
-    let client_id = session_client_id;
+    // Look up upstream token for API calls (server-side only, never exposed to client)
+    let upstream_token = match state
+        .store
+        .get_refresh_token_by_user_client(&user_id, &claims.client_id)
+        .await
+    {
+        Ok(Some(refresh_token)) => {
+            tracing::debug!(
+                event = "oauth_auth_upstream_token_found",
+                user_id = %user_id,
+                client_id = %claims.client_id,
+                "Found upstream token for API calls"
+            );
+            Some(refresh_token.upstream_access_token)
+        }
+        Ok(None) => {
+            tracing::warn!(
+                event = "oauth_auth_no_upstream_token",
+                user_id = %user_id,
+                client_id = %claims.client_id,
+                "No upstream token found - user may need to re-authenticate"
+            );
+            None
+        }
+        Err(e) => {
+            tracing::error!(
+                event = "oauth_auth_upstream_token_error",
+                user_id = %user_id,
+                client_id = %claims.client_id,
+                error = %e,
+                "Failed to look up upstream token"
+            );
+            None
+        }
+    };
 
-    // Ensure the request has an up-to-date Authorization header so rmcp can propagate it into
-    // Extensions for downstream tool calls.
-    if let Ok(v) = axum::http::HeaderValue::from_str(&format!("Bearer {}", token)) {
+    // Inject upstream token for API calls (or fall back to MCP token if not found)
+    // The upstream token is what the backend API expects
+    let api_token = upstream_token.as_ref().unwrap_or(&token);
+    if let Ok(v) = axum::http::HeaderValue::from_str(&format!("Bearer {}", api_token)) {
         req.headers_mut()
             .insert(axum::http::header::AUTHORIZATION, v);
     }
@@ -284,7 +312,9 @@ async fn require_oauth_auth(
         req.headers_mut()
             .insert(axum::http::header::HeaderName::from_static("x-user-id"), v);
     }
-    if let Ok(v) = axum::http::HeaderValue::from_str(&claims.email) {
+    if let Some(ref email) = claims.email
+        && let Ok(v) = axum::http::HeaderValue::from_str(email)
+    {
         req.headers_mut().insert(
             axum::http::header::HeaderName::from_static("x-user-email"),
             v,
@@ -336,18 +366,21 @@ async fn require_oauth_auth(
             .put(sid.clone(), token.clone());
 
         // Persist to database asynchronously (fire-and-forget to not block request)
-        // Use the JWT's expiration claim for session expiry.
+        // Use refresh token TTL for session expiry (7 days) to allow session persistence
         let store = state.store.clone();
         let sid_clone = sid.clone();
         let token_clone = token.clone();
         let client_id_clone = client_id.clone();
-        let session_expires_at = jwt_exp;
+        let user_id_clone = user_id.clone();
+        let session_expires_at = time::OffsetDateTime::now_utc()
+            + time::Duration::hours(oauth::store::REFRESH_TOKEN_TTL_HOURS);
         tokio::spawn(async move {
             if let Err(e) = store
                 .save_session_token(
                     &sid_clone,
                     &token_clone,
                     client_id_clone.as_deref(),
+                    &user_id_clone,
                     session_expires_at,
                 )
                 .await
@@ -421,18 +454,21 @@ async fn require_oauth_auth(
             .put(sid.clone(), token.clone());
 
         // Persist to database asynchronously (fire-and-forget to not block response)
-        // Use the JWT's expiration claim for session expiry.
+        // Use refresh token TTL for session expiry (7 days) to allow session persistence
         let store = state.store.clone();
         let sid_clone = sid;
         let token_clone = token.clone();
         let client_id_clone = client_id.clone();
-        let session_expires_at = jwt_exp;
+        let user_id_clone = user_id.clone();
+        let session_expires_at = time::OffsetDateTime::now_utc()
+            + time::Duration::hours(oauth::store::REFRESH_TOKEN_TTL_HOURS);
         tokio::spawn(async move {
             if let Err(e) = store
                 .save_session_token(
                     &sid_clone,
                     &token_clone,
                     client_id_clone.as_deref(),
+                    &user_id_clone,
                     session_expires_at,
                 )
                 .await
@@ -759,19 +795,35 @@ async fn run_oauth(config: Config) -> Result<()> {
             axum::http::header::HeaderName::from_static("mcp-session-id"),
         ]);
 
+    // Create MCP JWT signer for issuing and validating MCP access tokens
+    // MCP tokens are signed with HS256 using a symmetric secret key
+    let jwt_secret = std::env::var("JWT_SECRET")
+        .map_err(|_| anyhow::anyhow!("JWT_SECRET is required for start:oauth mode"))?;
+    if jwt_secret.len() < 32 {
+        anyhow::bail!("JWT_SECRET must be at least 32 bytes for security");
+    }
+    let jwt_signer = Arc::new(oauth::McpJwtSigner::new(
+        jwt_secret.as_bytes(),
+        &server_host,
+    ));
+    tracing::info!(
+        issuer = %jwt_signer.issuer(),
+        audience = %jwt_signer.audience(),
+        "MCP JWT signer initialized"
+    );
+
     // OAuth state for routes
     let oauth_state = Arc::new(OAuthState {
         store: store.clone(),
         http: {
-            let upstream_timeout_secs = std::env::var("OAUTH_UPSTREAM_TIMEOUT_SECS")
+            let upstream_timeout_secs = std::env::var("UPSTREAM_TIMEOUT_SECS")
                 .ok()
                 .and_then(|v| v.parse::<u64>().ok())
                 .unwrap_or(15);
-            let upstream_connect_timeout_secs =
-                std::env::var("OAUTH_UPSTREAM_CONNECT_TIMEOUT_SECS")
-                    .ok()
-                    .and_then(|v| v.parse::<u64>().ok())
-                    .unwrap_or(5);
+            let upstream_connect_timeout_secs = std::env::var("UPSTREAM_CONNECT_TIMEOUT_SECS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(5);
 
             reqwest::Client::builder()
                 .user_agent(format!("seren-mcp/{}", env!("CARGO_PKG_VERSION")))
@@ -786,23 +838,11 @@ async fn run_oauth(config: Config) -> Result<()> {
         upstream_api_base_url: api_base_url,
         upstream_oauth_redirect_base_url: oauth_redirect_base_url,
         circuit_breaker: oauth::circuit_breaker::create_oauth_circuit_breaker(),
+        jwt_signer,
     });
 
     // Clone store for health check before moving it
     let health_store = Arc::new(store.clone());
-
-    // Create JWKS cache for JWT validation
-    // The JWKS endpoint is at serencore's API base URL
-    let jwks_url = format!(
-        "{}/.well-known/jwks.json",
-        oauth_state.upstream_api_base_url.trim_end_matches('/')
-    );
-    let jwks_cache = Arc::new(oauth::jwks::JwksCache::new(
-        jwks_url.clone(),
-        None, // Don't validate issuer (serencore doesn't set it consistently)
-        None, // Don't validate audience
-    ));
-    tracing::info!(jwks_url = %jwks_url, "JWKS cache initialized");
 
     // MCP endpoint with OAuth token validation
     const SESSION_TOKEN_CACHE_SIZE: usize = 10_000;
@@ -820,7 +860,6 @@ async fn run_oauth(config: Config) -> Result<()> {
                 store,
                 session_tokens,
                 oauth_state: oauth_state.clone(),
-                jwks_cache,
             },
             require_oauth_auth,
         ));

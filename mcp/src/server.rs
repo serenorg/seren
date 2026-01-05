@@ -1033,7 +1033,7 @@ impl SerenMcpServer {
         headers: &mut reqwest::header::HeaderMap,
         agent_metadata: &AgentMetadata,
     ) {
-        // Forward agent metadata headers to the backend for tracking
+        // Forward agent metadata headers to the upstream API for tracking
         if let Some(ref client_id) = agent_metadata.client_id
             && let Ok(v) = reqwest::header::HeaderValue::from_str(client_id)
         {

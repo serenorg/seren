@@ -2,7 +2,9 @@
 -- This schema stores OAuth2 tokens, authorization codes, and client registrations
 -- for the hosted MCP server mode.
 --
--- Note: Access tokens are JWTs validated via JWKS from serencore, not stored here.
+-- Architecture: MCP issues its own tokens to clients. Upstream (serencore) tokens
+-- are stored server-side and used internally for API calls. Clients never see
+-- upstream tokens directly.
 
 CREATE SCHEMA mcp_oauth;
 
@@ -47,19 +49,25 @@ CREATE TABLE mcp_oauth.authorization_codes (
     code_challenge_method text,
     expires_at timestamptz NOT NULL,
     created_at timestamptz NOT NULL DEFAULT NOW(),
+    -- Upstream tokens (temporarily stored during code exchange)
     upstream_access_token text NOT NULL,
     upstream_refresh_token text,
     upstream_expires_at timestamptz NOT NULL
 );
 
--- Refresh tokens (long-lived, used to get new access tokens from upstream)
+-- MCP refresh tokens with server-side upstream token storage
+-- The MCP refresh token is what clients use; upstream tokens are used internally
 CREATE TABLE mcp_oauth.refresh_tokens (
     token text PRIMARY KEY,
     client_id text NOT NULL REFERENCES mcp_oauth.clients (id) ON DELETE CASCADE,
     user_id text NOT NULL,
     scope text NOT NULL DEFAULT 'api',
     expires_at timestamptz,
-    created_at timestamptz NOT NULL DEFAULT NOW()
+    created_at timestamptz NOT NULL DEFAULT NOW(),
+    -- Upstream token vault (server-side only, never exposed to clients)
+    upstream_access_token text NOT NULL,
+    upstream_refresh_token text,
+    upstream_expires_at timestamptz NOT NULL
 );
 
 -- User sessions (tracks OAuth consent and login state)
@@ -96,11 +104,12 @@ CREATE TABLE mcp_oauth.pending_consents (
     created_at timestamptz NOT NULL DEFAULT NOW()
 );
 
--- MCP Session tokens (maps session IDs to OAuth access tokens for pod restart survival)
+-- MCP Session tokens (maps MCP session IDs to MCP access tokens for pod restart survival)
 CREATE TABLE mcp_oauth.mcp_session_tokens (
     session_id text PRIMARY KEY,
     access_token text NOT NULL,
     client_id text REFERENCES mcp_oauth.clients (id) ON DELETE CASCADE,
+    user_id text NOT NULL,
     expires_at timestamptz NOT NULL,
     created_at timestamptz NOT NULL DEFAULT NOW(),
     updated_at timestamptz NOT NULL DEFAULT NOW()
@@ -124,6 +133,7 @@ CREATE INDEX idx_pending_consents_expires ON mcp_oauth.pending_consents (expires
 CREATE INDEX idx_mcp_session_tokens_expires ON mcp_oauth.mcp_session_tokens (expires_at);
 CREATE INDEX idx_mcp_session_tokens_client ON mcp_oauth.mcp_session_tokens (client_id);
 CREATE INDEX idx_mcp_session_tokens_access_token ON mcp_oauth.mcp_session_tokens (access_token);
+CREATE INDEX idx_mcp_session_tokens_user ON mcp_oauth.mcp_session_tokens (user_id);
 
 -- Function to clean up expired records (batched to prevent table locks)
 CREATE FUNCTION mcp_oauth.cleanup_expired(batch_limit integer DEFAULT 1000)
