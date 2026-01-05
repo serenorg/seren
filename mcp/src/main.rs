@@ -700,8 +700,9 @@ async fn require_oauth_auth(
         if expires_at < renew_before {
             let store = state.store.clone();
             let token = refresh_token.token.clone();
-            let user_id = user_id;
-            let client_id = claims.client_id.clone();
+            let user_id_for_log = user_id;
+            let client_id_for_log = claims.client_id.clone();
+            let session_id = session_id.clone();
             tokio::spawn(async move {
                 match store
                     .extend_refresh_token_expiry_if_needed(&token, new_expires_at, renew_before)
@@ -709,18 +710,36 @@ async fn require_oauth_auth(
                 {
                     Ok(true) => tracing::debug!(
                         event = "refresh_token_extended",
-                        user_id = %user_id,
-                        client_id = %client_id,
+                        user_id = %user_id_for_log,
+                        client_id = %client_id_for_log,
                         "Extended refresh token expiry"
                     ),
                     Ok(false) => {}
                     Err(e) => tracing::warn!(
                         event = "refresh_token_extend_error",
-                        user_id = %user_id,
-                        client_id = %client_id,
+                        user_id = %user_id_for_log,
+                        client_id = %client_id_for_log,
                         error = %e,
                         "Failed to extend refresh token expiry"
                     ),
+                }
+
+                if let Some(session_id) = session_id
+                    && let Err(e) = store
+                        .extend_session_token_expiry_if_needed(
+                            &session_id,
+                            new_expires_at,
+                            renew_before,
+                        )
+                        .await
+                {
+                    tracing::warn!(
+                        event = "session_token_extend_error",
+                        user_id = %user_id_for_log,
+                        client_id = %client_id_for_log,
+                        error = %e,
+                        "Failed to extend session token expiry"
+                    );
                 }
             });
         }
@@ -785,38 +804,13 @@ async fn require_oauth_auth(
     }
 
     // If the request includes a session id, remember/update the token for that session.
-    // Save to the LRU cache (fast path) and keep the database mapping alive for restarts.
+    // Save to the LRU cache (fast path). Database TTL is extended in the background.
     if let Some(ref sid) = session_id {
         state
             .session_tokens
             .lock()
             .await
             .put(sid.clone(), token.clone());
-
-        // Persist to database asynchronously (fire-and-forget to not block request).
-        // Use conditional "touch" updates to avoid per-request writes.
-        let store = state.store.clone();
-        let sid_clone = sid.clone();
-        let now = time::OffsetDateTime::now_utc();
-        let new_expires_at = now + time::Duration::hours(oauth::store::REFRESH_TOKEN_TTL_HOURS);
-        let renew_before = now
-            + time::Duration::hours(
-                oauth::store::REFRESH_TOKEN_TTL_HOURS
-                    - oauth::store::SLIDING_EXPIRY_RENEWAL_INTERVAL_HOURS,
-            );
-        tokio::spawn(async move {
-            if let Err(e) = store
-                .extend_session_token_expiry_if_needed(&sid_clone, new_expires_at, renew_before)
-                .await
-            {
-                tracing::warn!(
-                    event = "session_token_touch_error",
-                    session_id = %sid_clone,
-                    error = %e,
-                    "Failed to touch session token expiry"
-                );
-            }
-        });
     }
 
     let req_method = req.method().clone();
