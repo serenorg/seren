@@ -76,7 +76,8 @@ sudo mv seren-mcp /usr/local/bin/
 | `AUTH_TOKEN` | Auth token for `start:http` (bearer) | Required for `start:http` |
 | `DATABASE_URL` | Postgres URL for OAuth token storage | Required for `start:oauth` |
 | `PUBLIC_URL` | Public base URL of this server | Required for `start:oauth` |
-| `JWT_SECRET` | Secret key for signing MCP access tokens (min 32 bytes) | Required for `start:oauth` |
+| `JWT_SECRET` | HS256 secret for signing MCP access tokens (min 32 bytes) | Required unless `JWT_SECRETS` is set |
+| `JWT_SECRETS` | Comma-separated HS256 secrets (first signs; all validate for rotation) | Optional |
 | `OAUTH_TOKEN_ENCRYPTION_KEYS` | Comma-separated keys for encrypting upstream OAuth tokens at rest (first is primary; others allow rotation) | Optional |
 | `OAUTH_REDIRECT_URL` | Public URL for OAuth browser redirects | Defaults to `API_URL` |
 | `UPSTREAM_TIMEOUT_SECS` | Timeout for upstream API requests | `15` |

@@ -1208,18 +1208,34 @@ async fn run_oauth(config: Config) -> Result<()> {
 
     // Create MCP JWT signer for issuing and validating MCP access tokens
     // MCP tokens are signed with HS256 using a symmetric secret key
-    let jwt_secret = std::env::var("JWT_SECRET")
-        .map_err(|_| anyhow::anyhow!("JWT_SECRET is required for start:oauth mode"))?;
-    if jwt_secret.len() < 32 {
-        anyhow::bail!("JWT_SECRET must be at least 32 bytes for security");
+    let jwt_secrets = match std::env::var("JWT_SECRETS") {
+        Ok(v) => v
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>(),
+        Err(_) => vec![std::env::var("JWT_SECRET").map_err(|_| {
+            anyhow::anyhow!("JWT_SECRET or JWT_SECRETS is required for start:oauth mode")
+        })?],
+    };
+
+    if jwt_secrets.is_empty() {
+        anyhow::bail!("JWT_SECRETS is set but empty");
     }
-    let jwt_signer = Arc::new(oauth::McpJwtSigner::new(
-        jwt_secret.as_bytes(),
-        &server_host,
-    ));
+    if jwt_secrets.iter().any(|s| s.len() < 32) {
+        anyhow::bail!("All JWT secrets must be at least 32 bytes for security");
+    }
+
+    let jwt_secret_refs = jwt_secrets.iter().map(|s| s.as_bytes()).collect::<Vec<_>>();
+    let jwt_signer = Arc::new(if jwt_secret_refs.len() == 1 {
+        oauth::McpJwtSigner::new(jwt_secret_refs[0], &server_host)
+    } else {
+        oauth::McpJwtSigner::new_with_secrets(&jwt_secret_refs, &server_host)
+    });
     tracing::info!(
         issuer = %jwt_signer.issuer(),
         audience = %jwt_signer.audience(),
+        num_validation_secrets = jwt_secrets.len(),
         "MCP JWT signer initialized"
     );
 

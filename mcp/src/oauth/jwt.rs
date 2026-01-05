@@ -73,7 +73,7 @@ pub enum JwtError {
 /// JWT signer/validator for MCP-issued tokens
 pub struct McpJwtSigner {
     encoding_key: EncodingKey,
-    decoding_key: DecodingKey,
+    decoding_keys: Vec<DecodingKey>,
     issuer: String,
     audience: String,
 }
@@ -85,10 +85,26 @@ impl McpJwtSigner {
     /// * `secret` - HS256 secret key (should be at least 32 bytes)
     /// * `server_url` - MCP server URL (used as issuer)
     pub fn new(secret: &[u8], server_url: &str) -> Self {
+        Self::new_with_secrets(&[secret], server_url)
+    }
+
+    /// Create a new JWT signer with secret rotation support.
+    ///
+    /// The first secret is used to sign new tokens. All provided secrets are
+    /// accepted for validation so you can rotate secrets without forcing
+    /// clients to re-authenticate.
+    pub fn new_with_secrets(secrets: &[&[u8]], server_url: &str) -> Self {
         let server_url = server_url.trim_end_matches('/');
+        let primary = secrets
+            .first()
+            .copied()
+            .expect("at least one JWT secret required");
         Self {
-            encoding_key: EncodingKey::from_secret(secret),
-            decoding_key: DecodingKey::from_secret(secret),
+            encoding_key: EncodingKey::from_secret(primary),
+            decoding_keys: secrets
+                .iter()
+                .map(|secret| DecodingKey::from_secret(secret))
+                .collect(),
             issuer: server_url.to_string(),
             // Audience is the MCP resource endpoint
             audience: format!("{}/mcp", server_url),
@@ -141,10 +157,19 @@ impl McpJwtSigner {
         // Allow some clock skew (60 seconds)
         validation.leeway = 60;
 
-        let token_data = decode::<McpClaims>(token, &self.decoding_key, &validation)
-            .map_err(|e| JwtError::ValidationFailed(e.to_string()))?;
+        let mut last_err: Option<jsonwebtoken::errors::Error> = None;
 
-        Ok(token_data.claims)
+        for decoding_key in &self.decoding_keys {
+            match decode::<McpClaims>(token, decoding_key, &validation) {
+                Ok(token_data) => return Ok(token_data.claims),
+                Err(e) => last_err = Some(e),
+            }
+        }
+
+        let msg = last_err
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "No decoding keys configured".to_string());
+        Err(JwtError::ValidationFailed(msg))
     }
 
     /// Get the issuer URL
@@ -213,5 +238,25 @@ mod tests {
 
         let result = signer2.validate_access_token(&token);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_secret_rotation_accepts_previous_secret() {
+        let old_secret = b"test-secret-key-at-least-32-bytes!!";
+        let new_secret = b"different-secret-key-32-bytes!!!!";
+
+        let signer_old = McpJwtSigner::new(old_secret, "https://mcp.example.com");
+        let signer_rotated = McpJwtSigner::new_with_secrets(
+            &[new_secret.as_slice(), old_secret.as_slice()],
+            "https://mcp.example.com",
+        );
+
+        let user_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let (token, _) = signer_old
+            .sign_access_token(user_id, "client-456", "api", None, None)
+            .unwrap();
+
+        let claims = signer_rotated.validate_access_token(&token).unwrap();
+        assert_eq!(claims.sub, "550e8400-e29b-41d4-a716-446655440000");
     }
 }
