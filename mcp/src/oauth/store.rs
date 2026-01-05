@@ -12,7 +12,9 @@ use std::sync::{Arc, Mutex};
 use time::{Duration, OffsetDateTime};
 
 // Token TTL constants
-pub const REFRESH_TOKEN_TTL_HOURS: i64 = 168; // 7 days
+// NOTE: REFRESH_TOKEN_TTL_HOURS should match serencore's REFRESH_TOKEN_TTL_DAYS (365 days)
+// in seren-core/src/auth/mod.rs to keep session lifetimes consistent.
+pub const REFRESH_TOKEN_TTL_HOURS: i64 = 365 * 24; // 365 days (1 year)
 #[allow(dead_code)]
 pub const ACCESS_TOKEN_DEFAULT_TTL_SECS: i64 = 900; // 15 minutes
 
