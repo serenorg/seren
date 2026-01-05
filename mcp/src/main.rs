@@ -78,8 +78,8 @@ struct OAuthAuthState {
 impl OAuthAuthState {
     /// Build a 401 Unauthorized response with WWW-Authenticate header.
     ///
-    /// Per RFC 6750 and the MCP OAuth spec, the WWW-Authenticate header must include
-    /// `resource_metadata` pointing to the OAuth authorization server metadata endpoint.
+    /// Per RFC 9728 and the MCP OAuth spec, the WWW-Authenticate header must include
+    /// `resource_metadata` pointing to the OAuth protected resource metadata endpoint.
     /// This allows clients like Claude Code to automatically discover and initiate OAuth flow.
     fn unauthorized_response(
         &self,
@@ -88,7 +88,7 @@ impl OAuthAuthState {
     ) -> axum::response::Response {
         let server_host = self.oauth_state.server_host.trim_end_matches('/');
         let www_authenticate = format!(
-            r#"Bearer realm="serendb", resource_metadata="{}/.well-known/oauth-authorization-server""#,
+            r#"Bearer realm="serendb", resource_metadata="{}/.well-known/oauth-protected-resource""#,
             server_host
         );
 
@@ -975,7 +975,8 @@ async fn run_oauth(config: Config) -> Result<()> {
 
     tracing::info!("OAuth MCP server listening on {}", addr);
     tracing::info!("OAuth endpoints:");
-    tracing::info!("  GET  /.well-known/oauth-authorization-server - Server metadata");
+    tracing::info!("  GET  /.well-known/oauth-protected-resource - Resource metadata (RFC 9728)");
+    tracing::info!("  GET  /.well-known/oauth-authorization-server - Server metadata (RFC 8414)");
     tracing::info!("  POST /register - Dynamic client registration");
     tracing::info!("  GET  /authorize - Authorization endpoint");
     tracing::info!("  POST /token - Token endpoint");

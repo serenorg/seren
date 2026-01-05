@@ -56,6 +56,42 @@ const ALLOWED_SCOPES: &[&str] = &["api", "api:read"];
 // Metadata Endpoint (RFC 8414)
 // ============================================================================
 
+/// Protected Resource Metadata (RFC 9728)
+/// This describes the MCP server as a protected resource and points to the authorization server.
+#[derive(Debug, Serialize)]
+struct ProtectedResourceMetadata {
+    /// The canonical URI of this protected resource
+    resource: String,
+    /// List of authorization servers that can issue tokens for this resource
+    authorization_servers: Vec<String>,
+    /// Scopes supported by this resource
+    scopes_supported: Vec<String>,
+    /// Methods for passing bearer tokens (typically just "header")
+    bearer_methods_supported: Vec<String>,
+    /// Optional: resource documentation URL
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resource_documentation: Option<String>,
+}
+
+/// GET /.well-known/oauth-protected-resource (RFC 9728)
+/// Clients use this to discover which authorization server to use.
+async fn protected_resource_metadata(
+    State(state): State<Arc<OAuthState>>,
+) -> Json<ProtectedResourceMetadata> {
+    let server_host = state.server_host.trim_end_matches('/').to_string();
+    Json(ProtectedResourceMetadata {
+        resource: format!("{}/mcp", server_host),
+        authorization_servers: vec![format!(
+            "{}/.well-known/oauth-authorization-server",
+            server_host
+        )],
+        scopes_supported: ALLOWED_SCOPES.iter().map(|s| (*s).into()).collect(),
+        bearer_methods_supported: vec!["header".into()],
+        resource_documentation: None,
+    })
+}
+
+/// Authorization Server Metadata (RFC 8414)
 #[derive(Debug, Serialize)]
 struct AuthorizationServerMetadata {
     issuer: String,
@@ -71,6 +107,7 @@ struct AuthorizationServerMetadata {
     revocation_endpoint_auth_methods_supported: Vec<String>,
 }
 
+/// GET /.well-known/oauth-authorization-server (RFC 8414)
 async fn metadata(State(state): State<Arc<OAuthState>>) -> Json<AuthorizationServerMetadata> {
     let server_host = state.server_host.trim_end_matches('/').to_string();
     Json(AuthorizationServerMetadata {
@@ -1494,6 +1531,10 @@ pub fn oauth_router(state: Arc<OAuthState>) -> Router {
         .with_state(state.clone());
 
     Router::new()
+        .route(
+            "/.well-known/oauth-protected-resource",
+            get(protected_resource_metadata),
+        )
         .route("/.well-known/oauth-authorization-server", get(metadata))
         .route("/authorize", get(authorize))
         .route("/callback", get(callback))
