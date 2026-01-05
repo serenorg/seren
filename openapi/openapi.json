@@ -318,6 +318,64 @@
         }
       }
     },
+    "/agent/publishers/suggest": {
+      "get": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "GET /api/agent/publishers/suggest",
+        "description": "Suggest publishers based on a task or query",
+        "operationId": "suggest_publishers",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "description": "The task or query to match against publisher capabilities.\nExamples: \"scrape website\", \"AI research\", \"PDF extraction\"",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "description": "Type of suggestions: \"publisher\", \"agent\", or \"both\" (default: \"both\")\nNote: Agent suggestions are planned but not yet implemented.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default: 5, max: 20)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Publisher suggestions retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameters"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/agent/publishers/{slug}": {
       "get": {
         "tags": [
@@ -429,6 +487,262 @@
           },
           "500": {
             "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/agent/templates": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "GET /api/agent/templates",
+        "description": "List available templates in the catalog",
+        "operationId": "list_templates",
+        "parameters": [
+          {
+            "name": "verified_only",
+            "in": "query",
+            "description": "Filter to verified templates only",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "language",
+            "in": "query",
+            "description": "Filter by language (python, typescript, rust)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "min_price",
+            "in": "query",
+            "description": "Minimum price in atomic units",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          },
+          {
+            "name": "max_price",
+            "in": "query",
+            "description": "Maximum price in atomic units",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Search in name and description",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "description": "Sort order (popularity, price_asc, price_desc, newest, oldest)",
+            "required": false,
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/TemplateSortBy"
+                }
+              ],
+              "nullable": true
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of templates to return (default: 50)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Offset for pagination (default: 0)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Templates retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateListResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/agent/templates/publish": {
+      "post": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "POST /api/agent/templates/publish",
+        "description": "Publish a new agent template",
+        "operationId": "publish_template",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Template published successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "409": {
+            "description": "Template slug already exists"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/agent/templates/{slug}": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "GET /api/agent/templates/:slug",
+        "description": "Get template details by slug",
+        "operationId": "get_template",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Template retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateDataResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Template not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/agent/templates/{slug}/invoke": {
+      "post": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "POST /api/agent/templates/:slug/invoke",
+        "description": "Invoke an agent template with x402 payment",
+        "operationId": "invoke_template",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Template slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvokeTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Template invoked successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvokeDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "402": {
+            "description": "Payment required"
+          },
+          "404": {
+            "description": "Template not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
+          "503": {
+            "description": "Sandbox execution failed"
           }
         }
       }
@@ -8781,6 +9095,164 @@
           "refund"
         ]
       },
+      "AgentTemplate": {
+        "type": "object",
+        "description": "Agent template - executable code that runs in Daytona sandbox",
+        "required": [
+          "id",
+          "publisher_id",
+          "slug",
+          "name",
+          "code",
+          "language",
+          "dependencies",
+          "price_atomic",
+          "is_verified",
+          "total_invocations",
+          "successful_invocations",
+          "failed_invocations",
+          "unique_agents_served",
+          "total_revenue_atomic",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "dependencies": {},
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "failed_invocations": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_verified": {
+            "type": "boolean"
+          },
+          "language": {
+            "$ref": "#/components/schemas/TemplateLanguage"
+          },
+          "llm_model": {
+            "type": "string",
+            "nullable": true
+          },
+          "llm_provider": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "price_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "successful_invocations": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_invocations": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_revenue_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "unique_agents_served": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "verified_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "verified_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        }
+      },
+      "AgentTemplateSummary": {
+        "type": "object",
+        "description": "Summary view of agent template for catalog listing",
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "language",
+          "price_atomic",
+          "is_verified",
+          "total_invocations"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_verified": {
+            "type": "boolean"
+          },
+          "language": {
+            "$ref": "#/components/schemas/TemplateLanguage"
+          },
+          "name": {
+            "type": "string"
+          },
+          "price_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "publisher_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "publisher_slug": {
+            "type": "string",
+            "nullable": true
+          },
+          "slug": {
+            "type": "string"
+          },
+          "total_invocations": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "ApiKeyCreated": {
         "type": "object",
         "description": "Response struct for API key creation (includes the full key ONCE)",
@@ -10690,6 +11162,13 @@
             "description": "Cache TTL for API proxy responses",
             "nullable": true
           },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Publisher-declared capabilities for task matching"
+          },
           "categories": {
             "type": "array",
             "items": {
@@ -10839,6 +11318,13 @@
           "usage_example": {
             "nullable": true
           },
+          "use_cases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Human-readable use case descriptions"
+          },
           "wallet_address": {
             "$ref": "#/components/schemas/WalletAddress"
           },
@@ -10888,6 +11374,103 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "CreateTemplateRequest": {
+        "type": "object",
+        "description": "Request to create/publish an agent template",
+        "required": [
+          "slug",
+          "name",
+          "code",
+          "language",
+          "price"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Template source code implementing run(input) -> output"
+          },
+          "dependencies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Package dependencies (e.g., [\"requests\", \"openai\"])",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "description": "Description of what the template does",
+            "nullable": true
+          },
+          "language": {
+            "type": "string",
+            "description": "Programming language (python, typescript, rust)"
+          },
+          "llmConfig": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LlmConfig"
+              }
+            ],
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "description": "Display name"
+          },
+          "price": {
+            "type": "string",
+            "description": "Price per invocation (e.g., \"0.05\" for $0.05)"
+          },
+          "slug": {
+            "type": "string",
+            "description": "URL-friendly slug (unique identifier)"
+          }
+        }
+      },
+      "CreateTemplateResponse": {
+        "type": "object",
+        "description": "Response after creating a template",
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "language",
+          "priceAtomic",
+          "isVerified",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "isVerified": {
+            "type": "boolean"
+          },
+          "language": {
+            "$ref": "#/components/schemas/TemplateLanguage"
+          },
+          "name": {
+            "type": "string"
+          },
+          "priceAtomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "slug": {
+            "type": "string"
           }
         }
       },
@@ -12840,6 +13423,34 @@
           }
         }
       },
+      "InvocationCostBreakdown": {
+        "type": "object",
+        "description": "Cost breakdown for template invocation response",
+        "required": [
+          "publisherFee",
+          "llmCost",
+          "computeCost",
+          "total",
+          "llmKeyUsed"
+        ],
+        "properties": {
+          "computeCost": {
+            "type": "string"
+          },
+          "llmCost": {
+            "type": "string"
+          },
+          "llmKeyUsed": {
+            "type": "string"
+          },
+          "publisherFee": {
+            "type": "string"
+          },
+          "total": {
+            "type": "string"
+          }
+        }
+      },
       "Invoice": {
         "type": "object",
         "description": "Invoice response with line items",
@@ -12985,6 +13596,58 @@
               }
             ],
             "nullable": true
+          }
+        }
+      },
+      "InvokeDataResponse": {
+        "type": "object",
+        "description": "Response wrapper for template invocation",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/InvokeTemplateResponse"
+          }
+        }
+      },
+      "InvokeTemplateRequest": {
+        "type": "object",
+        "description": "Request to invoke an agent template",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "description": "Input data to pass to the template"
+          }
+        }
+      },
+      "InvokeTemplateResponse": {
+        "type": "object",
+        "description": "Response from invoking a template",
+        "required": [
+          "result",
+          "cost",
+          "executionTimeMs",
+          "invocationId"
+        ],
+        "properties": {
+          "cost": {
+            "$ref": "#/components/schemas/InvocationCostBreakdown"
+          },
+          "executionTimeMs": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Execution time in milliseconds"
+          },
+          "invocationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Invocation ID for tracking"
+          },
+          "result": {
+            "description": "Output from template execution"
           }
         }
       },
@@ -13185,6 +13848,29 @@
             "type": "string",
             "description": "Search by name or slug",
             "nullable": true
+          }
+        }
+      },
+      "LlmConfig": {
+        "type": "object",
+        "description": "LLM configuration for templates",
+        "required": [
+          "provider",
+          "model"
+        ],
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "API key (optional, will be encrypted)",
+            "nullable": true
+          },
+          "model": {
+            "type": "string",
+            "description": "Model name (e.g., \"gpt-4o\", \"claude-3-opus\")"
+          },
+          "provider": {
+            "type": "string",
+            "description": "LLM provider (e.g., \"openai\", \"anthropic\")"
           }
         }
       },
@@ -15064,6 +15750,16 @@
           "tiered"
         ]
       },
+      "PricingSummary": {
+        "type": "object",
+        "description": "Simplified pricing summary for suggestions",
+        "properties": {
+          "base_price_per_1000_rows": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "Project": {
         "type": "object",
         "description": "Project represents a SerenDB database instance",
@@ -16114,6 +16810,8 @@
           "name",
           "slug",
           "categories",
+          "capabilities",
+          "use_cases",
           "publisher_type",
           "wallet_address",
           "wallet_network_id",
@@ -16151,6 +16849,13 @@
           "cache_ttl_seconds": {
             "type": "integer",
             "format": "int32"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Publisher-declared capabilities for task matching"
           },
           "categories": {
             "type": "array",
@@ -16240,12 +16945,72 @@
           "usage_example": {
             "nullable": true
           },
+          "use_cases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Human-readable use case descriptions"
+          },
+          "verification_expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When verification expires (NULL = no expiry)",
+            "nullable": true
+          },
           "wallet_address": {
             "$ref": "#/components/schemas/WalletAddress"
           },
           "wallet_network_id": {
             "type": "string",
             "description": "Network for the wallet address"
+          }
+        }
+      },
+      "PublisherSuggestion": {
+        "type": "object",
+        "description": "A publisher suggestion with match score and reason",
+        "required": [
+          "slug",
+          "name",
+          "match_reason",
+          "score",
+          "capabilities"
+        ],
+        "properties": {
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Publisher-declared capabilities"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "match_reason": {
+            "type": "string",
+            "description": "Why this publisher was suggested"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pricing": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PricingSummary"
+              }
+            ],
+            "nullable": true
+          },
+          "score": {
+            "type": "number",
+            "format": "double",
+            "description": "Match score (0.0 to 1.0)"
+          },
+          "slug": {
+            "type": "string"
           }
         }
       },
@@ -17428,7 +18193,8 @@
         "enum": [
           "serendb",
           "api",
-          "both"
+          "both",
+          "agent_template"
         ]
       },
       "StripeChargeId": {
@@ -17460,6 +18226,50 @@
         "type": "string",
         "description": "A Stripe Subscription ID (sub_xxx).",
         "example": "sub_1234567890abcdef"
+      },
+      "SuggestParams": {
+        "type": "object",
+        "description": "Query parameters for suggesting publishers based on task/query",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Maximum number of results (default: 5, max: 20)"
+          },
+          "query": {
+            "type": "string",
+            "description": "The task or query to match against publisher capabilities.\nExamples: \"scrape website\", \"AI research\", \"PDF extraction\""
+          },
+          "type": {
+            "type": "string",
+            "description": "Type of suggestions: \"publisher\", \"agent\", or \"both\" (default: \"both\")\nNote: Agent suggestions are planned but not yet implemented."
+          }
+        }
+      },
+      "SuggestResponse": {
+        "type": "object",
+        "description": "Response for suggest endpoint\nReturns publisher and agent recommendations based on task/query matching",
+        "required": [
+          "publishers",
+          "agents"
+        ],
+        "properties": {
+          "agents": {
+            "type": "array",
+            "items": {},
+            "description": "Matched agents sorted by relevance (agent templates coming soon)"
+          },
+          "publishers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublisherSuggestion"
+            },
+            "description": "Matched publishers sorted by relevance"
+          }
+        }
       },
       "SupportedKind": {
         "type": "object",
@@ -17515,6 +18325,47 @@
           "signers": {
             "description": "Signer addresses by network family",
             "nullable": true
+          }
+        }
+      },
+      "TemplateDataResponse": {
+        "type": "object",
+        "description": "Response wrapper for template data",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CreateTemplateResponse"
+          }
+        }
+      },
+      "TemplateLanguage": {
+        "type": "string",
+        "description": "Programming language for agent templates",
+        "enum": [
+          "python",
+          "typescript",
+          "rust"
+        ]
+      },
+      "TemplateListResponse": {
+        "type": "object",
+        "description": "Response wrapper for template list",
+        "required": [
+          "data",
+          "total"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentTemplateSummary"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -18117,6 +18968,14 @@
             "description": "Cache TTL for API proxy responses",
             "nullable": true
           },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Publisher-declared capabilities for task matching (e.g., \"web_scraping\", \"ai_search\")",
+            "nullable": true
+          },
           "categories": {
             "type": "array",
             "items": {
@@ -18220,6 +19079,14 @@
             "nullable": true
           },
           "usage_example": {
+            "nullable": true
+          },
+          "use_cases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Human-readable use case descriptions (e.g., \"Scrape dynamic JavaScript websites\")",
             "nullable": true
           },
           "wallet_address": {

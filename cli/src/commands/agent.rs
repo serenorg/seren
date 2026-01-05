@@ -273,6 +273,8 @@ pub async fn create_publisher(
         base_price_per_1000_rows: base_price_per_1000_rows.map(|s| s.to_string()),
         billing_model: billing_model.map(|s| s.to_string()),
         categories: vec![],
+        capabilities: vec![],
+        use_cases: vec![],
         logo_url: None,
         accepted_asset_ids: None,
         allowed_passthrough_headers: vec![],

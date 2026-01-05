@@ -1051,7 +1051,7 @@ impl SerenMcpServer {
         headers: &mut reqwest::header::HeaderMap,
         agent_metadata: &AgentMetadata,
     ) {
-        // Forward agent metadata headers to the upstream API for tracking
+        // Forward agent metadata headers to the backend for tracking
         if let Some(ref client_id) = agent_metadata.client_id
             && let Ok(v) = reqwest::header::HeaderValue::from_str(client_id)
         {
@@ -2374,46 +2374,18 @@ impl SerenMcpServer {
         Parameters(params): Parameters<SuggestForTaskParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        // Build the suggest API URL
-        let base_url = &self.api_base_url;
-        let query_type = params.r#type.unwrap_or_else(|| "both".to_string());
-        let limit = params.limit.unwrap_or(5).min(10);
+        let api_client = self.api_client(&extensions)?;
+        let limit = params.limit.map(|l| l.min(10));
+        let query_type = params.r#type.as_deref();
 
-        let url = format!("{}/api/agent/publishers/suggest", base_url);
-
-        // Get auth token using existing helper
-        let token = self.bearer_token(&extensions)?;
-
-        // Make HTTP request to suggest endpoint with query params
-        let response = self
-            .http_client
-            .get(&url)
-            .query(&[
-                ("query", params.query.as_str()),
-                ("type", query_type.as_str()),
-            ])
-            .query(&[("limit", limit)])
-            .header("Authorization", format!("Bearer {}", token))
-            .send()
+        let response = api_client
+            .suggest_publishers(limit, &params.query, query_type)
             .await
-            .map_err(|e| McpError::internal_error(format!("HTTP request failed: {}", e), None))?;
+            .map_err(|e| McpError::internal_error(format!("Suggest API failed: {}", e), None))?
+            .into_inner();
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(McpError::internal_error(
-                format!("Suggest API returned {}: {}", status, body),
-                None,
-            ));
-        }
-
-        // Parse response as DataResponse<SuggestResponse>
-        let data: serde_json::Value = response.json().await.map_err(|e| {
-            McpError::internal_error(format!("Failed to parse response: {}", e), None)
-        })?;
-
-        // Return the full response
-        Ok(CallToolResult::success(vec![json_content(&data)?]))
+        // Return the response data
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -2890,6 +2862,8 @@ impl SerenMcpServer {
             base_price_per_1000_rows: params.base_price_per_1000_rows,
             billing_model: params.billing_model,
             categories: params.categories.unwrap_or_default(),
+            capabilities: vec![],
+            use_cases: vec![],
             logo_url: params.logo_url,
             // Set defaults for other fields
             accepted_asset_ids: None,
