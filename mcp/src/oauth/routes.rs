@@ -87,7 +87,7 @@ async fn protected_resource_metadata(
         )],
         scopes_supported: ALLOWED_SCOPES.iter().map(|s| (*s).into()).collect(),
         bearer_methods_supported: vec!["header".into()],
-        resource_documentation: None,
+        resource_documentation: Some("https://mcp.serendb.com".into()),
     })
 }
 
