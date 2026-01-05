@@ -343,7 +343,7 @@ impl TokenStore {
             DELETE FROM mcp_oauth.auth_requests
             WHERE id = $1 AND expires_at > NOW()
             RETURNING id, client_id, redirect_uri, scope, client_state,
-                code_challenge, code_challenge_method::text, upstream_code_verifier,
+                code_challenge, code_challenge_method, upstream_code_verifier,
                 expires_at, created_at
             "#,
         )
@@ -402,7 +402,7 @@ impl TokenStore {
             DELETE FROM mcp_oauth.authorization_codes
             WHERE code = $1 AND expires_at > NOW()
             RETURNING code, client_id, user_id, redirect_uri, scope,
-                code_challenge, code_challenge_method::text, expires_at, created_at,
+                code_challenge, code_challenge_method, expires_at, created_at,
                 upstream_access_token, upstream_refresh_token, upstream_expires_at
             "#,
         )
