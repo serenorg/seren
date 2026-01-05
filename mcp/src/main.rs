@@ -58,7 +58,7 @@ struct SimpleAuthState {
     token: String,
 }
 
-/// Auth state for OAuth mode with database-backed tokens
+/// Auth state for OAuth mode with JWKS-based JWT validation
 #[derive(Clone)]
 struct OAuthAuthState {
     store: TokenStore,
@@ -69,10 +69,11 @@ struct OAuthAuthState {
     /// We cache the validated token so later requests can be authorized and the token
     /// can be re-injected for downstream API calls.
     session_tokens: Arc<Mutex<LruCache<String, String>>>,
-    /// Shared OAuth state for transparent token refresh.
-    /// When an access token is expired but has a valid refresh token,
-    /// we can refresh it server-side without requiring client action.
+    /// Shared OAuth state for endpoints and configuration.
     oauth_state: Arc<OAuthState>,
+    /// JWKS cache for JWT signature validation.
+    /// Validates serencore JWTs without database lookup.
+    jwks_cache: Arc<oauth::jwks::JwksCache>,
 }
 
 impl OAuthAuthState {
@@ -136,123 +137,11 @@ async fn require_simple_auth(
     next.run(req).await
 }
 
-/// Attempt to transparently refresh an expired access token.
-/// Returns (new_access_token, new_token_string) if successful, None if no refresh possible.
-async fn try_transparent_refresh(
-    state: &OAuthAuthState,
-    expired_token: &str,
-) -> Result<Option<(oauth::store::AccessToken, String)>, Box<dyn std::error::Error + Send + Sync>> {
-    use time::{Duration, OffsetDateTime};
-
-    // Try to get the access token metadata. It might have been deleted by cleanup,
-    // but we can still try to find the refresh token by the access token string.
-    let expired_access_token = state
-        .store
-        .get_access_token_unchecked(expired_token)
-        .await?;
-
-    // If we have the access token row, verify it's actually expired
-    if let Some(ref token) = expired_access_token {
-        if token.expires_at > OffsetDateTime::now_utc() {
-            // Token is not expired, something else is wrong
-            return Ok(None);
-        }
-    }
-
-    // Look up the refresh token for this access token.
-    // This works even if the access_tokens row was deleted by cleanup,
-    // because refresh_tokens.access_token stores the string value, not a FK reference.
-    let refresh_token = match state
-        .store
-        .get_refresh_token_by_access_token(expired_token)
-        .await?
-    {
-        Some(rt) => rt,
-        None => {
-            tracing::debug!(
-                event = "no_refresh_token",
-                access_token_existed = expired_access_token.is_some(),
-                "No valid refresh token found for expired access token"
-            );
-            return Ok(None);
-        }
-    };
-
-    // Call upstream to refresh the token using the shared function
-    let token_body = match oauth::routes::exchange_upstream_token(
-        &state.oauth_state.http,
-        &state.oauth_state.upstream_api_base_url,
-        vec![
-            ("grant_type", "refresh_token"),
-            ("refresh_token", &refresh_token.token),
-            ("client_id", &state.oauth_state.upstream_client_id),
-        ],
-        &state.oauth_state.circuit_breaker,
-    )
-    .await
-    {
-        Ok(body) => body,
-        Err(e) => {
-            tracing::debug!(
-                event = "upstream_refresh_failed",
-                error = ?e,
-                "Upstream token refresh returned error"
-            );
-            return Ok(None);
-        }
-    };
-
-    let new_expires_at =
-        OffsetDateTime::now_utc() + Duration::seconds(token_body.expires_in.max(0));
-
-    // Create new access token record.
-    // Use metadata from expired_access_token if available, otherwise fall back to refresh_token.
-    // The refresh_token always has client_id and user_id, but scope might be missing if access token was deleted.
-    let (client_id, user_id, scope) = match expired_access_token {
-        Some(ref at) => (at.client_id.clone(), at.user_id.clone(), at.scope.clone()),
-        None => (
-            refresh_token.client_id.clone(),
-            refresh_token.user_id.clone(),
-            "api".to_string(), // Default scope when access token was cleaned up
-        ),
-    };
-
-    let new_access_token = oauth::store::AccessToken {
-        token: token_body.access_token.clone(),
-        client_id,
-        user_id,
-        scope,
-        expires_at: new_expires_at,
-        created_at: OffsetDateTime::now_utc(),
-    };
-
-    // Save new access token
-    state.store.save_access_token(&new_access_token).await?;
-
-    // Update refresh token to point to new access token (and rotate if new one provided)
-    let new_refresh_token_str = token_body
-        .refresh_token
-        .unwrap_or_else(|| refresh_token.token.clone());
-
-    state
-        .store
-        .update_refresh_token(
-            &refresh_token.token,
-            &new_refresh_token_str,
-            &token_body.access_token,
-            Some(oauth::store::TokenStore::token_expiry(
-                oauth::store::REFRESH_TOKEN_TTL_HOURS,
-            )),
-        )
-        .await?;
-
-    // Revoke old access token
-    state.store.revoke_access_token(expired_token).await.ok();
-
-    Ok(Some((new_access_token, token_body.access_token)))
-}
-
 /// OAuth token validation middleware (for start:oauth mode)
+///
+/// Uses JWKS to validate serencore JWTs without database lookups for token validation.
+/// Session tokens and client_id associations are still stored in the database for
+/// session persistence and agent tracking.
 async fn require_oauth_auth(
     axum::extract::State(state): axum::extract::State<OAuthAuthState>,
     mut req: axum::http::Request<axum::body::Body>,
@@ -284,7 +173,7 @@ async fn require_oauth_auth(
 
     // Prefer an explicit Authorization header.
     let mut token = extract_bearer_token(&req).map(|t| t.to_string());
-    let mut token_from_session_cache = false;
+    let mut session_client_id: Option<String> = None;
 
     // If missing, try to recover the token from the session cache.
     // First check the in-memory LRU cache (fast path), then fall back to database (survives restarts).
@@ -294,7 +183,6 @@ async fn require_oauth_auth(
         // Try LRU cache first
         token = state.session_tokens.lock().await.get(sid).cloned();
         if token.is_some() {
-            token_from_session_cache = true;
             tracing::debug!(
                 event = "oauth_auth_token_from_lru_cache",
                 session_id = %sid,
@@ -305,7 +193,7 @@ async fn require_oauth_auth(
             match state.store.get_session_token(sid).await {
                 Ok(Some(session_token)) => {
                     token = Some(session_token.access_token.clone());
-                    token_from_session_cache = true;
+                    session_client_id = session_token.client_id.clone();
                     // Populate the LRU cache for future requests
                     state
                         .session_tokens
@@ -315,6 +203,7 @@ async fn require_oauth_auth(
                     tracing::debug!(
                         event = "oauth_auth_token_from_database",
                         session_id = %sid,
+                        client_id = ?session_client_id,
                         "Retrieved token from database and populated LRU cache"
                     );
                 }
@@ -348,102 +237,64 @@ async fn require_oauth_auth(
         return state.unauthorized_response("unauthorized", "Bearer token required");
     };
 
-    // Validate token against database and get client metadata.
-    // If token is expired and came from the session cache (not the client),
-    // attempt a transparent refresh using the refresh token.
+    // Validate JWT using JWKS (no database lookup needed for token validation)
     tracing::debug!(
-        event = "oauth_auth_validating_token",
-        token_from_cache = token_from_session_cache,
-        "Validating access token"
+        event = "oauth_auth_validating_jwt",
+        "Validating JWT using JWKS"
     );
 
-    let (access_token, new_token) = match state.store.get_access_token(&token).await {
-        Ok(Some(access_token)) => {
+    let claims = match state.jwks_cache.validate_token(&token).await {
+        Ok(claims) => {
             tracing::debug!(
-                event = "oauth_auth_token_valid",
-                client_id = %access_token.client_id,
-                user_id = %access_token.user_id,
-                "Access token validated successfully"
+                event = "oauth_auth_jwt_valid",
+                user_id = %claims.sub,
+                email = %claims.email,
+                "JWT validated successfully via JWKS"
             );
-            (access_token, None)
-        }
-        Ok(None) => {
-            tracing::debug!(
-                event = "oauth_auth_token_not_found",
-                token_from_cache = token_from_session_cache,
-                "Access token not found in database"
-            );
-            if token_from_session_cache {
-                // Token not valid - check if it exists but is expired
-                match try_transparent_refresh(&state, &token).await {
-                    Ok(Some((new_access_token, new_token_str))) => {
-                        tracing::info!(
-                            event = "transparent_token_refresh",
-                            client_id = %new_access_token.client_id,
-                            user_id = %new_access_token.user_id,
-                            "Transparently refreshed expired access token"
-                        );
-                        (new_access_token, Some(new_token_str))
-                    }
-                    Ok(None) => {
-                        // No refresh token available or refresh failed
-                        tracing::debug!(
-                            event = "token_validation_failed",
-                            "Token is invalid or expired and no refresh token available"
-                        );
-                        return state
-                            .unauthorized_response("invalid_token", "Token is invalid or expired");
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            event = "transparent_refresh_failed",
-                            error = %e,
-                            "Failed to transparently refresh token"
-                        );
-                        return state
-                            .unauthorized_response("invalid_token", "Token is invalid or expired");
-                    }
-                }
-            } else {
-                // If the client provided this token, the client should be responsible for refresh.
-                tracing::debug!(
-                    event = "oauth_auth_token_invalid_from_client",
-                    "Client-provided token is invalid or expired"
-                );
-                return state.unauthorized_response("invalid_token", "Token is invalid or expired");
-            }
+            claims
         }
         Err(e) => {
-            tracing::error!(
-                event = "oauth_auth_token_validation_error",
+            tracing::debug!(
+                event = "oauth_auth_jwt_invalid",
                 error = %e,
-                method = %method,
-                uri = %uri,
-                "Token validation database error - returning 500"
+                "JWT validation failed"
             );
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                axum::Json(serde_json::json!({
-                    "error": "server_error",
-                    "error_description": "Token validation failed"
-                })),
-            )
-                .into_response();
+            return state.unauthorized_response("invalid_token", "Token is invalid or expired");
         }
     };
 
-    // If we got a new token from transparent refresh, update the token variable for session caching.
-    let token = new_token.clone().unwrap_or(token);
+    // Extract JWT expiration for session persistence
+    let jwt_exp = time::OffsetDateTime::from_unix_timestamp(claims.exp)
+        .unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+
+    // Get client_id from session token (if available from previous session).
+    // Since access tokens are JWTs validated via JWKS, we don't have a token→client mapping.
+    // Client tracking is populated when the session is first created with a client_id.
+    let client_id = session_client_id;
 
     // Ensure the request has an up-to-date Authorization header so rmcp can propagate it into
-    // Extensions for downstream tool calls (and so refreshed tokens take effect immediately).
+    // Extensions for downstream tool calls.
     if let Ok(v) = axum::http::HeaderValue::from_str(&format!("Bearer {}", token)) {
         req.headers_mut()
             .insert(axum::http::header::AUTHORIZATION, v);
     }
 
+    // Inject user metadata from JWT claims
+    if let Ok(v) = axum::http::HeaderValue::from_str(&claims.sub) {
+        req.headers_mut()
+            .insert(axum::http::header::HeaderName::from_static("x-user-id"), v);
+    }
+    if let Ok(v) = axum::http::HeaderValue::from_str(&claims.email) {
+        req.headers_mut().insert(
+            axum::http::header::HeaderName::from_static("x-user-email"),
+            v,
+        );
+    }
+
     // Look up client metadata for agent tracking
-    if let Ok(Some(client)) = state.store.get_client(&access_token.client_id).await {
+    if let Some(ref cid) = client_id
+        && let Ok(Some(client)) = state.store.get_client(cid).await
+    {
         // Inject agent metadata headers for downstream tracking
         if let Ok(v) = axum::http::HeaderValue::from_str(&client.id) {
             req.headers_mut().insert(
@@ -485,17 +336,20 @@ async fn require_oauth_auth(
             .put(sid.clone(), token.clone());
 
         // Persist to database asynchronously (fire-and-forget to not block request)
-        // Use refresh token TTL (7 days) for session persistence, not access token expiry (15 min).
-        // This allows sessions to survive across access token refreshes.
+        // Use the JWT's expiration claim for session expiry.
         let store = state.store.clone();
         let sid_clone = sid.clone();
         let token_clone = token.clone();
-        let client_id = access_token.client_id.clone();
-        let session_expires_at =
-            TokenStore::token_expiry(oauth::store::REFRESH_TOKEN_TTL_HOURS);
+        let client_id_clone = client_id.clone();
+        let session_expires_at = jwt_exp;
         tokio::spawn(async move {
             if let Err(e) = store
-                .save_session_token(&sid_clone, &token_clone, Some(&client_id), session_expires_at)
+                .save_session_token(
+                    &sid_clone,
+                    &token_clone,
+                    client_id_clone.as_deref(),
+                    session_expires_at,
+                )
                 .await
             {
                 tracing::warn!(
@@ -520,7 +374,8 @@ async fn require_oauth_auth(
         event = "oauth_auth_calling_next",
         method = %req_method,
         uri = %req_uri,
-        client_id = %access_token.client_id,
+        user_id = %claims.sub,
+        client_id = ?client_id,
         "Authentication successful, calling next handler"
     );
 
@@ -533,7 +388,7 @@ async fn require_oauth_auth(
             method = %req_method,
             uri = %req_uri,
             status = %response_status,
-            client_id = %access_token.client_id,
+            user_id = %claims.sub,
             "Handler returned server error after OAuth auth"
         );
     } else {
@@ -566,17 +421,20 @@ async fn require_oauth_auth(
             .put(sid.clone(), token.clone());
 
         // Persist to database asynchronously (fire-and-forget to not block response)
-        // Use refresh token TTL (7 days) for session persistence, not access token expiry (15 min).
-        // This allows sessions to survive across access token refreshes.
+        // Use the JWT's expiration claim for session expiry.
         let store = state.store.clone();
         let sid_clone = sid;
         let token_clone = token.clone();
-        let client_id = access_token.client_id.clone();
-        let session_expires_at =
-            TokenStore::token_expiry(oauth::store::REFRESH_TOKEN_TTL_HOURS);
+        let client_id_clone = client_id.clone();
+        let session_expires_at = jwt_exp;
         tokio::spawn(async move {
             if let Err(e) = store
-                .save_session_token(&sid_clone, &token_clone, Some(&client_id), session_expires_at)
+                .save_session_token(
+                    &sid_clone,
+                    &token_clone,
+                    client_id_clone.as_deref(),
+                    session_expires_at,
+                )
                 .await
             {
                 tracing::warn!(
@@ -933,6 +791,19 @@ async fn run_oauth(config: Config) -> Result<()> {
     // Clone store for health check before moving it
     let health_store = Arc::new(store.clone());
 
+    // Create JWKS cache for JWT validation
+    // The JWKS endpoint is at serencore's API base URL
+    let jwks_url = format!(
+        "{}/.well-known/jwks.json",
+        oauth_state.upstream_api_base_url.trim_end_matches('/')
+    );
+    let jwks_cache = Arc::new(oauth::jwks::JwksCache::new(
+        jwks_url.clone(),
+        None, // Don't validate issuer (serencore doesn't set it consistently)
+        None, // Don't validate audience
+    ));
+    tracing::info!(jwks_url = %jwks_url, "JWKS cache initialized");
+
     // MCP endpoint with OAuth token validation
     const SESSION_TOKEN_CACHE_SIZE: usize = 10_000;
     let session_tokens = Arc::new(Mutex::new(LruCache::new(
@@ -949,6 +820,7 @@ async fn run_oauth(config: Config) -> Result<()> {
                 store,
                 session_tokens,
                 oauth_state: oauth_state.clone(),
+                jwks_cache,
             },
             require_oauth_auth,
         ));

@@ -12,7 +12,7 @@
 
 use crate::oauth::circuit_breaker::OAuthCircuitBreaker;
 use crate::oauth::store::{
-    AccessToken, AuthRequest, AuthorizationCode, REFRESH_TOKEN_TTL_HOURS, RefreshToken, TokenStore,
+    AuthRequest, AuthorizationCode, REFRESH_TOKEN_TTL_HOURS, RefreshToken, TokenStore,
 };
 use axum::{
     Form, Json, Router,
@@ -720,27 +720,13 @@ async fn token(
                 return Err(OAuthError::InvalidGrant("PKCE verification failed".into()));
             }
 
-            // Persist upstream tokens (access token is used as bearer token on /mcp).
-            let access_token = AccessToken {
-                token: auth_code.upstream_access_token.clone(),
-                client_id: auth_code.client_id.clone(),
-                user_id: auth_code.user_id.clone(),
-                scope: auth_code.scope.clone(),
-                expires_at: auth_code.upstream_expires_at,
-                created_at: OffsetDateTime::now_utc(),
-            };
-            state
-                .store
-                .save_access_token(&access_token)
-                .await
-                .map_err(|e| OAuthError::ServerError(e.to_string()))?;
-
+            // Save refresh token for token rotation (access tokens are JWTs validated via JWKS)
             if let Some(refresh_token_str) = auth_code.upstream_refresh_token.as_deref() {
                 let refresh_token = RefreshToken {
                     token: refresh_token_str.to_string(),
-                    access_token: Some(access_token.token.clone()),
                     client_id: auth_code.client_id.clone(),
                     user_id: auth_code.user_id.clone(),
+                    scope: auth_code.scope.clone(),
                     expires_at: Some(TokenStore::token_expiry(REFRESH_TOKEN_TTL_HOURS)),
                     created_at: OffsetDateTime::now_utc(),
                 };
@@ -812,20 +798,7 @@ async fn token(
             )
             .await?;
 
-            // Get the old access token to preserve scope (even if expired)
-            let preserved_scope = if let Some(ref old_token_id) = refresh_token.access_token {
-                state
-                    .store
-                    .get_access_token_unchecked(old_token_id)
-                    .await
-                    .map_err(|e| OAuthError::ServerError(e.to_string()))?
-                    .map(|t| t.scope)
-                    .unwrap_or_else(|| "api".into())
-            } else {
-                "api".into()
-            };
-
-            // Refresh upstream tokens.
+            // Refresh upstream tokens (access tokens are JWTs validated via JWKS)
             let token_body = exchange_upstream_token(
                 &state.http,
                 &state.upstream_api_base_url,
@@ -852,39 +825,18 @@ async fn token(
                 .refresh_token
                 .unwrap_or_else(TokenStore::generate_token);
 
-            let new_access_token = AccessToken {
-                token: new_access_token_str.clone(),
-                client_id: refresh_token.client_id.clone(),
-                user_id: refresh_token.user_id.clone(),
-                scope: preserved_scope.clone(),
-                expires_at: new_expires_at,
-                created_at: OffsetDateTime::now_utc(),
-            };
-            state
-                .store
-                .save_access_token(&new_access_token)
-                .await
-                .map_err(|e| OAuthError::ServerError(e.to_string()))?;
-
-            // Update refresh token row first (avoid FK cascade delete).
-            let old_access_token = refresh_token.access_token.clone();
+            // Update refresh token row with rotated token
             let updated = state
                 .store
                 .update_refresh_token(
                     &refresh_token_str,
                     &new_refresh_token_str,
-                    &new_access_token_str,
                     Some(TokenStore::token_expiry(REFRESH_TOKEN_TTL_HOURS)),
                 )
                 .await
                 .map_err(|e| OAuthError::ServerError(e.to_string()))?;
             if !updated {
                 return Err(OAuthError::InvalidGrant("refresh_token not found".into()));
-            }
-
-            // Revoke old access token if it exists
-            if let Some(ref old_token_id) = old_access_token {
-                state.store.revoke_access_token(old_token_id).await.ok();
             }
 
             let expires_in = (new_expires_at - OffsetDateTime::now_utc())
@@ -904,7 +856,7 @@ async fn token(
                 token_type: "Bearer".into(),
                 expires_in,
                 refresh_token: Some(new_refresh_token_str),
-                scope: new_access_token.scope,
+                scope: refresh_token.scope,
             }))
         }
         _ => Err(OAuthError::UnsupportedGrantType),
@@ -918,7 +870,9 @@ async fn token(
 #[derive(Debug, Deserialize)]
 struct RevokeRequest {
     token: String,
+    /// Kept for RFC 7009 compatibility (clients may send this)
     #[serde(default)]
+    #[allow(dead_code)]
     token_type_hint: Option<String>,
     #[serde(default)]
     client_id: Option<String>,
@@ -928,55 +882,21 @@ struct RevokeRequest {
 
 /// Token revocation endpoint per RFC 7009.
 ///
-/// Revokes access tokens or refresh tokens. Per the spec, this endpoint
-/// always returns 200 OK even if the token was invalid or already revoked.
+/// Revokes refresh tokens. Access tokens are JWTs validated via JWKS, so they
+/// cannot be server-side revoked and remain valid until expiry.
+/// Per the spec, this endpoint always returns 200 OK even if the token was
+/// invalid or already revoked.
 async fn revoke(
     State(state): State<Arc<OAuthState>>,
     Form(req): Form<RevokeRequest>,
 ) -> Result<StatusCode, OAuthError> {
-    // Q1 fix: Use extracted validation helper
     // Validate client credentials if provided
     if let Some(client_id) = req.client_id.as_deref() {
         validate_client_credentials(&state.store, client_id, req.client_secret.as_deref()).await?;
     }
 
-    // Try to revoke based on token_type_hint, or try both if not specified
-    let token = &req.token;
-    match req.token_type_hint.as_deref() {
-        Some("refresh_token") => {
-            // Try refresh token first, then access token
-            if !state
-                .store
-                .revoke_refresh_token(token)
-                .await
-                .unwrap_or(false)
-            {
-                state.store.revoke_access_token(token).await.ok();
-            }
-        }
-        Some("access_token") => {
-            // Try access token first, then refresh token
-            if !state
-                .store
-                .revoke_access_token(token)
-                .await
-                .unwrap_or(false)
-            {
-                state.store.revoke_refresh_token(token).await.ok();
-            }
-        }
-        _ => {
-            // No hint - try both (access tokens are more common)
-            if !state
-                .store
-                .revoke_access_token(token)
-                .await
-                .unwrap_or(false)
-            {
-                state.store.revoke_refresh_token(token).await.ok();
-            }
-        }
-    }
+    // Try to revoke as refresh token (access tokens are JWTs that can't be revoked)
+    state.store.revoke_refresh_token(&req.token).await.ok();
 
     // RFC 7009: Always return 200 OK regardless of whether token existed
     Ok(StatusCode::OK)

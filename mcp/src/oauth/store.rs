@@ -15,7 +15,6 @@ use time::{Duration, OffsetDateTime};
 // NOTE: These should match serencore's values in seren-core/src/auth/mod.rs
 // to keep session lifetimes consistent across the stack.
 pub const REFRESH_TOKEN_TTL_HOURS: i64 = 365 * 24; // 365 days (1 year)
-pub const ACCESS_TOKEN_DEFAULT_TTL_SECS: i64 = 8 * 60 * 60; // 8 hours (matches serencore)
 
 /// OAuth2 Client registration
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -116,26 +115,13 @@ pub struct AuthorizationCode {
     pub upstream_expires_at: OffsetDateTime,
 }
 
-/// Access token
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct AccessToken {
-    pub token: String,
-    pub client_id: String,
-    pub user_id: String,
-    pub scope: String,
-    pub expires_at: OffsetDateTime,
-    pub created_at: OffsetDateTime,
-}
-
 /// Refresh token
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RefreshToken {
     pub token: String,
-    /// Reference to the associated access token. May be NULL if the access token
-    /// was deleted (e.g., expired and cleaned up) but the refresh token is still valid.
-    pub access_token: Option<String>,
     pub client_id: String,
     pub user_id: String,
+    pub scope: String,
     pub expires_at: Option<OffsetDateTime>,
     pub created_at: OffsetDateTime,
 }
@@ -350,13 +336,13 @@ impl TokenStore {
         Ok(auth_code)
     }
 
-    // === Access token operations ===
+    // === Refresh token operations ===
 
-    /// Save an access token
-    pub async fn save_access_token(&self, token: &AccessToken) -> Result<()> {
+    /// Save a refresh token
+    pub async fn save_refresh_token(&self, token: &RefreshToken) -> Result<()> {
         sqlx::query(
             r#"
-            INSERT INTO mcp_oauth.access_tokens
+            INSERT INTO mcp_oauth.refresh_tokens
                 (token, client_id, user_id, scope, expires_at)
             VALUES ($1, $2, $3, $4, $5)
             "#,
@@ -373,62 +359,11 @@ impl TokenStore {
         Ok(())
     }
 
-    /// Get an access token (validates expiry)
-    pub async fn get_access_token(&self, token: &str) -> Result<Option<AccessToken>> {
-        let access_token = sqlx::query_as::<_, AccessToken>(
-            r#"
-            SELECT token, client_id, user_id, scope, expires_at, created_at
-            FROM mcp_oauth.access_tokens
-            WHERE token = $1 AND expires_at > NOW()
-            "#,
-        )
-        .bind(token)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(McpError::Database)?;
-
-        Ok(access_token)
-    }
-
-    /// Revoke an access token
-    pub async fn revoke_access_token(&self, token: &str) -> Result<bool> {
-        let result = sqlx::query("DELETE FROM mcp_oauth.access_tokens WHERE token = $1")
-            .bind(token)
-            .execute(&self.pool)
-            .await
-            .map_err(McpError::Database)?;
-
-        Ok(result.rows_affected() > 0)
-    }
-
-    // === Refresh token operations ===
-
-    /// Save a refresh token
-    pub async fn save_refresh_token(&self, token: &RefreshToken) -> Result<()> {
-        sqlx::query(
-            r#"
-            INSERT INTO mcp_oauth.refresh_tokens
-                (token, access_token, client_id, user_id, expires_at)
-            VALUES ($1, $2, $3, $4, $5)
-            "#,
-        )
-        .bind(&token.token)
-        .bind(&token.access_token)
-        .bind(&token.client_id)
-        .bind(&token.user_id)
-        .bind(token.expires_at)
-        .execute(&self.pool)
-        .await
-        .map_err(McpError::Database)?;
-
-        Ok(())
-    }
-
     /// Get a refresh token
     pub async fn get_refresh_token(&self, token: &str) -> Result<Option<RefreshToken>> {
         let refresh_token = sqlx::query_as::<_, RefreshToken>(
             r#"
-            SELECT token, access_token, client_id, user_id, expires_at, created_at
+            SELECT token, client_id, user_id, scope, expires_at, created_at
             FROM mcp_oauth.refresh_tokens
             WHERE token = $1 AND (expires_at IS NULL OR expires_at > NOW())
             "#,
@@ -441,48 +376,8 @@ impl TokenStore {
         Ok(refresh_token)
     }
 
-    /// Get a valid refresh token by its associated access token.
-    /// This is used for transparent token refresh when an expired access token is received.
-    pub async fn get_refresh_token_by_access_token(
-        &self,
-        access_token: &str,
-    ) -> Result<Option<RefreshToken>> {
-        let refresh_token = sqlx::query_as::<_, RefreshToken>(
-            r#"
-            SELECT token, access_token, client_id, user_id, expires_at, created_at
-            FROM mcp_oauth.refresh_tokens
-            WHERE access_token = $1 AND (expires_at IS NULL OR expires_at > NOW())
-            "#,
-        )
-        .bind(access_token)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(McpError::Database)?;
-
-        Ok(refresh_token)
-    }
-
-    /// Get an access token without checking expiry (for token refresh flow).
-    /// Returns the token even if expired, so we can look up its refresh token.
-    pub async fn get_access_token_unchecked(&self, token: &str) -> Result<Option<AccessToken>> {
-        let access_token = sqlx::query_as::<_, AccessToken>(
-            r#"
-            SELECT token, client_id, user_id, scope, expires_at, created_at
-            FROM mcp_oauth.access_tokens
-            WHERE token = $1
-            "#,
-        )
-        .bind(token)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(McpError::Database)?;
-
-        Ok(access_token)
-    }
-
-    /// Revoke a refresh token and its associated access token
+    /// Revoke a refresh token
     pub async fn revoke_refresh_token(&self, token: &str) -> Result<bool> {
-        // This will cascade delete the access token due to FK constraint
         let result = sqlx::query("DELETE FROM mcp_oauth.refresh_tokens WHERE token = $1")
             .bind(token)
             .execute(&self.pool)
@@ -497,18 +392,16 @@ impl TokenStore {
         &self,
         old_token: &str,
         new_token: &str,
-        new_access_token: &str,
         expires_at: Option<OffsetDateTime>,
     ) -> Result<bool> {
         let result = sqlx::query(
             r#"
             UPDATE mcp_oauth.refresh_tokens
-            SET token = $1, access_token = $2, expires_at = $3
-            WHERE token = $4
+            SET token = $1, expires_at = $2
+            WHERE token = $3
             "#,
         )
         .bind(new_token)
-        .bind(new_access_token)
         .bind(expires_at)
         .bind(old_token)
         .execute(&self.pool)

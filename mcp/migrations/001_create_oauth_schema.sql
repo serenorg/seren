@@ -1,6 +1,8 @@
 -- OAuth token storage schema for Seren MCP Server
 -- This schema stores OAuth2 tokens, authorization codes, and client registrations
 -- for the hosted MCP server mode.
+--
+-- Note: Access tokens are JWTs validated via JWKS from serencore, not stored here.
 
 CREATE SCHEMA mcp_oauth;
 
@@ -50,24 +52,12 @@ CREATE TABLE mcp_oauth.authorization_codes (
     upstream_expires_at timestamptz NOT NULL
 );
 
--- Access tokens (used for API authentication)
-CREATE TABLE mcp_oauth.access_tokens (
+-- Refresh tokens (long-lived, used to get new access tokens from upstream)
+CREATE TABLE mcp_oauth.refresh_tokens (
     token text PRIMARY KEY,
     client_id text NOT NULL REFERENCES mcp_oauth.clients (id) ON DELETE CASCADE,
     user_id text NOT NULL,
     scope text NOT NULL DEFAULT 'api',
-    expires_at timestamptz NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT NOW()
-);
-
--- Refresh tokens (long-lived, used to get new access tokens)
--- Note: access_token is nullable with ON DELETE SET NULL so refresh tokens
--- survive when their associated access tokens expire and are cleaned up.
-CREATE TABLE mcp_oauth.refresh_tokens (
-    token text PRIMARY KEY,
-    access_token text REFERENCES mcp_oauth.access_tokens (token) ON DELETE SET NULL,
-    client_id text NOT NULL REFERENCES mcp_oauth.clients (id) ON DELETE CASCADE,
-    user_id text NOT NULL,
     expires_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT NOW()
 );
@@ -106,18 +96,24 @@ CREATE TABLE mcp_oauth.pending_consents (
     created_at timestamptz NOT NULL DEFAULT NOW()
 );
 
+-- MCP Session tokens (maps session IDs to OAuth access tokens for pod restart survival)
+CREATE TABLE mcp_oauth.mcp_session_tokens (
+    session_id text PRIMARY KEY,
+    access_token text NOT NULL,
+    client_id text REFERENCES mcp_oauth.clients (id) ON DELETE CASCADE,
+    expires_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT NOW(),
+    updated_at timestamptz NOT NULL DEFAULT NOW()
+);
+
 -- Indexes
 CREATE INDEX idx_auth_requests_client ON mcp_oauth.auth_requests (client_id);
 CREATE INDEX idx_auth_requests_expires ON mcp_oauth.auth_requests (expires_at);
 CREATE INDEX idx_auth_codes_client ON mcp_oauth.authorization_codes (client_id);
 CREATE INDEX idx_auth_codes_user ON mcp_oauth.authorization_codes (user_id);
 CREATE INDEX idx_auth_codes_expires ON mcp_oauth.authorization_codes (expires_at);
-CREATE INDEX idx_access_tokens_client ON mcp_oauth.access_tokens (client_id);
-CREATE INDEX idx_access_tokens_user ON mcp_oauth.access_tokens (user_id);
-CREATE INDEX idx_access_tokens_expires ON mcp_oauth.access_tokens (expires_at);
 CREATE INDEX idx_refresh_tokens_client ON mcp_oauth.refresh_tokens (client_id);
 CREATE INDEX idx_refresh_tokens_user ON mcp_oauth.refresh_tokens (user_id);
-CREATE INDEX idx_refresh_tokens_access ON mcp_oauth.refresh_tokens (access_token);
 CREATE INDEX idx_sessions_user ON mcp_oauth.sessions (user_id);
 CREATE INDEX idx_sessions_client ON mcp_oauth.sessions (client_id);
 CREATE INDEX idx_sessions_expires ON mcp_oauth.sessions (expires_at);
@@ -125,6 +121,9 @@ CREATE INDEX idx_approved_clients_user ON mcp_oauth.approved_clients (user_id);
 CREATE INDEX idx_pending_consents_client ON mcp_oauth.pending_consents (client_id);
 CREATE INDEX idx_pending_consents_user ON mcp_oauth.pending_consents (user_id);
 CREATE INDEX idx_pending_consents_expires ON mcp_oauth.pending_consents (expires_at);
+CREATE INDEX idx_mcp_session_tokens_expires ON mcp_oauth.mcp_session_tokens (expires_at);
+CREATE INDEX idx_mcp_session_tokens_client ON mcp_oauth.mcp_session_tokens (client_id);
+CREATE INDEX idx_mcp_session_tokens_access_token ON mcp_oauth.mcp_session_tokens (access_token);
 
 -- Function to clean up expired records (batched to prevent table locks)
 CREATE FUNCTION mcp_oauth.cleanup_expired(batch_limit integer DEFAULT 1000)
@@ -164,16 +163,6 @@ BEGIN
     GET DIAGNOSTICS deleted_count = ROW_COUNT;
     total_deleted := total_deleted + deleted_count;
 
-    -- Clean access_tokens in batches
-    DELETE FROM mcp_oauth.access_tokens
-    WHERE token IN (
-        SELECT token FROM mcp_oauth.access_tokens
-        WHERE expires_at < NOW()
-        LIMIT batch_limit
-    );
-    GET DIAGNOSTICS deleted_count = ROW_COUNT;
-    total_deleted := total_deleted + deleted_count;
-
     -- Clean refresh_tokens in batches
     DELETE FROM mcp_oauth.refresh_tokens
     WHERE token IN (
@@ -188,6 +177,16 @@ BEGIN
     DELETE FROM mcp_oauth.sessions
     WHERE id IN (
         SELECT id FROM mcp_oauth.sessions
+        WHERE expires_at < NOW()
+        LIMIT batch_limit
+    );
+    GET DIAGNOSTICS deleted_count = ROW_COUNT;
+    total_deleted := total_deleted + deleted_count;
+
+    -- Clean MCP session tokens in batches
+    DELETE FROM mcp_oauth.mcp_session_tokens
+    WHERE session_id IN (
+        SELECT session_id FROM mcp_oauth.mcp_session_tokens
         WHERE expires_at < NOW()
         LIMIT batch_limit
     );
