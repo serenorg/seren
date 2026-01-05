@@ -54,7 +54,7 @@ pub struct OAuthState {
 const SUPPORTED_GRANT_TYPES: &[&str] = &["authorization_code", "refresh_token"];
 const SUPPORTED_RESPONSE_TYPES: &[&str] = &["code"];
 const SUPPORTED_AUTH_METHODS: &[&str] = &["none", "client_secret_post"];
-const ALLOWED_SCOPES: &[&str] = &["api", "api:read"];
+const ALLOWED_SCOPES: &[&str] = &["api"];
 
 // ============================================================================
 // Metadata Endpoint (RFC 8414)
