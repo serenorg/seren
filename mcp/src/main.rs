@@ -687,6 +687,45 @@ async fn require_oauth_auth(
         }
     }
 
+    // Sliding expiry: extend the server-side session without requiring client re-login.
+    if let Some(expires_at) = refresh_token.expires_at {
+        let now = time::OffsetDateTime::now_utc();
+        let new_expires_at = now + time::Duration::hours(oauth::store::REFRESH_TOKEN_TTL_HOURS);
+        let renew_before = now
+            + time::Duration::hours(
+                oauth::store::REFRESH_TOKEN_TTL_HOURS
+                    - oauth::store::SLIDING_EXPIRY_RENEWAL_INTERVAL_HOURS,
+            );
+
+        if expires_at < renew_before {
+            let store = state.store.clone();
+            let token = refresh_token.token.clone();
+            let user_id = user_id;
+            let client_id = claims.client_id.clone();
+            tokio::spawn(async move {
+                match store
+                    .extend_refresh_token_expiry_if_needed(&token, new_expires_at, renew_before)
+                    .await
+                {
+                    Ok(true) => tracing::debug!(
+                        event = "refresh_token_extended",
+                        user_id = %user_id,
+                        client_id = %client_id,
+                        "Extended refresh token expiry"
+                    ),
+                    Ok(false) => {}
+                    Err(e) => tracing::warn!(
+                        event = "refresh_token_extend_error",
+                        user_id = %user_id,
+                        client_id = %client_id,
+                        error = %e,
+                        "Failed to extend refresh token expiry"
+                    ),
+                }
+            });
+        }
+    }
+
     // Inject upstream token for API calls (backend expects upstream bearer token).
     if let Ok(v) = axum::http::HeaderValue::from_str(&format!(
         "Bearer {}",
@@ -746,7 +785,7 @@ async fn require_oauth_auth(
     }
 
     // If the request includes a session id, remember/update the token for that session.
-    // Save to both LRU cache (fast path) and database (persistence across restarts).
+    // Save to the LRU cache (fast path) and keep the database mapping alive for restarts.
     if let Some(ref sid) = session_id {
         state
             .session_tokens
@@ -754,36 +793,27 @@ async fn require_oauth_auth(
             .await
             .put(sid.clone(), token.clone());
 
-        // Persist to database asynchronously (fire-and-forget to not block request)
-        // Use refresh token TTL for session expiry to allow session persistence
+        // Persist to database asynchronously (fire-and-forget to not block request).
+        // Use conditional "touch" updates to avoid per-request writes.
         let store = state.store.clone();
         let sid_clone = sid.clone();
-        let token_clone = token.clone();
-        let client_id_clone = client_id.clone();
-        let session_expires_at = time::OffsetDateTime::now_utc()
-            + time::Duration::hours(oauth::store::REFRESH_TOKEN_TTL_HOURS);
+        let now = time::OffsetDateTime::now_utc();
+        let new_expires_at = now + time::Duration::hours(oauth::store::REFRESH_TOKEN_TTL_HOURS);
+        let renew_before = now
+            + time::Duration::hours(
+                oauth::store::REFRESH_TOKEN_TTL_HOURS
+                    - oauth::store::SLIDING_EXPIRY_RENEWAL_INTERVAL_HOURS,
+            );
         tokio::spawn(async move {
             if let Err(e) = store
-                .save_session_token(
-                    &sid_clone,
-                    &token_clone,
-                    client_id_clone.as_deref(),
-                    user_id,
-                    session_expires_at,
-                )
+                .extend_session_token_expiry_if_needed(&sid_clone, new_expires_at, renew_before)
                 .await
             {
                 tracing::warn!(
-                    event = "session_token_persist_error",
+                    event = "session_token_touch_error",
                     session_id = %sid_clone,
                     error = %e,
-                    "Failed to persist session token to database"
-                );
-            } else {
-                tracing::debug!(
-                    event = "session_token_persisted",
-                    session_id = %sid_clone,
-                    "Session token persisted to database"
+                    "Failed to touch session token expiry"
                 );
             }
         });

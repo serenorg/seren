@@ -47,6 +47,8 @@ impl std::str::FromStr for PkceMethod {
 // NOTE: These should match the upstream API's values to keep session lifetimes
 // consistent across the stack.
 pub const REFRESH_TOKEN_TTL_HOURS: i64 = 365 * 24; // 365 days (1 year)
+/// Minimum interval between sliding-expiry renewals (write throttling).
+pub const SLIDING_EXPIRY_RENEWAL_INTERVAL_HOURS: i64 = 24;
 
 /// OAuth2 Client registration
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -430,6 +432,36 @@ impl TokenStore {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Extend a refresh token's expiry if it's far enough in the past that renewing would meaningfully extend it.
+    ///
+    /// This supports "non-expiring sessions" UX without writing on every request: we only renew
+    /// if the existing expiry is before `renew_before` (typically `now + TTL - renewal_interval`).
+    pub async fn extend_refresh_token_expiry_if_needed(
+        &self,
+        token: &str,
+        new_expires_at: OffsetDateTime,
+        renew_before: OffsetDateTime,
+    ) -> Result<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE mcp_oauth.refresh_tokens
+            SET expires_at = $2
+            WHERE token = $1
+            AND expires_at IS NOT NULL
+            AND expires_at > NOW()
+            AND expires_at < $3
+            "#,
+        )
+        .bind(token)
+        .bind(new_expires_at)
+        .bind(renew_before)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     /// Update a refresh token with new values (for token rotation)
     /// Also updates the upstream token vault with refreshed upstream tokens
     pub async fn update_refresh_token(
@@ -703,6 +735,33 @@ impl TokenStore {
         .map_err(McpError::Database)?;
 
         Ok(session_token)
+    }
+
+    /// Extend a session token's expiry if it's far enough in the past that renewing would meaningfully extend it.
+    /// Uses a conditional update to avoid per-request writes.
+    pub async fn extend_session_token_expiry_if_needed(
+        &self,
+        session_id: &str,
+        new_expires_at: OffsetDateTime,
+        renew_before: OffsetDateTime,
+    ) -> Result<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE mcp_oauth.mcp_session_tokens
+            SET expires_at = $2, updated_at = NOW()
+            WHERE session_id = $1
+            AND expires_at > NOW()
+            AND expires_at < $3
+            "#,
+        )
+        .bind(session_id)
+        .bind(new_expires_at)
+        .bind(renew_before)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(result.rows_affected() > 0)
     }
 
     /// Delete an MCP session token (used when session is explicitly closed).
