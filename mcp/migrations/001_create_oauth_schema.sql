@@ -2,7 +2,7 @@
 -- This schema stores OAuth2 tokens, authorization codes, and client registrations
 -- for the hosted MCP server mode.
 --
--- Architecture: MCP issues its own tokens to clients. Upstream (serencore) tokens
+-- Architecture: MCP issues its own tokens to clients. Upstream tokens
 -- are stored server-side and used internally for API calls. Clients never see
 -- upstream tokens directly.
 
