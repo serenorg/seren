@@ -62,6 +62,14 @@ where
         let method = req.method().clone();
         let uri = req.uri().clone();
 
+        tracing::debug!(
+            event = "stale_session_middleware_entry",
+            session_id = ?session_id,
+            method = %method,
+            uri = %uri,
+            "StaleSessionRecoveryService processing request"
+        );
+
         // For requests with a session ID (GET or POST), we might need to retry
         let should_check_for_stale = session_id.is_some();
         let cloned_headers = if should_check_for_stale {
@@ -92,6 +100,16 @@ where
 
                         // Check if stale session error
                         let status = response.status();
+
+                        tracing::debug!(
+                            event = "stale_session_post_response",
+                            session_id = ?session_id,
+                            status = %status,
+                            method = %method,
+                            uri = %uri,
+                            "StaleSessionRecoveryService got response from inner service"
+                        );
+
                         let is_stale_session_error = session_id.is_some()
                             && matches!(
                                 status,
