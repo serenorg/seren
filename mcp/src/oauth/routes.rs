@@ -18,7 +18,7 @@ use crate::oauth::store::{
 use axum::{
     Form, Json, Router,
     extract::{Query, State},
-    http::StatusCode,
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
 };
@@ -664,10 +664,17 @@ struct TokenResponse {
     scope: String,
 }
 
+fn no_store_json<T: Serialize>(value: T) -> Response {
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    (headers, Json(value)).into_response()
+}
+
 async fn token(
     State(state): State<Arc<OAuthState>>,
     Form(req): Form<TokenRequest>,
-) -> Result<Json<TokenResponse>, OAuthError> {
+) -> Result<Response, OAuthError> {
     debug!(
         event = "oauth_token",
         grant_type = %req.grant_type,
@@ -762,7 +769,7 @@ async fn token(
                 "Token exchange completed (MCP token issued)"
             );
 
-            Ok(Json(TokenResponse {
+            Ok(no_store_json(TokenResponse {
                 access_token: mcp_access_token,
                 token_type: "Bearer".into(),
                 expires_in: mcp_expires_in,
@@ -881,7 +888,7 @@ async fn token(
                 "Token refresh completed (MCP token issued)"
             );
 
-            Ok(Json(TokenResponse {
+            Ok(no_store_json(TokenResponse {
                 access_token: new_mcp_access_token,
                 token_type: "Bearer".into(),
                 expires_in: mcp_expires_in,
@@ -1311,7 +1318,29 @@ async fn consent_page(
         csrf_token = html_escape(&consent.csrf_token)
     );
 
-    Ok(Html(html).into_response())
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        ),
+    );
+    headers.insert(
+        axum::http::header::HeaderName::from_static("x-frame-options"),
+        HeaderValue::from_static("DENY"),
+    );
+    headers.insert(
+        axum::http::header::HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        axum::http::header::HeaderName::from_static("referrer-policy"),
+        HeaderValue::from_static("no-referrer"),
+    );
+
+    Ok((headers, Html(html)).into_response())
 }
 
 #[derive(Debug, Deserialize)]
