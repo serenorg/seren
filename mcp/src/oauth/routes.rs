@@ -737,7 +737,7 @@ async fn token(
             // Generate MCP refresh token and store upstream tokens server-side
             let mcp_refresh_token = TokenStore::generate_token();
             let refresh_token = RefreshToken {
-                token: mcp_refresh_token.clone(),
+                token_hash: TokenStore::hash_refresh_token(&mcp_refresh_token),
                 client_id: auth_code.client_id.clone(),
                 user_id: auth_code.user_id,
                 scope: auth_code.scope.clone(),

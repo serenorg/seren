@@ -622,7 +622,7 @@ async fn require_oauth_auth(
                     match state
                         .store
                         .update_upstream_tokens(
-                            &refresh_token.token,
+                            &refresh_token.token_hash,
                             &new_upstream_access_token,
                             new_upstream_refresh_token.as_deref(),
                             new_upstream_expires_at,
@@ -699,7 +699,7 @@ async fn require_oauth_auth(
 
         if expires_at < renew_before {
             let store = state.store.clone();
-            let token = refresh_token.token.clone();
+            let token = refresh_token.token_hash.clone();
             let user_id_for_log = user_id;
             let client_id_for_log = claims.client_id.clone();
             let session_id = session_id.clone();

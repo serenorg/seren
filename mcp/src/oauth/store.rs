@@ -153,7 +153,8 @@ pub struct AuthorizationCode {
 /// The MCP refresh token is what clients use; upstream tokens are used internally for API calls.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RefreshToken {
-    pub token: String,
+    /// Hash of the refresh token (SHA-256 hex). We never store plaintext refresh tokens.
+    pub token_hash: String,
     pub client_id: String,
     pub user_id: Uuid,
     pub scope: String,
@@ -383,12 +384,12 @@ impl TokenStore {
         sqlx::query(
             r#"
             INSERT INTO mcp_oauth.refresh_tokens
-                (token, client_id, user_id, scope, expires_at,
+                (token_hash, client_id, user_id, scope, expires_at,
                 upstream_access_token, upstream_refresh_token, upstream_expires_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             "#,
         )
-        .bind(&token.token)
+        .bind(&token.token_hash)
         .bind(&token.client_id)
         .bind(token.user_id)
         .bind(&token.scope)
@@ -405,29 +406,58 @@ impl TokenStore {
 
     /// Get a refresh token (includes upstream token vault)
     pub async fn get_refresh_token(&self, token: &str) -> Result<Option<RefreshToken>> {
+        let token_hash = Self::hash_refresh_token(token);
         let refresh_token = sqlx::query_as::<_, RefreshToken>(
             r#"
-            SELECT token, client_id, user_id, scope, expires_at, created_at,
+            SELECT token_hash, client_id, user_id, scope, expires_at, created_at,
                 upstream_access_token, upstream_refresh_token, upstream_expires_at
             FROM mcp_oauth.refresh_tokens
-            WHERE token = $1 AND (expires_at IS NULL OR expires_at > NOW())
+            WHERE (token_hash = $1 OR token_hash = $2)
+            AND (expires_at IS NULL OR expires_at > NOW())
             "#,
         )
+        .bind(&token_hash)
         .bind(token)
         .fetch_optional(&self.pool)
         .await
         .map_err(McpError::Database)?;
+
+        // Opportunistically upgrade legacy plaintext refresh tokens to hashed storage.
+        if let Some(ref refresh_token) = refresh_token
+            && refresh_token.token_hash == token
+            && !Self::looks_like_sha256_hex(token)
+        {
+            // Best-effort: don't fail the request if migration write fails.
+            let _ = sqlx::query(
+                r#"
+                UPDATE mcp_oauth.refresh_tokens
+                SET token_hash = $1
+                WHERE token_hash = $2
+                "#,
+            )
+            .bind(&token_hash)
+            .bind(token)
+            .execute(&self.pool)
+            .await;
+        }
 
         Ok(refresh_token)
     }
 
     /// Revoke a refresh token
     pub async fn revoke_refresh_token(&self, token: &str) -> Result<bool> {
-        let result = sqlx::query("DELETE FROM mcp_oauth.refresh_tokens WHERE token = $1")
-            .bind(token)
-            .execute(&self.pool)
-            .await
-            .map_err(McpError::Database)?;
+        let token_hash = Self::hash_refresh_token(token);
+        let result = sqlx::query(
+            r#"
+            DELETE FROM mcp_oauth.refresh_tokens
+            WHERE token_hash = $1 OR token_hash = $2
+            "#,
+        )
+        .bind(&token_hash)
+        .bind(token)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -446,7 +476,7 @@ impl TokenStore {
             r#"
             UPDATE mcp_oauth.refresh_tokens
             SET expires_at = $2
-            WHERE token = $1
+            WHERE token_hash = $1
             AND expires_at IS NOT NULL
             AND expires_at > NOW()
             AND expires_at < $3
@@ -473,17 +503,44 @@ impl TokenStore {
         upstream_refresh_token: Option<&str>,
         upstream_expires_at: OffsetDateTime,
     ) -> Result<bool> {
+        let old_token_hash = Self::hash_refresh_token(old_token);
+        let new_token_hash = Self::hash_refresh_token(new_token);
         let result = sqlx::query(
             r#"
             UPDATE mcp_oauth.refresh_tokens
-            SET token = $1, expires_at = $2,
+            SET token_hash = $1, expires_at = $2,
                 upstream_access_token = $3,
                 upstream_refresh_token = COALESCE($4, upstream_refresh_token),
                 upstream_expires_at = $5
-            WHERE token = $6 AND (expires_at IS NULL OR expires_at > NOW())
+            WHERE token_hash = $6 AND (expires_at IS NULL OR expires_at > NOW())
             "#,
         )
-        .bind(new_token)
+        .bind(&new_token_hash)
+        .bind(expires_at)
+        .bind(upstream_access_token)
+        .bind(upstream_refresh_token)
+        .bind(upstream_expires_at)
+        .bind(&old_token_hash)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        if result.rows_affected() > 0 {
+            return Ok(true);
+        }
+
+        // Legacy fallback: DB may still store plaintext refresh tokens in token_hash column.
+        let result = sqlx::query(
+            r#"
+            UPDATE mcp_oauth.refresh_tokens
+            SET token_hash = $1, expires_at = $2,
+                upstream_access_token = $3,
+                upstream_refresh_token = COALESCE($4, upstream_refresh_token),
+                upstream_expires_at = $5
+            WHERE token_hash = $6 AND (expires_at IS NULL OR expires_at > NOW())
+            "#,
+        )
+        .bind(&new_token_hash)
         .bind(expires_at)
         .bind(upstream_access_token)
         .bind(upstream_refresh_token)
@@ -511,7 +568,7 @@ impl TokenStore {
             SET upstream_access_token = $2,
                 upstream_refresh_token = COALESCE($3, upstream_refresh_token),
                 upstream_expires_at = $4
-            WHERE token = $1 AND (expires_at IS NULL OR expires_at > NOW())
+            WHERE token_hash = $1 AND (expires_at IS NULL OR expires_at > NOW())
             "#,
         )
         .bind(mcp_refresh_token)
@@ -536,7 +593,7 @@ impl TokenStore {
             r#"
             SELECT upstream_access_token, upstream_expires_at
             FROM mcp_oauth.refresh_tokens
-            WHERE token = $1 AND (expires_at IS NULL OR expires_at > NOW())
+            WHERE token_hash = $1 AND (expires_at IS NULL OR expires_at > NOW())
             "#,
         )
         .bind(mcp_refresh_token)
@@ -553,9 +610,9 @@ impl TokenStore {
         user_id: Uuid,
         client_id: &str,
     ) -> Result<Option<RefreshToken>> {
-        let refresh_token = sqlx::query_as::<_, RefreshToken>(
+        let mut refresh_token = sqlx::query_as::<_, RefreshToken>(
             r#"
-            SELECT token, client_id, user_id, scope, expires_at, created_at,
+            SELECT token_hash, client_id, user_id, scope, expires_at, created_at,
                 upstream_access_token, upstream_refresh_token, upstream_expires_at
             FROM mcp_oauth.refresh_tokens
             WHERE user_id = $1 AND client_id = $2 AND (expires_at IS NULL OR expires_at > NOW())
@@ -568,6 +625,32 @@ impl TokenStore {
         .fetch_optional(&self.pool)
         .await
         .map_err(McpError::Database)?;
+
+        // Opportunistically upgrade legacy plaintext refresh tokens to hashed storage.
+        if let Some(ref mut token) = refresh_token
+            && !Self::looks_like_sha256_hex(&token.token_hash)
+        {
+            let new_hash = Self::hash_refresh_token(&token.token_hash);
+            match sqlx::query(
+                r#"
+                UPDATE mcp_oauth.refresh_tokens
+                SET token_hash = $1
+                WHERE token_hash = $2
+                "#,
+            )
+            .bind(&new_hash)
+            .bind(&token.token_hash)
+            .execute(&self.pool)
+            .await
+            {
+                Ok(_) => token.token_hash = new_hash,
+                Err(e) => tracing::warn!(
+                    event = "refresh_token_hash_upgrade_failed",
+                    error = %e,
+                    "Failed to upgrade legacy refresh token hash"
+                ),
+            }
+        }
 
         Ok(refresh_token)
     }
@@ -806,6 +889,21 @@ impl TokenStore {
         use rand::Rng;
         let bytes: [u8; 32] = rand::rng().random();
         base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, bytes)
+    }
+
+    /// Hash a refresh token using SHA-256, returning lowercase hex.
+    pub fn hash_refresh_token(token: &str) -> String {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(token.as_bytes());
+        hex::encode(digest)
+    }
+
+    fn looks_like_sha256_hex(value: &str) -> bool {
+        value.len() == 64
+            && value
+                .as_bytes()
+                .iter()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
     }
 
     /// Generate a secure random authorization code
