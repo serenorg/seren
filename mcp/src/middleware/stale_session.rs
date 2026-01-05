@@ -62,7 +62,7 @@ where
         let method = req.method().clone();
         let uri = req.uri().clone();
 
-        tracing::debug!(
+        tracing::info!(
             event = "stale_session_middleware_entry",
             session_id = ?session_id,
             method = %method,
@@ -101,7 +101,7 @@ where
                         // Check if stale session error
                         let status = response.status();
 
-                        tracing::debug!(
+                        tracing::info!(
                             event = "stale_session_post_response",
                             session_id = ?session_id,
                             status = %status,
@@ -193,6 +193,15 @@ where
 
             // Check if this looks like a stale session error on GET
             let status = response.status();
+
+            tracing::info!(
+                event = "stale_session_get_response",
+                session_id = ?session_id,
+                status = %status,
+                method = %method,
+                uri = %uri,
+                "StaleSessionRecoveryService got response for non-POST request"
+            );
             let is_stale_session_error = session_id.is_some()
                 && method == Method::GET
                 && matches!(
