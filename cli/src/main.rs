@@ -212,6 +212,7 @@ enum Commands {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)]
 enum AgentAction {
     /// List publishers in the marketplace
     ListPublishers,

@@ -234,6 +234,7 @@ pub async fn get_supported(ctx: &CommandContext) -> Result<()> {
 }
 
 /// Create a new publisher in the marketplace
+#[allow(clippy::too_many_arguments)]
 pub async fn create_publisher(
     name: &str,
     slug: &str,
