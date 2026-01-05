@@ -2384,7 +2384,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Get publisher and agent recommendations for a task. Call this BEFORE using WebSearch/WebFetch to check if a Seren publisher can do the task better. Examples: 'scrape website' returns Firecrawl, 'research topic' returns Perplexity.",
+        description = "Get publisher and agent recommendations for a task. Call this BEFORE using WebSearch/WebFetch to check if a Seren publisher can do the task better. Examples: 'scrape website' returns Firecrawl, 'research topic' returns Perplexity, 'AI search' returns Perplexity. Note: Agent templates are coming soon.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn suggest_for_task(
@@ -2414,10 +2414,7 @@ impl SerenMcpServer {
         let response = self
             .http_client
             .get(&url)
-            .query(&[
-                ("query", params.query.as_str()),
-                ("type", query_type.as_str()),
-            ])
+            .query(&[("query", params.query.as_str()), ("type", query_type.as_str())])
             .query(&[("limit", limit)])
             .header("Authorization", format!("Bearer {}", token))
             .send()
@@ -2501,9 +2498,15 @@ impl SerenMcpServer {
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
 
-        // Check if local wallet is configured
+        // Check if local wallet is configured and query on-chain balance
         let has_local_wallet = self.wallet.is_some();
-        let local_wallet_address = self.wallet.as_ref().map(|w| format!("{:?}", w.address()));
+        let (local_wallet_address, onchain_usdc_balance) = if let Some(wallet) = &self.wallet {
+            let address = wallet.address();
+            let balance = query_usdc_balance(address).await.ok();
+            (Some(format!("{:?}", address)), balance)
+        } else {
+            (None, None)
+        };
 
         // Build combined status response
         let status = serde_json::json!({
@@ -2516,8 +2519,11 @@ impl SerenMcpServer {
             "local_wallet": {
                 "configured": has_local_wallet,
                 "address": local_wallet_address,
+                "network": if has_local_wallet { "Base (eip155:8453)" } else { "N/A" },
+                "usdc_balance": onchain_usdc_balance,
+                "usdc_contract": if has_local_wallet { BASE_USDC_ADDRESS } else { "N/A" },
                 "description": if has_local_wallet {
-                    "Local wallet available for x402 crypto payments"
+                    "Local wallet available for x402 crypto payments on Base network"
                 } else {
                     "Set WALLET_PRIVATE_KEY to enable crypto payments"
                 }
@@ -3399,6 +3405,67 @@ impl SerenMcpServer {
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&transactions)?]))
+    }
+}
+
+// ============================================================================
+// On-chain Balance Query
+// ============================================================================
+
+/// Base mainnet USDC contract address
+const BASE_USDC_ADDRESS: &str = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+/// Base mainnet RPC URL
+const BASE_RPC_URL: &str = "https://mainnet.base.org";
+
+/// Query USDC balance on Base network
+async fn query_usdc_balance(wallet_address: alloy::primitives::Address) -> Result<String, String> {
+    use alloy::providers::ProviderBuilder;
+    use alloy::sol;
+
+    // Define ERC20 balanceOf interface
+    sol! {
+        #[sol(rpc)]
+        interface IERC20 {
+            function balanceOf(address account) external view returns (uint256);
+        }
+    }
+
+    // Create provider using connect_http (alloy v1.0+ API)
+    let rpc_url: reqwest::Url = BASE_RPC_URL
+        .parse()
+        .map_err(|e| format!("Invalid RPC URL: {}", e))?;
+    let provider = ProviderBuilder::new().connect_http(rpc_url);
+
+    // Parse USDC contract address
+    let usdc_address: alloy::primitives::Address = BASE_USDC_ADDRESS
+        .parse()
+        .map_err(|e| format!("Invalid USDC address: {}", e))?;
+
+    // Create contract instance and call balanceOf
+    let contract = IERC20::new(usdc_address, provider);
+    let balance = contract
+        .balanceOf(wallet_address)
+        .call()
+        .await
+        .map_err(|e| format!("RPC call failed: {}", e))?;
+
+    // Convert atomic units (6 decimals) to decimal string
+    let atomic_str = balance.to_string();
+    let decimal_balance = atomic_to_decimal(&atomic_str, 6);
+    Ok(decimal_balance)
+}
+
+/// Convert atomic units to decimal string (e.g., 1000000 -> "1" for 6 decimals)
+fn atomic_to_decimal(atomic: &str, decimals: usize) -> String {
+    let padded = format!("{:0>width$}", atomic, width = decimals + 1);
+    let (whole, fraction) = padded.split_at(padded.len() - decimals);
+    let whole = whole.trim_start_matches('0');
+    let whole = if whole.is_empty() { "0" } else { whole };
+    let fraction = fraction.trim_end_matches('0');
+    if fraction.is_empty() {
+        whole.to_string()
+    } else {
+        format!("{}.{}", whole, fraction)
     }
 }
 
