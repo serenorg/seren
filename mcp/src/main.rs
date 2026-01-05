@@ -396,8 +396,8 @@ async fn require_oauth_auth(
         }
     };
 
-    // Look up upstream token for API calls (server-side only, never exposed to client)
-    let refresh_token = match state
+    // Look up upstream token for API calls (server-side only, never exposed to client).
+    let mut refresh_token = match state
         .store
         .get_refresh_token_by_user_client(user_id, &claims.client_id)
         .await
@@ -442,130 +442,256 @@ async fn require_oauth_auth(
         }
     };
 
-    let mcp_refresh_token = refresh_token.token;
-    let upstream_expires_at = refresh_token.upstream_expires_at;
-    let mut upstream_access_token = refresh_token.upstream_access_token;
-    let upstream_refresh_token = refresh_token.upstream_refresh_token;
-
     // Ensure the upstream access token is fresh for backend API calls.
-    let now = time::OffsetDateTime::now_utc();
     let refresh_window = time::Duration::seconds(60);
 
-    if upstream_expires_at <= now + refresh_window {
-        tracing::debug!(
-            event = "oauth_auth_upstream_token_expired",
-            user_id = %user_id,
-            client_id = %claims.client_id,
-            "Upstream access token expired or near expiry; refreshing"
-        );
-
-        let Some(upstream_refresh_token) = upstream_refresh_token else {
-            tracing::warn!(
-                event = "oauth_auth_missing_upstream_refresh_token",
-                user_id = %user_id,
-                client_id = %claims.client_id,
-                "Missing upstream refresh token"
-            );
-            return state.unauthorized_response(
-                "invalid_token",
-                "Upstream session cannot be refreshed (re-authentication required)",
-            );
+    if refresh_token.upstream_expires_at <= time::OffsetDateTime::now_utc() + refresh_window {
+        // Refresh can race across concurrent requests; serialize per (user_id, client_id)
+        // to avoid refresh token rotation conflicts.
+        let lock_key: i64 = {
+            use sha2::{Digest, Sha256};
+            let mut h = Sha256::new();
+            h.update(user_id.as_bytes());
+            h.update(claims.client_id.as_bytes());
+            let digest = h.finalize();
+            i64::from_le_bytes(digest[..8].try_into().expect("sha256 is 32 bytes"))
         };
 
-        let token_body = match crate::oauth::routes::exchange_upstream_token(
-            &state.oauth_state.http,
-            &state.oauth_state.upstream_api_base_url,
-            vec![
-                ("grant_type", "refresh_token"),
-                ("refresh_token", upstream_refresh_token.as_str()),
-                ("client_id", state.oauth_state.upstream_client_id.as_str()),
-            ],
-            &state.oauth_state.circuit_breaker,
-        )
-        .await
-        {
-            Ok(body) => body,
-            Err(crate::oauth::routes::OAuthError::InvalidGrant(_))
-            | Err(crate::oauth::routes::OAuthError::InvalidClient) => {
-                return state.unauthorized_response(
-                    "invalid_token",
-                    "Upstream authorization expired (re-authentication required)",
-                );
-            }
+        let mut lock_conn = match state.store.pool().acquire().await {
+            Ok(conn) => conn,
             Err(e) => {
                 tracing::warn!(
-                    event = "oauth_auth_upstream_refresh_failed",
+                    event = "oauth_auth_refresh_lock_acquire_failed",
                     user_id = %user_id,
                     client_id = %claims.client_id,
-                    error = ?e,
-                    "Failed to refresh upstream token"
+                    error = %e,
+                    "Failed to acquire database connection for refresh lock"
                 );
                 return (
                     axum::http::StatusCode::SERVICE_UNAVAILABLE,
                     axum::Json(serde_json::json!({
                         "error": "server_error",
-                        "error_description": "Upstream service temporarily unavailable",
+                        "error_description": "Token refresh temporarily unavailable",
                     })),
                 )
                     .into_response();
             }
         };
 
-        let crate::oauth::routes::UpstreamTokenResponse {
-            access_token: new_upstream_access_token,
-            expires_in,
-            refresh_token: new_upstream_refresh_token,
-            ..
-        } = token_body;
-
-        let new_upstream_expires_at = now + time::Duration::seconds(expires_in.max(0));
-
-        match state
-            .store
-            .update_upstream_tokens(
-                &mcp_refresh_token,
-                &new_upstream_access_token,
-                new_upstream_refresh_token.as_deref(),
-                new_upstream_expires_at,
-            )
+        if let Err(e) = sqlx::query("SELECT pg_advisory_lock($1)")
+            .bind(lock_key)
+            .execute(&mut *lock_conn)
             .await
         {
-            Ok(true) => {
-                tracing::debug!(
-                    event = "oauth_auth_upstream_token_refreshed",
-                    user_id = %user_id,
-                    client_id = %claims.client_id,
-                    "Upstream token refreshed and persisted"
-                );
-            }
-            Ok(false) => {
-                tracing::warn!(
-                    event = "oauth_auth_upstream_token_refresh_not_persisted",
-                    user_id = %user_id,
-                    client_id = %claims.client_id,
-                    "Refresh token record disappeared during refresh"
-                );
-                return state.unauthorized_response(
+            tracing::warn!(
+                event = "oauth_auth_refresh_lock_failed",
+                user_id = %user_id,
+                client_id = %claims.client_id,
+                error = %e,
+                "Failed to acquire refresh lock"
+            );
+            return (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                axum::Json(serde_json::json!({
+                    "error": "server_error",
+                    "error_description": "Token refresh temporarily unavailable",
+                })),
+            )
+                .into_response();
+        }
+
+        let mut lock_result: Option<axum::response::Response> = None;
+
+        // Re-fetch the latest token under the lock (another request may have refreshed it).
+        match state
+            .store
+            .get_refresh_token_by_user_client(user_id, &claims.client_id)
+            .await
+        {
+            Ok(Some(latest)) => refresh_token = latest,
+            Ok(None) => {
+                lock_result = Some(state.unauthorized_response(
                     "invalid_token",
-                    "Session revoked (re-authentication required)",
-                );
+                    "No active session found for this token (re-authentication required)",
+                ));
             }
             Err(e) => {
                 tracing::warn!(
-                    event = "oauth_auth_upstream_token_persist_error",
+                    event = "oauth_auth_upstream_token_error",
                     user_id = %user_id,
                     client_id = %claims.client_id,
                     error = %e,
-                    "Failed to persist refreshed upstream token"
+                    "Failed to look up upstream token"
+                );
+                lock_result = Some(
+                    (
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                        axum::Json(serde_json::json!({
+                            "error": "server_error",
+                            "error_description": "Token lookup failed",
+                        })),
+                    )
+                        .into_response(),
                 );
             }
         }
 
-        upstream_access_token = new_upstream_access_token;
+        if lock_result.is_none()
+            && refresh_token.upstream_expires_at <= time::OffsetDateTime::now_utc() + refresh_window
+        {
+            tracing::debug!(
+                event = "oauth_auth_upstream_token_expired",
+                user_id = %user_id,
+                client_id = %claims.client_id,
+                "Upstream access token expired or near expiry; refreshing"
+            );
+
+            let upstream_refresh_token = match refresh_token.upstream_refresh_token.clone() {
+                Some(token) => token,
+                None => {
+                    tracing::warn!(
+                        event = "oauth_auth_missing_upstream_refresh_token",
+                        user_id = %user_id,
+                        client_id = %claims.client_id,
+                        "Missing upstream refresh token"
+                    );
+                    lock_result = Some(state.unauthorized_response(
+                        "invalid_token",
+                        "Upstream session cannot be refreshed (re-authentication required)",
+                    ));
+                    String::new()
+                }
+            };
+
+            if lock_result.is_none() {
+                let token_body = match crate::oauth::routes::exchange_upstream_token(
+                    &state.oauth_state.http,
+                    &state.oauth_state.upstream_api_base_url,
+                    vec![
+                        ("grant_type", "refresh_token"),
+                        ("refresh_token", upstream_refresh_token.as_str()),
+                        ("client_id", state.oauth_state.upstream_client_id.as_str()),
+                    ],
+                    &state.oauth_state.circuit_breaker,
+                )
+                .await
+                {
+                    Ok(body) => Some(body),
+                    Err(crate::oauth::routes::OAuthError::InvalidGrant(_))
+                    | Err(crate::oauth::routes::OAuthError::InvalidClient) => {
+                        lock_result = Some(state.unauthorized_response(
+                            "invalid_token",
+                            "Upstream authorization expired (re-authentication required)",
+                        ));
+                        None
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            event = "oauth_auth_upstream_refresh_failed",
+                            user_id = %user_id,
+                            client_id = %claims.client_id,
+                            error = ?e,
+                            "Failed to refresh upstream token"
+                        );
+                        lock_result = Some(
+                            (
+                                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                                axum::Json(serde_json::json!({
+                                    "error": "server_error",
+                                    "error_description": "Upstream service temporarily unavailable",
+                                })),
+                            )
+                                .into_response(),
+                        );
+                        None
+                    }
+                };
+
+                if let Some(token_body) = token_body {
+                    let crate::oauth::routes::UpstreamTokenResponse {
+                        access_token: new_upstream_access_token,
+                        expires_in,
+                        refresh_token: new_upstream_refresh_token,
+                        ..
+                    } = token_body;
+
+                    let refresh_now = time::OffsetDateTime::now_utc();
+                    let new_upstream_expires_at =
+                        refresh_now + time::Duration::seconds(expires_in.max(0));
+
+                    match state
+                        .store
+                        .update_upstream_tokens(
+                            &refresh_token.token,
+                            &new_upstream_access_token,
+                            new_upstream_refresh_token.as_deref(),
+                            new_upstream_expires_at,
+                        )
+                        .await
+                    {
+                        Ok(true) => {
+                            tracing::debug!(
+                                event = "oauth_auth_upstream_token_refreshed",
+                                user_id = %user_id,
+                                client_id = %claims.client_id,
+                                "Upstream token refreshed and persisted"
+                            );
+                            refresh_token.upstream_access_token = new_upstream_access_token;
+                            refresh_token.upstream_expires_at = new_upstream_expires_at;
+                            if new_upstream_refresh_token.is_some() {
+                                refresh_token.upstream_refresh_token = new_upstream_refresh_token;
+                            }
+                        }
+                        Ok(false) => {
+                            tracing::warn!(
+                                event = "oauth_auth_upstream_token_refresh_not_persisted",
+                                user_id = %user_id,
+                                client_id = %claims.client_id,
+                                "Refresh token record disappeared during refresh"
+                            );
+                            lock_result = Some(state.unauthorized_response(
+                                "invalid_token",
+                                "Session revoked (re-authentication required)",
+                            ));
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                event = "oauth_auth_upstream_token_persist_error",
+                                user_id = %user_id,
+                                client_id = %claims.client_id,
+                                error = %e,
+                                "Failed to persist refreshed upstream token"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Err(e) = sqlx::query("SELECT pg_advisory_unlock($1)")
+            .bind(lock_key)
+            .execute(&mut *lock_conn)
+            .await
+        {
+            tracing::warn!(
+                event = "oauth_auth_refresh_unlock_failed",
+                user_id = %user_id,
+                client_id = %claims.client_id,
+                error = %e,
+                "Failed to release refresh lock"
+            );
+        }
+
+        if let Some(resp) = lock_result {
+            return resp;
+        }
     }
 
     // Inject upstream token for API calls (backend expects upstream bearer token).
-    if let Ok(v) = axum::http::HeaderValue::from_str(&format!("Bearer {}", upstream_access_token)) {
+    if let Ok(v) = axum::http::HeaderValue::from_str(&format!(
+        "Bearer {}",
+        refresh_token.upstream_access_token
+    )) {
         req.headers_mut()
             .insert(axum::http::header::AUTHORIZATION, v);
     }
