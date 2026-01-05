@@ -9,6 +9,7 @@ use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, deco
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 /// MCP access token TTL (15 minutes)
 pub const MCP_ACCESS_TOKEN_TTL_SECS: i64 = 15 * 60;
@@ -16,7 +17,7 @@ pub const MCP_ACCESS_TOKEN_TTL_SECS: i64 = 15 * 60;
 /// JWT claims for MCP-issued access tokens
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct McpClaims {
-    /// Subject (user_id from upstream)
+    /// Subject (user_id from upstream, stored as UUID string)
     pub sub: String,
     /// Issuer (MCP server URL)
     pub iss: String,
@@ -38,6 +39,13 @@ pub struct McpClaims {
     /// User name (for convenience)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+}
+
+impl McpClaims {
+    /// Parse the user_id (sub claim) as a UUID
+    pub fn user_id(&self) -> Result<Uuid, uuid::Error> {
+        Uuid::parse_str(&self.sub)
+    }
 }
 
 #[derive(Error, Debug)]
@@ -97,7 +105,7 @@ impl McpJwtSigner {
     /// Sign a new MCP access token
     pub fn sign_access_token(
         &self,
-        user_id: &str,
+        user_id: Uuid,
         client_id: &str,
         scope: &str,
         email: Option<&str>,
@@ -158,10 +166,11 @@ mod tests {
     fn test_sign_and_validate() {
         let secret = b"test-secret-key-at-least-32-bytes!!";
         let signer = McpJwtSigner::new(secret, "https://mcp.example.com");
+        let user_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
 
         let (token, expires_in) = signer
             .sign_access_token(
-                "user-123",
+                user_id,
                 "client-456",
                 "api",
                 Some("test@example.com"),
@@ -172,7 +181,7 @@ mod tests {
         assert_eq!(expires_in, MCP_ACCESS_TOKEN_TTL_SECS);
 
         let claims = signer.validate_access_token(&token).unwrap();
-        assert_eq!(claims.sub, "user-123");
+        assert_eq!(claims.sub, "550e8400-e29b-41d4-a716-446655440000");
         assert_eq!(claims.client_id, "client-456");
         assert_eq!(claims.scope, "api");
         assert_eq!(claims.email, Some("test@example.com".to_string()));
@@ -196,9 +205,10 @@ mod tests {
 
         let signer1 = McpJwtSigner::new(secret1, "https://mcp.example.com");
         let signer2 = McpJwtSigner::new(secret2, "https://mcp.example.com");
+        let user_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
 
         let (token, _) = signer1
-            .sign_access_token("user-123", "client-456", "api", None, None)
+            .sign_access_token(user_id, "client-456", "api", None, None)
             .unwrap();
 
         let result = signer2.validate_access_token(&token);

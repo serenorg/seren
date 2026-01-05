@@ -8,6 +8,9 @@
 
 CREATE SCHEMA mcp_oauth;
 
+-- PKCE code challenge methods (RFC 7636)
+CREATE TYPE mcp_oauth.pkce_method AS ENUM ('plain', 'S256');
+
 -- OAuth2 Clients (dynamically registered via RFC 7591)
 CREATE TABLE mcp_oauth.clients (
     id text PRIMARY KEY,
@@ -32,7 +35,7 @@ CREATE TABLE mcp_oauth.auth_requests (
     scope text NOT NULL DEFAULT 'api',
     client_state text,
     code_challenge text NOT NULL,
-    code_challenge_method text NOT NULL,
+    code_challenge_method mcp_oauth.pkce_method NOT NULL,
     upstream_code_verifier text NOT NULL,
     expires_at timestamptz NOT NULL,
     created_at timestamptz NOT NULL DEFAULT NOW()
@@ -42,11 +45,11 @@ CREATE TABLE mcp_oauth.auth_requests (
 CREATE TABLE mcp_oauth.authorization_codes (
     code text PRIMARY KEY,
     client_id text NOT NULL REFERENCES mcp_oauth.clients (id) ON DELETE CASCADE,
-    user_id text NOT NULL,
+    user_id uuid NOT NULL,
     redirect_uri text NOT NULL,
     scope text NOT NULL DEFAULT 'api',
     code_challenge text,
-    code_challenge_method text,
+    code_challenge_method mcp_oauth.pkce_method,
     expires_at timestamptz NOT NULL,
     created_at timestamptz NOT NULL DEFAULT NOW(),
     -- Upstream tokens (temporarily stored during code exchange)
@@ -60,7 +63,7 @@ CREATE TABLE mcp_oauth.authorization_codes (
 CREATE TABLE mcp_oauth.refresh_tokens (
     token text PRIMARY KEY,
     client_id text NOT NULL REFERENCES mcp_oauth.clients (id) ON DELETE CASCADE,
-    user_id text NOT NULL,
+    user_id uuid NOT NULL,
     scope text NOT NULL DEFAULT 'api',
     expires_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT NOW(),
@@ -73,7 +76,7 @@ CREATE TABLE mcp_oauth.refresh_tokens (
 -- User sessions (tracks OAuth consent and login state)
 CREATE TABLE mcp_oauth.sessions (
     id text PRIMARY KEY,
-    user_id text NOT NULL,
+    user_id uuid NOT NULL,
     client_id text NOT NULL REFERENCES mcp_oauth.clients (id) ON DELETE CASCADE,
     state text,
     nonce text,
@@ -84,7 +87,7 @@ CREATE TABLE mcp_oauth.sessions (
 
 -- Clients approved by a given Seren user (per-client consent)
 CREATE TABLE mcp_oauth.approved_clients (
-    user_id text NOT NULL,
+    user_id uuid NOT NULL,
     client_id text NOT NULL REFERENCES mcp_oauth.clients (id) ON DELETE CASCADE,
     approved_at timestamptz NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, client_id)
@@ -93,7 +96,7 @@ CREATE TABLE mcp_oauth.approved_clients (
 -- Pending user consent step during the OAuth callback flow
 CREATE TABLE mcp_oauth.pending_consents (
     id text PRIMARY KEY,
-    user_id text NOT NULL,
+    user_id uuid NOT NULL,
     client_id text NOT NULL REFERENCES mcp_oauth.clients (id) ON DELETE CASCADE,
     authorization_code text NOT NULL REFERENCES mcp_oauth.authorization_codes (code) ON DELETE CASCADE,
     redirect_uri text NOT NULL,
@@ -109,7 +112,7 @@ CREATE TABLE mcp_oauth.mcp_session_tokens (
     session_id text PRIMARY KEY,
     access_token text NOT NULL,
     client_id text REFERENCES mcp_oauth.clients (id) ON DELETE CASCADE,
-    user_id text NOT NULL,
+    user_id uuid NOT NULL,
     expires_at timestamptz NOT NULL,
     created_at timestamptz NOT NULL DEFAULT NOW(),
     updated_at timestamptz NOT NULL DEFAULT NOW()

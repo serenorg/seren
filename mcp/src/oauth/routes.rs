@@ -13,7 +13,7 @@
 use crate::oauth::circuit_breaker::OAuthCircuitBreaker;
 use crate::oauth::jwt::McpJwtSigner;
 use crate::oauth::store::{
-    AuthRequest, AuthorizationCode, REFRESH_TOKEN_TTL_HOURS, RefreshToken, TokenStore,
+    AuthRequest, AuthorizationCode, PkceMethod, REFRESH_TOKEN_TTL_HOURS, RefreshToken, TokenStore,
 };
 use axum::{
     Form, Json, Router,
@@ -29,6 +29,7 @@ use tower_governor::{
     GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor,
 };
 use tracing::debug;
+use uuid::Uuid;
 
 /// OAuth server state.
 #[derive(Clone)]
@@ -364,12 +365,14 @@ async fn authorize(
         .ok_or(OAuthError::InvalidRequest("code_challenge required".into()))?;
 
     // OAuth 2.1 requires S256; plain is insecure and not allowed
-    let code_challenge_method = req.code_challenge_method.unwrap_or_else(|| "S256".into());
-    if code_challenge_method != "S256" {
-        return Err(OAuthError::InvalidRequest(
-            "code_challenge_method must be S256 (plain is not supported)".into(),
-        ));
-    }
+    let code_challenge_method = match req.code_challenge_method.as_deref() {
+        Some("S256") | None => PkceMethod::S256,
+        _ => {
+            return Err(OAuthError::InvalidRequest(
+                "code_challenge_method must be S256 (plain is not supported)".into(),
+            ));
+        }
+    };
 
     // Create a pending authorization request so we can complete the upstream callback.
     let upstream_state = TokenStore::generate_token();
@@ -549,7 +552,7 @@ async fn callback(
     // Enforce per-user consent before issuing a downstream authorization code redirect.
     let approved = state
         .store
-        .is_client_approved(&user_id, &auth_request.client_id)
+        .is_client_approved(user_id, &auth_request.client_id)
         .await
         .map_err(|e| OAuthError::ServerError(e.to_string()))?;
 
@@ -558,7 +561,7 @@ async fn callback(
     let auth_code = AuthorizationCode {
         code: downstream_code.clone(),
         client_id: auth_request.client_id.clone(),
-        user_id: user_id.clone(),
+        user_id,
         redirect_uri: auth_request.redirect_uri.clone(),
         scope: auth_request.scope.clone(),
         code_challenge: Some(auth_request.code_challenge),
@@ -604,7 +607,7 @@ async fn callback(
     let consent_expires_at = OffsetDateTime::now_utc() + Duration::minutes(10);
     let consent = crate::oauth::store::PendingConsent {
         id: consent_id.clone(),
-        user_id: user_id.clone(),
+        user_id,
         client_id: auth_request.client_id.clone(),
         authorization_code: downstream_code.clone(),
         redirect_uri: auth_request.redirect_uri.clone(),
@@ -716,7 +719,7 @@ async fn token(
                 && !TokenStore::verify_pkce(
                     &code_verifier,
                     challenge,
-                    auth_code.code_challenge_method.as_deref(),
+                    auth_code.code_challenge_method,
                 )
             {
                 return Err(OAuthError::InvalidGrant("PKCE verification failed".into()));
@@ -726,7 +729,7 @@ async fn token(
             let (mcp_access_token, mcp_expires_in) = state
                 .jwt_signer
                 .sign_access_token(
-                    &auth_code.user_id,
+                    auth_code.user_id,
                     &auth_code.client_id,
                     &auth_code.scope,
                     None, // email not available here
@@ -739,7 +742,7 @@ async fn token(
             let refresh_token = RefreshToken {
                 token: mcp_refresh_token.clone(),
                 client_id: auth_code.client_id.clone(),
-                user_id: auth_code.user_id.clone(),
+                user_id: auth_code.user_id,
                 scope: auth_code.scope.clone(),
                 expires_at: Some(TokenStore::token_expiry(REFRESH_TOKEN_TTL_HOURS)),
                 created_at: OffsetDateTime::now_utc(),
@@ -845,7 +848,7 @@ async fn token(
             let (new_mcp_access_token, mcp_expires_in) = state
                 .jwt_signer
                 .sign_access_token(
-                    &refresh_token.user_id,
+                    refresh_token.user_id,
                     &refresh_token.client_id,
                     &refresh_token.scope,
                     None,
@@ -1147,7 +1150,7 @@ fn redirect_with_error(
 ///
 /// This avoids an extra network call to `GET /users/me` during the OAuth callback.
 /// If the token isn't a JWT (or parsing fails), callers should fall back to the user-info API.
-fn try_extract_user_id_from_jwt(access_token: &str) -> Option<String> {
+fn try_extract_user_id_from_jwt(access_token: &str) -> Option<Uuid> {
     let payload_b64 = access_token.split('.').nth(1)?;
     use base64::Engine as _;
     let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -1157,14 +1160,14 @@ fn try_extract_user_id_from_jwt(access_token: &str) -> Option<String> {
     payload_json
         .get("sub")
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
+        .and_then(|s| Uuid::parse_str(s).ok())
 }
 
 async fn fetch_user_id(
     api_base_url: &str,
     access_token: &str,
     circuit_breaker: &Arc<OAuthCircuitBreaker>,
-) -> Option<String> {
+) -> Option<Uuid> {
     // Check circuit breaker before making request
     if !circuit_breaker.is_call_permitted() {
         tracing::warn!("Circuit breaker open - rejecting upstream user info request");
@@ -1189,7 +1192,7 @@ async fn fetch_user_id(
     match api_client.get_current_user().await {
         Ok(response) => {
             circuit_breaker.record_success();
-            Some(response.into_inner().data.id.to_string())
+            Some(response.into_inner().data.id)
         }
         Err(_) => {
             circuit_breaker.record_failure();
@@ -1380,7 +1383,7 @@ async fn consent_submit(
         "approve" => {
             state
                 .store
-                .approve_client(&consent.user_id, &consent.client_id)
+                .approve_client(consent.user_id, &consent.client_id)
                 .await
                 .map_err(|e| OAuthError::ServerError(e.to_string()))?;
 
@@ -1589,6 +1592,10 @@ mod tests {
             .mount(&upstream)
             .await;
 
+        let jwt_signer = Arc::new(crate::oauth::jwt::McpJwtSigner::new(
+            b"test-secret-key-at-least-32-bytes!!",
+            &server_host,
+        ));
         let state = Arc::new(OAuthState {
             store: store.clone(),
             http: reqwest::Client::new(),
@@ -1597,6 +1604,7 @@ mod tests {
             upstream_api_base_url: upstream.uri(),
             upstream_oauth_redirect_base_url: upstream.uri(),
             circuit_breaker: crate::oauth::circuit_breaker::create_oauth_circuit_breaker(),
+            jwt_signer,
         });
         let app = oauth_router(state.clone());
 

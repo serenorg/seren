@@ -10,6 +10,39 @@ use sqlx::PgPool;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 use time::{Duration, OffsetDateTime};
+use uuid::Uuid;
+
+/// PKCE code challenge methods (RFC 7636)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(
+    type_name = "mcp_oauth.pkce_method",
+    rename_all = "SCREAMING_SNAKE_CASE"
+)]
+pub enum PkceMethod {
+    Plain,
+    S256,
+}
+
+impl std::fmt::Display for PkceMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PkceMethod::Plain => write!(f, "plain"),
+            PkceMethod::S256 => write!(f, "S256"),
+        }
+    }
+}
+
+impl std::str::FromStr for PkceMethod {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "plain" => Ok(PkceMethod::Plain),
+            "s256" => Ok(PkceMethod::S256),
+            _ => Err(format!("Invalid PKCE method: {}", s)),
+        }
+    }
+}
 
 // Token TTL constants
 // NOTE: These should match the upstream API's values to keep session lifetimes
@@ -92,7 +125,7 @@ pub struct AuthRequest {
     pub scope: String,
     pub client_state: Option<String>,
     pub code_challenge: String,
-    pub code_challenge_method: String,
+    pub code_challenge_method: PkceMethod,
     pub upstream_code_verifier: String,
     pub expires_at: OffsetDateTime,
     pub created_at: OffsetDateTime,
@@ -103,11 +136,11 @@ pub struct AuthRequest {
 pub struct AuthorizationCode {
     pub code: String,
     pub client_id: String,
-    pub user_id: String,
+    pub user_id: Uuid,
     pub redirect_uri: String,
     pub scope: String,
     pub code_challenge: Option<String>,
-    pub code_challenge_method: Option<String>,
+    pub code_challenge_method: Option<PkceMethod>,
     pub expires_at: OffsetDateTime,
     pub created_at: OffsetDateTime,
     pub upstream_access_token: String,
@@ -121,7 +154,7 @@ pub struct AuthorizationCode {
 pub struct RefreshToken {
     pub token: String,
     pub client_id: String,
-    pub user_id: String,
+    pub user_id: Uuid,
     pub scope: String,
     pub expires_at: Option<OffsetDateTime>,
     pub created_at: OffsetDateTime,
@@ -138,7 +171,7 @@ pub struct McpSessionToken {
     pub session_id: String,
     pub access_token: String,
     pub client_id: Option<String>,
-    pub user_id: String,
+    pub user_id: Uuid,
     pub expires_at: OffsetDateTime,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
@@ -148,7 +181,7 @@ pub struct McpSessionToken {
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct PendingConsent {
     pub id: String,
-    pub user_id: String,
+    pub user_id: Uuid,
     pub client_id: String,
     pub authorization_code: String,
     pub redirect_uri: String,
@@ -260,7 +293,7 @@ impl TokenStore {
         .bind(&req.scope)
         .bind(&req.client_state)
         .bind(&req.code_challenge)
-        .bind(&req.code_challenge_method)
+        .bind(req.code_challenge_method)
         .bind(&req.upstream_code_verifier)
         .bind(req.expires_at)
         .execute(&self.pool)
@@ -304,11 +337,11 @@ impl TokenStore {
         )
         .bind(&code.code)
         .bind(&code.client_id)
-        .bind(&code.user_id)
+        .bind(code.user_id)
         .bind(&code.redirect_uri)
         .bind(&code.scope)
         .bind(&code.code_challenge)
-        .bind(&code.code_challenge_method)
+        .bind(code.code_challenge_method)
         .bind(code.expires_at)
         .bind(&code.upstream_access_token)
         .bind(&code.upstream_refresh_token)
@@ -356,7 +389,7 @@ impl TokenStore {
         )
         .bind(&token.token)
         .bind(&token.client_id)
-        .bind(&token.user_id)
+        .bind(token.user_id)
         .bind(&token.scope)
         .bind(token.expires_at)
         .bind(&token.upstream_access_token)
@@ -455,7 +488,7 @@ impl TokenStore {
     /// Find refresh token by user and client (for looking up upstream tokens during auth)
     pub async fn get_refresh_token_by_user_client(
         &self,
-        user_id: &str,
+        user_id: Uuid,
         client_id: &str,
     ) -> Result<Option<RefreshToken>> {
         let refresh_token = sqlx::query_as::<_, RefreshToken>(
@@ -480,7 +513,7 @@ impl TokenStore {
     // === Consent operations ===
 
     /// Returns true if the given user has approved the given OAuth client.
-    pub async fn is_client_approved(&self, user_id: &str, client_id: &str) -> Result<bool> {
+    pub async fn is_client_approved(&self, user_id: Uuid, client_id: &str) -> Result<bool> {
         let exists: Option<(i64,)> = sqlx::query_as(
             r#"
             SELECT 1
@@ -499,7 +532,7 @@ impl TokenStore {
     }
 
     /// Records a user's approval for a given OAuth client.
-    pub async fn approve_client(&self, user_id: &str, client_id: &str) -> Result<()> {
+    pub async fn approve_client(&self, user_id: Uuid, client_id: &str) -> Result<()> {
         sqlx::query(
             r#"
             INSERT INTO mcp_oauth.approved_clients (user_id, client_id)
@@ -527,7 +560,7 @@ impl TokenStore {
             "#,
         )
         .bind(&consent.id)
-        .bind(&consent.user_id)
+        .bind(consent.user_id)
         .bind(&consent.client_id)
         .bind(&consent.authorization_code)
         .bind(&consent.redirect_uri)
@@ -596,7 +629,7 @@ impl TokenStore {
         session_id: &str,
         access_token: &str,
         client_id: Option<&str>,
-        user_id: &str,
+        user_id: Uuid,
         expires_at: OffsetDateTime,
     ) -> Result<()> {
         sqlx::query(
@@ -694,9 +727,13 @@ impl TokenStore {
     }
 
     /// Verify PKCE code challenge
-    pub fn verify_pkce(code_verifier: &str, code_challenge: &str, method: Option<&str>) -> bool {
-        match method {
-            Some("S256") | None => {
+    pub fn verify_pkce(
+        code_verifier: &str,
+        code_challenge: &str,
+        method: Option<PkceMethod>,
+    ) -> bool {
+        match method.unwrap_or(PkceMethod::S256) {
+            PkceMethod::S256 => {
                 // S256 is the default and recommended method
                 use sha2::{Digest, Sha256};
                 let mut hasher = Sha256::new();
@@ -706,11 +743,10 @@ impl TokenStore {
                     base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, hash);
                 computed == code_challenge
             }
-            Some("plain") => {
+            PkceMethod::Plain => {
                 // Plain method (not recommended but supported)
                 code_verifier == code_challenge
             }
-            _ => false,
         }
     }
 
@@ -738,12 +774,12 @@ mod tests {
         assert!(TokenStore::verify_pkce(
             code_verifier,
             code_challenge,
-            Some("S256")
+            Some(PkceMethod::S256)
         ));
         assert!(!TokenStore::verify_pkce(
             "wrong_verifier",
             code_challenge,
-            Some("S256")
+            Some(PkceMethod::S256)
         ));
     }
 
@@ -755,12 +791,12 @@ mod tests {
         assert!(TokenStore::verify_pkce(
             code_verifier,
             code_challenge,
-            Some("plain")
+            Some(PkceMethod::Plain)
         ));
         assert!(!TokenStore::verify_pkce(
             "wrong",
             code_challenge,
-            Some("plain")
+            Some(PkceMethod::Plain)
         ));
     }
 

@@ -261,12 +261,23 @@ async fn require_oauth_auth(
 
     // Get client_id from JWT claims (MCP tokens include client_id)
     let client_id = Some(claims.client_id.clone());
-    let user_id = claims.sub.clone();
+    let user_id = match claims.user_id() {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!(
+                event = "oauth_auth_invalid_user_id",
+                sub = %claims.sub,
+                error = %e,
+                "Invalid user_id in JWT claims"
+            );
+            return state.unauthorized_response("invalid_token", "Invalid user_id in token");
+        }
+    };
 
     // Look up upstream token for API calls (server-side only, never exposed to client)
     let upstream_token = match state
         .store
-        .get_refresh_token_by_user_client(&user_id, &claims.client_id)
+        .get_refresh_token_by_user_client(user_id, &claims.client_id)
         .await
     {
         Ok(Some(refresh_token)) => {
@@ -371,7 +382,6 @@ async fn require_oauth_auth(
         let sid_clone = sid.clone();
         let token_clone = token.clone();
         let client_id_clone = client_id.clone();
-        let user_id_clone = user_id.clone();
         let session_expires_at = time::OffsetDateTime::now_utc()
             + time::Duration::hours(oauth::store::REFRESH_TOKEN_TTL_HOURS);
         tokio::spawn(async move {
@@ -380,7 +390,7 @@ async fn require_oauth_auth(
                     &sid_clone,
                     &token_clone,
                     client_id_clone.as_deref(),
-                    &user_id_clone,
+                    user_id,
                     session_expires_at,
                 )
                 .await
@@ -459,7 +469,6 @@ async fn require_oauth_auth(
         let sid_clone = sid;
         let token_clone = token.clone();
         let client_id_clone = client_id.clone();
-        let user_id_clone = user_id.clone();
         let session_expires_at = time::OffsetDateTime::now_utc()
             + time::Duration::hours(oauth::store::REFRESH_TOKEN_TTL_HOURS);
         tokio::spawn(async move {
@@ -468,7 +477,7 @@ async fn require_oauth_auth(
                     &sid_clone,
                     &token_clone,
                     client_id_clone.as_deref(),
-                    &user_id_clone,
+                    user_id,
                     session_expires_at,
                 )
                 .await
