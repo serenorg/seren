@@ -1324,7 +1324,7 @@ async fn consent_page(
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static(
-            "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+            "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://mcp.serendb.com; base-uri 'none'; frame-ancestors 'none'",
         ),
     );
     headers.insert(
