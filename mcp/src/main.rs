@@ -1061,10 +1061,14 @@ async fn run_http(config: Config) -> Result<()> {
         ]);
 
     // MCP endpoint with auth
+    // Wrap with StaleSessionRecoveryService to handle stale sessions after pod restarts
     let mcp_router = axum::Router::new()
         .route(
             "/mcp",
-            axum::routing::any_service(tower::ServiceBuilder::new().service(mcp_service)),
+            axum::routing::any_service(
+                tower::ServiceBuilder::new()
+                    .service(middleware::StaleSessionRecoveryService::new(mcp_service)),
+            ),
         )
         .layer(axum::middleware::from_fn_with_state(
             SimpleAuthState { token: auth_token },
@@ -1277,10 +1281,14 @@ async fn run_oauth(config: Config) -> Result<()> {
         NonZeroUsize::new(SESSION_TOKEN_CACHE_SIZE).expect("SESSION_TOKEN_CACHE_SIZE must be > 0"),
     )));
 
+    // Wrap with StaleSessionRecoveryService to handle stale sessions after pod restarts
     let mcp_router = axum::Router::new()
         .route(
             "/mcp",
-            axum::routing::any_service(tower::ServiceBuilder::new().service(mcp_service)),
+            axum::routing::any_service(
+                tower::ServiceBuilder::new()
+                    .service(middleware::StaleSessionRecoveryService::new(mcp_service)),
+            ),
         )
         .layer(axum::middleware::from_fn_with_state(
             OAuthAuthState {

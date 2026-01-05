@@ -3,6 +3,10 @@
 use axum::{extract::Request, http::HeaderValue, middleware::Next, response::Response};
 use uuid::Uuid;
 
+// Re-export the stale session recovery service
+mod stale_session;
+pub use stale_session::StaleSessionRecoveryService;
+
 /// Header name for correlation/request ID
 pub const X_REQUEST_ID: &str = "x-request-id";
 
