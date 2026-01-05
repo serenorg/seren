@@ -60,8 +60,9 @@ CREATE TABLE mcp_oauth.authorization_codes (
 
 -- MCP refresh tokens with server-side upstream token storage
 -- The MCP refresh token is what clients use; upstream tokens are used internally
+-- We store SHA-256 hex digests of refresh tokens rather than plaintext
 CREATE TABLE mcp_oauth.refresh_tokens (
-    token text PRIMARY KEY,
+    token_hash text PRIMARY KEY,
     client_id text NOT NULL REFERENCES mcp_oauth.clients (id) ON DELETE CASCADE,
     user_id uuid NOT NULL,
     scope text NOT NULL DEFAULT 'api',
@@ -178,8 +179,8 @@ BEGIN
 
     -- Clean refresh_tokens in batches
     DELETE FROM mcp_oauth.refresh_tokens
-    WHERE token IN (
-        SELECT token FROM mcp_oauth.refresh_tokens
+    WHERE token_hash IN (
+        SELECT token_hash FROM mcp_oauth.refresh_tokens
         WHERE expires_at IS NOT NULL AND expires_at < NOW()
         LIMIT batch_limit
     );
