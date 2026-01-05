@@ -3,6 +3,7 @@
 //! This module provides PostgreSQL-backed storage for OAuth2 tokens,
 //! authorization codes, and client registrations.
 
+use super::crypto::TokenCipher;
 use crate::error::{McpError, Result};
 use lru::LruCache;
 use serde::{Deserialize, Serialize};
@@ -201,6 +202,7 @@ pub struct TokenStore {
     /// LRU cache for client metadata (client_id -> Client)
     /// Wrapped in Arc<Mutex<>> for interior mutability across clones
     client_cache: Arc<Mutex<LruCache<String, Client>>>,
+    token_cipher: Option<TokenCipher>,
 }
 
 impl TokenStore {
@@ -216,6 +218,7 @@ impl TokenStore {
             client_cache: Arc::new(Mutex::new(LruCache::new(
                 NonZeroUsize::new(cache_size).unwrap(),
             ))),
+            token_cipher: None,
         }
     }
 
@@ -234,12 +237,40 @@ impl TokenStore {
             .connect(database_url)
             .await
             .map_err(McpError::Database)?;
-        Ok(Self::new(pool))
+
+        let token_cipher = TokenCipher::from_env()?;
+        let mut store = Self::new(pool);
+        store.token_cipher = token_cipher;
+        Ok(store)
     }
 
     /// Get the underlying connection pool
     pub fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    #[allow(clippy::result_large_err)]
+    fn encrypt_upstream_token(&self, token: &str) -> Result<String> {
+        match self.token_cipher.as_ref() {
+            Some(cipher) => cipher.encrypt(token),
+            None => Ok(token.to_string()),
+        }
+    }
+
+    #[allow(clippy::result_large_err)]
+    fn decrypt_upstream_token(&self, token: &str) -> Result<String> {
+        match self.token_cipher.as_ref() {
+            Some(cipher) => cipher.decrypt_or_plain(token),
+            None => {
+                if TokenCipher::is_encrypted(token) {
+                    return Err(McpError::Config(
+                        "Encrypted upstream tokens present but OAUTH_TOKEN_ENCRYPTION_KEYS is not configured"
+                            .into(),
+                    ));
+                }
+                Ok(token.to_string())
+            }
+        }
     }
 
     // === Client operations ===
@@ -328,6 +359,12 @@ impl TokenStore {
 
     /// Save an authorization code
     pub async fn save_authorization_code(&self, code: &AuthorizationCode) -> Result<()> {
+        let upstream_access_token = self.encrypt_upstream_token(&code.upstream_access_token)?;
+        let upstream_refresh_token = match code.upstream_refresh_token.as_deref() {
+            Some(token) => Some(self.encrypt_upstream_token(token)?),
+            None => None,
+        };
+
         sqlx::query(
             r#"
             INSERT INTO mcp_oauth.authorization_codes
@@ -345,8 +382,8 @@ impl TokenStore {
         .bind(&code.code_challenge)
         .bind(code.code_challenge_method)
         .bind(code.expires_at)
-        .bind(&code.upstream_access_token)
-        .bind(&code.upstream_refresh_token)
+        .bind(&upstream_access_token)
+        .bind(upstream_refresh_token.as_deref())
         .bind(code.upstream_expires_at)
         .execute(&self.pool)
         .await
@@ -360,7 +397,7 @@ impl TokenStore {
         &self,
         code: &str,
     ) -> Result<Option<AuthorizationCode>> {
-        let auth_code = sqlx::query_as::<_, AuthorizationCode>(
+        let mut auth_code = sqlx::query_as::<_, AuthorizationCode>(
             r#"
             DELETE FROM mcp_oauth.authorization_codes
             WHERE code = $1 AND expires_at > NOW()
@@ -374,6 +411,15 @@ impl TokenStore {
         .await
         .map_err(McpError::Database)?;
 
+        if let Some(ref mut auth_code) = auth_code {
+            auth_code.upstream_access_token =
+                self.decrypt_upstream_token(&auth_code.upstream_access_token)?;
+            auth_code.upstream_refresh_token = match auth_code.upstream_refresh_token.as_deref() {
+                Some(token) => Some(self.decrypt_upstream_token(token)?),
+                None => None,
+            };
+        }
+
         Ok(auth_code)
     }
 
@@ -381,6 +427,12 @@ impl TokenStore {
 
     /// Save a refresh token with upstream token vault
     pub async fn save_refresh_token(&self, token: &RefreshToken) -> Result<()> {
+        let upstream_access_token = self.encrypt_upstream_token(&token.upstream_access_token)?;
+        let upstream_refresh_token = match token.upstream_refresh_token.as_deref() {
+            Some(token) => Some(self.encrypt_upstream_token(token)?),
+            None => None,
+        };
+
         sqlx::query(
             r#"
             INSERT INTO mcp_oauth.refresh_tokens
@@ -394,8 +446,8 @@ impl TokenStore {
         .bind(token.user_id)
         .bind(&token.scope)
         .bind(token.expires_at)
-        .bind(&token.upstream_access_token)
-        .bind(&token.upstream_refresh_token)
+        .bind(&upstream_access_token)
+        .bind(upstream_refresh_token.as_deref())
         .bind(token.upstream_expires_at)
         .execute(&self.pool)
         .await
@@ -407,7 +459,7 @@ impl TokenStore {
     /// Get a refresh token (includes upstream token vault)
     pub async fn get_refresh_token(&self, token: &str) -> Result<Option<RefreshToken>> {
         let token_hash = Self::hash_refresh_token(token);
-        let refresh_token = sqlx::query_as::<_, RefreshToken>(
+        let mut refresh_token = sqlx::query_as::<_, RefreshToken>(
             r#"
             SELECT token_hash, client_id, user_id, scope, expires_at, created_at,
                 upstream_access_token, upstream_refresh_token, upstream_expires_at
@@ -439,6 +491,16 @@ impl TokenStore {
             .bind(token)
             .execute(&self.pool)
             .await;
+        }
+
+        if let Some(ref mut refresh_token) = refresh_token {
+            refresh_token.upstream_access_token =
+                self.decrypt_upstream_token(&refresh_token.upstream_access_token)?;
+            refresh_token.upstream_refresh_token =
+                match refresh_token.upstream_refresh_token.as_deref() {
+                    Some(token) => Some(self.decrypt_upstream_token(token)?),
+                    None => None,
+                };
         }
 
         Ok(refresh_token)
@@ -505,6 +567,12 @@ impl TokenStore {
     ) -> Result<bool> {
         let old_token_hash = Self::hash_refresh_token(old_token);
         let new_token_hash = Self::hash_refresh_token(new_token);
+        let upstream_access_token = self.encrypt_upstream_token(upstream_access_token)?;
+        let upstream_refresh_token = match upstream_refresh_token {
+            Some(token) => Some(self.encrypt_upstream_token(token)?),
+            None => None,
+        };
+
         let result = sqlx::query(
             r#"
             UPDATE mcp_oauth.refresh_tokens
@@ -517,8 +585,8 @@ impl TokenStore {
         )
         .bind(&new_token_hash)
         .bind(expires_at)
-        .bind(upstream_access_token)
-        .bind(upstream_refresh_token)
+        .bind(&upstream_access_token)
+        .bind(upstream_refresh_token.as_deref())
         .bind(upstream_expires_at)
         .bind(&old_token_hash)
         .execute(&self.pool)
@@ -542,8 +610,8 @@ impl TokenStore {
         )
         .bind(&new_token_hash)
         .bind(expires_at)
-        .bind(upstream_access_token)
-        .bind(upstream_refresh_token)
+        .bind(&upstream_access_token)
+        .bind(upstream_refresh_token.as_deref())
         .bind(upstream_expires_at)
         .bind(old_token)
         .execute(&self.pool)
@@ -562,6 +630,12 @@ impl TokenStore {
         upstream_refresh_token: Option<&str>,
         upstream_expires_at: OffsetDateTime,
     ) -> Result<bool> {
+        let upstream_access_token = self.encrypt_upstream_token(upstream_access_token)?;
+        let upstream_refresh_token = match upstream_refresh_token {
+            Some(token) => Some(self.encrypt_upstream_token(token)?),
+            None => None,
+        };
+
         let result = sqlx::query(
             r#"
             UPDATE mcp_oauth.refresh_tokens
@@ -572,8 +646,8 @@ impl TokenStore {
             "#,
         )
         .bind(mcp_refresh_token)
-        .bind(upstream_access_token)
-        .bind(upstream_refresh_token)
+        .bind(&upstream_access_token)
+        .bind(upstream_refresh_token.as_deref())
         .bind(upstream_expires_at)
         .execute(&self.pool)
         .await
@@ -601,7 +675,13 @@ impl TokenStore {
         .await
         .map_err(McpError::Database)?;
 
-        Ok(result)
+        match result {
+            Some((token, expires_at)) => {
+                let token = self.decrypt_upstream_token(&token)?;
+                Ok(Some((token, expires_at)))
+            }
+            None => Ok(None),
+        }
     }
 
     /// Find refresh token by user and client (for looking up upstream tokens during auth)
@@ -626,29 +706,64 @@ impl TokenStore {
         .await
         .map_err(McpError::Database)?;
 
-        // Opportunistically upgrade legacy plaintext refresh tokens to hashed storage.
-        if let Some(ref mut token) = refresh_token
-            && !Self::looks_like_sha256_hex(&token.token_hash)
-        {
-            let new_hash = Self::hash_refresh_token(&token.token_hash);
-            match sqlx::query(
-                r#"
-                UPDATE mcp_oauth.refresh_tokens
-                SET token_hash = $1
-                WHERE token_hash = $2
-                "#,
-            )
-            .bind(&new_hash)
-            .bind(&token.token_hash)
-            .execute(&self.pool)
-            .await
+        if let Some(ref mut token) = refresh_token {
+            // Opportunistically upgrade legacy plaintext refresh tokens to hashed storage.
+            if !Self::looks_like_sha256_hex(&token.token_hash) {
+                let new_hash = Self::hash_refresh_token(&token.token_hash);
+                match sqlx::query(
+                    r#"
+                    UPDATE mcp_oauth.refresh_tokens
+                    SET token_hash = $1
+                    WHERE token_hash = $2
+                    "#,
+                )
+                .bind(&new_hash)
+                .bind(&token.token_hash)
+                .execute(&self.pool)
+                .await
+                {
+                    Ok(_) => token.token_hash = new_hash,
+                    Err(e) => tracing::warn!(
+                        event = "refresh_token_hash_upgrade_failed",
+                        error = %e,
+                        "Failed to upgrade legacy refresh token hash"
+                    ),
+                }
+            }
+
+            let stored_upstream_access_token = token.upstream_access_token.clone();
+            let stored_upstream_refresh_token = token.upstream_refresh_token.clone();
+
+            token.upstream_access_token =
+                self.decrypt_upstream_token(&stored_upstream_access_token)?;
+            token.upstream_refresh_token = match stored_upstream_refresh_token.as_deref() {
+                Some(token) => Some(self.decrypt_upstream_token(token)?),
+                None => None,
+            };
+
+            // If encryption is enabled, upgrade legacy plaintext upstream tokens to encrypted storage.
+            if self.token_cipher.is_some()
+                && (!TokenCipher::is_encrypted(&stored_upstream_access_token)
+                    || stored_upstream_refresh_token
+                        .as_deref()
+                        .is_some_and(|v| !TokenCipher::is_encrypted(v)))
             {
-                Ok(_) => token.token_hash = new_hash,
-                Err(e) => tracing::warn!(
-                    event = "refresh_token_hash_upgrade_failed",
-                    error = %e,
-                    "Failed to upgrade legacy refresh token hash"
-                ),
+                // Best-effort: don't fail requests if the upgrade write fails.
+                if let Err(e) = self
+                    .update_upstream_tokens(
+                        &token.token_hash,
+                        &token.upstream_access_token,
+                        token.upstream_refresh_token.as_deref(),
+                        token.upstream_expires_at,
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        event = "upstream_token_encrypt_upgrade_failed",
+                        error = %e,
+                        "Failed to upgrade upstream tokens to encrypted storage"
+                    );
+                }
             }
         }
 

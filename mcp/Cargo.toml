@@ -49,6 +49,7 @@ oauth2 = { workspace = true }
 argon2 = { workspace = true }
 jsonwebtoken = { workspace = true }
 arc-swap = { workspace = true }
+aes-gcm = { workspace = true }
 
 # Serialization
 serde = { workspace = true }

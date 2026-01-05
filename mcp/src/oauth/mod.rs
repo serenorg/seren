@@ -10,6 +10,7 @@
 //! - RFC 7591 Dynamic Client Registration
 
 pub(crate) mod circuit_breaker;
+pub(crate) mod crypto;
 pub mod jwt;
 pub mod routes;
 pub mod store;
