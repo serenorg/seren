@@ -317,7 +317,7 @@ impl TokenStore {
             INSERT INTO mcp_oauth.auth_requests
                 (id, client_id, redirect_uri, scope, client_state, code_challenge,
                 code_challenge_method, upstream_code_verifier, expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7::mcp_oauth.pkce_method, $8, $9)
             "#,
         )
         .bind(&req.id)
@@ -343,7 +343,7 @@ impl TokenStore {
             DELETE FROM mcp_oauth.auth_requests
             WHERE id = $1 AND expires_at > NOW()
             RETURNING id, client_id, redirect_uri, scope, client_state,
-                code_challenge, code_challenge_method, upstream_code_verifier,
+                code_challenge, code_challenge_method::text, upstream_code_verifier,
                 expires_at, created_at
             "#,
         )
@@ -371,7 +371,7 @@ impl TokenStore {
                 (code, client_id, user_id, redirect_uri, scope, code_challenge,
                 code_challenge_method, expires_at, upstream_access_token,
                 upstream_refresh_token, upstream_expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, $6, $7::mcp_oauth.pkce_method, $8, $9, $10, $11)
             "#,
         )
         .bind(&code.code)
@@ -402,7 +402,7 @@ impl TokenStore {
             DELETE FROM mcp_oauth.authorization_codes
             WHERE code = $1 AND expires_at > NOW()
             RETURNING code, client_id, user_id, redirect_uri, scope,
-                code_challenge, code_challenge_method, expires_at, created_at,
+                code_challenge, code_challenge_method::text, expires_at, created_at,
                 upstream_access_token, upstream_refresh_token, upstream_expires_at
             "#,
         )
