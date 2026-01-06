@@ -1147,7 +1147,9 @@ fn redirect_with_error(
     if let Some(state) = state {
         redirect_url.query_pairs_mut().append_pair("state", state);
     }
-    Ok(Redirect::temporary(redirect_url.as_str()).into_response())
+    // Use 303 See Other to ensure POST requests (e.g., consent deny) are
+    // converted to GET when redirecting to the client's callback.
+    Ok(Redirect::to(redirect_url.as_str()).into_response())
 }
 
 async fn fetch_user_id(
@@ -1420,7 +1422,9 @@ async fn consent_submit(
                 "User approved OAuth consent"
             );
 
-            Ok(Redirect::temporary(redirect_url.as_str()).into_response())
+            // Use 303 See Other to convert POST to GET for the callback redirect.
+            // 307 would preserve POST method, which callback endpoints don't expect.
+            Ok(Redirect::to(redirect_url.as_str()).into_response())
         }
         "deny" => {
             debug!(
