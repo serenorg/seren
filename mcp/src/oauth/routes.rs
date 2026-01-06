@@ -1318,13 +1318,18 @@ async fn consent_page(
         scope = html_escape(&consent.scope),
         token = html_escape(&q.token),
         csrf_token = html_escape(&consent.csrf_token),
-        consent_url = html_escape(&format!("{}/consent", state.server_host.trim_end_matches('/')))
+        consent_url = html_escape(&format!(
+            "{}/consent",
+            state.server_host.trim_end_matches('/')
+        ))
     );
 
     let server_host = state.server_host.trim_end_matches('/');
+    // Include both with and without trailing slash to handle browser extensions
+    // that may normalize URLs differently in CSP directives
     let csp = format!(
-        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' {}; base-uri 'none'; frame-ancestors 'none'",
-        server_host
+        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' {} {}/; base-uri 'none'; frame-ancestors 'none'",
+        server_host, server_host
     );
 
     let mut headers = HeaderMap::new();
