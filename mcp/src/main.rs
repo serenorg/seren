@@ -362,6 +362,14 @@ async fn require_oauth_auth(
 
                 token = new_token;
 
+                tracing::info!(
+                    event = "oauth_session_token_reissued",
+                    session_id = %sid,
+                    user_id = %session_token.user_id,
+                    client_id = %session_client_id,
+                    "Re-issued MCP access token for persisted session"
+                );
+
                 match state.oauth_state.jwt_signer.validate_access_token(&token) {
                     Ok(claims) => claims,
                     Err(e) => {

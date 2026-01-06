@@ -127,6 +127,7 @@ CREATE INDEX idx_auth_codes_user ON mcp_oauth.authorization_codes (user_id);
 CREATE INDEX idx_auth_codes_expires ON mcp_oauth.authorization_codes (expires_at);
 CREATE INDEX idx_refresh_tokens_client ON mcp_oauth.refresh_tokens (client_id);
 CREATE INDEX idx_refresh_tokens_user ON mcp_oauth.refresh_tokens (user_id);
+CREATE INDEX idx_refresh_tokens_user_client ON mcp_oauth.refresh_tokens (user_id, client_id);
 CREATE INDEX idx_sessions_user ON mcp_oauth.sessions (user_id);
 CREATE INDEX idx_sessions_client ON mcp_oauth.sessions (client_id);
 CREATE INDEX idx_sessions_expires ON mcp_oauth.sessions (expires_at);
