@@ -637,11 +637,11 @@ pub fn print_publishers_table(publishers: &[seren::PublisherResponse]) {
         ]);
     }
 
-    println!("{}", "Marketplace Publishers".bold());
+    println!("{}", "Store Publishers".bold());
     println!("{table}");
 }
 
-pub fn print_marketplace_publisher(
+pub fn print_store_publisher(
     publisher: &seren::PublisherResponse,
     format: OutputFormat,
 ) -> anyhow::Result<()> {

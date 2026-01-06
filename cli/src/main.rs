@@ -204,7 +204,7 @@ enum Commands {
         #[command(subcommand)]
         action: ReplicationAction,
     },
-    /// Agent marketplace and x402 payment commands
+    /// Agent commerce and x402 payment commands
     Agent {
         #[command(subcommand)]
         action: AgentAction,
@@ -214,7 +214,7 @@ enum Commands {
 #[derive(Subcommand)]
 #[allow(clippy::large_enum_variant)]
 enum AgentAction {
-    /// List publishers in the marketplace
+    /// List publishers in the store
     ListPublishers,
     /// Get details about a specific publisher
     GetPublisher {
@@ -232,7 +232,7 @@ enum AgentAction {
     },
     /// Get supported payment protocols and configuration
     GetSupported,
-    /// Create a new publisher in the marketplace
+    /// Create a new publisher in the store
     CreatePublisher {
         /// Publisher name
         #[arg(long)]

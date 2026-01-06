@@ -215,8 +215,8 @@
           "agent"
         ],
         "summary": "GET /api/agent/publishers",
-        "description": "List active publishers in the marketplace",
-        "operationId": "list_marketplace_publishers",
+        "description": "List active publishers in the store",
+        "operationId": "list_store_publishers",
         "parameters": [
           {
             "name": "is_verified",
@@ -382,8 +382,8 @@
           "agent"
         ],
         "summary": "GET /api/agent/publishers/:slug",
-        "description": "Get publisher by slug (public marketplace view)",
-        "operationId": "get_marketplace_publisher",
+        "description": "Get publisher by slug (public store view)",
+        "operationId": "get_store_publisher",
         "parameters": [
           {
             "name": "slug",
@@ -2744,7 +2744,7 @@
           "agent"
         ],
         "summary": "GET /api/organizations/:org_id/publishers/:publisher_id/earnings",
-        "description": "List marketplace earnings for a publisher (per asset).",
+        "description": "List earnings for a publisher (per asset).",
         "operationId": "get_org_publisher_earnings",
         "parameters": [
           {
@@ -2876,7 +2876,7 @@
           "agent"
         ],
         "summary": "POST /api/organizations/:org_id/publishers/:publisher_id/payouts",
-        "description": "Request a payout for a publisher's marketplace earnings.",
+        "description": "Request a payout for a publisher's earnings.",
         "operationId": "create_org_publisher_payout",
         "parameters": [
           {
@@ -13109,7 +13109,7 @@
           },
           "signature": {
             "type": "string",
-            "description": "Authorization proof.\n\n- For account-based (fiat/prepaid): SerenCore user JWT or API key (`seren_...`)\n- For real on-chain wallets: EIP-191 personal_sign of\n`seren:marketplace:<publisher_slug>:<agent_wallet>`\n- For streaming payments (EIP-3009): JSON payload string",
+            "description": "Authorization proof.\n\n- For account-based (fiat/prepaid): SerenCore user JWT or API key (`seren_...`)\n- For real on-chain wallets: EIP-191 personal_sign of\n`agent:<publisher_slug>:<agent_wallet>`\n- For streaming payments (EIP-3009): JSON payload string",
             "nullable": true
           }
         }
@@ -17026,7 +17026,7 @@
       },
       "PublisherType": {
         "type": "string",
-        "description": "Type of publisher in the marketplace",
+        "description": "Type of publisher in the store",
         "enum": [
           "individual",
           "organization",
@@ -19951,7 +19951,7 @@
     },
     {
       "name": "agent",
-      "description": "Agent marketplace and paid query execution"
+      "description": "Agent commerce and paid query execution"
     },
     {
       "name": "agent-internal",

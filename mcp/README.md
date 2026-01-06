@@ -161,11 +161,11 @@ Once configured, you can ask Claude to:
 - "Show me the branches in my project"
 - "Create a development branch from main"
 - "Run this SQL query on my database: SELECT * FROM users LIMIT 10"
-- "Run a prepaid API request against a marketplace publisher"
+- "Run a prepaid API request against a store publisher"
 
-### Marketplace Prepaid Tools
+### Store Prepaid Tools
 
-Use prepaid balance (fiat/Stripe) for marketplace access:
+Use prepaid balance (fiat/Stripe) for store access:
 
 - `get_prepaid_balance` — Check your prepaid balance summary (virtual wallet)
 - `create_prepaid_deposit` — Create a prepaid deposit (returns provider client data)
@@ -176,7 +176,7 @@ Both tools accept an optional `request_id` (UUID) for idempotency.
 
 ### X402 Local Signing (Advanced)
 
-For advanced users who want to pay for marketplace data using cryptocurrency, you can configure a local wallet for x402 payments. This keeps your private key on your local machine - it never leaves your device.
+For advanced users who want to pay for store data using cryptocurrency, you can configure a local wallet for x402 payments. This keeps your private key on your local machine - it never leaves your device.
 
 **Setup:**
 

@@ -4,12 +4,12 @@ use uuid::Uuid;
 
 use crate::{CommandContext, OutputFormat, defaults, output};
 
-/// List all active publishers in the marketplace
+/// List all active publishers in the store
 pub async fn list_publishers(ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
 
     let response = client
-        .list_marketplace_publishers(
+        .list_store_publishers(
             None, // is_verified
             None, // limit
             None, // offset
@@ -33,12 +33,12 @@ pub async fn get_publisher(publisher: &str, ctx: &CommandContext) -> Result<()> 
 
     // The API accepts either a slug or UUID as the path parameter
     let response = client
-        .get_marketplace_publisher(publisher)
+        .get_store_publisher(publisher)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get publisher: {}", e))?;
 
     let pub_info = response.into_inner();
-    output::print_marketplace_publisher(&pub_info.data, ctx.format)?;
+    output::print_store_publisher(&pub_info.data, ctx.format)?;
 
     Ok(())
 }
@@ -139,7 +139,7 @@ pub async fn get_deposit_requirements(
         uuid
     } else {
         let response = client
-            .list_marketplace_publishers(None, Some(100), None, Some(publisher))
+            .list_store_publishers(None, Some(100), None, Some(publisher))
             .await
             .map_err(|e| anyhow::anyhow!("Failed to search publishers: {}", e))?;
 
@@ -233,7 +233,7 @@ pub async fn get_supported(ctx: &CommandContext) -> Result<()> {
     Ok(())
 }
 
-/// Create a new publisher in the marketplace
+/// Create a new publisher in the store
 #[allow(clippy::too_many_arguments)]
 pub async fn create_publisher(
     name: &str,
@@ -321,7 +321,7 @@ pub async fn create_publisher(
         OutputFormat::Table => {
             println!("{}", "Publisher created successfully!".green().bold());
             println!();
-            output::print_marketplace_publisher(&publisher.data, ctx.format)?;
+            output::print_store_publisher(&publisher.data, ctx.format)?;
         }
     }
 
@@ -342,7 +342,7 @@ pub async fn execute_query(
         uuid
     } else {
         let response = client
-            .get_marketplace_publisher(publisher)
+            .get_store_publisher(publisher)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get publisher: {}", e))?;
         response.into_inner().data.id
@@ -451,7 +451,7 @@ pub async fn estimate_query_cost(publisher: &str, query: &str, ctx: &CommandCont
         uuid
     } else {
         let response = client
-            .get_marketplace_publisher(publisher)
+            .get_store_publisher(publisher)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get publisher: {}", e))?;
         response.into_inner().data.id

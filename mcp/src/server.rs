@@ -236,10 +236,10 @@ pub struct DescribeTableSchemaParams {
 }
 
 // ============================================================================
-// Agent Marketplace Parameter Types (agent paid access)
+// Agent Store Parameter Types (agent paid access)
 // ============================================================================
 
-/// Parameters for listing publishers in the agent marketplace
+/// Parameters for listing publishers in the agent store
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ListAgentPublishersParams {
     /// Filter to only verified publishers
@@ -376,7 +376,7 @@ pub struct GetX402DepositRequirementsParams {
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GetSupportedParams {}
 
-/// Parameters for creating a publisher in the marketplace
+/// Parameters for creating a publisher in the store
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CreatePublisherParams {
     /// Publisher display name
@@ -414,7 +414,7 @@ pub struct CreatePublisherParams {
     /// Publisher categories (e.g., ["blockchain", "defi"])
     #[serde(default)]
     pub categories: Option<Vec<String>>,
-    /// Logo URL for marketplace listing
+    /// Logo URL for store listing
     #[serde(default)]
     pub logo_url: Option<String>,
 }
@@ -778,7 +778,7 @@ async fn resolve_publisher_id(
     }
 
     let response = api_client
-        .get_marketplace_publisher(publisher)
+        .get_store_publisher(publisher)
         .await
         .map_err(|e| McpError::internal_error(e.to_string(), None))?
         .into_inner();
@@ -2321,11 +2321,11 @@ impl SerenMcpServer {
     }
 
     // ========================================================================
-    // Agent Marketplace Tools (agent paid access)
+    // Agent Store Tools (agent paid access)
     // ========================================================================
 
     #[tool(
-        description = "List all active publishers in the agent marketplace. Publishers provide databases or APIs that AI agents can query with micropayments. For task-specific recommendations, use suggest_for_task instead.",
+        description = "List all active publishers in the agent store. Publishers provide databases or APIs that AI agents can query with micropayments. For task-specific recommendations, use suggest_for_task instead.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_agent_publishers(
@@ -2335,7 +2335,7 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let publishers = api_client
-            .list_marketplace_publishers(
+            .list_store_publishers(
                 params.is_verified,
                 params.limit,
                 params.offset,
@@ -2358,7 +2358,7 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let publisher = api_client
-            .get_marketplace_publisher(&params.slug)
+            .get_store_publisher(&params.slug)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -2809,7 +2809,7 @@ impl SerenMcpServer {
     }
 
     // ========================================================================
-    // Additional Agent Marketplace Tools
+    // Additional Agent Store Tools
     // ========================================================================
 
     #[tool(
@@ -2831,7 +2831,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Create a new publisher in the agent marketplace. Publishers provide databases or APIs that AI agents can query with micropayments. Requires API key authentication (organization-level).",
+        description = "Create a new publisher in the agent store. Publishers provide databases or APIs that AI agents can query with micropayments. Requires API key authentication (organization-level).",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn create_publisher(
