@@ -2897,7 +2897,7 @@ impl SerenMcpServer {
             resource_id_url_pattern: None,
             resource_name: None,
             upstream_api_key: None,
-            usage_example: None,
+            usage_examples: None,
         };
 
         let result = api_client

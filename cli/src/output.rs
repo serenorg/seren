@@ -757,9 +757,9 @@ pub fn print_marketplace_publisher(
                 println!("{pricing_table}");
             }
 
-            if let Some(usage) = &publisher.usage_example {
+            if let Some(usage) = &publisher.usage_examples {
                 println!();
-                println!("{}", "Usage Example".bold());
+                println!("{}", "Usage Examples".bold());
                 println!("{}", serde_json::to_string_pretty(usage)?);
             }
         }
