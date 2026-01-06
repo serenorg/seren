@@ -1297,13 +1297,13 @@ async fn consent_page(
                 <div><strong>Requested scope</strong>: <code>{scope}</code></div>
             </div>
             <div class="row">
-                <form method="post" action="/consent">
+                <form method="post" action="{consent_url}">
                     <input type="hidden" name="token" value="{token}">
                     <input type="hidden" name="csrf_token" value="{csrf_token}">
                     <input type="hidden" name="action" value="approve">
                     <button class="approve" type="submit">Approve</button>
                 </form>
-                <form method="post" action="/consent">
+                <form method="post" action="{consent_url}">
                     <input type="hidden" name="token" value="{token}">
                     <input type="hidden" name="csrf_token" value="{csrf_token}">
                     <input type="hidden" name="action" value="deny">
@@ -1317,7 +1317,8 @@ async fn consent_page(
         client_name = html_escape(&client.name),
         scope = html_escape(&consent.scope),
         token = html_escape(&q.token),
-        csrf_token = html_escape(&consent.csrf_token)
+        csrf_token = html_escape(&consent.csrf_token),
+        consent_url = html_escape(&format!("{}/consent", state.server_host.trim_end_matches('/')))
     );
 
     let server_host = state.server_host.trim_end_matches('/');
