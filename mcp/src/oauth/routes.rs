@@ -1297,13 +1297,13 @@ async fn consent_page(
                 <div><strong>Requested scope</strong>: <code>{scope}</code></div>
             </div>
             <div class="row">
-                <form method="post" action="{consent_url}">
+                <form method="post" action="consent">
                     <input type="hidden" name="token" value="{token}">
                     <input type="hidden" name="csrf_token" value="{csrf_token}">
                     <input type="hidden" name="action" value="approve">
                     <button class="approve" type="submit">Approve</button>
                 </form>
-                <form method="post" action="{consent_url}">
+                <form method="post" action="consent">
                     <input type="hidden" name="token" value="{token}">
                     <input type="hidden" name="csrf_token" value="{csrf_token}">
                     <input type="hidden" name="action" value="deny">
@@ -1318,29 +1318,16 @@ async fn consent_page(
         scope = html_escape(&consent.scope),
         token = html_escape(&q.token),
         csrf_token = html_escape(&consent.csrf_token),
-        consent_url = html_escape(&format!(
-            "{}/consent",
-            state.server_host.trim_end_matches('/')
-        ))
     );
 
-    let server_host = state.server_host.trim_end_matches('/');
-    // Include both with and without trailing slash to handle browser extensions
-    // that may normalize URLs differently in CSP directives
-    let csp = format!(
-        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' {} {}/; base-uri 'none'; frame-ancestors 'none'",
-        server_host, server_host
+    let csp = HeaderValue::from_static(
+        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
     );
 
     let mut headers = HeaderMap::new();
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
-    headers.insert(
-        header::CONTENT_SECURITY_POLICY,
-        HeaderValue::try_from(csp).unwrap_or_else(|_| {
-            HeaderValue::from_static("default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
-        }),
-    );
+    headers.insert(header::CONTENT_SECURITY_POLICY, csp);
     headers.insert(
         axum::http::header::HeaderName::from_static("x-frame-options"),
         HeaderValue::from_static("DENY"),
