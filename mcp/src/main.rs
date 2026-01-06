@@ -707,13 +707,17 @@ async fn require_oauth_auth(
 
         if expires_at < renew_before {
             let store = state.store.clone();
-            let token = refresh_token.token_hash.clone();
+            let token_hash = refresh_token.token_hash.clone();
             let user_id_for_log = user_id;
             let client_id_for_log = claims.client_id.clone();
             let session_id = session_id.clone();
             tokio::spawn(async move {
                 match store
-                    .extend_refresh_token_expiry_if_needed(&token, new_expires_at, renew_before)
+                    .extend_refresh_token_expiry_if_needed(
+                        &token_hash,
+                        new_expires_at,
+                        renew_before,
+                    )
                     .await
                 {
                     Ok(true) => tracing::debug!(

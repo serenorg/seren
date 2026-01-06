@@ -528,23 +528,32 @@ impl TokenStore {
     ///
     /// This supports "non-expiring sessions" UX without writing on every request: we only renew
     /// if the existing expiry is before `renew_before` (typically `now + TTL - renewal_interval`).
+    ///
+    /// Accepts either the raw MCP refresh token or the stored SHA-256 hex token hash.
     pub async fn extend_refresh_token_expiry_if_needed(
         &self,
-        token: &str,
+        refresh_token_or_hash: &str,
         new_expires_at: OffsetDateTime,
         renew_before: OffsetDateTime,
     ) -> Result<bool> {
+        let token_hash = if Self::looks_like_sha256_hex(refresh_token_or_hash) {
+            refresh_token_or_hash.to_string()
+        } else {
+            Self::hash_refresh_token(refresh_token_or_hash)
+        };
+
         let result = sqlx::query(
             r#"
             UPDATE mcp_oauth.refresh_tokens
-            SET expires_at = $2
-            WHERE token_hash = $1
+            SET expires_at = $3
+            WHERE (token_hash = $1 OR token_hash = $2)
             AND expires_at IS NOT NULL
             AND expires_at > NOW()
-            AND expires_at < $3
+            AND expires_at < $4
             "#,
         )
-        .bind(token)
+        .bind(&token_hash)
+        .bind(refresh_token_or_hash)
         .bind(new_expires_at)
         .bind(renew_before)
         .execute(&self.pool)
@@ -623,13 +632,21 @@ impl TokenStore {
 
     /// Update the upstream token vault for a refresh token without rotating the MCP refresh token.
     /// Keeps the existing upstream refresh token if the upstream provider omits it.
+    ///
+    /// Accepts either the raw MCP refresh token or the stored SHA-256 hex token hash.
     pub async fn update_upstream_tokens(
         &self,
-        mcp_refresh_token: &str,
+        refresh_token_or_hash: &str,
         upstream_access_token: &str,
         upstream_refresh_token: Option<&str>,
         upstream_expires_at: OffsetDateTime,
     ) -> Result<bool> {
+        let token_hash = if Self::looks_like_sha256_hex(refresh_token_or_hash) {
+            refresh_token_or_hash.to_string()
+        } else {
+            Self::hash_refresh_token(refresh_token_or_hash)
+        };
+
         let upstream_access_token = self.encrypt_upstream_token(upstream_access_token)?;
         let upstream_refresh_token = match upstream_refresh_token {
             Some(token) => Some(self.encrypt_upstream_token(token)?),
@@ -642,13 +659,15 @@ impl TokenStore {
             SET upstream_access_token = $2,
                 upstream_refresh_token = COALESCE($3, upstream_refresh_token),
                 upstream_expires_at = $4
-            WHERE token_hash = $1 AND (expires_at IS NULL OR expires_at > NOW())
+            WHERE (token_hash = $1 OR token_hash = $5)
+            AND (expires_at IS NULL OR expires_at > NOW())
             "#,
         )
-        .bind(mcp_refresh_token)
+        .bind(&token_hash)
         .bind(&upstream_access_token)
         .bind(upstream_refresh_token.as_deref())
         .bind(upstream_expires_at)
+        .bind(refresh_token_or_hash)
         .execute(&self.pool)
         .await
         .map_err(McpError::Database)?;
@@ -658,19 +677,29 @@ impl TokenStore {
 
     /// Get the upstream access token for a given MCP refresh token.
     /// Reserved for future use when looking up tokens by MCP refresh token.
+    ///
+    /// Accepts either the raw MCP refresh token or the stored SHA-256 hex token hash.
     #[allow(dead_code)]
     pub async fn get_upstream_token(
         &self,
-        mcp_refresh_token: &str,
+        refresh_token_or_hash: &str,
     ) -> Result<Option<(String, OffsetDateTime)>> {
+        let token_hash = if Self::looks_like_sha256_hex(refresh_token_or_hash) {
+            refresh_token_or_hash.to_string()
+        } else {
+            Self::hash_refresh_token(refresh_token_or_hash)
+        };
+
         let result: Option<(String, OffsetDateTime)> = sqlx::query_as(
             r#"
             SELECT upstream_access_token, upstream_expires_at
             FROM mcp_oauth.refresh_tokens
-            WHERE token_hash = $1 AND (expires_at IS NULL OR expires_at > NOW())
+            WHERE (token_hash = $1 OR token_hash = $2)
+            AND (expires_at IS NULL OR expires_at > NOW())
             "#,
         )
-        .bind(mcp_refresh_token)
+        .bind(&token_hash)
+        .bind(refresh_token_or_hash)
         .fetch_optional(&self.pool)
         .await
         .map_err(McpError::Database)?;
