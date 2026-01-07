@@ -417,6 +417,17 @@ pub struct CreatePublisherParams {
     /// Logo URL for store listing
     #[serde(default)]
     pub logo_url: Option<String>,
+    /// Whether to cache API responses (default: false for stateful APIs)
+    #[serde(default)]
+    pub caching_enabled: Option<bool>,
+    /// Content-Type for upstream API requests (default: application/json)
+    /// Use "application/x-www-form-urlencoded" for APIs like Twilio
+    #[serde(default)]
+    pub request_content_type: Option<String>,
+    /// Non-sensitive headers to send to upstream API (e.g., {"User-Agent": "MyAgent/1.0"})
+    /// Unlike api_key_headers, these values are NOT encrypted
+    #[serde(default)]
+    pub upstream_headers: Option<HashMap<String, String>>,
 }
 
 /// Parameters for executing a paid streaming API request
@@ -2898,6 +2909,11 @@ impl SerenMcpServer {
             resource_name: None,
             upstream_api_key: None,
             usage_examples: None,
+            caching_enabled: params.caching_enabled,
+            request_content_type: params.request_content_type,
+            upstream_headers: params
+                .upstream_headers
+                .and_then(|h| serde_json::to_value(h).ok()),
         };
 
         let result = api_client

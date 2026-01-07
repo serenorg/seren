@@ -308,6 +308,9 @@ pub async fn create_publisher(
         resource_name: None,
         upstream_api_key: None,
         usage_examples: None,
+        caching_enabled: None,
+        request_content_type: None,
+        upstream_headers: None,
     };
 
     let response = client

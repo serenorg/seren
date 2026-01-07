@@ -11162,6 +11162,11 @@
             "description": "Cache TTL for API proxy responses",
             "nullable": true
           },
+          "caching_enabled": {
+            "type": "boolean",
+            "description": "Whether to cache API responses (default false for stateful APIs)",
+            "nullable": true
+          },
           "capabilities": {
             "type": "array",
             "items": {
@@ -11286,6 +11291,11 @@
             ],
             "nullable": true
           },
+          "request_content_type": {
+            "type": "string",
+            "description": "Content-Type for upstream API requests (default: application/json)",
+            "nullable": true
+          },
           "resource_description": {
             "type": "string",
             "nullable": true
@@ -11313,6 +11323,10 @@
           "upstream_api_key": {
             "type": "string",
             "description": "Upstream static API key (will be encrypted)",
+            "nullable": true
+          },
+          "upstream_headers": {
+            "description": "Non-sensitive headers to send to upstream API (e.g., User-Agent)",
             "nullable": true
           },
           "usage_examples": {
@@ -16825,6 +16839,9 @@
           "gateway_fee_percent",
           "allowed_passthrough_headers",
           "cache_ttl_seconds",
+          "caching_enabled",
+          "request_content_type",
+          "upstream_headers",
           "ownership_tracking_enabled",
           "is_active",
           "is_verified",
@@ -16854,6 +16871,10 @@
           "cache_ttl_seconds": {
             "type": "integer",
             "format": "int32"
+          },
+          "caching_enabled": {
+            "type": "boolean",
+            "description": "Whether to cache API responses"
           },
           "capabilities": {
             "type": "array",
@@ -16913,6 +16934,10 @@
           "publisher_type": {
             "$ref": "#/components/schemas/PublisherType"
           },
+          "request_content_type": {
+            "type": "string",
+            "description": "Content-Type for upstream API requests"
+          },
           "resource_description": {
             "type": "string",
             "nullable": true
@@ -16946,6 +16971,9 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "upstream_headers": {
+            "description": "Non-sensitive headers to send to upstream API"
           },
           "usage_examples": {
             "type": "array",
@@ -18399,6 +18427,17 @@
           }
         }
       },
+      "TemplateSortBy": {
+        "type": "string",
+        "description": "Sorting options for template catalog",
+        "enum": [
+          "popularity",
+          "price_asc",
+          "price_desc",
+          "newest",
+          "oldest"
+        ]
+      },
       "TimestampByLsn": {
         "type": "object",
         "description": "Response for timestamp by LSN query",
@@ -18998,6 +19037,11 @@
             "description": "Cache TTL for API proxy responses",
             "nullable": true
           },
+          "caching_enabled": {
+            "type": "boolean",
+            "description": "Whether to cache API responses (default false for stateful APIs)",
+            "nullable": true
+          },
           "capabilities": {
             "type": "array",
             "items": {
@@ -19085,6 +19129,11 @@
             "description": "Asset IDs to remove from accepted assets",
             "nullable": true
           },
+          "request_content_type": {
+            "type": "string",
+            "description": "Content-Type for upstream API requests (default: application/json)",
+            "nullable": true
+          },
           "resource_description": {
             "type": "string",
             "nullable": true
@@ -19106,6 +19155,10 @@
           "upstream_api_key": {
             "type": "string",
             "description": "Upstream static API key (will be encrypted)",
+            "nullable": true
+          },
+          "upstream_headers": {
+            "description": "Non-sensitive headers to send to upstream API (e.g., User-Agent)",
             "nullable": true
           },
           "usage_examples": {
@@ -19211,6 +19264,27 @@
           },
           "unit": {
             "type": "string"
+          }
+        }
+      },
+      "UsageExample": {
+        "type": "object",
+        "description": "A single usage example showing how to call a publisher's API",
+        "properties": {
+          "curl": {
+            "type": "string",
+            "description": "Full curl command example",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "description": "Description of what this example demonstrates",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "description": "Short title for the example (e.g., \"Create a collection\")",
+            "nullable": true
           }
         }
       },
