@@ -2610,6 +2610,15 @@ impl SerenMcpServer {
                                 None,
                             ));
                         }
+                        if status == reqwest::StatusCode::NOT_FOUND {
+                            return Err(McpError::internal_error(
+                                format!(
+                                    "Publisher '{}' query endpoint returned 404. The publisher may not have database access configured, or the database may be unavailable. Use get_agent_publisher to check the publisher's source_type and configuration.",
+                                    params.publisher
+                                ),
+                                None,
+                            ));
+                        }
                         let body = response.text().await.unwrap_or_default();
                         Err(McpError::internal_error(
                             format!(
@@ -2701,6 +2710,15 @@ impl SerenMcpServer {
                         if status == reqwest::StatusCode::CONFLICT {
                             return Err(McpError::invalid_request(
                                 "Duplicate request_id. Provide a new UUID and retry.".to_string(),
+                                None,
+                            ));
+                        }
+                        if status == reqwest::StatusCode::NOT_FOUND {
+                            return Err(McpError::internal_error(
+                                format!(
+                                    "Publisher '{}' API endpoint returned 404. The publisher may not have API access configured, or the endpoint may be unavailable. Use get_agent_publisher to check the publisher's source_type and api_url configuration.",
+                                    params.publisher
+                                ),
                                 None,
                             ));
                         }
