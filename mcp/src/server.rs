@@ -2371,7 +2371,20 @@ impl SerenMcpServer {
         let publisher = api_client
             .get_store_publisher(&params.slug)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .map_err(|e| {
+                // Check status code directly instead of string matching
+                if e.status() == Some(reqwest::StatusCode::NOT_FOUND) {
+                    McpError::internal_error(
+                        format!(
+                            "Publisher '{}' not found. Use list_agent_publishers to see available publishers and their slugs.",
+                            params.slug
+                        ),
+                        None,
+                    )
+                } else {
+                    McpError::internal_error(e.to_string(), None)
+                }
+            })?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&publisher)?]))
     }
