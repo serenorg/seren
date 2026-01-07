@@ -1,316 +1,18 @@
 //! Documentation page handler for the MCP server.
 //!
 //! Serves a static HTML documentation page at all routes except /mcp, /health,
-//! and OAuth endpoints. This allows users to discover available MCP tools.
+//! and OAuth endpoints. Tool information is auto-generated from server.rs at build time.
 
 use axum::response::{Html, IntoResponse};
 
-/// Tool information for documentation
-struct Tool {
-    name: &'static str,
-    description: &'static str,
-    category: &'static str,
-}
-
-/// All MCP tools organized by category
-const TOOLS: &[Tool] = &[
-    // Project Management
-    Tool {
-        name: "list_projects",
-        description: "List all Seren projects accessible to the authenticated user",
-        category: "Projects",
-    },
-    Tool {
-        name: "describe_project",
-        description: "Get detailed information about a specific project",
-        category: "Projects",
-    },
-    Tool {
-        name: "create_project",
-        description: "Create a new Seren project",
-        category: "Projects",
-    },
-    Tool {
-        name: "delete_project",
-        description: "Delete a Seren project",
-        category: "Projects",
-    },
-    Tool {
-        name: "update_project",
-        description: "Update a project's settings including name, security options, and compute defaults",
-        category: "Projects",
-    },
-    // Branch Management
-    Tool {
-        name: "list_branches",
-        description: "List branches for a project",
-        category: "Branches",
-    },
-    Tool {
-        name: "describe_branch",
-        description: "Get detailed information about a branch",
-        category: "Branches",
-    },
-    Tool {
-        name: "create_branch",
-        description: "Create a new branch in a project",
-        category: "Branches",
-    },
-    Tool {
-        name: "delete_branch",
-        description: "Delete a branch",
-        category: "Branches",
-    },
-    Tool {
-        name: "rename_branch",
-        description: "Rename a branch",
-        category: "Branches",
-    },
-    Tool {
-        name: "set_default_branch",
-        description: "Set a branch as the default branch for the project",
-        category: "Branches",
-    },
-    Tool {
-        name: "reset_branch",
-        description: "Reset a branch to its parent's latest state (destroys all data)",
-        category: "Branches",
-    },
-    Tool {
-        name: "set_branch_expiration",
-        description: "Set or remove branch expiration date",
-        category: "Branches",
-    },
-    // Database Operations
-    Tool {
-        name: "list_databases",
-        description: "List all databases in a branch",
-        category: "Databases",
-    },
-    Tool {
-        name: "create_database",
-        description: "Create a new database in a branch",
-        category: "Databases",
-    },
-    Tool {
-        name: "get_database",
-        description: "Get details about a specific database",
-        category: "Databases",
-    },
-    Tool {
-        name: "delete_database",
-        description: "Delete a database from a branch",
-        category: "Databases",
-    },
-    Tool {
-        name: "get_database_tables",
-        description: "List tables in a database schema",
-        category: "Databases",
-    },
-    Tool {
-        name: "describe_table_schema",
-        description: "Get schema information for a table",
-        category: "Databases",
-    },
-    // SQL Execution
-    Tool {
-        name: "run_sql",
-        description: "Execute a SQL query against a database",
-        category: "SQL",
-    },
-    Tool {
-        name: "run_sql_transaction",
-        description: "Execute multiple SQL statements in a single transaction",
-        category: "SQL",
-    },
-    Tool {
-        name: "explain_sql_statement",
-        description: "Explain a SQL statement (FORMAT JSON)",
-        category: "SQL",
-    },
-    Tool {
-        name: "get_connection_string",
-        description: "Get connection string for a branch",
-        category: "SQL",
-    },
-    // Roles & Credentials
-    Tool {
-        name: "list_roles",
-        description: "List all roles in a branch",
-        category: "Roles",
-    },
-    Tool {
-        name: "create_role",
-        description: "Create a new database role on a branch",
-        category: "Roles",
-    },
-    Tool {
-        name: "delete_role",
-        description: "Delete a database role from a branch",
-        category: "Roles",
-    },
-    Tool {
-        name: "reset_role_password",
-        description: "Reset a database role's password, generating a new secure password",
-        category: "Roles",
-    },
-    Tool {
-        name: "reveal_role_password",
-        description: "Reveal the current password for a database role",
-        category: "Roles",
-    },
-    // Compute Endpoints
-    Tool {
-        name: "list_endpoints",
-        description: "List all endpoints for a branch",
-        category: "Endpoints",
-    },
-    Tool {
-        name: "create_endpoint",
-        description: "Create a new endpoint for a branch",
-        category: "Endpoints",
-    },
-    Tool {
-        name: "delete_endpoint",
-        description: "Delete an endpoint",
-        category: "Endpoints",
-    },
-    Tool {
-        name: "update_endpoint",
-        description: "Update an endpoint's settings including autoscaling and suspend timeout",
-        category: "Endpoints",
-    },
-    Tool {
-        name: "get_endpoint_status",
-        description: "Get the current status of an endpoint (running, suspended, etc.)",
-        category: "Endpoints",
-    },
-    Tool {
-        name: "start_endpoint",
-        description: "Start a suspended endpoint",
-        category: "Endpoints",
-    },
-    Tool {
-        name: "suspend_endpoint",
-        description: "Suspend an endpoint",
-        category: "Endpoints",
-    },
-    Tool {
-        name: "restart_endpoint",
-        description: "Restart an endpoint (rolling restart via Kubernetes)",
-        category: "Endpoints",
-    },
-    // Organizations & API Keys
-    Tool {
-        name: "list_organizations",
-        description: "List organizations accessible to the authenticated user",
-        category: "Organizations",
-    },
-    Tool {
-        name: "list_api_keys",
-        description: "List all API keys for an organization",
-        category: "Organizations",
-    },
-    Tool {
-        name: "create_api_key",
-        description: "Create a new API key for an organization",
-        category: "Organizations",
-    },
-    Tool {
-        name: "revoke_api_key",
-        description: "Revoke an API key",
-        category: "Organizations",
-    },
-    // Agent Store & Publishers
-    Tool {
-        name: "list_agent_publishers",
-        description: "List all active publishers in the agent store. Publishers provide databases or APIs that AI agents can query with micropayments.",
-        category: "Agent Store",
-    },
-    Tool {
-        name: "get_agent_publisher",
-        description: "Get details about a specific publisher including pricing info by slug",
-        category: "Agent Store",
-    },
-    Tool {
-        name: "suggest_for_task",
-        description: "Get publisher and agent recommendations for a task. Call this BEFORE using WebSearch/WebFetch to check if a Seren publisher can do the task better.",
-        category: "Agent Store",
-    },
-    Tool {
-        name: "create_publisher",
-        description: "Create a new publisher in the agent store. Requires API key authentication.",
-        category: "Agent Store",
-    },
-    // Payments & Wallet
-    Tool {
-        name: "get_prepaid_balance",
-        description: "Get your SerenBucks balance. SerenBucks are credits used to pay for API calls and database queries.",
-        category: "Payments",
-    },
-    Tool {
-        name: "get_wallet_status",
-        description: "Get your complete wallet status including SerenBucks balance and on-chain USDC balance (if local wallet configured).",
-        category: "Payments",
-    },
-    Tool {
-        name: "create_prepaid_deposit",
-        description: "Deposit SerenBucks with a credit card via Stripe. Returns a checkout URL to complete payment.",
-        category: "Payments",
-    },
-    Tool {
-        name: "get_transaction_history",
-        description: "Get transaction history for your wallet (deposits, charges, refunds)",
-        category: "Payments",
-    },
-    Tool {
-        name: "get_local_wallet_address",
-        description: "Get the local wallet address. Only available when running locally with WALLET_PRIVATE_KEY.",
-        category: "Payments",
-    },
-    Tool {
-        name: "has_local_wallet",
-        description: "Check if a local wallet is configured.",
-        category: "Payments",
-    },
-    Tool {
-        name: "get_x402_deposit_requirements",
-        description: "Get x402 on-chain deposit requirements for depositing USDC to a publisher.",
-        category: "Payments",
-    },
-    Tool {
-        name: "get_supported",
-        description: "Get supported payment protocols and configuration.",
-        category: "Payments",
-    },
-    // Paid Queries & APIs
-    Tool {
-        name: "execute_paid_query",
-        description: "Execute a paid SQL query against a publisher's database. Uses SerenBucks or x402 crypto payments.",
-        category: "Paid APIs",
-    },
-    Tool {
-        name: "execute_paid_api",
-        description: "Execute a paid API request against a publisher's endpoint. USE THIS for web scraping (Firecrawl), AI-powered search (Perplexity), or other publisher APIs.",
-        category: "Paid APIs",
-    },
-    Tool {
-        name: "execute_paid_api_stream",
-        description: "Execute a paid streaming API request. Streaming requires x402 local wallet signing.",
-        category: "Paid APIs",
-    },
-    Tool {
-        name: "estimate_query_cost",
-        description: "Estimate the cost of a SQL query against a publisher's database without executing it",
-        category: "Paid APIs",
-    },
-];
+// Include the generated tools module
+include!(concat!(env!("OUT_DIR"), "/tools_generated.rs"));
 
 /// Generate the HTML documentation page
 fn generate_docs_html() -> String {
     let version = env!("CARGO_PKG_VERSION");
 
-    // Group tools by category
+    // Group tools by category (maintain order)
     let categories = [
         "Projects",
         "Branches",
@@ -322,6 +24,7 @@ fn generate_docs_html() -> String {
         "Agent Store",
         "Payments",
         "Paid APIs",
+        "Other",
     ];
 
     let mut tools_html = String::new();
@@ -365,18 +68,22 @@ fn generate_docs_html() -> String {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Seren MCP Server Documentation</title>
+    <title>Seren MCP Server</title>
+    <link rel="icon" href="https://serendb.com/favicon.ico" type="image/x-icon">
     <style>
         :root {{
-            --bg-primary: #1a1a2e;
-            --bg-secondary: #16213e;
-            --bg-tertiary: #0f3460;
-            --text-primary: #eaeaea;
-            --text-secondary: #b8b8b8;
-            --accent: #e94560;
-            --accent-secondary: #533483;
-            --border: #2a2a4a;
-            --code-bg: #0d1117;
+            /* SerenDB dark theme - Zinc palette with Cyan accent */
+            --bg-primary: #09090b;
+            --bg-secondary: #18181b;
+            --bg-tertiary: #27272a;
+            --text-primary: #fafafa;
+            --text-secondary: #a1a1aa;
+            --text-muted: #71717a;
+            --accent: #06b6d4;
+            --accent-hover: #22d3ee;
+            --accent-muted: rgba(6, 182, 212, 0.15);
+            --border: #27272a;
+            --code-bg: #18181b;
         }}
 
         * {{
@@ -406,23 +113,34 @@ fn generate_docs_html() -> String {
             margin-bottom: 2rem;
         }}
 
+        .logo {{
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            margin-bottom: 0.5rem;
+        }}
+
+        .logo svg {{
+            width: 48px;
+            height: 48px;
+        }}
+
         h1 {{
             font-size: 2.5rem;
-            margin-bottom: 0.5rem;
-            background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+            font-weight: 600;
+            color: var(--text-primary);
         }}
 
         .version {{
-            color: var(--text-secondary);
-            font-size: 0.9rem;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            margin-top: 0.25rem;
         }}
 
         .intro {{
             background: var(--bg-secondary);
-            border-radius: 8px;
+            border-radius: 12px;
             padding: 1.5rem;
             margin-bottom: 2rem;
             border: 1px solid var(--border);
@@ -431,7 +149,8 @@ fn generate_docs_html() -> String {
         .intro h2 {{
             color: var(--accent);
             margin-bottom: 1rem;
-            font-size: 1.3rem;
+            font-size: 1.25rem;
+            font-weight: 600;
         }}
 
         .intro p {{
@@ -439,11 +158,15 @@ fn generate_docs_html() -> String {
             margin-bottom: 1rem;
         }}
 
-        .intro code {{
-            background: var(--code-bg);
-            padding: 0.2rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.9rem;
+        .intro a {{
+            color: var(--accent);
+            text-decoration: none;
+            transition: color 0.2s;
+        }}
+
+        .intro a:hover {{
+            color: var(--accent-hover);
+            text-decoration: underline;
         }}
 
         .endpoints {{
@@ -451,11 +174,27 @@ fn generate_docs_html() -> String {
             border-radius: 8px;
             padding: 1rem 1.5rem;
             margin: 1rem 0;
+            font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, monospace;
+            font-size: 0.875rem;
         }}
 
         .endpoints code {{
             display: block;
             margin: 0.5rem 0;
+            color: var(--text-primary);
+        }}
+
+        .endpoints .method {{
+            color: var(--accent);
+            font-weight: 600;
+            display: inline-block;
+            width: 60px;
+        }}
+
+        h2.section-title {{
+            margin-bottom: 1.5rem;
+            font-size: 1.5rem;
+            font-weight: 600;
             color: var(--text-primary);
         }}
 
@@ -465,10 +204,11 @@ fn generate_docs_html() -> String {
 
         .category h3 {{
             color: var(--accent);
-            font-size: 1.2rem;
+            font-size: 1.125rem;
+            font-weight: 600;
             margin-bottom: 1rem;
             padding-bottom: 0.5rem;
-            border-bottom: 2px solid var(--accent-secondary);
+            border-bottom: 2px solid var(--accent-muted);
         }}
 
         table {{
@@ -477,6 +217,7 @@ fn generate_docs_html() -> String {
             background: var(--bg-secondary);
             border-radius: 8px;
             overflow: hidden;
+            border: 1px solid var(--border);
         }}
 
         th, td {{
@@ -489,6 +230,9 @@ fn generate_docs_html() -> String {
             background: var(--bg-tertiary);
             color: var(--text-primary);
             font-weight: 600;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
         }}
 
         td:first-child {{
@@ -497,14 +241,21 @@ fn generate_docs_html() -> String {
 
         td code {{
             background: var(--code-bg);
-            padding: 0.2rem 0.5rem;
+            padding: 0.25rem 0.5rem;
             border-radius: 4px;
-            font-size: 0.85rem;
+            font-size: 0.8125rem;
             color: var(--accent);
+            font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, monospace;
+            border: 1px solid var(--border);
         }}
 
         td:last-child {{
             color: var(--text-secondary);
+            font-size: 0.9375rem;
+        }}
+
+        tr:last-child td {{
+            border-bottom: none;
         }}
 
         tr:hover {{
@@ -514,18 +265,27 @@ fn generate_docs_html() -> String {
         footer {{
             text-align: center;
             padding: 2rem;
-            color: var(--text-secondary);
+            color: var(--text-muted);
             border-top: 1px solid var(--border);
             margin-top: 2rem;
+            font-size: 0.875rem;
         }}
 
         footer a {{
-            color: var(--accent);
+            color: var(--text-secondary);
             text-decoration: none;
+            transition: color 0.2s;
         }}
 
         footer a:hover {{
-            text-decoration: underline;
+            color: var(--accent);
+        }}
+
+        footer .links {{
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            margin-bottom: 0.5rem;
         }}
 
         @media (max-width: 768px) {{
@@ -534,7 +294,7 @@ fn generate_docs_html() -> String {
             }}
 
             h1 {{
-                font-size: 1.8rem;
+                font-size: 1.75rem;
             }}
 
             td:first-child {{
@@ -542,7 +302,11 @@ fn generate_docs_html() -> String {
             }}
 
             table {{
-                font-size: 0.9rem;
+                font-size: 0.875rem;
+            }}
+
+            th, td {{
+                padding: 0.5rem 0.75rem;
             }}
         }}
     </style>
@@ -550,41 +314,46 @@ fn generate_docs_html() -> String {
 <body>
     <div class="container">
         <header>
-            <h1>Seren MCP Server</h1>
-            <p class="version">Version {version}</p>
+            <div class="logo">
+                <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="50" cy="50" r="45" stroke="#06b6d4" stroke-width="4" fill="none"/>
+                    <circle cx="50" cy="50" r="30" stroke="#06b6d4" stroke-width="3" fill="none" opacity="0.6"/>
+                    <circle cx="50" cy="50" r="15" fill="#06b6d4"/>
+                </svg>
+                <h1>Seren MCP Server</h1>
+            </div>
+            <p class="version">v{version}</p>
         </header>
 
         <div class="intro">
             <h2>Getting Started</h2>
             <p>
-                The Seren MCP Server provides AI assistants with tools to manage PostgreSQL databases,
-                execute queries, and access the Agent Store for paid data services.
-            </p>
-            <p>
-                Connect your AI assistant to this server using the Model Context Protocol (MCP).
-                The MCP endpoint is available at:
+                The Seren MCP Server enables AI assistants to manage PostgreSQL databases,
+                execute queries, and access the Agent Store for paid data services via the
+                Model Context Protocol (MCP).
             </p>
             <div class="endpoints">
-                <code>POST /mcp - Send JSON-RPC messages</code>
-                <code>GET  /mcp - Establish SSE stream (with session)</code>
-                <code>DELETE /mcp - Close session</code>
+                <code><span class="method">POST</span> /mcp — Send JSON-RPC messages</code>
+                <code><span class="method">GET</span> /mcp — Establish SSE stream (with session)</code>
+                <code><span class="method">DELETE</span> /mcp — Close session</code>
             </div>
             <p>
-                For more information, visit <a href="https://serendb.com" style="color: var(--accent);">serendb.com</a>
-                or check out the <a href="https://github.com/serenorg/seren" style="color: var(--accent);">GitHub repository</a>.
+                For more information, visit <a href="https://serendb.com">serendb.com</a>
+                or check out the <a href="https://github.com/serenorg/seren">GitHub repository</a>.
             </p>
         </div>
 
-        <h2 style="margin-bottom: 1.5rem;">Available Tools</h2>
+        <h2 class="section-title">Available Tools</h2>
 
         {tools_html}
 
         <footer>
-            <p>
-                <a href="https://serendb.com">SerenDB</a> ·
-                <a href="https://github.com/serenorg/seren">GitHub</a> ·
+            <div class="links">
+                <a href="https://serendb.com">SerenDB</a>
+                <a href="https://github.com/serenorg/seren">GitHub</a>
                 <a href="https://docs.serendb.com">Documentation</a>
-            </p>
+            </div>
+            <p>&copy; 2024-2025 SerenDB. All rights reserved.</p>
         </footer>
     </div>
 </body>
