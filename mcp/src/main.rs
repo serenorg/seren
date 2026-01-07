@@ -1345,11 +1345,16 @@ async fn run_oauth(config: Config) -> Result<()> {
     tracing::info!("Server host: {}", server_host);
 
     let server_ct = ct.clone();
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async move {
-            server_ct.cancelled().await;
-        })
-        .await?;
+    // Use into_make_service_with_connect_info to provide SocketAddr to rate limiter.
+    // SmartIpKeyExtractor falls back to ConnectInfo when proxy headers aren't present.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        server_ct.cancelled().await;
+    })
+    .await?;
 
     Ok(())
 }
