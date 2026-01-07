@@ -1002,6 +1002,79 @@ impl TokenStore {
         Ok(result.rows_affected() > 0)
     }
 
+    // === rmcp session tracking operations ===
+    // These track rmcp transport layer sessions for stale session detection
+    // after server restarts. Separate from OAuth token storage.
+
+    /// Track an rmcp session in PostgreSQL.
+    /// Called when a new session is created via create_session().
+    pub async fn track_rmcp_session(&self, session_id: &str) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO mcp_oauth.rmcp_sessions (session_id, created_at, last_activity)
+            VALUES ($1, NOW(), NOW())
+            ON CONFLICT (session_id) DO UPDATE SET
+                last_activity = NOW()
+            "#,
+        )
+        .bind(session_id)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(())
+    }
+
+    /// Remove an rmcp session from PostgreSQL tracking.
+    /// Called when a session is closed via close_session().
+    pub async fn untrack_rmcp_session(&self, session_id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM mcp_oauth.rmcp_sessions WHERE session_id = $1")
+            .bind(session_id)
+            .execute(&self.pool)
+            .await
+            .map_err(McpError::Database)?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Check if an rmcp session exists in PostgreSQL.
+    /// Used to detect stale sessions (in DB but not in memory after restart).
+    pub async fn has_rmcp_session(&self, session_id: &str) -> Result<bool> {
+        let exists: (bool,) = sqlx::query_as(
+            "SELECT EXISTS(SELECT 1 FROM mcp_oauth.rmcp_sessions WHERE session_id = $1)",
+        )
+        .bind(session_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(exists.0)
+    }
+
+    /// Update the last activity timestamp for an rmcp session.
+    /// Called periodically to keep sessions alive and enable activity-based cleanup.
+    pub async fn touch_rmcp_session(&self, session_id: &str) -> Result<bool> {
+        let result = sqlx::query(
+            "UPDATE mcp_oauth.rmcp_sessions SET last_activity = NOW() WHERE session_id = $1",
+        )
+        .bind(session_id)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Count active rmcp sessions (for metrics/observability).
+    pub async fn count_rmcp_sessions(&self) -> Result<i64> {
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM mcp_oauth.rmcp_sessions")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(McpError::Database)?;
+
+        Ok(count.0)
+    }
+
     // === Utility operations ===
 
     /// Clean up expired tokens and codes with optional batch limit

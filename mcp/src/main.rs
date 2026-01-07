@@ -1127,7 +1127,7 @@ async fn run_http(config: Config) -> Result<()> {
 async fn run_oauth(config: Config) -> Result<()> {
     use oauth::{OAuthState, oauth_router};
     use rmcp::transport::streamable_http_server::{
-        StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
+        StreamableHttpServerConfig, StreamableHttpService,
     };
     use std::sync::Arc;
     use tokio_util::sync::CancellationToken;
@@ -1193,8 +1193,32 @@ async fn run_oauth(config: Config) -> Result<()> {
         }
     });
 
-    // Create session manager
-    let session_manager = Arc::new(LocalSessionManager::default());
+    // Create persistent session manager that wraps LocalSessionManager
+    // This enables tracking rmcp sessions in PostgreSQL for stale session detection
+    let session_manager = Arc::new(middleware::PersistentSessionManager::with_store(
+        store.clone(),
+    ));
+
+    // Log initial rmcp session count (should be 0 on fresh start, may have stale sessions after restart)
+    match store.count_rmcp_sessions().await {
+        Ok(count) => {
+            if count > 0 {
+                tracing::info!(
+                    event = "stale_rmcp_sessions_detected",
+                    count = count,
+                    "Found {} rmcp sessions in database from previous server instance",
+                    count
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                event = "rmcp_session_count_failed",
+                error = %e,
+                "Failed to count existing rmcp sessions"
+            );
+        }
+    }
 
     // Create streamable HTTP service config
     let http_config = StreamableHttpServerConfig {
@@ -1203,7 +1227,7 @@ async fn run_oauth(config: Config) -> Result<()> {
         cancellation_token: ct.clone(),
     };
 
-    // Create streamable HTTP service
+    // Create streamable HTTP service with persistent session manager
     let mcp_service = StreamableHttpService::new(
         move || SerenMcpServer::new_oauth(&api_base_url_for_service).map_err(std::io::Error::other),
         session_manager,

@@ -7,6 +7,10 @@ use uuid::Uuid;
 mod stale_session;
 pub use stale_session::StaleSessionRecoveryService;
 
+// Re-export the persistent session manager for rmcp session persistence
+mod persistent_session;
+pub use persistent_session::PersistentSessionManager;
+
 /// Header name for correlation/request ID
 pub const X_REQUEST_ID: &str = "x-request-id";
 
