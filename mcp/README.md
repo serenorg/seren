@@ -234,6 +234,152 @@ seren-mcp --help
 seren-mcp --version
 ```
 
+## Running Against a Local API
+
+If you're running your own API backend (e.g., for self-hosted deployments or development), you can point the MCP server at it.
+
+### Option 1: HTTP with OAuth (Full Authentication)
+
+This mode runs the MCP server with full OAuth 2.1 authentication against your local API.
+
+**Requirements:**
+- PostgreSQL database for MCP token storage
+- Local API running with OAuth support
+
+**Quick start with Make:**
+
+```bash
+make mcp-dev
+```
+
+This will:
+- Create an MCP database (using PostgreSQL on port 55433)
+- Start the MCP server on port 3100
+- Connect to the API at `http://localhost:8080`
+
+**Manual setup:**
+
+```bash
+# Set environment variables
+export API_URL=http://localhost:8080           # Your API server
+export OAUTH_REDIRECT_URL=http://localhost:8080
+export PUBLIC_URL=http://localhost:3100        # MCP server URL
+export DATABASE_URL=postgresql://user:pass@localhost:5432/mcp_db
+export JWT_SECRET=your-secret-at-least-32-bytes-long
+export HOST=0.0.0.0
+export PORT=3100
+
+# Start with OAuth
+seren-mcp start:oauth
+```
+
+**Add to Claude Code:**
+
+```bash
+# Add globally (available in all projects)
+claude mcp add --scope user --transport http seren-local http://localhost:3100/mcp
+
+# Or add to current project only
+claude mcp add --scope project --transport http seren-local http://localhost:3100/mcp
+```
+
+Or manually in your config:
+
+```json
+{
+  "mcpServers": {
+    "seren-local": {
+      "url": "http://localhost:3100/mcp",
+      "transport": "http"
+    }
+  }
+}
+```
+
+When Claude connects, it will trigger the OAuth flow against your local API.
+
+### Option 2: stdio Mode (Simple, API Key Required)
+
+If you have an API key from your local API, you can run in stdio mode without needing a separate database.
+
+**Add to Claude Code:**
+
+```bash
+# Add globally (available in all projects)
+claude mcp add --scope user seren-local seren-mcp start \
+  --env API_KEY=your-api-key \
+  --env API_URL=http://localhost:8080
+
+# Or add to current project only
+claude mcp add --scope project seren-local seren-mcp start \
+  --env API_KEY=your-api-key \
+  --env API_URL=http://localhost:8080
+```
+
+Or manually in your config:
+
+```json
+{
+  "mcpServers": {
+    "seren-local": {
+      "command": "seren-mcp",
+      "args": ["start"],
+      "env": {
+        "API_KEY": "your-api-key",
+        "API_URL": "http://localhost:8080"
+      }
+    }
+  }
+}
+```
+
+**Running from source:**
+
+```json
+{
+  "mcpServers": {
+    "seren-local": {
+      "command": "cargo",
+      "args": ["run", "--package", "seren-mcp", "--", "start"],
+      "cwd": "/path/to/seren",
+      "env": {
+        "API_KEY": "your-api-key",
+        "API_URL": "http://localhost:8080"
+      }
+    }
+  }
+}
+```
+
+### Option 3: HTTP with Bearer Token
+
+For testing without OAuth, you can use simple bearer token authentication:
+
+```bash
+export API_KEY=your-api-key
+export API_URL=http://localhost:8080
+export AUTH_TOKEN=your-bearer-token
+export PORT=3100
+
+seren-mcp start:http
+```
+
+**Claude Code configuration:**
+
+```json
+{
+  "mcpServers": {
+    "seren-local": {
+      "url": "http://localhost:3100/mcp",
+      "transport": "http",
+      "headers": {
+        "Authorization": "Bearer your-bearer-token"
+      }
+    }
+  }
+}
+```
+
 ## Development
 
 ### Building from Source
