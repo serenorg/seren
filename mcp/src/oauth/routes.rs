@@ -1297,13 +1297,13 @@ async fn consent_page(
                 <div><strong>Requested scope</strong>: <code>{scope}</code></div>
             </div>
             <div class="row">
-                <form method="post" action="consent">
+                <form method="post" action="{consent_url}">
                     <input type="hidden" name="token" value="{token}">
                     <input type="hidden" name="csrf_token" value="{csrf_token}">
                     <input type="hidden" name="action" value="approve">
                     <button class="approve" type="submit">Approve</button>
                 </form>
-                <form method="post" action="consent">
+                <form method="post" action="{consent_url}">
                     <input type="hidden" name="token" value="{token}">
                     <input type="hidden" name="csrf_token" value="{csrf_token}">
                     <input type="hidden" name="action" value="deny">
@@ -1318,17 +1318,15 @@ async fn consent_page(
         scope = html_escape(&consent.scope),
         token = html_escape(&q.token),
         csrf_token = html_escape(&consent.csrf_token),
+        consent_url = format!("{}/consent", state.server_host.trim_end_matches('/')),
     );
 
-    // Build CSP with explicit server host for form-action.
-    // Include both with and without trailing slash variants as browsers normalize URLs differently.
-    let host = state.server_host.trim_end_matches('/');
-    let csp_value = format!(
-        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' {host} {host}/; base-uri 'none'; frame-ancestors 'none'"
+    // Build CSP: form-action allows any URL because cross-origin redirect chains cause
+    // browsers to set origin to 'null', and neither 'self' nor explicit URLs match null origin.
+    // Other directives remain restrictive for defense-in-depth.
+    let csp = HeaderValue::from_static(
+        "default-src 'none'; style-src 'unsafe-inline'; form-action *; base-uri 'none'; frame-ancestors 'none'",
     );
-    let csp = HeaderValue::try_from(&csp_value).unwrap_or_else(|_| {
-        HeaderValue::from_static("default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
-    });
 
     let mut headers = HeaderMap::new();
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
