@@ -1,4 +1,5 @@
 mod config;
+mod docs;
 mod error;
 mod middleware;
 mod oauth;
@@ -1092,10 +1093,14 @@ async fn run_http(config: Config) -> Result<()> {
         .route("/health", axum::routing::get(health_check))
         .with_state(HealthCheckState { store: None });
 
+    // Documentation fallback - serves docs at any unmatched route
+    let docs_router = axum::Router::new().fallback(docs::docs_handler);
+
     // Combine routers - CORS must be outermost, request ID middleware before CORS
     let app = axum::Router::new()
         .merge(health_router)
         .merge(mcp_router)
+        .merge(docs_router)
         .layer(cors)
         .layer(axum::middleware::from_fn(middleware::request_id_middleware));
 
@@ -1318,12 +1323,16 @@ async fn run_oauth(config: Config) -> Result<()> {
             store: Some(health_store),
         });
 
-    // Combine OAuth routes, health, and MCP endpoint
+    // Documentation fallback - serves docs at any unmatched route
+    let docs_router = axum::Router::new().fallback(docs::docs_handler);
+
+    // Combine OAuth routes, health, MCP endpoint, and docs fallback
     // CORS must be outermost, request ID middleware before CORS
     let app = axum::Router::new()
         .merge(health_router)
         .merge(oauth_router(oauth_state))
         .merge(mcp_router)
+        .merge(docs_router)
         .layer(cors)
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn(middleware::request_id_middleware));
