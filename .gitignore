@@ -19,3 +19,4 @@ Thumbs.db
 .env
 .env.local
 docker/mcp.local.Dockerfile
+.mcp.json

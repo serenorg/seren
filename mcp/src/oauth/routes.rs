@@ -1320,9 +1320,15 @@ async fn consent_page(
         csrf_token = html_escape(&consent.csrf_token),
     );
 
-    let csp = HeaderValue::from_static(
-        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    // Build CSP with explicit server host for form-action.
+    // Include both with and without trailing slash variants as browsers normalize URLs differently.
+    let host = state.server_host.trim_end_matches('/');
+    let csp_value = format!(
+        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' {host} {host}/; base-uri 'none'; frame-ancestors 'none'"
     );
+    let csp = HeaderValue::try_from(&csp_value).unwrap_or_else(|_| {
+        HeaderValue::from_static("default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+    });
 
     let mut headers = HeaderMap::new();
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
