@@ -245,7 +245,7 @@ pub struct ListAgentPublishersParams {
     /// Filter to only verified publishers
     #[serde(default)]
     pub is_verified: Option<bool>,
-    /// Maximum number of publishers to return
+    /// Maximum number of publishers to return (default: 20, max: 50)
     #[serde(default)]
     pub limit: Option<i64>,
     /// Offset for pagination
@@ -254,6 +254,26 @@ pub struct ListAgentPublishersParams {
     /// Search query to filter publishers by name or description
     #[serde(default)]
     pub search: Option<String>,
+}
+
+/// Compact publisher summary for list responses (reduces token usage)
+#[derive(Debug, Serialize)]
+struct PublisherSummary {
+    slug: String,
+    name: String,
+    description: Option<String>,
+    categories: Vec<String>,
+    is_verified: bool,
+}
+
+/// Compact list response with pagination info
+#[derive(Debug, Serialize)]
+struct CompactPublishersResponse {
+    publishers: Vec<PublisherSummary>,
+    total: usize,
+    limit: i64,
+    offset: i64,
+    has_more: bool,
 }
 
 /// Parameters for getting a specific publisher by slug
@@ -2336,7 +2356,7 @@ impl SerenMcpServer {
     // ========================================================================
 
     #[tool(
-        description = "List all active publishers in the agent store. Publishers provide databases or APIs that AI agents can query with micropayments. For task-specific recommendations, use suggest_for_task instead.",
+        description = "List active publishers in the agent store. Returns compact summaries (slug, name, description, categories). Use get_agent_publisher for full details. For task-specific recommendations, use suggest_for_task instead.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_agent_publishers(
@@ -2345,17 +2365,45 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
+
+        // Apply default limit of 20, max of 50 to prevent token overflow
+        let limit = params.limit.map(|l| l.min(50)).unwrap_or(20);
+        let offset = params.offset.unwrap_or(0);
+
         let publishers = api_client
             .list_store_publishers(
                 params.is_verified,
-                params.limit,
-                params.offset,
+                Some(limit),
+                Some(offset),
                 params.search.as_deref(),
             )
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&publishers)?]))
+
+        // Convert to compact summaries to reduce token usage
+        let summaries: Vec<PublisherSummary> = publishers
+            .data
+            .iter()
+            .map(|p| PublisherSummary {
+                slug: p.slug.clone(),
+                name: p.name.clone(),
+                description: p.description.clone(),
+                categories: p.categories.clone(),
+                is_verified: p.is_verified,
+            })
+            .collect();
+
+        let total = summaries.len();
+        let response = CompactPublishersResponse {
+            publishers: summaries,
+            total,
+            limit,
+            offset,
+            has_more: total as i64 >= limit,
+        };
+
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
