@@ -2367,13 +2367,14 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
 
         // Apply default limit of 20, max of 50 to prevent token overflow
-        let limit = params.limit.map(|l| l.min(50)).unwrap_or(20);
-        let offset = params.offset.unwrap_or(0);
+        let limit = params.limit.unwrap_or(20).clamp(1, 50);
+        let offset = params.offset.unwrap_or(0).max(0);
+        let fetch_limit = limit.saturating_add(1);
 
         let publishers = api_client
             .list_store_publishers(
                 params.is_verified,
-                Some(limit),
+                Some(fetch_limit),
                 Some(offset),
                 params.search.as_deref(),
             )
@@ -2381,10 +2382,15 @@ impl SerenMcpServer {
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
 
+        let mut publishers = publishers.data;
+        let has_more = (publishers.len() as i64) > limit;
+        if has_more {
+            publishers.truncate(limit as usize);
+        }
+
         // Convert to compact summaries to reduce token usage
         let summaries: Vec<PublisherSummary> = publishers
-            .data
-            .iter()
+            .into_iter()
             .map(|p| PublisherSummary {
                 slug: p.slug.clone(),
                 name: p.name.clone(),
@@ -2400,7 +2406,7 @@ impl SerenMcpServer {
             total,
             limit,
             offset,
-            has_more: total as i64 == limit,
+            has_more,
         };
 
         Ok(CallToolResult::success(vec![json_content(&response)?]))
