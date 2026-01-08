@@ -271,7 +271,6 @@ mod tests {
     #[test]
     fn test_error_is_send_and_sync() {
         fn assert_send<T: Send>() {}
-        fn assert_sync<T: Sync>() {}
 
         // These will fail to compile if the error type doesn't implement Send/Sync
         assert_send::<PersistentSessionError>();
@@ -298,7 +297,7 @@ mod tests {
 
     #[test]
     fn test_all_error_variants_have_unique_messages() {
-        let errors = vec![
+        let errors = [
             PersistentSessionError::SessionNotFound("x".to_string()),
             PersistentSessionError::StaleSession("x".to_string()),
             PersistentSessionError::Database("x".to_string()),

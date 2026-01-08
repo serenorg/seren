@@ -975,7 +975,7 @@ mod tests {
         // Validity window should span approximately max_timeout_seconds (300s)
         let window = valid_before - valid_after;
         assert!(
-            window >= 300 && window <= 360,
+            (300..=360).contains(&window),
             "Validity window should be ~300-360 seconds, got {}",
             window
         );
