@@ -2400,7 +2400,7 @@ impl SerenMcpServer {
             total,
             limit,
             offset,
-            has_more: total as i64 >= limit,
+            has_more: total as i64 == limit,
         };
 
         Ok(CallToolResult::success(vec![json_content(&response)?]))
