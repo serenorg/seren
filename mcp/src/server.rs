@@ -256,11 +256,15 @@ pub struct ListAgentPublishersParams {
     pub search: Option<String>,
 }
 
-/// List response with pagination info
+/// List response with pagination info (standard REST API fields)
 #[derive(Debug, Serialize)]
 struct PublishersListResponse {
     publishers: Vec<seren::PublisherResponse>,
-    total: usize,
+    /// Total number of publishers across all pages (from API pagination)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total: Option<u64>,
+    /// Number of publishers in this response
+    count: usize,
     limit: i64,
     offset: i64,
     has_more: bool,
@@ -2394,12 +2398,11 @@ impl SerenMcpServer {
         // Apply default limit of 20, max of 50 to prevent token overflow
         let limit = params.limit.unwrap_or(20).clamp(1, 50);
         let offset = params.offset.unwrap_or(0).max(0);
-        let fetch_limit = limit.saturating_add(1);
 
-        let publishers = api_client
+        let response = api_client
             .list_store_publishers(
                 params.is_verified,
-                Some(fetch_limit),
+                Some(limit),
                 Some(offset),
                 params.search.as_deref(),
             )
@@ -2407,16 +2410,20 @@ impl SerenMcpServer {
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
 
-        let mut publishers = publishers.data;
-        let has_more = (publishers.len() as i64) > limit;
-        if has_more {
-            publishers.truncate(limit as usize);
-        }
+        // Use pagination metadata from API response if available
+        let publishers = response.data;
+        let count = publishers.len();
 
-        let total = publishers.len();
+        let (total, has_more) = match response.pagination.as_ref() {
+            Some(p) => (Some(p.total as u64), p.has_more),
+            // Fallback for API versions without pagination metadata
+            None => (None, (count as i64) >= limit),
+        };
+
         let response = PublishersListResponse {
             publishers,
             total,
+            count,
             limit,
             offset,
             has_more,
