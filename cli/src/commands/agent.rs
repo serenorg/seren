@@ -282,7 +282,6 @@ pub async fn create_publisher(
         api_key_header: None,
         api_key_query_param: None,
         auth_type: None,
-        cache_ttl_seconds: None,
         gateway_fee_percent: None,
         grace_period_minutes: None,
         hourly_rate: None,
@@ -308,7 +307,6 @@ pub async fn create_publisher(
         resource_name: None,
         upstream_api_key: None,
         usage_examples: None,
-        caching_enabled: None,
         request_content_type: None,
         upstream_headers: None,
     };

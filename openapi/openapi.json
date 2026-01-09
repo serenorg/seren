@@ -4,7 +4,7 @@
     "title": "SerenDB API",
     "description": "SerenDB Control Plane API - Manage PostgreSQL databases, users, and compute instances",
     "contact": {
-      "name": "SerenDB Team",
+      "name": "SerenAI Team",
       "email": "team@serendb.com"
     },
     "license": {
@@ -11156,17 +11156,6 @@
             "description": "SerenDB branch ID (required for serendb source_type)",
             "nullable": true
           },
-          "cache_ttl_seconds": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Cache TTL for API proxy responses",
-            "nullable": true
-          },
-          "caching_enabled": {
-            "type": "boolean",
-            "description": "Whether to cache API responses (default false for stateful APIs)",
-            "nullable": true
-          },
           "capabilities": {
             "type": "array",
             "items": {
@@ -11927,6 +11916,12 @@
           },
           "reason": {
             "type": "string",
+            "nullable": true
+          },
+          "resets_in_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Seconds until the daily claim resets (midnight UTC).\nOnly present when can_claim is false due to already claiming today.",
             "nullable": true
           }
         }
@@ -16838,8 +16833,6 @@
           "billing_model",
           "gateway_fee_percent",
           "allowed_passthrough_headers",
-          "cache_ttl_seconds",
-          "caching_enabled",
           "request_content_type",
           "upstream_headers",
           "ownership_tracking_enabled",
@@ -16867,14 +16860,6 @@
           },
           "billing_model": {
             "type": "string"
-          },
-          "cache_ttl_seconds": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "caching_enabled": {
-            "type": "boolean",
-            "description": "Whether to cache API responses"
           },
           "capabilities": {
             "type": "array",
@@ -19029,17 +19014,6 @@
             "type": "string",
             "format": "uuid",
             "description": "SerenDB branch ID (for serendb source_type)",
-            "nullable": true
-          },
-          "cache_ttl_seconds": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Cache TTL for API proxy responses",
-            "nullable": true
-          },
-          "caching_enabled": {
-            "type": "boolean",
-            "description": "Whether to cache API responses (default false for stateful APIs)",
             "nullable": true
           },
           "capabilities": {
