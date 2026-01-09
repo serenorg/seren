@@ -295,6 +295,7 @@ pub async fn create_publisher(
         ownership_tracking_enabled: None,
         price_per_call: None,
         price_per_delete: None,
+        price_per_execution: None,
         price_per_get: None,
         price_per_patch: None,
         price_per_post: None,

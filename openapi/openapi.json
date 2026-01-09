@@ -11246,6 +11246,11 @@
             "type": "string",
             "nullable": true
           },
+          "price_per_execution": {
+            "type": "string",
+            "description": "Price per execution for agent templates or usage-based billing",
+            "nullable": true
+          },
           "price_per_get": {
             "type": "string",
             "nullable": true
@@ -15733,6 +15738,11 @@
             "type": "string",
             "nullable": true
           },
+          "price_per_execution": {
+            "type": "string",
+            "description": "Price per execution for agent templates or usage-based billing",
+            "nullable": true
+          },
           "price_per_get": {
             "type": "string",
             "nullable": true
@@ -18832,6 +18842,11 @@
           },
           "price_per_delete": {
             "type": "string",
+            "nullable": true
+          },
+          "price_per_execution": {
+            "type": "string",
+            "description": "Price per execution for agent templates or usage-based billing",
             "nullable": true
           },
           "price_per_get": {

@@ -431,6 +431,9 @@ pub struct CreatePublisherParams {
     /// Base price per 1000 rows (decimal string, e.g., "0.001")
     #[serde(default)]
     pub base_price_per_1000_rows: Option<String>,
+    /// Price per execution for agent templates (decimal string, e.g., "0.01")
+    #[serde(default)]
+    pub price_per_execution: Option<String>,
     /// Billing model (x402_per_request, prepaid_credits, x402_passthrough)
     #[serde(default)]
     pub billing_model: Option<String>,
@@ -3036,6 +3039,7 @@ impl SerenMcpServer {
             ownership_tracking_enabled: None,
             price_per_call: None,
             price_per_delete: None,
+            price_per_execution: params.price_per_execution,
             price_per_get: None,
             price_per_patch: None,
             price_per_post: None,
