@@ -42,6 +42,7 @@ impl PersistentSessionManager {
     }
 
     /// Create a new PersistentSessionManager with default LocalSessionManager.
+    #[allow(dead_code)]
     pub fn with_store(store: TokenStore) -> Self {
         Self {
             inner: LocalSessionManager::default(),

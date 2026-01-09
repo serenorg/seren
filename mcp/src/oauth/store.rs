@@ -195,6 +195,18 @@ pub struct PendingConsent {
     pub created_at: OffsetDateTime,
 }
 
+/// rmcp session state for restoration after server restart.
+/// Stores the initialization request/response needed to restore a session.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct RmcpSessionState {
+    pub session_id: String,
+    pub initialize_request: serde_json::Value,
+    pub initialize_response: serde_json::Value,
+    pub protocol_version: Option<String>,
+    pub created_at: OffsetDateTime,
+    pub last_activity: OffsetDateTime,
+}
+
 /// Token store backed by PostgreSQL with LRU cache for client metadata
 #[derive(Clone)]
 pub struct TokenStore {
@@ -1073,6 +1085,60 @@ impl TokenStore {
             .map_err(McpError::Database)?;
 
         Ok(count.0)
+    }
+
+    // === Session state persistence for restoration ===
+
+    /// Save session initialization state for restoration after server restart.
+    /// Called after initialize_session() to persist the init request/response.
+    pub async fn save_rmcp_session_state(
+        &self,
+        session_id: &str,
+        init_request: &serde_json::Value,
+        init_response: &serde_json::Value,
+        protocol_version: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE mcp_oauth.rmcp_sessions
+            SET initialize_request = $2,
+                initialize_response = $3,
+                protocol_version = $4,
+                last_activity = NOW()
+            WHERE session_id = $1
+            "#,
+        )
+        .bind(session_id)
+        .bind(init_request)
+        .bind(init_response)
+        .bind(protocol_version)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(())
+    }
+
+    /// Get session state for restoration after server restart.
+    /// Returns None if session doesn't exist or has no restoration state.
+    pub async fn get_rmcp_session_state(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<RmcpSessionState>> {
+        let state = sqlx::query_as::<_, RmcpSessionState>(
+            r#"
+            SELECT session_id, initialize_request, initialize_response,
+                   protocol_version, created_at, last_activity
+            FROM mcp_oauth.rmcp_sessions
+            WHERE session_id = $1 AND initialize_request IS NOT NULL
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(state)
     }
 
     // === Utility operations ===

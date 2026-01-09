@@ -8,8 +8,14 @@ mod stale_session;
 pub use stale_session::StaleSessionRecoveryService;
 
 // Re-export the persistent session manager for rmcp session persistence
+// Note: PersistentSessionManager is kept as a fallback in case RestorableSessionManager has issues
 mod persistent_session;
+#[allow(unused_imports)]
 pub use persistent_session::PersistentSessionManager;
+
+// Re-export the restorable session manager for full session persistence across restarts
+mod restorable_session;
+pub use restorable_session::RestorableSessionManager;
 
 /// Header name for correlation/request ID
 pub const X_REQUEST_ID: &str = "x-request-id";

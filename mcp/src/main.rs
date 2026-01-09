@@ -1128,6 +1128,7 @@ async fn run_oauth(config: Config) -> Result<()> {
     use oauth::{OAuthState, oauth_router};
     use rmcp::transport::streamable_http_server::{
         StreamableHttpServerConfig, StreamableHttpService,
+        session::local::SessionConfig,
     };
     use std::sync::Arc;
     use tokio_util::sync::CancellationToken;
@@ -1156,6 +1157,7 @@ async fn run_oauth(config: Config) -> Result<()> {
     let api_base_url = config.api_base_url.clone();
     let oauth_redirect_base_url = config.oauth_redirect_base_url.clone();
     let api_base_url_for_service = api_base_url.clone();
+    let api_base_url_for_session_manager = api_base_url.clone();
 
     let ct = CancellationToken::new();
 
@@ -1193,20 +1195,22 @@ async fn run_oauth(config: Config) -> Result<()> {
         }
     });
 
-    // Create persistent session manager that wraps LocalSessionManager
-    // This enables tracking rmcp sessions in PostgreSQL for stale session detection
-    let session_manager = Arc::new(middleware::PersistentSessionManager::with_store(
-        store.clone(),
+    // Create restorable session manager that can restore sessions after server restart
+    // Sessions are persisted to PostgreSQL and restored transparently when clients reconnect
+    let session_manager = Arc::new(middleware::RestorableSessionManager::new(
+        Arc::new(store.clone()),
+        SessionConfig::default(),
+        api_base_url_for_session_manager,
     ));
 
-    // Log initial rmcp session count (should be 0 on fresh start, may have stale sessions after restart)
+    // Log initial rmcp session count (sessions from previous instance can now be restored)
     match store.count_rmcp_sessions().await {
         Ok(count) => {
             if count > 0 {
                 tracing::info!(
-                    event = "stale_rmcp_sessions_detected",
+                    event = "restorable_rmcp_sessions_detected",
                     count = count,
-                    "Found {} rmcp sessions in database from previous server instance",
+                    "Found {} rmcp sessions in database that can be restored",
                     count
                 );
             }
