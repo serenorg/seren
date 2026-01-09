@@ -1281,7 +1281,42 @@ impl SerenMcpServer {
 
         if !paid.status().is_success() {
             let status = paid.status();
+            let payment_required_header = paid
+                .headers()
+                .get("PAYMENT-REQUIRED")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string());
             let body = paid.text().await.unwrap_or_default();
+
+            if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+                let requirements = match payment_required_header.as_deref() {
+                    Some(header_b64) => {
+                        PaymentRequirements::parse_payment_required_header(header_b64)
+                            .or_else(|_| PaymentRequirements::parse(&body))
+                    }
+                    None => PaymentRequirements::parse(&body),
+                };
+
+                if let Ok(requirements) = requirements {
+                    let reason = requirements.error.as_deref().unwrap_or("Payment required");
+
+                    if let Some(opt) = requirements.x402_option() {
+                        return Err(McpError::invalid_request(
+                            format!(
+                                "x402 payment rejected ({}): {} (amount={}, network={}, asset={})",
+                                status, reason, opt.amount, opt.network, opt.asset
+                            ),
+                            None,
+                        ));
+                    }
+
+                    return Err(McpError::invalid_request(
+                        format!("x402 payment rejected ({}): {}", status, reason),
+                        None,
+                    ));
+                }
+            }
+
             return Err(McpError::invalid_request(
                 format!(
                     "x402 payment failed ({}): {}",

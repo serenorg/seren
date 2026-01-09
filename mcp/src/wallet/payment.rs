@@ -24,6 +24,7 @@ pub struct PaymentRequirements {
     pub resource: Option<X402ResourceInfo>,
     pub accepts: Vec<PaymentOption>,
     pub insufficient_credit: Option<InsufficientCredit>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -126,6 +127,7 @@ impl PaymentRequirements {
                     minimum_required: raw.minimum_required,
                     current_balance: raw.current_balance,
                 }),
+                error: Some(raw.error),
             });
         }
 
@@ -169,6 +171,7 @@ impl PaymentRequirements {
                     resource,
                     accepts,
                     insufficient_credit: None,
+                    error: Some(raw.error),
                 })
             }
             2 => {
@@ -179,6 +182,7 @@ impl PaymentRequirements {
                     resource: raw.resource,
                     accepts: raw.accepts.into_iter().map(PaymentOption::X402).collect(),
                     insufficient_credit: None,
+                    error: raw.error,
                 })
             }
             other => Err(PaymentError::ParseFailed(format!(
