@@ -256,35 +256,10 @@ pub struct ListAgentPublishersParams {
     pub search: Option<String>,
 }
 
-/// Compact publisher summary for list responses (reduces token usage)
+/// List response with pagination info
 #[derive(Debug, Serialize)]
-struct PublisherSummary {
-    slug: String,
-    name: String,
-    description: Option<String>,
-    categories: Vec<String>,
-    is_verified: bool,
-    billing_model: String,
-    /// Usage examples showing how to call the publisher's API - critical for LLM endpoint discovery
-    #[serde(skip_serializing_if = "Option::is_none")]
-    usage_examples: Option<Vec<seren::UsageExample>>,
-    // Pricing fields for marketplace display
-    #[serde(skip_serializing_if = "Option::is_none")]
-    price_per_call: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    base_price_per_1000_rows: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    markup_multiplier: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    hourly_rate: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    price_per_execution: Option<String>,
-}
-
-/// Compact list response with pagination info
-#[derive(Debug, Serialize)]
-struct CompactPublishersResponse {
-    publishers: Vec<PublisherSummary>,
+struct PublishersListResponse {
+    publishers: Vec<seren::PublisherResponse>,
     total: usize,
     limit: i64,
     offset: i64,
@@ -2406,7 +2381,7 @@ impl SerenMcpServer {
     // ========================================================================
 
     #[tool(
-        description = "List active publishers in the agent store. Returns compact summaries (slug, name, description, categories). Use get_agent_publisher for full details. For task-specific recommendations, use suggest_for_task instead.",
+        description = "List active publishers in the agent store. Returns publisher details including pricing. For task-specific recommendations, use suggest_for_task instead.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_agent_publishers(
@@ -2438,32 +2413,9 @@ impl SerenMcpServer {
             publishers.truncate(limit as usize);
         }
 
-        // Convert to compact summaries to reduce token usage
-        let summaries: Vec<PublisherSummary> = publishers
-            .into_iter()
-            .map(|p| {
-                // Extract first pricing config if available
-                let pricing = p.pricing.as_ref().and_then(|configs| configs.first());
-                PublisherSummary {
-                    slug: p.slug.clone(),
-                    name: p.name.clone(),
-                    description: p.description.clone(),
-                    categories: p.categories.clone(),
-                    is_verified: p.is_verified,
-                    billing_model: p.billing_model.clone(),
-                    usage_examples: p.usage_examples.clone(),
-                    price_per_call: pricing.and_then(|c| c.price_per_call.clone()),
-                    base_price_per_1000_rows: pricing.map(|c| c.base_price_per_1000_rows.clone()),
-                    markup_multiplier: pricing.map(|c| c.markup_multiplier.clone()),
-                    hourly_rate: pricing.and_then(|c| c.hourly_rate.clone()),
-                    price_per_execution: pricing.and_then(|c| c.price_per_execution.clone()),
-                }
-            })
-            .collect();
-
-        let total = summaries.len();
-        let response = CompactPublishersResponse {
-            publishers: summaries,
+        let total = publishers.len();
+        let response = PublishersListResponse {
+            publishers,
             total,
             limit,
             offset,
