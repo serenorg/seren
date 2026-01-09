@@ -407,7 +407,7 @@ pub struct CreatePublisherParams {
     pub wallet_address: String,
     /// Network ID for wallet (CAIP-2 format, e.g., "eip155:8453" for Base)
     pub wallet_network_id: String,
-    /// Data source type (serendb or api)
+    /// Data source type (serendb, api, both, agent_template)
     #[serde(default)]
     pub source_type: Option<String>,
     /// Publisher description
@@ -2970,11 +2970,30 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
 
         // Convert source_type string to enum
-        let source_type = params.source_type.as_deref().map(|s| match s {
-            "serendb" => seren::SourceType::Serendb,
-            "api" => seren::SourceType::Api,
-            _ => seren::SourceType::Serendb, // default
-        });
+        let source_type = match params.source_type.as_deref() {
+            None => None,
+            Some(raw) => {
+                let normalized = raw.trim().to_ascii_lowercase();
+                let parsed = match normalized.as_str() {
+                    "serendb" => seren::SourceType::Serendb,
+                    "api" => seren::SourceType::Api,
+                    "both" => seren::SourceType::Both,
+                    "agent_template" | "agent-template" | "agenttemplate" => {
+                        seren::SourceType::AgentTemplate
+                    }
+                    other => {
+                        return Err(McpError::invalid_request(
+                            format!(
+                                "Invalid source_type '{}'. Expected one of: serendb, api, both, agent_template",
+                                other
+                            ),
+                            None,
+                        ));
+                    }
+                };
+                Some(parsed)
+            }
+        };
 
         let body = seren::CreatePublisherRequest {
             name: params.name,
