@@ -264,6 +264,9 @@ struct PublisherSummary {
     description: Option<String>,
     categories: Vec<String>,
     is_verified: bool,
+    /// Usage examples showing how to call the publisher's API - critical for LLM endpoint discovery
+    #[serde(skip_serializing_if = "Option::is_none")]
+    usage_examples: Option<Vec<seren::UsageExample>>,
 }
 
 /// Compact list response with pagination info
@@ -2429,6 +2432,7 @@ impl SerenMcpServer {
                 description: p.description.clone(),
                 categories: p.categories.clone(),
                 is_verified: p.is_verified,
+                usage_examples: p.usage_examples.clone(),
             })
             .collect();
 
