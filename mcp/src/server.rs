@@ -264,9 +264,21 @@ struct PublisherSummary {
     description: Option<String>,
     categories: Vec<String>,
     is_verified: bool,
+    billing_model: String,
     /// Usage examples showing how to call the publisher's API - critical for LLM endpoint discovery
     #[serde(skip_serializing_if = "Option::is_none")]
     usage_examples: Option<Vec<seren::UsageExample>>,
+    // Pricing fields for marketplace display
+    #[serde(skip_serializing_if = "Option::is_none")]
+    price_per_call: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    base_price_per_1000_rows: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    markup_multiplier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hourly_rate: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    price_per_execution: Option<String>,
 }
 
 /// Compact list response with pagination info
@@ -2429,13 +2441,23 @@ impl SerenMcpServer {
         // Convert to compact summaries to reduce token usage
         let summaries: Vec<PublisherSummary> = publishers
             .into_iter()
-            .map(|p| PublisherSummary {
-                slug: p.slug.clone(),
-                name: p.name.clone(),
-                description: p.description.clone(),
-                categories: p.categories.clone(),
-                is_verified: p.is_verified,
-                usage_examples: p.usage_examples.clone(),
+            .map(|p| {
+                // Extract first pricing config if available
+                let pricing = p.pricing.as_ref().and_then(|configs| configs.first());
+                PublisherSummary {
+                    slug: p.slug.clone(),
+                    name: p.name.clone(),
+                    description: p.description.clone(),
+                    categories: p.categories.clone(),
+                    is_verified: p.is_verified,
+                    billing_model: p.billing_model.clone(),
+                    usage_examples: p.usage_examples.clone(),
+                    price_per_call: pricing.and_then(|c| c.price_per_call.clone()),
+                    base_price_per_1000_rows: pricing.map(|c| c.base_price_per_1000_rows.clone()),
+                    markup_multiplier: pricing.map(|c| c.markup_multiplier.clone()),
+                    hourly_rate: pricing.and_then(|c| c.hourly_rate.clone()),
+                    price_per_execution: pricing.and_then(|c| c.price_per_execution.clone()),
+                }
             })
             .collect();
 
