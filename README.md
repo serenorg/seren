@@ -67,6 +67,16 @@ See [mcp/README.md](./mcp/README.md) for detailed setup instructions.
 
 ## Installation
 
+### Claude Code (Recommended)
+
+```bash
+# Add hosted Seren MCP server globally (recommended - available in all conversations)
+claude mcp add --scope user --transport http seren https://mcp.serendb.com/mcp
+
+# Or add to current project only
+claude mcp add --scope local --transport http seren https://mcp.serendb.com/mcp
+```
+
 ### From Source
 
 ```bash
