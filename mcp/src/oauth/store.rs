@@ -167,17 +167,25 @@ pub struct RefreshToken {
     pub upstream_expires_at: OffsetDateTime,
 }
 
-/// MCP Session token mapping
-/// Maps MCP session IDs to MCP access tokens for session persistence across pod restarts
+/// Unified MCP session storage
+/// Combines auth binding (access token) and protocol state (init request/response)
+/// for complete session persistence across pod restarts.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct McpSessionToken {
+pub struct McpSession {
     pub session_id: String,
-    pub access_token: String,
+    // Auth binding
+    pub access_token: Option<String>,
     pub client_id: Option<String>,
-    pub user_id: Uuid,
-    pub expires_at: OffsetDateTime,
+    pub user_id: Option<Uuid>,
+    pub expires_at: Option<OffsetDateTime>,
+    // Protocol state for restoration
+    pub initialize_request: Option<serde_json::Value>,
+    pub initialize_response: Option<serde_json::Value>,
+    pub protocol_version: Option<String>,
+    // Timestamps
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
+    pub last_activity: OffsetDateTime,
 }
 
 /// Pending consent prompt during the OAuth callback flow.
@@ -195,17 +203,10 @@ pub struct PendingConsent {
     pub created_at: OffsetDateTime,
 }
 
-/// rmcp session state for restoration after server restart.
-/// Stores the initialization request/response needed to restore a session.
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct RmcpSessionState {
-    pub session_id: String,
-    pub initialize_request: serde_json::Value,
-    pub initialize_response: serde_json::Value,
-    pub protocol_version: Option<String>,
-    pub created_at: OffsetDateTime,
-    pub last_activity: OffsetDateTime,
-}
+/// Legacy type alias for compatibility during migration
+/// TODO: Remove after updating all call sites to use McpSession
+#[allow(dead_code)]
+pub type McpSessionToken = McpSession;
 
 /// Token store backed by PostgreSQL with LRU cache for client metadata
 #[derive(Clone)]
@@ -921,10 +922,31 @@ impl TokenStore {
         Ok(())
     }
 
-    // === MCP Session token operations ===
+    // === Unified MCP Session operations ===
+    // All session data (auth binding + protocol state) is stored in mcp_oauth.mcp_sessions
 
-    /// Save or update an MCP session token mapping.
-    /// Uses UPSERT to handle both new sessions and token updates (e.g., after refresh).
+    /// Create or update an MCP session.
+    /// Called when a new session is created via create_session().
+    pub async fn create_mcp_session(&self, session_id: &str) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO mcp_oauth.mcp_sessions (session_id, created_at, updated_at, last_activity)
+            VALUES ($1, NOW(), NOW(), NOW())
+            ON CONFLICT (session_id) DO UPDATE SET
+                last_activity = NOW(),
+                updated_at = NOW()
+            "#,
+        )
+        .bind(session_id)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(())
+    }
+
+    /// Save auth binding (access token) for an MCP session.
+    /// Called after OAuth completes to bind the token to the session.
     pub async fn save_session_token(
         &self,
         session_id: &str,
@@ -935,15 +957,16 @@ impl TokenStore {
     ) -> Result<()> {
         sqlx::query(
             r#"
-            INSERT INTO mcp_oauth.mcp_session_tokens
-                (session_id, access_token, client_id, user_id, expires_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, NOW())
+            INSERT INTO mcp_oauth.mcp_sessions
+                (session_id, access_token, client_id, user_id, expires_at, created_at, updated_at, last_activity)
+            VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
             ON CONFLICT (session_id) DO UPDATE SET
                 access_token = EXCLUDED.access_token,
-                client_id = COALESCE(EXCLUDED.client_id, mcp_oauth.mcp_session_tokens.client_id),
+                client_id = COALESCE(EXCLUDED.client_id, mcp_oauth.mcp_sessions.client_id),
                 user_id = EXCLUDED.user_id,
                 expires_at = EXCLUDED.expires_at,
-                updated_at = NOW()
+                updated_at = NOW(),
+                last_activity = NOW()
             "#,
         )
         .bind(session_id)
@@ -958,164 +981,9 @@ impl TokenStore {
         Ok(())
     }
 
-    /// Get an MCP session token mapping (validates expiry).
-    /// Returns None if the session doesn't exist or is expired.
-    pub async fn get_session_token(&self, session_id: &str) -> Result<Option<McpSessionToken>> {
-        let session_token = sqlx::query_as::<_, McpSessionToken>(
-            r#"
-            SELECT session_id, access_token, client_id, user_id, expires_at, created_at, updated_at
-            FROM mcp_oauth.mcp_session_tokens
-            WHERE session_id = $1 AND expires_at > NOW()
-            "#,
-        )
-        .bind(session_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(McpError::Database)?;
-
-        Ok(session_token)
-    }
-
-    /// Extend a session token's expiry if it's far enough in the past that renewing would meaningfully extend it.
-    /// Uses a conditional update to avoid per-request writes.
-    pub async fn extend_session_token_expiry_if_needed(
-        &self,
-        session_id: &str,
-        new_expires_at: OffsetDateTime,
-        renew_before: OffsetDateTime,
-    ) -> Result<bool> {
-        let result = sqlx::query(
-            r#"
-            UPDATE mcp_oauth.mcp_session_tokens
-            SET expires_at = $2, updated_at = NOW()
-            WHERE session_id = $1
-            AND expires_at > NOW()
-            AND expires_at < $3
-            "#,
-        )
-        .bind(session_id)
-        .bind(new_expires_at)
-        .bind(renew_before)
-        .execute(&self.pool)
-        .await
-        .map_err(McpError::Database)?;
-
-        Ok(result.rows_affected() > 0)
-    }
-
-    /// Delete an MCP session token (used when session is explicitly closed).
-    pub async fn delete_session_token(&self, session_id: &str) -> Result<bool> {
-        let result = sqlx::query("DELETE FROM mcp_oauth.mcp_session_tokens WHERE session_id = $1")
-            .bind(session_id)
-            .execute(&self.pool)
-            .await
-            .map_err(McpError::Database)?;
-
-        Ok(result.rows_affected() > 0)
-    }
-
-    // === rmcp session tracking operations ===
-    // These track rmcp transport layer sessions for stale session detection
-    // after server restarts. Separate from OAuth token storage.
-
-    /// Track an rmcp session in PostgreSQL.
-    /// Called when a new session is created via create_session().
-    pub async fn track_rmcp_session(&self, session_id: &str) -> Result<()> {
-        sqlx::query(
-            r#"
-            INSERT INTO mcp_oauth.rmcp_sessions (session_id, created_at, last_activity)
-            VALUES ($1, NOW(), NOW())
-            ON CONFLICT (session_id) DO UPDATE SET
-                last_activity = NOW()
-            "#,
-        )
-        .bind(session_id)
-        .execute(&self.pool)
-        .await
-        .map_err(McpError::Database)?;
-
-        Ok(())
-    }
-
-    /// Remove an rmcp session from PostgreSQL tracking.
-    /// Called when a session is closed via close_session().
-    #[allow(dead_code)] // kept for tests and manual cleanup utilities
-    pub async fn untrack_rmcp_session(&self, session_id: &str) -> Result<bool> {
-        let result = sqlx::query("DELETE FROM mcp_oauth.rmcp_sessions WHERE session_id = $1")
-            .bind(session_id)
-            .execute(&self.pool)
-            .await
-            .map_err(McpError::Database)?;
-
-        Ok(result.rows_affected() > 0)
-    }
-
-    /// Check if an rmcp session exists in PostgreSQL.
-    /// Used to detect stale sessions (in DB but not in memory after restart).
-    pub async fn has_rmcp_session(&self, session_id: &str) -> Result<bool> {
-        let exists: (bool,) = sqlx::query_as(
-            "SELECT EXISTS(SELECT 1 FROM mcp_oauth.rmcp_sessions WHERE session_id = $1)",
-        )
-        .bind(session_id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(McpError::Database)?;
-
-        Ok(exists.0)
-    }
-
-    /// Update the last activity timestamp for an rmcp session.
-    /// Called periodically to keep sessions alive and enable activity-based cleanup.
-    pub async fn touch_rmcp_session(&self, session_id: &str) -> Result<bool> {
-        let result = sqlx::query(
-            "UPDATE mcp_oauth.rmcp_sessions SET last_activity = NOW() WHERE session_id = $1",
-        )
-        .bind(session_id)
-        .execute(&self.pool)
-        .await
-        .map_err(McpError::Database)?;
-
-        Ok(result.rows_affected() > 0)
-    }
-
-    /// Update the last activity timestamp for an rmcp session, but only if it hasn't been
-    /// updated recently.
-    ///
-    /// This avoids a write on every MCP request while still preventing active sessions from being
-    /// cleaned up by `mcp_oauth.cleanup_expired`.
-    pub async fn touch_rmcp_session_if_older_than(
-        &self,
-        session_id: &str,
-        min_interval: Duration,
-    ) -> Result<bool> {
-        let threshold = OffsetDateTime::now_utc() - min_interval;
-        let result = sqlx::query(
-            "UPDATE mcp_oauth.rmcp_sessions SET last_activity = NOW() WHERE session_id = $1 AND last_activity < $2",
-        )
-        .bind(session_id)
-        .bind(threshold)
-        .execute(&self.pool)
-        .await
-        .map_err(McpError::Database)?;
-
-        Ok(result.rows_affected() > 0)
-    }
-
-    /// Count active rmcp sessions (for metrics/observability).
-    pub async fn count_rmcp_sessions(&self) -> Result<i64> {
-        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM mcp_oauth.rmcp_sessions")
-            .fetch_one(&self.pool)
-            .await
-            .map_err(McpError::Database)?;
-
-        Ok(count.0)
-    }
-
-    // === Session state persistence for restoration ===
-
-    /// Save session initialization state for restoration after server restart.
-    /// Called after initialize_session() to persist the init request/response.
-    pub async fn save_rmcp_session_state(
+    /// Save protocol state (init request/response) for session restoration.
+    /// Called after initialize_session() to persist the MCP handshake.
+    pub async fn save_session_state(
         &self,
         session_id: &str,
         init_request: &serde_json::Value,
@@ -1124,20 +992,13 @@ impl TokenStore {
     ) -> Result<()> {
         sqlx::query(
             r#"
-            INSERT INTO mcp_oauth.rmcp_sessions (
-                session_id,
-                created_at,
-                last_activity,
-                initialize_request,
-                initialize_response,
-                protocol_version
-            )
-            VALUES ($1, NOW(), NOW(), $2, $3, $4)
-            ON CONFLICT (session_id) DO UPDATE SET
-                initialize_request = EXCLUDED.initialize_request,
-                initialize_response = EXCLUDED.initialize_response,
-                protocol_version = EXCLUDED.protocol_version,
+            UPDATE mcp_oauth.mcp_sessions SET
+                initialize_request = $2,
+                initialize_response = $3,
+                protocol_version = $4,
+                updated_at = NOW(),
                 last_activity = NOW()
+            WHERE session_id = $1
             "#,
         )
         .bind(session_id)
@@ -1151,17 +1012,58 @@ impl TokenStore {
         Ok(())
     }
 
-    /// Get session state for restoration after server restart.
-    /// Returns None if session doesn't exist or has no restoration state.
-    pub async fn get_rmcp_session_state(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<RmcpSessionState>> {
-        let state = sqlx::query_as::<_, RmcpSessionState>(
+    /// Get full MCP session.
+    /// Returns None if session doesn't exist.
+    #[allow(dead_code)]
+    pub async fn get_session(&self, session_id: &str) -> Result<Option<McpSession>> {
+        let session = sqlx::query_as::<_, McpSession>(
             r#"
-            SELECT session_id, initialize_request, initialize_response,
-            protocol_version, created_at, last_activity
-            FROM mcp_oauth.rmcp_sessions
+            SELECT session_id, access_token, client_id, user_id, expires_at,
+                initialize_request, initialize_response, protocol_version,
+                created_at, updated_at, last_activity
+            FROM mcp_oauth.mcp_sessions
+            WHERE session_id = $1
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(session)
+    }
+
+    /// Get MCP session with valid token (for API calls).
+    /// Returns None if the session doesn't exist or token is expired.
+    pub async fn get_session_token(&self, session_id: &str) -> Result<Option<McpSession>> {
+        let session = sqlx::query_as::<_, McpSession>(
+            r#"
+            SELECT session_id, access_token, client_id, user_id, expires_at,
+                initialize_request, initialize_response, protocol_version,
+                created_at, updated_at, last_activity
+            FROM mcp_oauth.mcp_sessions
+            WHERE session_id = $1
+                AND access_token IS NOT NULL
+                AND (expires_at IS NULL OR expires_at > NOW())
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(session)
+    }
+
+    /// Get MCP session state for restoration.
+    /// Returns None if session doesn't exist or has no init state.
+    pub async fn get_session_for_restore(&self, session_id: &str) -> Result<Option<McpSession>> {
+        let session = sqlx::query_as::<_, McpSession>(
+            r#"
+            SELECT session_id, access_token, client_id, user_id, expires_at,
+                initialize_request, initialize_response, protocol_version,
+                created_at, updated_at, last_activity
+            FROM mcp_oauth.mcp_sessions
             WHERE session_id = $1 AND initialize_request IS NOT NULL
             "#,
         )
@@ -1170,7 +1072,148 @@ impl TokenStore {
         .await
         .map_err(McpError::Database)?;
 
-        Ok(state)
+        Ok(session)
+    }
+
+    /// Extend a session's token expiry if it's far enough in the past.
+    /// Uses a conditional update to avoid per-request writes.
+    pub async fn extend_session_expiry_if_needed(
+        &self,
+        session_id: &str,
+        new_expires_at: OffsetDateTime,
+        renew_before: OffsetDateTime,
+    ) -> Result<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE mcp_oauth.mcp_sessions
+            SET expires_at = $2, updated_at = NOW()
+            WHERE session_id = $1
+                AND expires_at IS NOT NULL
+                AND expires_at > NOW()
+                AND expires_at < $3
+            "#,
+        )
+        .bind(session_id)
+        .bind(new_expires_at)
+        .bind(renew_before)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Check if an MCP session exists.
+    pub async fn has_session(&self, session_id: &str) -> Result<bool> {
+        let exists: (bool,) = sqlx::query_as(
+            "SELECT EXISTS(SELECT 1 FROM mcp_oauth.mcp_sessions WHERE session_id = $1)",
+        )
+        .bind(session_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(exists.0)
+    }
+
+    /// Update the last activity timestamp for an MCP session.
+    pub async fn touch_session(&self, session_id: &str) -> Result<bool> {
+        let result = sqlx::query(
+            "UPDATE mcp_oauth.mcp_sessions SET last_activity = NOW() WHERE session_id = $1",
+        )
+        .bind(session_id)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Update last activity timestamp, but only if it hasn't been updated recently.
+    /// This throttles writes while still preventing cleanup of active sessions.
+    pub async fn touch_session_if_older_than(
+        &self,
+        session_id: &str,
+        min_interval: Duration,
+    ) -> Result<bool> {
+        let threshold = OffsetDateTime::now_utc() - min_interval;
+        let result = sqlx::query(
+            "UPDATE mcp_oauth.mcp_sessions SET last_activity = NOW() WHERE session_id = $1 AND last_activity < $2",
+        )
+        .bind(session_id)
+        .bind(threshold)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Delete an MCP session.
+    #[allow(dead_code)]
+    pub async fn delete_session(&self, session_id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM mcp_oauth.mcp_sessions WHERE session_id = $1")
+            .bind(session_id)
+            .execute(&self.pool)
+            .await
+            .map_err(McpError::Database)?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Count active MCP sessions (for metrics/observability).
+    pub async fn count_sessions(&self) -> Result<i64> {
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM mcp_oauth.mcp_sessions")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(McpError::Database)?;
+
+        Ok(count.0)
+    }
+
+    // === Legacy method aliases for compatibility ===
+    // TODO: Remove after updating all call sites
+
+    /// Legacy alias for create_mcp_session
+    pub async fn track_rmcp_session(&self, session_id: &str) -> Result<()> {
+        self.create_mcp_session(session_id).await
+    }
+
+    /// Legacy alias for has_session
+    pub async fn has_rmcp_session(&self, session_id: &str) -> Result<bool> {
+        self.has_session(session_id).await
+    }
+
+    /// Legacy alias for touch_session
+    pub async fn touch_rmcp_session(&self, session_id: &str) -> Result<bool> {
+        self.touch_session(session_id).await
+    }
+
+    /// Legacy alias for touch_session_if_older_than
+    pub async fn touch_rmcp_session_if_older_than(
+        &self,
+        session_id: &str,
+        min_interval: Duration,
+    ) -> Result<bool> {
+        self.touch_session_if_older_than(session_id, min_interval)
+            .await
+    }
+
+    /// Legacy alias for save_session_state
+    pub async fn save_rmcp_session_state(
+        &self,
+        session_id: &str,
+        init_request: &serde_json::Value,
+        init_response: &serde_json::Value,
+        protocol_version: Option<&str>,
+    ) -> Result<()> {
+        self.save_session_state(session_id, init_request, init_response, protocol_version)
+            .await
+    }
+
+    /// Legacy alias for get_session_for_restore
+    pub async fn get_rmcp_session_state(&self, session_id: &str) -> Result<Option<McpSession>> {
+        self.get_session_for_restore(session_id).await
     }
 
     // === Utility operations ===

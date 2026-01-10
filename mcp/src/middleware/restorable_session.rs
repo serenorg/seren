@@ -168,15 +168,27 @@ impl RestorableSessionManager {
         });
 
         // Parse and replay the stored initialization request
+        // Note: initialize_request is guaranteed to be Some because get_session_for_restore
+        // filters for `initialize_request IS NOT NULL`
         let init_request: ClientJsonRpcMessage =
-            serde_json::from_value(state.initialize_request)
-                .map_err(|e| RestorableSessionError::Serialization(e.to_string()))?;
+            serde_json::from_value(state.initialize_request.ok_or_else(|| {
+                RestorableSessionError::RestorationFailed("Missing initialize_request".into())
+            })?)
+            .map_err(|e| RestorableSessionError::Serialization(e.to_string()))?;
 
-        // Replay initialization to set up the session state
-        let _init_response = handle
-            .initialize(init_request)
-            .await
-            .map_err(|e| RestorableSessionError::RestorationFailed(e.to_string()))?;
+        // Replay initialization to set up the session state.
+        // Use timeout to avoid hanging forever if the spawned service dies before responding.
+        let _init_response = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            handle.initialize(init_request),
+        )
+        .await
+        .map_err(|_| {
+            RestorableSessionError::RestorationFailed(
+                "Timed out waiting for initialization response".into(),
+            )
+        })?
+        .map_err(|e| RestorableSessionError::RestorationFailed(e.to_string()))?;
 
         // MCP handshake requires the client to send `notifications/initialized` after `initialize`.
         //

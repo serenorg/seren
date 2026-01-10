@@ -190,21 +190,24 @@ async fn require_oauth_auth(
         } else {
             // Fall back to database lookup
             match state.store.get_session_token(sid).await {
-                Ok(Some(session_token)) => {
-                    token = Some(session_token.access_token.clone());
-                    token_from_session_cache = true;
-                    // Populate the LRU cache for future requests
-                    state
-                        .session_tokens
-                        .lock()
-                        .await
-                        .put(sid.clone(), session_token.access_token);
-                    tracing::debug!(
-                        event = "oauth_auth_token_from_database",
-                        session_id = %sid,
-                        user_id = %session_token.user_id,
-                        "Retrieved token from database and populated LRU cache"
-                    );
+                Ok(Some(session)) => {
+                    // get_session_token filters for access_token IS NOT NULL
+                    if let Some(ref access_token) = session.access_token {
+                        token = Some(access_token.clone());
+                        token_from_session_cache = true;
+                        // Populate the LRU cache for future requests
+                        state
+                            .session_tokens
+                            .lock()
+                            .await
+                            .put(sid.clone(), access_token.clone());
+                        tracing::debug!(
+                            event = "oauth_auth_token_from_database",
+                            session_id = %sid,
+                            user_id = ?session.user_id,
+                            "Retrieved token from database and populated LRU cache"
+                        );
+                    }
                 }
                 Ok(None) => {
                     tracing::debug!(
@@ -270,8 +273,8 @@ async fn require_oauth_auth(
                     "Attempting to re-issue MCP access token from session"
                 );
 
-                let session_token = match state.store.get_session_token(sid).await {
-                    Ok(Some(session_token)) => session_token,
+                let session = match state.store.get_session_token(sid).await {
+                    Ok(Some(session)) => session,
                     Ok(None) => {
                         return state.unauthorized_response(
                             "invalid_token",
@@ -296,16 +299,23 @@ async fn require_oauth_auth(
                     }
                 };
 
-                let Some(session_client_id) = session_token.client_id else {
+                let Some(session_client_id) = session.client_id else {
                     return state.unauthorized_response(
                         "invalid_token",
                         "Session missing client id (re-authentication required)",
                     );
                 };
 
+                let Some(session_user_id) = session.user_id else {
+                    return state.unauthorized_response(
+                        "invalid_token",
+                        "Session missing user id (re-authentication required)",
+                    );
+                };
+
                 let refresh_token = match state
                     .store
-                    .get_refresh_token_by_user_client(session_token.user_id, &session_client_id)
+                    .get_refresh_token_by_user_client(session_user_id, &session_client_id)
                     .await
                 {
                     Ok(Some(refresh_token)) => refresh_token,
@@ -319,7 +329,7 @@ async fn require_oauth_auth(
                         tracing::warn!(
                             event = "oauth_auth_refresh_token_db_error",
                             session_id = %sid,
-                            user_id = %session_token.user_id,
+                            user_id = %session_user_id,
                             client_id = %session_client_id,
                             error = %e,
                             "Failed to lookup refresh token for session re-issue"
@@ -336,7 +346,7 @@ async fn require_oauth_auth(
                 };
 
                 let (new_token, _) = match state.oauth_state.jwt_signer.sign_access_token(
-                    session_token.user_id,
+                    session_user_id,
                     &session_client_id,
                     &refresh_token.scope,
                     None,
@@ -366,7 +376,7 @@ async fn require_oauth_auth(
                 tracing::info!(
                     event = "oauth_session_token_reissued",
                     session_id = %sid,
-                    user_id = %session_token.user_id,
+                    user_id = %session_user_id,
                     client_id = %session_client_id,
                     "Re-issued MCP access token for persisted session"
                 );
@@ -739,11 +749,7 @@ async fn require_oauth_auth(
 
                 if let Some(session_id) = session_id
                     && let Err(e) = store
-                        .extend_session_token_expiry_if_needed(
-                            &session_id,
-                            new_expires_at,
-                            renew_before,
-                        )
+                        .extend_session_expiry_if_needed(&session_id, new_expires_at, renew_before)
                         .await
                 {
                     tracing::warn!(
@@ -925,16 +931,16 @@ async fn require_oauth_auth(
         let store = state.store.clone();
         let sid_clone = sid;
         tokio::spawn(async move {
-            if let Err(e) = store.delete_session_token(&sid_clone).await {
+            if let Err(e) = store.delete_session(&sid_clone).await {
                 tracing::warn!(
-                    event = "session_token_delete_error",
+                    event = "session_delete_error",
                     session_id = %sid_clone,
                     error = %e,
-                    "Failed to delete session token from database"
+                    "Failed to delete session from database"
                 );
             } else {
                 tracing::debug!(
-                    event = "session_token_deleted",
+                    event = "session_deleted",
                     session_id = %sid_clone,
                     "Session token deleted from database"
                 );
@@ -1203,14 +1209,14 @@ async fn run_oauth(config: Config) -> Result<()> {
         api_base_url_for_session_manager,
     ));
 
-    // Log initial rmcp session count (sessions from previous instance can now be restored)
-    match store.count_rmcp_sessions().await {
+    // Log initial session count (sessions from previous instance can now be restored)
+    match store.count_sessions().await {
         Ok(count) => {
             if count > 0 {
                 tracing::info!(
-                    event = "restorable_rmcp_sessions_detected",
+                    event = "restorable_sessions_detected",
                     count = count,
-                    "Found {} rmcp sessions in database that can be restored",
+                    "Found {} sessions in database that can be restored",
                     count
                 );
             }
