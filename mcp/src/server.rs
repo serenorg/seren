@@ -1083,6 +1083,48 @@ fn validate_resource_name(name: &str, field: &str) -> Result<(), McpError> {
     Ok(())
 }
 
+/// Validation for publisher slugs (URL-friendly identifiers).
+///
+/// Enforces a conservative subset to avoid ambiguity in URLs and downstream systems:
+/// - lowercase letters, digits, and hyphens only
+/// - must start with a lowercase letter or digit
+/// - max length 63 (matches common DB identifier limits)
+fn validate_slug(slug: &str, field: &str) -> Result<(), McpError> {
+    let slug = slug.trim();
+    if slug.is_empty() {
+        return Err(McpError::invalid_params(
+            format!("{} must not be empty", field),
+            None,
+        ));
+    }
+    if slug.len() > 63 {
+        return Err(McpError::invalid_params(
+            format!("{} must not exceed 63 characters", field),
+            None,
+        ));
+    }
+    let first_char = slug.chars().next().unwrap();
+    if !first_char.is_ascii_lowercase() && !first_char.is_ascii_digit() {
+        return Err(McpError::invalid_params(
+            format!("{} must start with a lowercase letter or number", field),
+            None,
+        ));
+    }
+    if !slug
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return Err(McpError::invalid_params(
+            format!(
+                "{} must contain only lowercase letters, numbers, and hyphens",
+                field
+            ),
+            None,
+        ));
+    }
+    Ok(())
+}
+
 fn validate_sql_query(query: &str) -> Result<(), McpError> {
     let query = query.trim();
     if query.is_empty() {
@@ -3042,6 +3084,22 @@ impl SerenMcpServer {
         Parameters(params): Parameters<CreatePublisherParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        validate_resource_name(&params.name, "Publisher name")?;
+        validate_slug(&params.slug, "Publisher slug")?;
+        if params.wallet_address.trim().is_empty() {
+            return Err(McpError::invalid_params(
+                "wallet_address must not be empty",
+                None,
+            ));
+        }
+        if params.wallet_network_id.trim().is_empty() {
+            return Err(McpError::invalid_params(
+                "wallet_network_id must not be empty",
+                None,
+            ));
+        }
+
         let api_client = self.api_client(&extensions)?;
 
         // Convert source_type string to enum
