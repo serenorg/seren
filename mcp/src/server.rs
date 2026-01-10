@@ -254,12 +254,47 @@ pub struct ListAgentPublishersParams {
     /// Search query to filter publishers by name or description
     #[serde(default)]
     pub search: Option<String>,
+    /// Return full publisher objects (may be large). Default is compact summaries.
+    #[serde(default)]
+    pub verbose: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct PublisherPricingSummary {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    asset_symbol: Option<String>,
+    pricing_model: seren::PricingModel,
+    base_price_per_1000_rows: String,
+    markup_multiplier: String,
+    min_charge: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hourly_rate: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    price_per_call: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    price_per_execution: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct PublisherListEntry {
+    slug: String,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    categories: Vec<String>,
+    is_verified: bool,
+    billing_model: String,
+    source_type: seren::SourceType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pricing: Option<PublisherPricingSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    usage_example: Option<seren::UsageExample>,
 }
 
 /// List response with pagination info (standard REST API fields)
 #[derive(Debug, Serialize)]
-struct PublishersListResponse {
-    publishers: Vec<seren::PublisherResponse>,
+struct PublishersListResponse<T> {
+    publishers: Vec<T>,
     /// Total number of publishers across all pages (from API pagination)
     #[serde(skip_serializing_if = "Option::is_none")]
     total: Option<u64>,
@@ -2385,7 +2420,7 @@ impl SerenMcpServer {
     // ========================================================================
 
     #[tool(
-        description = "List active publishers in the agent store. Returns publisher details including pricing. For task-specific recommendations, use suggest_for_task instead.",
+        description = "List active publishers in the agent store (compact by default). Set verbose=true for full publisher objects. For task-specific recommendations, use suggest_for_task instead.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_agent_publishers(
@@ -2420,8 +2455,60 @@ impl SerenMcpServer {
             None => (None, (count as i64) >= limit),
         };
 
+        if params.verbose {
+            let response = PublishersListResponse {
+                publishers,
+                total,
+                count,
+                limit,
+                offset,
+                has_more,
+            };
+            return Ok(CallToolResult::success(vec![json_content(&response)?]));
+        }
+
+        let entries = publishers
+            .into_iter()
+            .map(|p| {
+                let pricing = p.pricing.as_ref().and_then(|configs| {
+                    let config = configs
+                        .iter()
+                        .find(|c| c.asset_symbol.as_deref() == Some("USDC"))
+                        .or_else(|| configs.first())?;
+                    Some(PublisherPricingSummary {
+                        asset_symbol: config.asset_symbol.clone(),
+                        pricing_model: config.pricing_model,
+                        base_price_per_1000_rows: config.base_price_per_1000_rows.clone(),
+                        markup_multiplier: config.markup_multiplier.clone(),
+                        min_charge: config.min_charge.clone(),
+                        hourly_rate: config.hourly_rate.clone(),
+                        price_per_call: config.price_per_call.clone(),
+                        price_per_execution: config.price_per_execution.clone(),
+                    })
+                });
+
+                let usage_example = p
+                    .usage_examples
+                    .as_ref()
+                    .and_then(|examples| examples.first())
+                    .cloned();
+
+                PublisherListEntry {
+                    slug: p.slug,
+                    name: p.name,
+                    description: p.description,
+                    categories: p.categories,
+                    is_verified: p.is_verified,
+                    billing_model: p.billing_model,
+                    source_type: p.source_type,
+                    pricing,
+                    usage_example,
+                }
+            })
+            .collect::<Vec<_>>();
+
         let response = PublishersListResponse {
-            publishers,
+            publishers: entries,
             total,
             count,
             limit,
