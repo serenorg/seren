@@ -25,6 +25,7 @@ use rmcp::transport::streamable_http_server::session::local::{
     SessionError, create_local_session,
 };
 use rmcp::transport::worker::WorkerTransport;
+use time::Duration;
 use tokio::sync::{Mutex, RwLock};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -349,6 +350,12 @@ impl SessionManager for RestorableSessionManager {
     async fn has_session(&self, id: &SessionId) -> Result<bool, Self::Error> {
         // Check in-memory first
         if self.sessions.read().await.contains_key(id) {
+            // Best-effort keepalive: prevent active sessions from being cleaned up
+            // by the DB retention policy.
+            let _ = self
+                .store
+                .touch_rmcp_session_if_older_than(id.as_ref(), Duration::hours(1))
+                .await;
             return Ok(true);
         }
 
@@ -522,8 +529,11 @@ impl SessionManager for RestorableSessionManager {
         id: &SessionId,
         message: ClientJsonRpcMessage,
     ) -> Result<(), Self::Error> {
-        // Update last activity timestamp
-        let _ = self.store.touch_rmcp_session(id.as_ref()).await;
+        // Update last activity timestamp (throttled)
+        let _ = self
+            .store
+            .touch_rmcp_session_if_older_than(id.as_ref(), Duration::hours(1))
+            .await;
 
         let handle = self.session_handle(id).await?;
         match handle.push_message(message.clone(), None).await {

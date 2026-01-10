@@ -1078,6 +1078,29 @@ impl TokenStore {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Update the last activity timestamp for an rmcp session, but only if it hasn't been
+    /// updated recently.
+    ///
+    /// This avoids a write on every MCP request while still preventing active sessions from being
+    /// cleaned up by `mcp_oauth.cleanup_expired`.
+    pub async fn touch_rmcp_session_if_older_than(
+        &self,
+        session_id: &str,
+        min_interval: Duration,
+    ) -> Result<bool> {
+        let threshold = OffsetDateTime::now_utc() - min_interval;
+        let result = sqlx::query(
+            "UPDATE mcp_oauth.rmcp_sessions SET last_activity = NOW() WHERE session_id = $1 AND last_activity < $2",
+        )
+        .bind(session_id)
+        .bind(threshold)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     /// Count active rmcp sessions (for metrics/observability).
     pub async fn count_rmcp_sessions(&self) -> Result<i64> {
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM mcp_oauth.rmcp_sessions")
