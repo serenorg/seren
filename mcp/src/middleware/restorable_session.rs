@@ -21,8 +21,8 @@ use rmcp::serve_server;
 use rmcp::transport::common::server_side_http::{ServerSseMessage, SessionId};
 use rmcp::transport::streamable_http_server::session::SessionManager;
 use rmcp::transport::streamable_http_server::session::local::{
-    LocalSessionHandle, LocalSessionManagerError, LocalSessionWorker, SessionConfig, SessionError,
-    create_local_session,
+    EventId, LocalSessionHandle, LocalSessionManagerError, LocalSessionWorker, SessionConfig,
+    SessionError, create_local_session,
 };
 use rmcp::transport::worker::WorkerTransport;
 use tokio::sync::{Mutex, RwLock};
@@ -141,15 +141,21 @@ impl RestorableSessionManager {
         let service = SerenMcpServer::new_oauth(&self.api_base_url)
             .map_err(|e| RestorableSessionError::ServiceCreation(e.to_string()))?;
 
-        // Spawn the service task to handle MCP requests
+        // Spawn the service task to handle MCP requests and wait for it to finish the
+        // MCP handshake (initialize + initialized).
+        //
+        // If service startup fails, leaving the restored handle in-memory will cause
+        // HTTP 500s ("Session service terminated") on subsequent requests.
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
         let session_id_for_logs = id.clone();
         tokio::spawn(async move {
             match serve_server(service, transport).await {
                 Ok(running_service) => {
-                    // Wait for the service to complete
+                    let _ = ready_tx.send(Ok(()));
                     let _ = running_service.waiting().await;
                 }
                 Err(e) => {
+                    let _ = ready_tx.send(Err(e.to_string()));
                     tracing::error!(
                         event = "restored_service_spawn_failed",
                         session_id = %session_id_for_logs,
@@ -188,6 +194,26 @@ impl RestorableSessionManager {
             )
             .await?;
 
+        match tokio::time::timeout(std::time::Duration::from_secs(5), ready_rx).await {
+            Ok(Ok(Ok(()))) => {}
+            Ok(Ok(Err(e))) => {
+                return Err(RestorableSessionError::RestorationFailed(format!(
+                    "Restored service failed to start: {}",
+                    e
+                )));
+            }
+            Ok(Err(_closed)) => {
+                return Err(RestorableSessionError::RestorationFailed(
+                    "Restored service failed to start (start signal dropped)".into(),
+                ));
+            }
+            Err(_elapsed) => {
+                return Err(RestorableSessionError::RestorationFailed(
+                    "Timed out waiting for restored service to start".into(),
+                ));
+            }
+        }
+
         // Add the restored session to in-memory map
         self.sessions.write().await.insert(id.clone(), handle);
 
@@ -201,6 +227,36 @@ impl RestorableSessionManager {
         );
 
         Ok(())
+    }
+
+    async fn session_handle(
+        &self,
+        id: &SessionId,
+    ) -> Result<LocalSessionHandle, RestorableSessionError> {
+        if let Some(handle) = self.sessions.read().await.get(id).cloned() {
+            return Ok(handle);
+        }
+        self.restore_session(id).await?;
+        self.sessions
+            .read()
+            .await
+            .get(id)
+            .cloned()
+            .ok_or_else(|| RestorableSessionError::SessionNotFound(id.to_string()))
+    }
+
+    async fn restore_after_terminated(
+        &self,
+        id: &SessionId,
+    ) -> Result<LocalSessionHandle, RestorableSessionError> {
+        self.sessions.write().await.remove(id);
+        self.restore_session(id).await?;
+        self.sessions
+            .read()
+            .await
+            .get(id)
+            .cloned()
+            .ok_or_else(|| RestorableSessionError::SessionNotFound(id.to_string()))
     }
 }
 
@@ -375,36 +431,65 @@ impl SessionManager for RestorableSessionManager {
         id: &SessionId,
         message: ClientJsonRpcMessage,
     ) -> Result<impl Stream<Item = ServerSseMessage> + Send + Sync + 'static, Self::Error> {
-        let handle = self
-            .sessions
-            .read()
-            .await
-            .get(id)
-            .cloned()
-            .ok_or_else(|| RestorableSessionError::SessionNotFound(id.to_string()))?;
+        // Best-effort recovery: if the in-memory session exists but the service died,
+        // restore from DB state and retry once to avoid returning HTTP 500s.
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
 
-        let receiver = handle.establish_request_wise_channel().await?;
-        handle
-            .push_message(message, receiver.http_request_id)
-            .await?;
+            let handle = self.session_handle(id).await?;
+            let receiver = match handle.establish_request_wise_channel().await {
+                Ok(r) => r,
+                Err(SessionError::SessionServiceTerminated) if attempt == 1 => {
+                    tracing::warn!(
+                        event = "session_recover_service_terminated",
+                        session_id = %id,
+                        "Session service terminated; attempting restore"
+                    );
+                    self.restore_after_terminated(id).await?;
+                    continue;
+                }
+                Err(e) => return Err(e.into()),
+            };
 
-        Ok(ReceiverStream::new(receiver.inner))
+            match handle
+                .push_message(message.clone(), receiver.http_request_id)
+                .await
+            {
+                Ok(()) => return Ok(ReceiverStream::new(receiver.inner)),
+                Err(SessionError::SessionServiceTerminated) if attempt == 1 => {
+                    tracing::warn!(
+                        event = "session_recover_service_terminated",
+                        session_id = %id,
+                        "Session service terminated; attempting restore"
+                    );
+                    self.restore_after_terminated(id).await?;
+                    continue;
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
     }
 
     async fn create_standalone_stream(
         &self,
         id: &SessionId,
     ) -> Result<impl Stream<Item = ServerSseMessage> + Send + Sync + 'static, Self::Error> {
-        let handle = self
-            .sessions
-            .read()
-            .await
-            .get(id)
-            .cloned()
-            .ok_or_else(|| RestorableSessionError::SessionNotFound(id.to_string()))?;
-
-        let receiver = handle.establish_common_channel().await?;
-        Ok(ReceiverStream::new(receiver.inner))
+        let handle = self.session_handle(id).await?;
+        match handle.establish_common_channel().await {
+            Ok(receiver) => Ok(ReceiverStream::new(receiver.inner)),
+            Err(SessionError::SessionServiceTerminated) => {
+                tracing::warn!(
+                    event = "session_recover_service_terminated",
+                    session_id = %id,
+                    "Session service terminated; attempting restore"
+                );
+                let handle = self.restore_after_terminated(id).await?;
+                let receiver = handle.establish_common_channel().await?;
+                Ok(ReceiverStream::new(receiver.inner))
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 
     async fn resume(
@@ -412,20 +497,24 @@ impl SessionManager for RestorableSessionManager {
         id: &SessionId,
         last_event_id: String,
     ) -> Result<impl Stream<Item = ServerSseMessage> + Send + Sync + 'static, Self::Error> {
-        let handle = self
-            .sessions
-            .read()
-            .await
-            .get(id)
-            .cloned()
-            .ok_or_else(|| RestorableSessionError::SessionNotFound(id.to_string()))?;
-
-        let event_id = last_event_id.parse().map_err(|e| {
+        let event_id: EventId = last_event_id.parse().map_err(|e| {
             RestorableSessionError::RestorationFailed(format!("Invalid event ID: {}", e))
         })?;
-        let receiver = handle.resume(event_id).await?;
-
-        Ok(ReceiverStream::new(receiver.inner))
+        let handle = self.session_handle(id).await?;
+        match handle.resume(event_id.clone()).await {
+            Ok(receiver) => Ok(ReceiverStream::new(receiver.inner)),
+            Err(SessionError::SessionServiceTerminated) => {
+                tracing::warn!(
+                    event = "session_recover_service_terminated",
+                    session_id = %id,
+                    "Session service terminated; attempting restore"
+                );
+                let handle = self.restore_after_terminated(id).await?;
+                let receiver = handle.resume(event_id).await?;
+                Ok(ReceiverStream::new(receiver.inner))
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 
     async fn accept_message(
@@ -436,15 +525,20 @@ impl SessionManager for RestorableSessionManager {
         // Update last activity timestamp
         let _ = self.store.touch_rmcp_session(id.as_ref()).await;
 
-        let handle = self
-            .sessions
-            .read()
-            .await
-            .get(id)
-            .cloned()
-            .ok_or_else(|| RestorableSessionError::SessionNotFound(id.to_string()))?;
-
-        handle.push_message(message, None).await?;
+        let handle = self.session_handle(id).await?;
+        match handle.push_message(message.clone(), None).await {
+            Ok(()) => {}
+            Err(SessionError::SessionServiceTerminated) => {
+                tracing::warn!(
+                    event = "session_recover_service_terminated",
+                    session_id = %id,
+                    "Session service terminated; attempting restore"
+                );
+                let handle = self.restore_after_terminated(id).await?;
+                handle.push_message(message, None).await?;
+            }
+            Err(e) => return Err(e.into()),
+        }
         Ok(())
     }
 }
