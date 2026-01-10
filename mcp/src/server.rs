@@ -3101,6 +3101,10 @@ impl SerenMcpServer {
         }
 
         let api_client = self.api_client(&extensions)?;
+        let name = params.name.trim().to_string();
+        let slug = params.slug.trim().to_string();
+        let wallet_address = params.wallet_address.trim().to_string();
+        let wallet_network_id = params.wallet_network_id.trim().to_string();
 
         // Convert source_type string to enum
         let source_type = match params.source_type.as_deref() {
@@ -3129,10 +3133,10 @@ impl SerenMcpServer {
         };
 
         let body = seren::CreatePublisherRequest {
-            name: params.name,
-            slug: params.slug,
-            wallet_address: seren::WalletAddress(params.wallet_address),
-            wallet_network_id: params.wallet_network_id,
+            name,
+            slug,
+            wallet_address: seren::WalletAddress(wallet_address),
+            wallet_network_id,
             source_type,
             description: params.description,
             api_url: params.api_url,
