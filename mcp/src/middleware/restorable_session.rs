@@ -17,12 +17,12 @@ use futures::Stream;
 use rmcp::model::{ClientJsonRpcMessage, ServerJsonRpcMessage};
 use rmcp::serve_server;
 use rmcp::transport::common::server_side_http::{ServerSseMessage, SessionId};
+use rmcp::transport::streamable_http_server::session::SessionManager;
 use rmcp::transport::streamable_http_server::session::local::{
-    create_local_session, LocalSessionHandle, LocalSessionManagerError, LocalSessionWorker,
-    SessionConfig, SessionError,
+    LocalSessionHandle, LocalSessionManagerError, LocalSessionWorker, SessionConfig, SessionError,
+    create_local_session,
 };
 use rmcp::transport::worker::WorkerTransport;
-use rmcp::transport::streamable_http_server::session::SessionManager;
 use tokio::sync::{Mutex, RwLock};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -80,7 +80,11 @@ impl RestorableSessionManager {
     /// * `store` - PostgreSQL token store for session persistence
     /// * `session_config` - Configuration for rmcp sessions
     /// * `api_base_url` - Base URL for creating SerenMcpServer instances
-    pub fn new(store: Arc<TokenStore>, session_config: SessionConfig, api_base_url: String) -> Self {
+    pub fn new(
+        store: Arc<TokenStore>,
+        session_config: SessionConfig,
+        api_base_url: String,
+    ) -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
             session_config,
@@ -120,7 +124,9 @@ impl RestorableSessionManager {
             .await
             .map_err(|e| RestorableSessionError::Database(e.to_string()))?
             .ok_or_else(|| {
-                RestorableSessionError::RestorationFailed("Session state not found in database".into())
+                RestorableSessionError::RestorationFailed(
+                    "Session state not found in database".into(),
+                )
             })?;
 
         // Create new session infrastructure with the SAME session ID
@@ -134,8 +140,7 @@ impl RestorableSessionManager {
             .map_err(|e| RestorableSessionError::ServiceCreation(e.to_string()))?;
 
         // Spawn the service task to handle MCP requests
-        let store = self.store.clone();
-        let session_id_for_cleanup = id.clone();
+        let session_id_for_logs = id.clone();
         tokio::spawn(async move {
             match serve_server(service, transport).await {
                 Ok(running_service) => {
@@ -145,19 +150,18 @@ impl RestorableSessionManager {
                 Err(e) => {
                     tracing::error!(
                         event = "restored_service_spawn_failed",
-                        session_id = %session_id_for_cleanup,
+                        session_id = %session_id_for_logs,
                         error = %e,
                         "Failed to spawn restored service"
                     );
                 }
             }
-            // Clean up session tracking on exit
-            let _ = store.untrack_rmcp_session(session_id_for_cleanup.as_ref()).await;
         });
 
         // Parse and replay the stored initialization request
-        let init_request: ClientJsonRpcMessage = serde_json::from_value(state.initialize_request)
-            .map_err(|e| RestorableSessionError::Serialization(e.to_string()))?;
+        let init_request: ClientJsonRpcMessage =
+            serde_json::from_value(state.initialize_request)
+                .map_err(|e| RestorableSessionError::Serialization(e.to_string()))?;
 
         // Replay initialization to set up the session state
         let _init_response = handle
@@ -219,9 +223,12 @@ impl SessionManager for RestorableSessionManager {
         id: &SessionId,
         message: ClientJsonRpcMessage,
     ) -> Result<ServerJsonRpcMessage, Self::Error> {
-        let sessions = self.sessions.read().await;
-        let handle = sessions
+        let handle = self
+            .sessions
+            .read()
+            .await
             .get(id)
+            .cloned()
             .ok_or_else(|| RestorableSessionError::SessionNotFound(id.to_string()))?;
 
         // Process the initialization message
@@ -239,7 +246,12 @@ impl SessionManager for RestorableSessionManager {
 
         if let Err(e) = self
             .store
-            .save_rmcp_session_state(id.as_ref(), &init_request, &init_response, protocol_version.as_deref())
+            .save_rmcp_session_state(
+                id.as_ref(),
+                &init_request,
+                &init_response,
+                protocol_version.as_deref(),
+            )
             .await
         {
             tracing::warn!(
@@ -285,8 +297,6 @@ impl SessionManager for RestorableSessionManager {
                             error = %e,
                             "Failed to restore session, client must reconnect"
                         );
-                        // Clean up stale DB entry
-                        let _ = self.store.untrack_rmcp_session(id.as_ref()).await;
                         Ok(false)
                     }
                 }
@@ -323,8 +333,11 @@ impl SessionManager for RestorableSessionManager {
             let _ = handle.close().await;
         }
 
-        // Remove from database
-        let _ = self.store.untrack_rmcp_session(id.as_ref()).await;
+        // Note: We intentionally do NOT delete the DB session record here.
+        //
+        // rmcp calls `close_session` when the in-process service task exits (including
+        // graceful shutdowns). If we delete the DB record here, the session cannot be
+        // restored after a restart. Stale DB rows are cleaned up by `mcp_oauth.cleanup_expired`.
 
         // Clean up restoration lock
         self.restoration_locks.lock().await.remove(id);
@@ -332,7 +345,7 @@ impl SessionManager for RestorableSessionManager {
         tracing::debug!(
             event = "session_closed",
             session_id = %id,
-            "Session closed and removed"
+            "Session closed (in-memory only)"
         );
 
         Ok(())
@@ -343,9 +356,12 @@ impl SessionManager for RestorableSessionManager {
         id: &SessionId,
         message: ClientJsonRpcMessage,
     ) -> Result<impl Stream<Item = ServerSseMessage> + Send + Sync + 'static, Self::Error> {
-        let sessions = self.sessions.read().await;
-        let handle = sessions
+        let handle = self
+            .sessions
+            .read()
+            .await
             .get(id)
+            .cloned()
             .ok_or_else(|| RestorableSessionError::SessionNotFound(id.to_string()))?;
 
         let receiver = handle.establish_request_wise_channel().await?;
@@ -360,9 +376,12 @@ impl SessionManager for RestorableSessionManager {
         &self,
         id: &SessionId,
     ) -> Result<impl Stream<Item = ServerSseMessage> + Send + Sync + 'static, Self::Error> {
-        let sessions = self.sessions.read().await;
-        let handle = sessions
+        let handle = self
+            .sessions
+            .read()
+            .await
             .get(id)
+            .cloned()
             .ok_or_else(|| RestorableSessionError::SessionNotFound(id.to_string()))?;
 
         let receiver = handle.establish_common_channel().await?;
@@ -374,9 +393,12 @@ impl SessionManager for RestorableSessionManager {
         id: &SessionId,
         last_event_id: String,
     ) -> Result<impl Stream<Item = ServerSseMessage> + Send + Sync + 'static, Self::Error> {
-        let sessions = self.sessions.read().await;
-        let handle = sessions
+        let handle = self
+            .sessions
+            .read()
+            .await
             .get(id)
+            .cloned()
             .ok_or_else(|| RestorableSessionError::SessionNotFound(id.to_string()))?;
 
         let event_id = last_event_id.parse().map_err(|e| {
@@ -395,9 +417,12 @@ impl SessionManager for RestorableSessionManager {
         // Update last activity timestamp
         let _ = self.store.touch_rmcp_session(id.as_ref()).await;
 
-        let sessions = self.sessions.read().await;
-        let handle = sessions
+        let handle = self
+            .sessions
+            .read()
+            .await
             .get(id)
+            .cloned()
             .ok_or_else(|| RestorableSessionError::SessionNotFound(id.to_string()))?;
 
         handle.push_message(message, None).await?;

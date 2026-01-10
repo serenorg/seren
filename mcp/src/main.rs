@@ -878,39 +878,40 @@ async fn require_oauth_auth(
             .await
             .put(sid.clone(), token.clone());
 
-        // Persist to database asynchronously (fire-and-forget to not block response)
-        // Use refresh token TTL for session expiry to allow session persistence
-        let store = state.store.clone();
-        let sid_clone = sid;
-        let token_clone = token.clone();
-        let client_id_clone = client_id.clone();
+        // Persist to database synchronously (best-effort).
+        //
+        // This is critical for clients like Claude Code that may only send Authorization on the
+        // session-creating request. If the process restarts before the token is persisted, the
+        // client may be forced to re-authenticate. Keeping this write on the request path makes
+        // restarts significantly more reliable.
+        //
+        // Use refresh token TTL for session expiry to allow session persistence.
         let session_expires_at = time::OffsetDateTime::now_utc()
             + time::Duration::hours(oauth::store::REFRESH_TOKEN_TTL_HOURS);
-        tokio::spawn(async move {
-            if let Err(e) = store
-                .save_session_token(
-                    &sid_clone,
-                    &token_clone,
-                    client_id_clone.as_deref(),
-                    user_id,
-                    session_expires_at,
-                )
-                .await
-            {
-                tracing::warn!(
-                    event = "session_token_persist_error",
-                    session_id = %sid_clone,
-                    error = %e,
-                    "Failed to persist new session token to database"
-                );
-            } else {
-                tracing::debug!(
-                    event = "session_token_persisted",
-                    session_id = %sid_clone,
-                    "New session token persisted to database"
-                );
-            }
-        });
+        if let Err(e) = state
+            .store
+            .save_session_token(
+                &sid,
+                &token,
+                client_id.as_deref(),
+                user_id,
+                session_expires_at,
+            )
+            .await
+        {
+            tracing::warn!(
+                event = "session_token_persist_error",
+                session_id = %sid,
+                error = %e,
+                "Failed to persist new session token to database"
+            );
+        } else {
+            tracing::debug!(
+                event = "session_token_persisted",
+                session_id = %sid,
+                "New session token persisted to database"
+            );
+        }
     }
 
     // Best-effort cleanup: when a session is explicitly closed, drop the cached token.
@@ -1127,8 +1128,7 @@ async fn run_http(config: Config) -> Result<()> {
 async fn run_oauth(config: Config) -> Result<()> {
     use oauth::{OAuthState, oauth_router};
     use rmcp::transport::streamable_http_server::{
-        StreamableHttpServerConfig, StreamableHttpService,
-        session::local::SessionConfig,
+        StreamableHttpServerConfig, StreamableHttpService, session::local::SessionConfig,
     };
     use std::sync::Arc;
     use tokio_util::sync::CancellationToken;

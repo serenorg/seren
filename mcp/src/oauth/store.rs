@@ -1039,6 +1039,7 @@ impl TokenStore {
 
     /// Remove an rmcp session from PostgreSQL tracking.
     /// Called when a session is closed via close_session().
+    #[allow(dead_code)] // kept for tests and manual cleanup utilities
     pub async fn untrack_rmcp_session(&self, session_id: &str) -> Result<bool> {
         let result = sqlx::query("DELETE FROM mcp_oauth.rmcp_sessions WHERE session_id = $1")
             .bind(session_id)
@@ -1100,12 +1101,20 @@ impl TokenStore {
     ) -> Result<()> {
         sqlx::query(
             r#"
-            UPDATE mcp_oauth.rmcp_sessions
-            SET initialize_request = $2,
-                initialize_response = $3,
-                protocol_version = $4,
+            INSERT INTO mcp_oauth.rmcp_sessions (
+                session_id,
+                created_at,
+                last_activity,
+                initialize_request,
+                initialize_response,
+                protocol_version
+            )
+            VALUES ($1, NOW(), NOW(), $2, $3, $4)
+            ON CONFLICT (session_id) DO UPDATE SET
+                initialize_request = EXCLUDED.initialize_request,
+                initialize_response = EXCLUDED.initialize_response,
+                protocol_version = EXCLUDED.protocol_version,
                 last_activity = NOW()
-            WHERE session_id = $1
             "#,
         )
         .bind(session_id)
@@ -1128,7 +1137,7 @@ impl TokenStore {
         let state = sqlx::query_as::<_, RmcpSessionState>(
             r#"
             SELECT session_id, initialize_request, initialize_response,
-                   protocol_version, created_at, last_activity
+            protocol_version, created_at, last_activity
             FROM mcp_oauth.rmcp_sessions
             WHERE session_id = $1 AND initialize_request IS NOT NULL
             "#,

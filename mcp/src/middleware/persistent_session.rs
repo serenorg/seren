@@ -111,21 +111,11 @@ impl SessionManager for PersistentSessionManager {
         // Close in inner manager
         let result = self.inner.close_session(id).await;
 
-        // Remove from PostgreSQL tracking
-        if let Err(e) = self.store.untrack_rmcp_session(id.as_ref()).await {
-            tracing::warn!(
-                event = "persistent_session_untrack_failed",
-                session_id = %id,
-                error = %e,
-                "Failed to remove session from database tracking"
-            );
-        } else {
-            tracing::debug!(
-                event = "persistent_session_closed",
-                session_id = %id,
-                "Session closed and removed from database"
-            );
-        }
+        // Note: We intentionally do NOT delete the DB session record here.
+        //
+        // rmcp will call `close_session` when the in-process service task exits (including
+        // server restarts). Keeping the record allows stale-session detection across restarts.
+        // Stale rows are cleaned up by `mcp_oauth.cleanup_expired`.
 
         result.map_err(Into::into)
     }
