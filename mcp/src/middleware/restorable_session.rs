@@ -32,6 +32,17 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::oauth::store::TokenStore;
 use crate::server::SerenMcpServer;
 
+/// Check if a SessionError indicates the session is dead and should be restored.
+///
+/// Both `SessionServiceTerminated` and `ChannelClosed` indicate the in-memory
+/// session is no longer usable and we should attempt restoration from the database.
+fn is_dead_session_error(e: &SessionError) -> bool {
+    matches!(
+        e,
+        SessionError::SessionServiceTerminated | SessionError::ChannelClosed(_)
+    )
+}
+
 /// A session manager that persists session state to PostgreSQL and can restore
 /// sessions after server restarts.
 pub struct RestorableSessionManager {
@@ -459,11 +470,12 @@ impl SessionManager for RestorableSessionManager {
             let handle = self.session_handle(id).await?;
             let receiver = match handle.establish_request_wise_channel().await {
                 Ok(r) => r,
-                Err(SessionError::SessionServiceTerminated) if attempt == 1 => {
+                Err(ref e) if attempt == 1 && is_dead_session_error(e) => {
                     tracing::warn!(
-                        event = "session_recover_service_terminated",
+                        event = "session_recover_dead_session",
                         session_id = %id,
-                        "Session service terminated; attempting restore"
+                        error = %e,
+                        "Session dead; attempting restore"
                     );
                     self.restore_after_terminated(id).await?;
                     continue;
@@ -476,11 +488,12 @@ impl SessionManager for RestorableSessionManager {
                 .await
             {
                 Ok(()) => return Ok(ReceiverStream::new(receiver.inner)),
-                Err(SessionError::SessionServiceTerminated) if attempt == 1 => {
+                Err(ref e) if attempt == 1 && is_dead_session_error(e) => {
                     tracing::warn!(
-                        event = "session_recover_service_terminated",
+                        event = "session_recover_dead_session",
                         session_id = %id,
-                        "Session service terminated; attempting restore"
+                        error = %e,
+                        "Session dead; attempting restore"
                     );
                     self.restore_after_terminated(id).await?;
                     continue;
@@ -497,11 +510,12 @@ impl SessionManager for RestorableSessionManager {
         let handle = self.session_handle(id).await?;
         match handle.establish_common_channel().await {
             Ok(receiver) => Ok(ReceiverStream::new(receiver.inner)),
-            Err(SessionError::SessionServiceTerminated) => {
+            Err(ref e) if is_dead_session_error(e) => {
                 tracing::warn!(
-                    event = "session_recover_service_terminated",
+                    event = "session_recover_dead_session",
                     session_id = %id,
-                    "Session service terminated; attempting restore"
+                    error = %e,
+                    "Session dead; attempting restore"
                 );
                 let handle = self.restore_after_terminated(id).await?;
                 let receiver = handle.establish_common_channel().await?;
@@ -522,11 +536,12 @@ impl SessionManager for RestorableSessionManager {
         let handle = self.session_handle(id).await?;
         match handle.resume(event_id.clone()).await {
             Ok(receiver) => Ok(ReceiverStream::new(receiver.inner)),
-            Err(SessionError::SessionServiceTerminated) => {
+            Err(ref e) if is_dead_session_error(e) => {
                 tracing::warn!(
-                    event = "session_recover_service_terminated",
+                    event = "session_recover_dead_session",
                     session_id = %id,
-                    "Session service terminated; attempting restore"
+                    error = %e,
+                    "Session dead; attempting restore"
                 );
                 let handle = self.restore_after_terminated(id).await?;
                 let receiver = handle.resume(event_id).await?;
@@ -550,11 +565,12 @@ impl SessionManager for RestorableSessionManager {
         let handle = self.session_handle(id).await?;
         match handle.push_message(message.clone(), None).await {
             Ok(()) => {}
-            Err(SessionError::SessionServiceTerminated) => {
+            Err(ref e) if is_dead_session_error(e) => {
                 tracing::warn!(
-                    event = "session_recover_service_terminated",
+                    event = "session_recover_dead_session",
                     session_id = %id,
-                    "Session service terminated; attempting restore"
+                    error = %e,
+                    "Session dead; attempting restore"
                 );
                 let handle = self.restore_after_terminated(id).await?;
                 handle.push_message(message, None).await?;
