@@ -14,7 +14,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use futures::Stream;
-use rmcp::model::{ClientJsonRpcMessage, ServerJsonRpcMessage};
+use rmcp::model::{
+    ClientJsonRpcMessage, ClientNotification, InitializedNotification, ServerJsonRpcMessage,
+};
 use rmcp::serve_server;
 use rmcp::transport::common::server_side_http::{ServerSseMessage, SessionId};
 use rmcp::transport::streamable_http_server::session::SessionManager;
@@ -168,6 +170,23 @@ impl RestorableSessionManager {
             .initialize(init_request)
             .await
             .map_err(|e| RestorableSessionError::RestorationFailed(e.to_string()))?;
+
+        // MCP handshake requires the client to send `notifications/initialized` after `initialize`.
+        //
+        // Clients will not resend this after a server restart, so restoration must do it, otherwise
+        // the restored service will reject subsequent requests (e.g. tool calls) with errors like:
+        // "expect initialized notification, but received: CallToolRequest".
+        handle
+            .push_message(
+                ClientJsonRpcMessage::notification(ClientNotification::InitializedNotification(
+                    InitializedNotification {
+                        method: Default::default(),
+                        extensions: Default::default(),
+                    },
+                )),
+                None,
+            )
+            .await?;
 
         // Add the restored session to in-memory map
         self.sessions.write().await.insert(id.clone(), handle);
