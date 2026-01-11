@@ -788,6 +788,45 @@ fn truncate_for_client(value: &str, max_chars: usize) -> String {
     format!("{truncated}... (truncated)")
 }
 
+/// Check if a seren SDK error is retryable (transient connection/timeout errors).
+///
+/// Returns true for:
+/// - Connection errors (DNS, TCP, connection refused)
+/// - Timeout errors
+/// - 502/503/504 gateway errors
+///
+/// Returns false for:
+/// - Client errors (4xx)
+/// - Server errors (500) that indicate application-level issues
+/// - Response parsing errors
+fn is_retryable_error(e: &seren::Error) -> bool {
+    match e {
+        seren::Error::InvalidRequest(_) => false,
+        seren::Error::CommunicationError(reqwest_err) => {
+            // Connection errors, timeouts are retryable
+            reqwest_err.is_connect() || reqwest_err.is_timeout()
+        }
+        seren::Error::UnexpectedResponse(response) => {
+            // Gateway errors are retryable (upstream may be temporarily unavailable)
+            let status = response.status();
+            status == reqwest::StatusCode::BAD_GATEWAY
+                || status == reqwest::StatusCode::SERVICE_UNAVAILABLE
+                || status == reqwest::StatusCode::GATEWAY_TIMEOUT
+        }
+        _ => false,
+    }
+}
+
+/// Timeout duration for long-running database queries (2 minutes).
+/// Some publishers like sec-filings-intelligence can take 60-120s for complex queries.
+const QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Maximum number of retries for transient errors.
+const MAX_RETRIES: u32 = 2;
+
+/// Base delay for exponential backoff (doubles each retry).
+const RETRY_BASE_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
+
 fn payment_required_has_non_prepaid_option(body_text: &str) -> bool {
     let Ok(body_json) = serde_json::from_str::<serde_json::Value>(body_text) else {
         return false;
@@ -1248,6 +1287,19 @@ impl SerenMcpServer {
         token: &str,
         agent_metadata: &AgentMetadata,
     ) -> Result<reqwest::Client, McpError> {
+        self.build_http_client_with_timeout(
+            token,
+            agent_metadata,
+            std::time::Duration::from_secs(30),
+        )
+    }
+
+    fn build_http_client_with_timeout(
+        &self,
+        token: &str,
+        agent_metadata: &AgentMetadata,
+        timeout: std::time::Duration,
+    ) -> Result<reqwest::Client, McpError> {
         let mut headers = reqwest::header::HeaderMap::new();
         let auth_value = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token))
             .map_err(|e| McpError::internal_error(format!("Invalid token: {}", e), None))?;
@@ -1257,7 +1309,7 @@ impl SerenMcpServer {
 
         reqwest::Client::builder()
             .default_headers(headers)
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(timeout)
             .connect_timeout(std::time::Duration::from_secs(10))
             .build()
             .map_err(|e| {
@@ -1286,6 +1338,21 @@ impl SerenMcpServer {
         let token = self.bearer_token(extensions)?;
         let agent_metadata = extract_agent_metadata_from_extensions(extensions);
         let http_client = self.build_http_client(&token, &agent_metadata)?;
+        Ok(seren::Client::new_with_client(
+            &self.api_base_url,
+            http_client,
+        ))
+    }
+
+    /// Create an API client with a custom timeout for long-running operations.
+    fn api_client_with_timeout(
+        &self,
+        extensions: &Extensions,
+        timeout: std::time::Duration,
+    ) -> Result<seren::Client, McpError> {
+        let token = self.bearer_token(extensions)?;
+        let agent_metadata = extract_agent_metadata_from_extensions(extensions);
+        let http_client = self.build_http_client_with_timeout(&token, &agent_metadata, timeout)?;
         Ok(seren::Client::new_with_client(
             &self.api_base_url,
             http_client,
@@ -2880,7 +2947,9 @@ impl SerenMcpServer {
         Parameters(params): Parameters<ExecutePaidQueryParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
+        // Use longer timeout for database queries (120s) - some publishers like
+        // sec-filings-intelligence can take 60-120s for complex queries.
+        let api_client = self.api_client_with_timeout(&extensions, QUERY_TIMEOUT)?;
         let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
         let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
         let body = seren::QueryRequestBody {
@@ -2891,80 +2960,122 @@ impl SerenMcpServer {
             request_id: params.request_id,
         };
 
-        match api_client.execute_query(&body).await {
-            Ok(response) => {
-                let result = response.into_inner();
-                Ok(CallToolResult::success(vec![json_content(&result)?]))
+        // Retry loop with exponential backoff for transient errors
+        let mut last_error = None;
+        for attempt in 0..=MAX_RETRIES {
+            if attempt > 0 {
+                let delay = RETRY_BASE_DELAY * 2u32.pow(attempt - 1);
+                tracing::warn!(
+                    attempt = attempt,
+                    delay_ms = delay.as_millis(),
+                    publisher = %params.publisher,
+                    "Retrying paid query after transient error"
+                );
+                tokio::time::sleep(delay).await;
             }
-            Err(e) => {
-                match e {
-                    seren::Error::UnexpectedResponse(response) => {
-                        let status = response.status();
-                        if status == reqwest::StatusCode::PAYMENT_REQUIRED {
-                            let has_payment_required_header =
-                                response.headers().get("PAYMENT-REQUIRED").is_some();
-                            let body_text = response.text().await.unwrap_or_default();
 
-                            if self.wallet.is_some()
-                                && (has_payment_required_header
-                                    || payment_required_has_non_prepaid_option(&body_text))
-                            {
-                                let result = self
-                                    .execute_x402_roundtrip_json(
-                                        "/agent/database",
-                                        &body,
-                                        params.confirm,
-                                        &agent_metadata,
-                                    )
-                                    .await?;
-                                return Ok(CallToolResult::success(vec![json_content(&result)?]));
+            match api_client.execute_query(&body).await {
+                Ok(response) => {
+                    let result = response.into_inner();
+                    return Ok(CallToolResult::success(vec![json_content(&result)?]));
+                }
+                Err(e) => {
+                    // Check if error is retryable before giving up
+                    if is_retryable_error(&e) && attempt < MAX_RETRIES {
+                        tracing::warn!(
+                            error = %e,
+                            attempt = attempt,
+                            publisher = %params.publisher,
+                            "Transient error in paid query, will retry"
+                        );
+                        last_error = Some(e);
+                        continue;
+                    }
+
+                    // Non-retryable error or exhausted retries - handle normally
+                    match e {
+                        seren::Error::UnexpectedResponse(response) => {
+                            let status = response.status();
+                            if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+                                let has_payment_required_header =
+                                    response.headers().get("PAYMENT-REQUIRED").is_some();
+                                let body_text = response.text().await.unwrap_or_default();
+
+                                if self.wallet.is_some()
+                                    && (has_payment_required_header
+                                        || payment_required_has_non_prepaid_option(&body_text))
+                                {
+                                    let result = self
+                                        .execute_x402_roundtrip_json(
+                                            "/agent/database",
+                                            &body,
+                                            params.confirm,
+                                            &agent_metadata,
+                                        )
+                                        .await?;
+                                    return Ok(CallToolResult::success(vec![json_content(
+                                        &result,
+                                    )?]));
+                                }
+
+                                return Err(McpError::invalid_request(
+                                    format_payment_required_body(status, &body_text),
+                                    None,
+                                ));
                             }
-
-                            return Err(McpError::invalid_request(
-                                format_payment_required_body(status, &body_text),
-                                None,
-                            ));
-                        }
-                        if status == reqwest::StatusCode::CONFLICT {
-                            return Err(McpError::invalid_request(
-                                "Duplicate request_id. Provide a new UUID and retry.".to_string(),
-                                None,
-                            ));
-                        }
-                        if status == reqwest::StatusCode::NOT_FOUND {
+                            if status == reqwest::StatusCode::CONFLICT {
+                                return Err(McpError::invalid_request(
+                                    "Duplicate request_id. Provide a new UUID and retry."
+                                        .to_string(),
+                                    None,
+                                ));
+                            }
+                            if status == reqwest::StatusCode::NOT_FOUND {
+                                return Err(McpError::internal_error(
+                                    format!(
+                                        "Publisher '{}' query endpoint returned 404. The publisher may not have database access configured, or the database may be unavailable. Use get_agent_publisher to check the publisher's source_type and configuration.",
+                                        params.publisher
+                                    ),
+                                    None,
+                                ));
+                            }
+                            let body = response.text().await.unwrap_or_default();
                             return Err(McpError::internal_error(
                                 format!(
-                                    "Publisher '{}' query endpoint returned 404. The publisher may not have database access configured, or the database may be unavailable. Use get_agent_publisher to check the publisher's source_type and configuration.",
-                                    params.publisher
+                                    "Query failed ({}): {}",
+                                    status,
+                                    truncate_for_client(&body, 1200)
                                 ),
                                 None,
                             ));
                         }
-                        let body = response.text().await.unwrap_or_default();
-                        Err(McpError::internal_error(
-                            format!(
-                                "Query failed ({}): {}",
-                                status,
-                                truncate_for_client(&body, 1200)
-                            ),
-                            None,
-                        ))
-                    }
-                    _ => {
-                        // Handle specific error codes with user-friendly messages
-                        if let Some(status) = e.status()
-                            && status == reqwest::StatusCode::CONFLICT
-                        {
-                            return Err(McpError::invalid_request(
-                                "Duplicate request_id. Provide a new UUID and retry.".to_string(),
-                                None,
-                            ));
+                        _ => {
+                            // Handle specific error codes with user-friendly messages
+                            if let Some(status) = e.status()
+                                && status == reqwest::StatusCode::CONFLICT
+                            {
+                                return Err(McpError::invalid_request(
+                                    "Duplicate request_id. Provide a new UUID and retry."
+                                        .to_string(),
+                                    None,
+                                ));
+                            }
+                            return Err(McpError::internal_error(e.to_string(), None));
                         }
-                        Err(McpError::internal_error(e.to_string(), None))
                     }
                 }
             }
         }
+
+        // Should not reach here, but handle exhausted retries
+        Err(McpError::internal_error(
+            format!(
+                "Query failed after {} retries: {}",
+                MAX_RETRIES,
+                last_error.map(|e| e.to_string()).unwrap_or_default()
+            ),
+            None,
+        ))
     }
 
     #[tool(
@@ -2980,94 +3091,138 @@ impl SerenMcpServer {
         Parameters(params): Parameters<ExecutePaidApiParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
+        // Use longer timeout for API calls (120s) - some publishers like
+        // Firecrawl can take time for complex web scraping operations.
+        let api_client = self.api_client_with_timeout(&extensions, QUERY_TIMEOUT)?;
         let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
         let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
         let body = seren::ApiRequestBody {
             publisher_id,
             asset_id: params.asset_id,
-            method: params.method,
-            path: params.path,
-            headers: params.headers,
-            body: params.body,
+            method: params.method.clone(),
+            path: params.path.clone(),
+            headers: params.headers.clone(),
+            body: params.body.clone(),
             estimated_rows: params.estimated_rows,
             request_id: params.request_id,
         };
 
-        match api_client.execute_api(&body).await {
-            Ok(response) => {
-                let result = response.into_inner();
-                Ok(CallToolResult::success(vec![json_content(&result)?]))
+        // Retry loop with exponential backoff for transient errors
+        let mut last_error = None;
+        for attempt in 0..=MAX_RETRIES {
+            if attempt > 0 {
+                let delay = RETRY_BASE_DELAY * 2u32.pow(attempt - 1);
+                tracing::warn!(
+                    attempt = attempt,
+                    delay_ms = delay.as_millis(),
+                    publisher = %params.publisher,
+                    "Retrying paid API call after transient error"
+                );
+                tokio::time::sleep(delay).await;
             }
-            Err(e) => {
-                match e {
-                    seren::Error::UnexpectedResponse(response) => {
-                        let status = response.status();
-                        if status == reqwest::StatusCode::PAYMENT_REQUIRED {
-                            let has_payment_required_header =
-                                response.headers().get("PAYMENT-REQUIRED").is_some();
-                            let body_text = response.text().await.unwrap_or_default();
 
-                            if self.wallet.is_some()
-                                && (has_payment_required_header
-                                    || payment_required_has_non_prepaid_option(&body_text))
-                            {
-                                let result = self
-                                    .execute_x402_roundtrip_json(
-                                        "/agent/api",
-                                        &body,
-                                        params.confirm,
-                                        &agent_metadata,
-                                    )
-                                    .await?;
-                                return Ok(CallToolResult::success(vec![json_content(&result)?]));
+            match api_client.execute_api(&body).await {
+                Ok(response) => {
+                    let result = response.into_inner();
+                    return Ok(CallToolResult::success(vec![json_content(&result)?]));
+                }
+                Err(e) => {
+                    // Check if error is retryable before giving up
+                    if is_retryable_error(&e) && attempt < MAX_RETRIES {
+                        tracing::warn!(
+                            error = %e,
+                            attempt = attempt,
+                            publisher = %params.publisher,
+                            "Transient error in paid API call, will retry"
+                        );
+                        last_error = Some(e);
+                        continue;
+                    }
+
+                    // Non-retryable error or exhausted retries - handle normally
+                    match e {
+                        seren::Error::UnexpectedResponse(response) => {
+                            let status = response.status();
+                            if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+                                let has_payment_required_header =
+                                    response.headers().get("PAYMENT-REQUIRED").is_some();
+                                let body_text = response.text().await.unwrap_or_default();
+
+                                if self.wallet.is_some()
+                                    && (has_payment_required_header
+                                        || payment_required_has_non_prepaid_option(&body_text))
+                                {
+                                    let result = self
+                                        .execute_x402_roundtrip_json(
+                                            "/agent/api",
+                                            &body,
+                                            params.confirm,
+                                            &agent_metadata,
+                                        )
+                                        .await?;
+                                    return Ok(CallToolResult::success(vec![json_content(
+                                        &result,
+                                    )?]));
+                                }
+
+                                return Err(McpError::invalid_request(
+                                    format_payment_required_body(status, &body_text),
+                                    None,
+                                ));
                             }
-
-                            return Err(McpError::invalid_request(
-                                format_payment_required_body(status, &body_text),
-                                None,
-                            ));
-                        }
-                        if status == reqwest::StatusCode::CONFLICT {
-                            return Err(McpError::invalid_request(
-                                "Duplicate request_id. Provide a new UUID and retry.".to_string(),
-                                None,
-                            ));
-                        }
-                        if status == reqwest::StatusCode::NOT_FOUND {
+                            if status == reqwest::StatusCode::CONFLICT {
+                                return Err(McpError::invalid_request(
+                                    "Duplicate request_id. Provide a new UUID and retry."
+                                        .to_string(),
+                                    None,
+                                ));
+                            }
+                            if status == reqwest::StatusCode::NOT_FOUND {
+                                return Err(McpError::internal_error(
+                                    format!(
+                                        "Publisher '{}' API endpoint returned 404. The publisher may not have API access configured, or the endpoint may be unavailable. Use get_agent_publisher to check the publisher's source_type and api_url configuration.",
+                                        params.publisher
+                                    ),
+                                    None,
+                                ));
+                            }
+                            let body = response.text().await.unwrap_or_default();
                             return Err(McpError::internal_error(
                                 format!(
-                                    "Publisher '{}' API endpoint returned 404. The publisher may not have API access configured, or the endpoint may be unavailable. Use get_agent_publisher to check the publisher's source_type and api_url configuration.",
-                                    params.publisher
+                                    "API call failed ({}): {}",
+                                    status,
+                                    truncate_for_client(&body, 1200)
                                 ),
                                 None,
                             ));
                         }
-                        let body = response.text().await.unwrap_or_default();
-                        Err(McpError::internal_error(
-                            format!(
-                                "API call failed ({}): {}",
-                                status,
-                                truncate_for_client(&body, 1200)
-                            ),
-                            None,
-                        ))
-                    }
-                    _ => {
-                        // Handle specific error codes with user-friendly messages
-                        if let Some(status) = e.status()
-                            && status == reqwest::StatusCode::CONFLICT
-                        {
-                            return Err(McpError::invalid_request(
-                                "Duplicate request_id. Provide a new UUID and retry.".to_string(),
-                                None,
-                            ));
+                        _ => {
+                            // Handle specific error codes with user-friendly messages
+                            if let Some(status) = e.status()
+                                && status == reqwest::StatusCode::CONFLICT
+                            {
+                                return Err(McpError::invalid_request(
+                                    "Duplicate request_id. Provide a new UUID and retry."
+                                        .to_string(),
+                                    None,
+                                ));
+                            }
+                            return Err(McpError::internal_error(e.to_string(), None));
                         }
-                        Err(McpError::internal_error(e.to_string(), None))
                     }
                 }
             }
         }
+
+        // Should not reach here, but handle exhausted retries
+        Err(McpError::internal_error(
+            format!(
+                "API call failed after {} retries: {}",
+                MAX_RETRIES,
+                last_error.map(|e| e.to_string()).unwrap_or_default()
+            ),
+            None,
+        ))
     }
 
     // ========================================================================
