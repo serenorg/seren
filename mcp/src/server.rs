@@ -305,6 +305,61 @@ struct PublishersListResponse<T> {
     has_more: bool,
 }
 
+// ============================================================================
+// Enhanced Database Response Types (Issue #69)
+// ============================================================================
+
+/// Response for list_databases with context
+#[derive(Debug, Serialize)]
+struct DatabaseListResponse {
+    /// Project name for context
+    project_name: String,
+    /// Branch name for context
+    branch_name: String,
+    /// Whether this is the default branch
+    is_default_branch: bool,
+    /// List of databases
+    databases: Vec<DatabaseInfo>,
+}
+
+/// Simplified database info for list response
+#[derive(Debug, Serialize)]
+struct DatabaseInfo {
+    id: Uuid,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    owner_name: Option<String>,
+    created_at: String,
+}
+
+/// Entry for list_all_databases response
+#[derive(Debug, Serialize)]
+struct AllDatabasesEntry {
+    /// Project name
+    project: String,
+    /// Project ID
+    project_id: Uuid,
+    /// Branch name
+    branch: String,
+    /// Branch ID
+    branch_id: Uuid,
+    /// Whether this is the default branch
+    is_default: bool,
+    /// Database name
+    database: String,
+    /// Database ID
+    database_id: Uuid,
+}
+
+/// Response for list_all_databases
+#[derive(Debug, Serialize)]
+struct AllDatabasesResponse {
+    /// Total count of databases
+    total: usize,
+    /// All databases with context
+    databases: Vec<AllDatabasesEntry>,
+}
+
 /// Parameters for getting a specific publisher by slug
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GetAgentPublisherParams {
@@ -1861,12 +1916,79 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
+
+        // Fetch databases, project, and branch in parallel for efficiency
+        let (databases_result, project_result, branch_result) = tokio::join!(
+            api_client.list_databases(&params.project_id, &params.branch_id),
+            api_client.get_project(&params.project_id),
+            api_client.get_branch(&params.project_id, &params.branch_id)
+        );
+
+        let databases = databases_result
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        let project = project_result
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        let branch = branch_result
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+
+        // Build enhanced response with human-readable context
+        let response = DatabaseListResponse {
+            project_name: project.data.name.clone(),
+            branch_name: branch.data.name.clone(),
+            is_default_branch: branch.data.is_default.unwrap_or(false),
+            databases: databases
+                .data
+                .iter()
+                .map(|db| DatabaseInfo {
+                    id: db.id,
+                    name: db.name.clone(),
+                    owner_name: db.owner_name.clone(),
+                    created_at: db.created_at.to_string(),
+                })
+                .collect(),
+        };
+
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List all databases across all projects. Returns a flat list with project and branch names for easy identification.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_all_databases(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+
+        // Call the dedicated endpoint that returns all databases with context
         let databases = api_client
-            .list_databases(&params.project_id, &params.branch_id)
+            .list_all_databases()
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&databases)?]))
+
+        // Map the API response to our response format
+        let all_databases: Vec<AllDatabasesEntry> = databases
+            .data
+            .into_iter()
+            .map(|db| AllDatabasesEntry {
+                project: db.project_name,
+                project_id: db.project_id,
+                branch: db.branch_name,
+                branch_id: db.branch_id,
+                is_default: db.is_default_branch,
+                database: db.name,
+                database_id: db.id,
+            })
+            .collect();
+
+        let response = AllDatabasesResponse {
+            total: all_databases.len(),
+            databases: all_databases,
+        };
+
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -2487,15 +2609,11 @@ impl SerenMcpServer {
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
 
-        // Use pagination metadata from API response if available
+        // Use pagination metadata from API response
         let publishers = response.data;
         let count = publishers.len();
-
-        let (total, has_more) = match response.pagination.as_ref() {
-            Some(p) => (Some(p.total as u64), p.has_more),
-            // Fallback for API versions without pagination metadata
-            None => (None, (count as i64) >= limit),
-        };
+        let total = Some(response.pagination.total as u64);
+        let has_more = response.pagination.has_more;
 
         if params.verbose {
             let response = PublishersListResponse {

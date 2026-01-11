@@ -214,7 +214,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "GET /api/agent/publishers",
+        "summary": "GET /agent/publishers",
         "description": "List active publishers in the store",
         "operationId": "list_store_publishers",
         "parameters": [
@@ -265,7 +265,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PublishersDataResponse"
+                  "$ref": "#/components/schemas/PaginatedPublishersResponse"
                 }
               }
             }
@@ -279,7 +279,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "POST /api/agent/publishers",
+        "summary": "POST /agent/publishers",
         "description": "Create a publisher via organization API key (machine-to-machine).",
         "operationId": "create_publisher_api_key",
         "requestBody": {
@@ -323,7 +323,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "GET /api/agent/publishers/suggest",
+        "summary": "GET /agent/publishers/suggest",
         "description": "Suggest publishers based on a task or query",
         "operationId": "suggest_publishers",
         "parameters": [
@@ -381,7 +381,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "GET /api/agent/publishers/:slug",
+        "summary": "GET /agent/publishers/:slug",
         "description": "Get publisher by slug (public store view)",
         "operationId": "get_store_publisher",
         "parameters": [
@@ -1630,6 +1630,36 @@
         }
       }
     },
+    "/databases": {
+      "get": {
+        "tags": [
+          "Databases"
+        ],
+        "summary": "List all databases across all projects for the authenticated user",
+        "description": "Returns all databases the user has access to, with project and branch context included.\nThis provides a single view of all databases without needing to query each project/branch separately.",
+        "operationId": "list_all_databases",
+        "responses": {
+          "200": {
+            "description": "List of all databases with context",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabasesWithContextResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/organizations": {
       "get": {
         "tags": [
@@ -2532,7 +2562,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "GET /api/organizations/:org_id/publishers",
+        "summary": "GET /organizations/:org_id/publishers",
         "description": "List publishers owned by an organization",
         "operationId": "list_org_publishers",
         "parameters": [
@@ -2570,7 +2600,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "POST /api/organizations/:org_id/publishers",
+        "summary": "POST /organizations/:org_id/publishers",
         "description": "Create a new publisher",
         "operationId": "create_publisher",
         "parameters": [
@@ -2626,7 +2656,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "GET /api/organizations/:org_id/publishers/:publisher_id",
+        "summary": "GET /organizations/:org_id/publishers/:publisher_id",
         "description": "Get publisher details",
         "operationId": "get_org_publisher",
         "parameters": [
@@ -2677,7 +2707,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "PUT /api/organizations/:org_id/publishers/:publisher_id",
+        "summary": "PUT /organizations/:org_id/publishers/:publisher_id",
         "description": "Update a publisher",
         "operationId": "update_publisher",
         "parameters": [
@@ -2743,7 +2773,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "GET /api/organizations/:org_id/publishers/:publisher_id/earnings",
+        "summary": "GET /organizations/:org_id/publishers/:publisher_id/earnings",
         "description": "List earnings for a publisher (per asset).",
         "operationId": "get_org_publisher_earnings",
         "parameters": [
@@ -2799,7 +2829,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "GET /api/organizations/:org_id/publishers/:publisher_id/payouts",
+        "summary": "GET /organizations/:org_id/publishers/:publisher_id/payouts",
         "description": "List payout requests for a publisher.",
         "operationId": "list_org_publisher_payouts",
         "parameters": [
@@ -2875,7 +2905,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "POST /api/organizations/:org_id/publishers/:publisher_id/payouts",
+        "summary": "POST /organizations/:org_id/publishers/:publisher_id/payouts",
         "description": "Request a payout for a publisher's earnings.",
         "operationId": "create_org_publisher_payout",
         "parameters": [
@@ -2941,7 +2971,7 @@
         "tags": [
           "agent"
         ],
-        "summary": "PUT /api/organizations/:org_id/publishers/:publisher_id/pricing",
+        "summary": "PUT /organizations/:org_id/publishers/:publisher_id/pricing",
         "description": "Update publisher pricing config for a specific asset",
         "operationId": "update_publisher_pricing",
         "parameters": [
@@ -7662,6 +7692,51 @@
         ]
       }
     },
+    "/projects/{project_id}/databases": {
+      "get": {
+        "tags": [
+          "Databases"
+        ],
+        "summary": "List all databases across all branches for a specific project",
+        "description": "Returns all databases in the project with branch context included.\nThis provides a single view of all databases in a project without needing to query each branch separately.",
+        "operationId": "list_project_databases",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of all databases in project with context",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabasesWithContextResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Project not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/projects/{project_id}/endpoints": {
       "get": {
         "tags": [
@@ -12096,6 +12171,62 @@
           }
         }
       },
+      "DatabaseWithContext": {
+        "type": "object",
+        "description": "Database with full project and branch context for cross-project listing",
+        "required": [
+          "id",
+          "name",
+          "project_id",
+          "project_name",
+          "branch_id",
+          "branch_name",
+          "is_default_branch",
+          "created_at"
+        ],
+        "properties": {
+          "branch_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Branch ID"
+          },
+          "branch_name": {
+            "type": "string",
+            "description": "Human-readable branch name"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Database ID"
+          },
+          "is_default_branch": {
+            "type": "boolean",
+            "description": "Whether this is the project's default branch"
+          },
+          "name": {
+            "type": "string",
+            "description": "Database name"
+          },
+          "owner_name": {
+            "type": "string",
+            "description": "Database owner role name",
+            "nullable": true
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Project ID"
+          },
+          "project_name": {
+            "type": "string",
+            "description": "Human-readable project name"
+          }
+        }
+      },
       "DatabaseWithOwner": {
         "type": "object",
         "description": "Database with owner role name included",
@@ -12163,6 +12294,30 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Database"
+            },
+            "description": "The actual response data (can be a single object or a collection)"
+          },
+          "pagination": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "DatabasesWithContextResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseWithContext"
             },
             "description": "The actual response data (can be a single object or a collection)"
           },
@@ -14034,6 +14189,44 @@
         "description": "A validated network identifier.\n\nSupports common blockchain networks. Stored as TEXT in database.\n\n# Known Networks\n- `evm:1` - Ethereum Mainnet\n- `evm:8453` - Base\n- `evm:137` - Polygon\n- `evm:42161` - Arbitrum One\n- `evm:10` - Optimism\n- `solana:mainnet` - Solana Mainnet\n- `solana:devnet` - Solana Devnet\n\n# Examples\n\n```\nuse seren_core::models::NetworkId;\n\nlet eth = NetworkId::new(\"evm:1\").unwrap();\nassert!(eth.is_evm());\n\nlet sol = NetworkId::new(\"solana:mainnet\").unwrap();\nassert!(sol.is_solana());\n```",
         "example": "evm:8453"
       },
+      "OffsetPaginationMeta": {
+        "type": "object",
+        "description": "Offset-based pagination metadata\n\nUsed for APIs that use limit/offset pagination instead of page/per_page.\nStandard fields following REST API conventions.",
+        "required": [
+          "total",
+          "count",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "description": "Number of items in this response",
+            "minimum": 0
+          },
+          "has_more": {
+            "type": "boolean",
+            "description": "Whether more items exist beyond this page"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Maximum items requested"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Starting offset"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total number of items across all pages",
+            "minimum": 0
+          }
+        }
+      },
       "OnchainDepositRequest": {
         "type": "object",
         "description": "Request body for on-chain deposit",
@@ -14826,6 +15019,26 @@
           },
           "pagination": {
             "$ref": "#/components/schemas/PaginationMeta"
+          }
+        }
+      },
+      "PaginatedPublishersResponse": {
+        "type": "object",
+        "description": "Response wrapper with offset-based pagination\n\nUse this for list endpoints that use limit/offset pagination.",
+        "required": [
+          "data",
+          "pagination"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublisherResponse"
+            },
+            "description": "The response data"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/OffsetPaginationMeta"
           }
         }
       },

@@ -90,6 +90,13 @@ enum Commands {
         #[command(subcommand)]
         action: DatabaseAction,
     },
+    /// List all databases across all projects with human-readable project and branch names
+    #[command(name = "list-all-databases")]
+    ListAllDatabases {
+        /// Optional project ID to filter databases to a specific project
+        #[arg(long)]
+        project_id: Option<String>,
+    },
     /// Manage roles
     Roles {
         /// Project ID
@@ -1578,6 +1585,9 @@ async fn main() -> anyhow::Result<()> {
                 commands::databases::delete(&project_id, &branch_id, &id, &ctx).await?
             }
         },
+        Commands::ListAllDatabases { project_id } => {
+            commands::databases::list_all(project_id.as_deref(), &ctx).await?
+        }
         Commands::Roles {
             project_id,
             branch_id,

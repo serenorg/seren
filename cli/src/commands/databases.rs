@@ -1,5 +1,6 @@
 use anyhow::Result;
 use colored::Colorize;
+use comfy_table::{Cell, Color, Table, presets::UTF8_FULL_CONDENSED};
 use seren::CreateDatabaseRequest;
 use uuid::Uuid;
 
@@ -120,6 +121,69 @@ pub async fn delete(
             .green()
             .bold()
     );
+
+    Ok(())
+}
+
+/// List all databases across all projects, or optionally filtered to a specific project
+pub async fn list_all(project_id: Option<&str>, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+
+    let databases = if let Some(pid) = project_id {
+        // List databases for a specific project (across all branches)
+        let project_uuid =
+            Uuid::parse_str(pid).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
+        client
+            .list_project_databases(&project_uuid)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to list databases: {}", e))?
+            .into_inner()
+    } else {
+        // List all databases across all projects
+        client
+            .list_all_databases()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to list databases: {}", e))?
+            .into_inner()
+    };
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&databases)?,
+        OutputFormat::Table => {
+            if databases.data.is_empty() {
+                println!("{}", "No databases found.".yellow());
+            } else {
+                let mut table = Table::new();
+                table.load_preset(UTF8_FULL_CONDENSED);
+                table.set_header(vec![
+                    Cell::new("Project").fg(Color::Cyan),
+                    Cell::new("Branch").fg(Color::Cyan),
+                    Cell::new("Default").fg(Color::Cyan),
+                    Cell::new("Database").fg(Color::Cyan),
+                    Cell::new("Owner").fg(Color::Cyan),
+                    Cell::new("ID").fg(Color::Cyan),
+                ]);
+
+                for db in &databases.data {
+                    table.add_row(vec![
+                        Cell::new(&db.project_name),
+                        Cell::new(&db.branch_name),
+                        Cell::new(if db.is_default_branch { "✓" } else { "" }),
+                        Cell::new(&db.name).fg(Color::Green),
+                        Cell::new(db.owner_name.as_deref().unwrap_or("-")),
+                        Cell::new(db.id.to_string()),
+                    ]);
+                }
+
+                println!("{table}");
+                println!();
+                println!(
+                    "{}",
+                    format!("Total: {} database(s)", databases.data.len()).dimmed()
+                );
+            }
+        }
+    }
 
     Ok(())
 }
