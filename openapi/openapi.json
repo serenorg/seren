@@ -19,6 +19,449 @@
     }
   ],
   "paths": {
+    "/admin/credits/grant": {
+      "post": {
+        "tags": [
+          "admin-credits"
+        ],
+        "summary": "POST /api/admin/credits/grant",
+        "description": "Grant credits to an organization",
+        "operationId": "grant_credits",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantCreditsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Credits granted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreditGrantResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Not authorized (admin only)"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/admin/credits/grants": {
+      "get": {
+        "tags": [
+          "admin-credits"
+        ],
+        "summary": "GET /api/admin/credits/grants",
+        "description": "List all credit grants with optional filters",
+        "operationId": "list_credit_grants",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Filter by organization ID",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "nullable": true
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "description": "Filter by credit source",
+            "required": false,
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/CreditSource"
+                }
+              ],
+              "nullable": true
+            }
+          },
+          {
+            "name": "active_only",
+            "in": "query",
+            "description": "Only show active grants (has remaining balance and not expired)",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default: 50)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Offset for pagination (default: 0)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Credit grants retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreditGrantsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized (admin only)"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/admin/organizations": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "GET /api/admin/organizations",
+        "description": "List all organizations with usage metrics.\nRequires platform admin access.",
+        "operationId": "list_all_organizations",
+        "responses": {
+          "200": {
+            "description": "List of all organizations with usage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminOrganizationsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - not a platform admin"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/admin/promo-codes": {
+      "get": {
+        "tags": [
+          "admin-credits"
+        ],
+        "summary": "GET /api/admin/promo-codes",
+        "description": "List all promotional codes with stats",
+        "operationId": "list_promo_codes",
+        "parameters": [
+          {
+            "name": "is_active",
+            "in": "query",
+            "description": "Filter by active status",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default: 50)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Offset for pagination (default: 0)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Promo codes retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoCodesWithStatsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized (admin only)"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "admin-credits"
+        ],
+        "summary": "POST /api/admin/promo-codes",
+        "description": "Create a new promotional code",
+        "operationId": "create_promo_code",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePromoCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Promo code created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoCodeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Not authorized (admin only)"
+          },
+          "409": {
+            "description": "Promo code already exists"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/admin/promo-codes/{id}": {
+      "patch": {
+        "tags": [
+          "admin-credits"
+        ],
+        "summary": "PATCH /api/admin/promo-codes/:id",
+        "description": "Update a promotional code",
+        "operationId": "update_promo_code",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Promo code ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePromoCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Promo code updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoCodeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Not authorized (admin only)"
+          },
+          "404": {
+            "description": "Promo code not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/admin/promo-codes/{id}/redemptions": {
+      "get": {
+        "tags": [
+          "admin-credits"
+        ],
+        "summary": "GET /api/admin/promo-codes/:id/redemptions",
+        "description": "Get redemption history for a promotional code",
+        "operationId": "get_promo_code_redemptions",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Promo code ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Redemptions retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoCodeRedemptionsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized (admin only)"
+          },
+          "404": {
+            "description": "Promo code not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/admin/store/settings": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "GET /api/admin/store/settings",
+        "operationId": "get_agent_store_settings",
+        "responses": {
+          "200": {
+            "description": "Agent store settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAgentStoreSettingsDataResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - not a platform admin"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "PUT /api/admin/store/settings",
+        "operationId": "update_agent_store_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAgentStoreSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Agent store settings updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAgentStoreSettingsDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - not a platform admin"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/agent/api": {
       "post": {
         "tags": [
@@ -9063,6 +9506,245 @@
           }
         }
       },
+      "AdminAgentStoreSettings": {
+        "type": "object",
+        "required": [
+          "x402_platform_fee_usdc",
+          "max_api_response_bytes",
+          "settlement_batch_size",
+          "payout_batch_size",
+          "payment_request_expiry_minutes",
+          "eip3009_nonce_retention_hours",
+          "payment_protocol",
+          "payment_scheme",
+          "default_asset_symbol",
+          "settlement_method",
+          "credits_expiration_warning_days",
+          "credits_low_balance_threshold_percent",
+          "credits_notification_interval_secs",
+          "facilitator_type",
+          "gateway_wallets"
+        ],
+        "properties": {
+          "credits_expiration_warning_days": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Days before credit expiration to send warning notification (default: 30)"
+          },
+          "credits_low_balance_threshold_percent": {
+            "type": "number",
+            "format": "double",
+            "description": "Percentage threshold for low balance alerts (default: 10.0%)"
+          },
+          "credits_notification_interval_secs": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Interval in seconds between notification job runs (default: 86400 = 24 hours)"
+          },
+          "default_asset_symbol": {
+            "type": "string",
+            "description": "Default asset symbol for payments (e.g., \"USDC\")"
+          },
+          "default_max_queries_per_minute": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "default_network_id": {
+            "type": "string",
+            "description": "Default network ID for payments (CAIP-2 format, e.g., \"eip155:8453\")",
+            "nullable": true
+          },
+          "eip3009_nonce_retention_hours": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Hours to retain EIP-3009 nonces for replay protection (default: 24)"
+          },
+          "facilitator_type": {
+            "type": "string",
+            "description": "Facilitator type: \"none\" (direct on-chain), \"cdp\" (Coinbase), or \"standard\""
+          },
+          "facilitator_url": {
+            "type": "string",
+            "description": "Facilitator service URL (required when facilitator_type is not \"none\")",
+            "nullable": true
+          },
+          "gateway_wallets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminGatewayWallet"
+            }
+          },
+          "max_api_response_bytes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Maximum size in bytes for publisher API responses (default: 10 MiB)"
+          },
+          "payment_protocol": {
+            "type": "string",
+            "description": "Payment protocol (e.g., \"x402\")"
+          },
+          "payment_request_expiry_minutes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Minutes before payment requests expire"
+          },
+          "payment_scheme": {
+            "type": "string",
+            "description": "Payment scheme: \"exact\" or \"upto\""
+          },
+          "payout_batch_size": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of payouts to process per worker run"
+          },
+          "settlement_batch_size": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of settlements to process per worker run"
+          },
+          "settlement_method": {
+            "type": "string",
+            "description": "Settlement method: \"eip3009\" or \"transfer\""
+          },
+          "token_contract_override": {
+            "type": "string",
+            "description": "Optional token contract address override for EIP-3009",
+            "nullable": true
+          },
+          "token_name_override": {
+            "type": "string",
+            "description": "Optional token name override for EIP-712 domain",
+            "nullable": true
+          },
+          "token_version_override": {
+            "type": "string",
+            "description": "Optional token version override for EIP-712 domain",
+            "nullable": true
+          },
+          "x402_platform_fee_usdc": {
+            "type": "string",
+            "description": "Platform fee (USDC) charged for x402 pass-through payments."
+          }
+        }
+      },
+      "AdminAgentStoreSettingsDataResponse": {
+        "type": "object",
+        "description": "Wrapped admin store settings response for OpenAPI.\n\nWe use a concrete wrapper type instead of relying on `DataResponse<T>` aliases,\nsince `DataResponse` only declares a curated set of `#[aliases]` for OpenAPI and\nadmin-only types are intentionally excluded from that list.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AdminAgentStoreSettings"
+          }
+        }
+      },
+      "AdminGatewayWallet": {
+        "type": "object",
+        "required": [
+          "network_id",
+          "network_name",
+          "chain_type",
+          "is_testnet"
+        ],
+        "properties": {
+          "chain_type": {
+            "type": "string"
+          },
+          "is_testnet": {
+            "type": "boolean"
+          },
+          "network_id": {
+            "type": "string"
+          },
+          "network_name": {
+            "type": "string"
+          },
+          "wallet_address": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AdminOrganization": {
+        "type": "object",
+        "description": "Organization data for admin view with usage metrics.",
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "is_personal",
+          "created_at",
+          "owner_email",
+          "plan_name",
+          "storage_bytes",
+          "compute_hours_this_month",
+          "project_count"
+        ],
+        "properties": {
+          "compute_hours_this_month": {
+            "type": "number",
+            "format": "double",
+            "description": "Compute hours used this billing period"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_personal": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner_email": {
+            "type": "string",
+            "description": "Owner's email address"
+          },
+          "plan_name": {
+            "type": "string",
+            "description": "Current plan name (e.g., \"free\", \"launch\", \"scale\")"
+          },
+          "project_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of projects in this organization"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "storage_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total storage used across all projects (bytes)"
+          },
+          "stripe_customer_id": {
+            "type": "string",
+            "description": "Stripe customer ID if billing is enabled",
+            "nullable": true
+          }
+        }
+      },
+      "AdminOrganizationsResponse": {
+        "type": "object",
+        "description": "Response wrapper for admin organizations list.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminOrganization"
+            }
+          }
+        }
+      },
       "AgentBalanceDataResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
@@ -11334,6 +12016,11 @@
           },
           "description": {
             "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "type": "string",
+            "description": "Publisher contact email for notifications and support",
             "nullable": true
           },
           "gateway_fee_percent": {
@@ -17298,6 +17985,11 @@
             "type": "string",
             "nullable": true
           },
+          "email": {
+            "type": "string",
+            "description": "Publisher contact email for notifications and support",
+            "nullable": true
+          },
           "gateway_fee_percent": {
             "type": "string"
           },
@@ -19064,6 +19756,128 @@
           }
         }
       },
+      "UpdateAgentStoreSettingsRequest": {
+        "type": "object",
+        "properties": {
+          "credits_expiration_warning_days": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Days before credit expiration to send warning notification (1-365)",
+            "nullable": true
+          },
+          "credits_low_balance_threshold_percent": {
+            "type": "number",
+            "format": "double",
+            "description": "Percentage threshold for low balance alerts (0-100)",
+            "nullable": true
+          },
+          "credits_notification_interval_secs": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Interval in seconds between notification job runs (60-604800)",
+            "nullable": true
+          },
+          "default_asset_symbol": {
+            "type": "string",
+            "description": "Default asset symbol for payments (e.g., \"USDC\")",
+            "nullable": true
+          },
+          "default_max_queries_per_minute": {
+            "type": "integer",
+            "format": "int32",
+            "description": "If omitted, leave unchanged. If null, clear the setting.",
+            "nullable": true
+          },
+          "default_network_id": {
+            "type": "string",
+            "description": "Default network ID for payments (CAIP-2 format). If omitted, leave unchanged. If null, clear.",
+            "nullable": true
+          },
+          "eip3009_nonce_retention_hours": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Hours to retain EIP-3009 nonces for replay protection",
+            "nullable": true
+          },
+          "facilitator_type": {
+            "type": "string",
+            "description": "Facilitator type: \"none\", \"cdp\", or \"standard\"",
+            "nullable": true
+          },
+          "facilitator_url": {
+            "type": "string",
+            "description": "Facilitator service URL. If omitted, leave unchanged. If null, clear.",
+            "nullable": true
+          },
+          "gateway_wallets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UpdateGatewayWalletRequest"
+            },
+            "description": "If omitted, leave gateway wallets unchanged.",
+            "nullable": true
+          },
+          "max_api_response_bytes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Maximum size in bytes for publisher API responses",
+            "nullable": true
+          },
+          "payment_protocol": {
+            "type": "string",
+            "description": "Payment protocol (e.g., \"x402\")",
+            "nullable": true
+          },
+          "payment_request_expiry_minutes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Minutes before payment requests expire",
+            "nullable": true
+          },
+          "payment_scheme": {
+            "type": "string",
+            "description": "Payment scheme: \"exact\" or \"upto\"",
+            "nullable": true
+          },
+          "payout_batch_size": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of payouts to process per worker run",
+            "nullable": true
+          },
+          "settlement_batch_size": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of settlements to process per worker run",
+            "nullable": true
+          },
+          "settlement_method": {
+            "type": "string",
+            "description": "Settlement method: \"eip3009\" or \"transfer\"",
+            "nullable": true
+          },
+          "token_contract_override": {
+            "type": "string",
+            "description": "Optional token contract address override. If omitted, leave unchanged. If null, clear.",
+            "nullable": true
+          },
+          "token_name_override": {
+            "type": "string",
+            "description": "Optional token name override. If omitted, leave unchanged. If null, clear.",
+            "nullable": true
+          },
+          "token_version_override": {
+            "type": "string",
+            "description": "Optional token version override. If omitted, leave unchanged. If null, clear.",
+            "nullable": true
+          },
+          "x402_platform_fee_usdc": {
+            "type": "string",
+            "description": "Platform fee (USDC) charged for x402 pass-through payments.",
+            "nullable": true
+          }
+        }
+      },
       "UpdateBranchProtectionRequest": {
         "type": "object",
         "description": "Request to update branch protection",
@@ -19128,6 +19942,22 @@
           "suspend_timeout_seconds": {
             "type": "integer",
             "format": "int32",
+            "nullable": true
+          }
+        }
+      },
+      "UpdateGatewayWalletRequest": {
+        "type": "object",
+        "required": [
+          "network_id"
+        ],
+        "properties": {
+          "network_id": {
+            "type": "string"
+          },
+          "wallet_address": {
+            "type": "string",
+            "description": "Set to null to remove the configured wallet for this network.",
             "nullable": true
           }
         }
@@ -19470,6 +20300,11 @@
           },
           "description": {
             "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "type": "string",
+            "description": "Publisher contact email for notifications and support",
             "nullable": true
           },
           "gateway_fee_percent": {

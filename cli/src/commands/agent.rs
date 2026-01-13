@@ -238,6 +238,7 @@ pub async fn get_supported(ctx: &CommandContext) -> Result<()> {
 pub async fn create_publisher(
     name: &str,
     slug: &str,
+    email: Option<&str>,
     wallet_address: &str,
     wallet_network_id: &str,
     source_type: Option<&str>,
@@ -262,6 +263,7 @@ pub async fn create_publisher(
     let body = seren::CreatePublisherRequest {
         name: name.to_string(),
         slug: slug.to_string(),
+        email: email.map(|s| s.to_string()),
         wallet_address: seren::WalletAddress(wallet_address.to_string()),
         wallet_network_id: wallet_network_id.to_string(),
         source_type: source_type_enum,

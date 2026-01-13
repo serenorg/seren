@@ -487,6 +487,9 @@ pub struct CreatePublisherParams {
     pub name: String,
     /// URL-friendly slug (unique identifier)
     pub slug: String,
+    /// Contact email for notifications and support
+    #[serde(default)]
+    pub email: Option<String>,
     /// Wallet address for receiving payments (0x...)
     pub wallet_address: String,
     /// Network ID for wallet (CAIP-2 format, e.g., "eip155:8453" for Base)
@@ -3409,6 +3412,7 @@ impl SerenMcpServer {
         let body = seren::CreatePublisherRequest {
             name,
             slug,
+            email: params.email,
             wallet_address: seren::WalletAddress(wallet_address),
             wallet_network_id,
             source_type,

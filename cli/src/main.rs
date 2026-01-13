@@ -247,6 +247,9 @@ enum AgentAction {
         /// URL-friendly slug (unique identifier)
         #[arg(long)]
         slug: String,
+        /// Contact email for notifications and support
+        #[arg(long)]
+        email: Option<String>,
         /// Wallet address for receiving payments (0x...)
         #[arg(long)]
         wallet_address: String,
@@ -2009,6 +2012,7 @@ async fn main() -> anyhow::Result<()> {
             AgentAction::CreatePublisher {
                 name,
                 slug,
+                email,
                 wallet_address,
                 wallet_network_id,
                 source_type,
@@ -2023,6 +2027,7 @@ async fn main() -> anyhow::Result<()> {
                 commands::agent::create_publisher(
                     &name,
                     &slug,
+                    email.as_deref(),
                     &wallet_address,
                     &wallet_network_id,
                     source_type.as_deref(),
