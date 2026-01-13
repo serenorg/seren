@@ -550,20 +550,26 @@ fn endpoint_param_to_definition(param: EndpointDefinitionParam) -> seren::Endpoi
                 .map(|qp| seren::QueryParamDefinition {
                     name: qp.name,
                     description: qp.description,
-                    required: qp.required,
-                    param_type: match qp.param_type {
+                    required: Some(qp.required),
+                    param_type: Some(match qp.param_type {
                         ParamTypeParam::String => seren::ParamType::String,
                         ParamTypeParam::Integer => seren::ParamType::Integer,
                         ParamTypeParam::Boolean => seren::ParamType::Boolean,
                         ParamTypeParam::Number => seren::ParamType::Number,
                         ParamTypeParam::Array => seren::ParamType::Array,
-                    },
+                    }),
                     example: qp.example,
                 })
                 .collect()
         }),
-        is_protected: param.is_protected,
+        is_protected: Some(param.is_protected),
         protection_reason: param.protection_reason,
+        // New fields from endpoint catalog feature - not exposed via MCP params yet
+        example_request: None,
+        example_response: None,
+        request_body: None,
+        required_headers: None,
+        response: None,
     }
 }
 
@@ -3049,9 +3055,9 @@ impl SerenMcpServer {
         // sec-filings-intelligence can take 60-120s for complex queries.
         let api_client = self.api_client_with_timeout(&extensions, QUERY_TIMEOUT)?;
         let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
-        let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
         let body = seren::QueryRequestBody {
-            publisher_id,
+            publisher: Some(params.publisher.clone()),
+            publisher_id: None,
             asset_id: params.asset_id,
             query: params.query.clone(),
             database: params.database.clone(),
@@ -3193,9 +3199,9 @@ impl SerenMcpServer {
         // Firecrawl can take time for complex web scraping operations.
         let api_client = self.api_client_with_timeout(&extensions, QUERY_TIMEOUT)?;
         let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
-        let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
         let body = seren::ApiRequestBody {
-            publisher_id,
+            publisher: Some(params.publisher.clone()),
+            publisher_id: None,
             asset_id: params.asset_id,
             method: params.method.clone(),
             path: params.path.clone(),
@@ -3591,10 +3597,10 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
-        let publisher_id = resolve_publisher_id(&api_client, &params.publisher).await?;
 
         let body = seren::ApiRequestBody {
-            publisher_id,
+            publisher: Some(params.publisher.clone()),
+            publisher_id: None,
             asset_id: params.asset_id,
             method: params.method,
             path: params.path,

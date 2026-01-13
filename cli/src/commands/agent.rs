@@ -343,19 +343,9 @@ pub async fn execute_query(
 ) -> Result<()> {
     let client = ctx.client().await?;
 
-    // Resolve publisher to ID
-    let publisher_id = if let Ok(uuid) = Uuid::parse_str(publisher) {
-        uuid
-    } else {
-        let response = client
-            .get_store_publisher(publisher)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to get publisher: {}", e))?;
-        response.into_inner().data.id
-    };
-
     let body = seren::QueryRequestBody {
-        publisher_id,
+        publisher: Some(publisher.to_string()),
+        publisher_id: None,
         query: query.to_string(),
         database: database.map(|s| s.to_string()),
         asset_id: None,
