@@ -319,6 +319,66 @@ enum AgentAction {
         #[arg(long)]
         offset: Option<i64>,
     },
+
+    // =========================================================================
+    // Agent Template Commands
+    // =========================================================================
+    /// List available agent templates in the catalog
+    ListTemplates {
+        /// Filter by programming language (python, typescript, rust)
+        #[arg(long)]
+        language: Option<String>,
+        /// Filter to verified templates only
+        #[arg(long)]
+        verified_only: Option<bool>,
+        /// Search templates by name or description
+        #[arg(long)]
+        search: Option<String>,
+        /// Maximum number of templates to return
+        #[arg(long)]
+        limit: Option<i64>,
+    },
+    /// Get details about a specific agent template
+    GetTemplate {
+        /// Template slug (e.g., "web-researcher")
+        slug: String,
+    },
+    /// Publish a new agent template
+    PublishTemplate {
+        /// Template display name
+        #[arg(long)]
+        name: String,
+        /// URL-friendly slug (unique identifier)
+        #[arg(long)]
+        slug: String,
+        /// Path to the code file
+        #[arg(long)]
+        code: String,
+        /// Programming language (python, typescript, rust)
+        #[arg(long)]
+        language: String,
+        /// Price per invocation in USD (e.g., "0.05")
+        #[arg(long)]
+        price: String,
+        /// Description of what the template does
+        #[arg(long)]
+        description: Option<String>,
+        /// Dependencies (e.g., "openai>=1.0.0,requests")
+        #[arg(long)]
+        dependencies: Option<String>,
+        /// Preferred compute backend (e.g., "daytona", "modal")
+        #[arg(long)]
+        compute_backend: Option<String>,
+    },
+    /// Invoke an agent template (requires SerenBucks balance)
+    InvokeTemplate {
+        /// Template slug (e.g., "web-researcher")
+        #[arg(long)]
+        slug: String,
+        /// Input JSON to pass to the template
+        #[arg(long)]
+        input: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2059,6 +2119,49 @@ async fn main() -> anyhow::Result<()> {
             }
             AgentAction::GetTransactionHistory { limit, offset } => {
                 commands::agent::get_transaction_history(limit, offset, &ctx).await?
+            }
+            // Template commands
+            AgentAction::ListTemplates {
+                language,
+                verified_only,
+                search,
+                limit,
+            } => {
+                commands::agent::list_templates(
+                    language.as_deref(),
+                    verified_only,
+                    search.as_deref(),
+                    limit,
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::GetTemplate { slug } => commands::agent::get_template(&slug, &ctx).await?,
+            AgentAction::PublishTemplate {
+                name,
+                slug,
+                code,
+                language,
+                price,
+                description,
+                dependencies,
+                compute_backend,
+            } => {
+                commands::agent::publish_template(
+                    &name,
+                    &slug,
+                    &code,
+                    &language,
+                    &price,
+                    description.as_deref(),
+                    dependencies.as_deref(),
+                    compute_backend.as_deref(),
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::InvokeTemplate { slug, input } => {
+                commands::agent::invoke_template(&slug, &input, &ctx).await?
             }
         },
     }

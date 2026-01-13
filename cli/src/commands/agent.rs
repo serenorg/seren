@@ -513,3 +513,217 @@ pub async fn get_transaction_history(
 
     Ok(())
 }
+
+// =============================================================================
+// Agent Template Commands
+// =============================================================================
+
+/// List available agent templates in the catalog
+pub async fn list_templates(
+    language: Option<&str>,
+    verified_only: Option<bool>,
+    search: Option<&str>,
+    limit: Option<i64>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+
+    let response = client
+        .list_templates(
+            language,
+            limit,
+            None, // max_price
+            None, // min_price
+            None, // offset
+            search,
+            None, // sort_by
+            verified_only,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to list templates: {}", e))?;
+
+    let templates = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&templates)?,
+        OutputFormat::Table => {
+            println!("{}", "Agent Templates".bold());
+            println!();
+            if templates.data.is_empty() {
+                println!("No templates found.");
+            } else {
+                for t in &templates.data {
+                    let verified = if t.is_verified { "✓" } else { " " };
+                    let price_usd = t.price_atomic as f64 / 1_000_000.0;
+                    println!(
+                        "{} {} ({:?}) - ${:.4} per invocation",
+                        verified, t.slug, t.language, price_usd
+                    );
+                    if let Some(desc) = &t.description {
+                        println!("   {}", desc);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Get details about a specific agent template
+pub async fn get_template(slug: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+
+    let response = client
+        .get_template(slug)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get template: {}", e))?;
+
+    let template = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&template)?,
+        OutputFormat::Table => {
+            let t = &template.data;
+            println!("{}", t.name.bold());
+            println!();
+            let price_usd = t.price_atomic as f64 / 1_000_000.0;
+            let rows = [
+                ("ID", t.id.to_string()),
+                ("Slug", t.slug.clone()),
+                ("Language", format!("{:?}", t.language)),
+                ("Price", format!("${:.4} per invocation", price_usd)),
+                (
+                    "Verified",
+                    if t.is_verified { "Yes" } else { "No" }.to_string(),
+                ),
+            ];
+            output::print_key_value_table(None, &rows);
+            if let Some(desc) = &t.description {
+                println!();
+                println!("{}", "Description:".bold());
+                println!("{}", desc);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Publish a new agent template
+#[allow(clippy::too_many_arguments)]
+pub async fn publish_template(
+    name: &str,
+    slug: &str,
+    code: &str,
+    language: &str,
+    price: &str,
+    description: Option<&str>,
+    dependencies: Option<&str>,
+    _compute_backend: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+
+    // Read code from file
+    let code_content = std::fs::read_to_string(code)
+        .map_err(|e| anyhow::anyhow!("Failed to read code file '{}': {}", code, e))?;
+
+    // Parse dependencies from comma-separated string
+    let deps = dependencies.map(|s| {
+        s.split(',')
+            .map(|d| d.trim().to_string())
+            .filter(|d| !d.is_empty())
+            .collect::<Vec<_>>()
+    });
+
+    let body = seren::CreateTemplateRequest {
+        name: name.to_string(),
+        slug: slug.to_string(),
+        code: code_content,
+        language: language.to_string(),
+        price: price.to_string(),
+        description: description.map(|s| s.to_string()),
+        dependencies: deps,
+        llm_config: None,
+    };
+
+    let response = match client.publish_template(&body).await {
+        Ok(response) => response,
+        Err(e) => return Err(anyhow_from_seren_error("Failed to publish template", e).await),
+    };
+
+    let result = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&result)?,
+        OutputFormat::Table => {
+            println!("{}", "Template published successfully!".green().bold());
+            println!();
+            let t = &result.data;
+            let price_usd = t.price_atomic as f64 / 1_000_000.0;
+            let rows = [
+                ("ID", t.id.to_string()),
+                ("Slug", t.slug.clone()),
+                ("Name", t.name.clone()),
+                ("Language", format!("{:?}", t.language)),
+                ("Price", format!("${:.4} per invocation", price_usd)),
+            ];
+            output::print_key_value_table(None, &rows);
+        }
+    }
+
+    Ok(())
+}
+
+/// Invoke an agent template
+pub async fn invoke_template(slug: &str, input: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+
+    // Parse input as JSON
+    let input_json: serde_json::Value =
+        serde_json::from_str(input).map_err(|e| anyhow::anyhow!("Invalid JSON input: {}", e))?;
+
+    let body = seren::InvokeTemplateRequest { input: input_json };
+
+    let response = match client.invoke_template(slug, &body).await {
+        Ok(response) => response,
+        Err(e) => return Err(anyhow_from_seren_error("Failed to invoke template", e).await),
+    };
+
+    let result = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&result)?,
+        OutputFormat::Table => {
+            let data = &result.data;
+            println!("{}", "Template Invocation Result".bold());
+            println!();
+
+            // Show execution info
+            let rows = [
+                ("Invocation ID", data.invocation_id.to_string()),
+                ("Execution Time", format!("{}ms", data.execution_time_ms)),
+            ];
+            output::print_key_value_table(Some("Execution"), &rows);
+
+            // Show cost info
+            let cost = &data.cost;
+            println!();
+            let cost_rows = [
+                ("Compute Cost", format!("${}", cost.compute_cost)),
+                ("LLM Cost", format!("${}", cost.llm_cost)),
+                ("Publisher Fee", format!("${}", cost.publisher_fee)),
+                ("Total Cost", format!("${}", cost.total)),
+            ];
+            output::print_key_value_table(Some("Cost"), &cost_rows);
+
+            // Show output
+            println!();
+            println!("{}", "Output:".bold());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&data.result)
+                    .unwrap_or_else(|_| "Failed to format output".to_string())
+            );
+        }
+    }
+
+    Ok(())
+}

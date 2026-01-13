@@ -19229,8 +19229,8 @@
         "type": "string",
         "description": "Policy for handling requests to paths not in the endpoints catalog",
         "enum": [
-          "allow",
-          "block"
+          "default_allow",
+          "default_deny"
         ]
       },
       "UpdateBranchProtectionRequest": {

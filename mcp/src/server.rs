@@ -671,6 +671,51 @@ pub struct ExecutePaidApiStreamParams {
 }
 
 // ============================================================================
+// Agent Template Parameter Types
+// ============================================================================
+
+/// Parameters for listing agent templates
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ListAgentTemplatesParams {
+    /// Filter by programming language (python, typescript, rust)
+    #[serde(default)]
+    pub language: Option<String>,
+    /// Filter to verified templates only
+    #[serde(default)]
+    pub verified_only: Option<bool>,
+    /// Search templates by name or description
+    #[serde(default)]
+    pub search: Option<String>,
+    /// Maximum number of templates to return (default: 20, max: 50)
+    #[serde(default)]
+    pub limit: Option<i64>,
+    /// Offset for pagination
+    #[serde(default)]
+    pub offset: Option<i64>,
+    /// Filter by minimum price (atomic units)
+    #[serde(default)]
+    pub min_price: Option<i64>,
+    /// Filter by maximum price (atomic units)
+    #[serde(default)]
+    pub max_price: Option<i64>,
+}
+
+/// Parameters for getting a specific agent template
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetAgentTemplateParams {
+    /// Template slug (URL-friendly identifier)
+    pub slug: String,
+}
+
+/// Parameters for invoking an agent template
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct InvokeAgentTemplateParams {
+    /// Template slug (URL-friendly identifier)
+    pub slug: String,
+    /// Input data for the template (JSON object)
+    pub input: serde_json::Value,
+}
+// ============================================================================
 // Additional Parameter Types for Extended Functionality
 // ============================================================================
 
@@ -3572,8 +3617,8 @@ impl SerenMcpServer {
                 .to_lowercase()
                 .as_str()
             {
-                "allow" => Some(seren::UndocumentedEndpointPolicy::Allow),
-                "block" => Some(seren::UndocumentedEndpointPolicy::Block),
+                "default_allow" | "allow" => Some(seren::UndocumentedEndpointPolicy::DefaultAllow),
+                "default_deny" | "block" => Some(seren::UndocumentedEndpointPolicy::DefaultDeny),
                 _ => None,
             }),
         };
@@ -4031,6 +4076,118 @@ impl SerenMcpServer {
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&transactions)?]))
+    }
+
+    // ========================================================================
+    // Agent Template Tools
+    // ========================================================================
+
+    #[tool(
+        description = "List available agent templates in the catalog. Templates are executable code (Python, TypeScript, Rust) that can be invoked via micropayments.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_agent_templates(
+        &self,
+        Parameters(params): Parameters<ListAgentTemplatesParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+
+        // Apply default limit of 20, max of 50 to prevent token overflow
+        let limit = params.limit.unwrap_or(20).clamp(1, 50);
+
+        let response = api_client
+            .list_templates(
+                params.language.as_deref(),
+                Some(limit),
+                params.max_price,
+                params.min_price,
+                params.offset,
+                params.search.as_deref(),
+                None, // sort_by
+                params.verified_only,
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get details about a specific agent template by slug",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_agent_template(
+        &self,
+        Parameters(params): Parameters<GetAgentTemplateParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+
+        let template = api_client
+            .get_template(&params.slug)
+            .await
+            .map_err(|e| {
+                if e.status() == Some(reqwest::StatusCode::NOT_FOUND) {
+                    McpError::internal_error(
+                        format!(
+                            "Template '{}' not found. Use list_agent_templates to see available templates.",
+                            params.slug
+                        ),
+                        None,
+                    )
+                } else {
+                    McpError::internal_error(e.to_string(), None)
+                }
+            })?
+            .into_inner();
+
+        Ok(CallToolResult::success(vec![json_content(&template)?]))
+    }
+
+    #[tool(
+        description = "Invoke an agent template with input data. Requires SerenBucks balance. Templates execute code in a sandboxed environment and return structured output.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn invoke_agent_template(
+        &self,
+        Parameters(params): Parameters<InvokeAgentTemplateParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        // Check write permissions
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+
+        let body = seren::InvokeTemplateRequest {
+            input: params.input,
+        };
+
+        let result = api_client
+            .invoke_template(&params.slug, &body)
+            .await
+            .map_err(|e| {
+                if e.status() == Some(reqwest::StatusCode::NOT_FOUND) {
+                    McpError::internal_error(
+                        format!(
+                            "Template '{}' not found. Use list_agent_templates to see available templates.",
+                            params.slug
+                        ),
+                        None,
+                    )
+                } else if e.status() == Some(reqwest::StatusCode::PAYMENT_REQUIRED) {
+                    McpError::internal_error(
+                        "Insufficient SerenBucks balance. Use get_prepaid_balance to check balance and create_prepaid_deposit to add funds.".to_string(),
+                        None,
+                    )
+                } else {
+                    McpError::internal_error(e.to_string(), None)
+                }
+            })?
+            .into_inner();
+
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
 }
 
