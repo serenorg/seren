@@ -303,6 +303,8 @@ pub async fn create_publisher(
         price_per_post: None,
         price_per_put: None,
         protected_operations: None,
+        endpoints: None,
+        undocumented_endpoint_policy: None,
         publisher_type: None,
         resource_description: None,
         resource_id_response_path: None,

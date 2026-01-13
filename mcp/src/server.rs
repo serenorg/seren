@@ -480,6 +480,93 @@ pub struct GetX402DepositRequirementsParams {
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GetSupportedParams {}
 
+/// Endpoint definition for publisher API documentation and access control
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct EndpointDefinitionParam {
+    /// HTTP method (GET, POST, PUT, DELETE, PATCH)
+    pub method: String,
+    /// URL path pattern (e.g., "/users/{id}" or "/api/*")
+    pub path: String,
+    /// Human-readable description of what this endpoint does
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Query parameters accepted by this endpoint
+    #[serde(default)]
+    pub query_params: Option<Vec<QueryParamDefinitionParam>>,
+    /// If true, this endpoint is blocked (documented but not accessible)
+    #[serde(default)]
+    pub is_protected: bool,
+    /// Reason why this endpoint is protected (shown in error messages)
+    #[serde(default)]
+    pub protection_reason: Option<String>,
+}
+
+/// Query parameter definition for endpoint documentation
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct QueryParamDefinitionParam {
+    /// Parameter name
+    pub name: String,
+    /// Parameter description
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Whether this parameter is required
+    #[serde(default)]
+    pub required: bool,
+    /// Parameter type
+    #[serde(default)]
+    pub param_type: ParamTypeParam,
+    /// Example value for documentation
+    #[serde(default)]
+    pub example: Option<String>,
+}
+
+/// Parameter type for query/path parameters
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ParamTypeParam {
+    #[default]
+    String,
+    Integer,
+    Boolean,
+    Number,
+    Array,
+}
+
+/// Convert MCP endpoint definition param to SDK endpoint definition
+fn endpoint_param_to_definition(param: EndpointDefinitionParam) -> seren::EndpointDefinition {
+    seren::EndpointDefinition {
+        method: match param.method.to_uppercase().as_str() {
+            "GET" => seren::HttpMethod::Get,
+            "POST" => seren::HttpMethod::Post,
+            "PUT" => seren::HttpMethod::Put,
+            "DELETE" => seren::HttpMethod::Delete,
+            "PATCH" => seren::HttpMethod::Patch,
+            _ => seren::HttpMethod::Post, // Default to POST for unknown methods
+        },
+        path: param.path,
+        description: param.description,
+        query_params: param.query_params.map(|qps| {
+            qps.into_iter()
+                .map(|qp| seren::QueryParamDefinition {
+                    name: qp.name,
+                    description: qp.description,
+                    required: qp.required,
+                    param_type: match qp.param_type {
+                        ParamTypeParam::String => seren::ParamType::String,
+                        ParamTypeParam::Integer => seren::ParamType::Integer,
+                        ParamTypeParam::Boolean => seren::ParamType::Boolean,
+                        ParamTypeParam::Number => seren::ParamType::Number,
+                        ParamTypeParam::Array => seren::ParamType::Array,
+                    },
+                    example: qp.example,
+                })
+                .collect()
+        }),
+        is_protected: param.is_protected,
+        protection_reason: param.protection_reason,
+    }
+}
+
 /// Parameters for creating a publisher in the store
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CreatePublisherParams {
@@ -535,6 +622,14 @@ pub struct CreatePublisherParams {
     /// Unlike api_key_headers, these values are NOT encrypted
     #[serde(default)]
     pub upstream_headers: Option<HashMap<String, String>>,
+    /// Structured endpoint definitions for LLM discoverability and access control
+    /// Each endpoint can specify method, path, description, and protection status
+    #[serde(default)]
+    pub endpoints: Option<Vec<EndpointDefinitionParam>>,
+    /// Policy for handling requests to paths not in the endpoints catalog
+    /// "allow" (default) passes through undocumented paths, "block" returns 403
+    #[serde(default)]
+    pub undocumented_endpoint_policy: Option<String>,
 }
 
 /// Parameters for executing a paid streaming API request
@@ -3464,6 +3559,17 @@ impl SerenMcpServer {
             upstream_headers: params
                 .upstream_headers
                 .and_then(|h| serde_json::to_value(h).ok()),
+            endpoints: params
+                .endpoints
+                .map(|e| e.into_iter().map(endpoint_param_to_definition).collect()),
+            undocumented_endpoint_policy: params.undocumented_endpoint_policy.and_then(|p| match p
+                .to_lowercase()
+                .as_str()
+            {
+                "allow" => Some(seren::UndocumentedEndpointPolicy::Allow),
+                "block" => Some(seren::UndocumentedEndpointPolicy::Block),
+                _ => None,
+            }),
         };
 
         let result = api_client
