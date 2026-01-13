@@ -2766,6 +2766,50 @@
             "description": "Internal server error"
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "DELETE /organizations/:org_id/publishers/:publisher_id",
+        "description": "Soft delete a publisher",
+        "operationId": "delete_publisher",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "path",
+            "description": "Publisher ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Publisher deleted successfully"
+          },
+          "403": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
       }
     },
     "/organizations/{organization_id}/publishers/{publisher_id}/earnings": {
@@ -9503,6 +9547,14 @@
             "description": "Optional relative path to append to the publisher base URL",
             "nullable": true
           },
+          "pre_authorization": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PreAuthorization"
+              }
+            ],
+            "nullable": true
+          },
           "publisher_id": {
             "type": "string",
             "format": "uuid",
@@ -9539,6 +9591,14 @@
           "cost": {
             "type": "string",
             "description": "Actual cost charged in configured asset"
+          },
+          "cost_breakdown": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CostBreakdown"
+              }
+            ],
+            "nullable": true
           },
           "execution_time_ms": {
             "type": "integer",
@@ -10685,6 +10745,29 @@
           "written_data_bytes": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "CostBreakdown": {
+        "type": "object",
+        "description": "Cost breakdown when a service fee is charged (pre-authorization).",
+        "required": [
+          "target",
+          "service_fee",
+          "total"
+        ],
+        "properties": {
+          "service_fee": {
+            "type": "string",
+            "description": "Service fee charged"
+          },
+          "target": {
+            "type": "string",
+            "description": "Cost charged for the target API"
+          },
+          "total": {
+            "type": "string",
+            "description": "Total cost (target + service_fee)"
           }
         }
       },
@@ -15874,6 +15957,105 @@
           "session"
         ]
       },
+      "PreAuthorization": {
+        "type": "object",
+        "description": "Bounded pre-authorization used for automated executions (e.g., scheduled jobs).",
+        "required": [
+          "auth_type",
+          "agent_wallet",
+          "publisher_id",
+          "job_id",
+          "max_per_execution_atomic",
+          "max_total_atomic",
+          "valid_after",
+          "valid_before",
+          "nonce",
+          "signature"
+        ],
+        "properties": {
+          "agent_wallet": {
+            "type": "string",
+            "description": "Agent wallet address (real wallet for x402, virtual wallet for prepaid)."
+          },
+          "api_key_id": {
+            "type": "string",
+            "description": "Optional API key id hint (prepaid only) to avoid checking all keys.",
+            "nullable": true
+          },
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional asset to bind the authorization to (prepaid: NULL = any stablecoin).",
+            "nullable": true
+          },
+          "auth_type": {
+            "$ref": "#/components/schemas/PreAuthorizationType"
+          },
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Job ID this pre-authorization applies to."
+          },
+          "max_per_execution_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Maximum total charge per execution (atomic units, includes service fee)."
+          },
+          "max_total_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Maximum total budget across all executions (atomic units, includes service fee)."
+          },
+          "nonce": {
+            "type": "string",
+            "description": "Replay-protection nonce (opaque string for prepaid, bytes32 hex for x402)."
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Target publisher this pre-authorization applies to.\n\nMust match the `publisher_id` in the surrounding `/agent/api` request."
+          },
+          "service_fee_per_execution_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Service fee amount charged per execution (atomic units)."
+          },
+          "service_fee_recipient_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher that receives the service fee (defaults to `publisher_id`).",
+            "nullable": true
+          },
+          "signature": {
+            "type": "string",
+            "description": "Signature: EIP-712 for x402, HMAC-SHA256 hex for prepaid."
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "User ID (required for prepaid, omitted for x402).",
+            "nullable": true
+          },
+          "valid_after": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Validity window start (Unix seconds)."
+          },
+          "valid_before": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Validity window end (Unix seconds)."
+          }
+        }
+      },
+      "PreAuthorizationType": {
+        "type": "string",
+        "description": "Pre-authorization signature allowing a service (e.g., SerenCron) to spend on behalf\nof an agent without storing the agent's credentials.",
+        "enum": [
+          "x402",
+          "prepaid"
+        ]
+      },
       "PricingConfigResponse": {
         "type": "object",
         "description": "Pricing config response",
@@ -15930,6 +16112,11 @@
           "min_charge": {
             "type": "string"
           },
+          "min_display_price": {
+            "type": "string",
+            "description": "Minimum price to display in UI for passthrough publishers (informational only)",
+            "nullable": true
+          },
           "minimum_balance": {
             "type": "string"
           },
@@ -15972,6 +16159,11 @@
             "type": "string",
             "nullable": true
           },
+          "pricing_display_text": {
+            "type": "string",
+            "description": "Text to display for variable pricing (e.g., \"Varies by model\")",
+            "nullable": true
+          },
           "pricing_model": {
             "$ref": "#/components/schemas/PricingModel"
           }
@@ -15984,7 +16176,8 @@
           "per_row",
           "per_request",
           "per_byte",
-          "tiered"
+          "tiered",
+          "passthrough"
         ]
       },
       "PricingSummary": {
@@ -18827,7 +19020,8 @@
           "api_call",
           "refund",
           "withdrawal",
-          "settlement"
+          "settlement",
+          "service_fee"
         ]
       },
       "TransactionsDataResponse": {
@@ -19032,6 +19226,11 @@
             "type": "string",
             "nullable": true
           },
+          "min_display_price": {
+            "type": "string",
+            "description": "Minimum price to display in UI for passthrough publishers (informational only)",
+            "nullable": true
+          },
           "minimum_balance": {
             "type": "string",
             "nullable": true
@@ -19076,6 +19275,11 @@
           },
           "price_per_put": {
             "type": "string",
+            "nullable": true
+          },
+          "pricing_display_text": {
+            "type": "string",
+            "description": "Text to display for variable pricing (e.g., \"Varies by model\")",
             "nullable": true
           },
           "pricing_model": {

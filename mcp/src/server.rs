@@ -3104,6 +3104,7 @@ impl SerenMcpServer {
             headers: params.headers.clone(),
             body: params.body.clone(),
             estimated_rows: params.estimated_rows,
+            pre_authorization: None,
             request_id: params.request_id,
         };
 
@@ -3490,6 +3491,7 @@ impl SerenMcpServer {
             headers: params.headers,
             body: params.body,
             estimated_rows: params.estimated_rows,
+            pre_authorization: None,
             request_id: params.request_id,
         };
 

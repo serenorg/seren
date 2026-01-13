@@ -385,6 +385,6 @@ mod tests {
         );
 
         // Cleanup
-        let _ = store.untrack_rmcp_session(&fake_session_id).await;
+        let _ = store.delete_session(&fake_session_id).await;
     }
 }
