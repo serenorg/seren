@@ -143,6 +143,15 @@ impl ContextConfig {
 
         std::fs::create_dir_all(&config_dir).context("Could not create config directory")?;
 
+        // Set secure permissions on config directory (0o700)
+        #[cfg(unix)]
+        {
+            let metadata = std::fs::metadata(&config_dir)?;
+            let mut permissions = metadata.permissions();
+            permissions.set_mode(0o700);
+            std::fs::set_permissions(&config_dir, permissions)?;
+        }
+
         Ok(config_dir.join("context.toml"))
     }
 
@@ -165,6 +174,14 @@ impl ContextConfig {
         let contents = toml::to_string_pretty(self).context("Could not serialize context")?;
 
         std::fs::write(&path, contents).context("Could not write context file")?;
+
+        #[cfg(unix)]
+        {
+            let metadata = std::fs::metadata(&path)?;
+            let mut permissions = metadata.permissions();
+            permissions.set_mode(0o600);
+            std::fs::set_permissions(&path, permissions)?;
+        }
 
         Ok(())
     }
