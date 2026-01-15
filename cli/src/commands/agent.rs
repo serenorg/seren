@@ -618,7 +618,7 @@ pub async fn publish_template(
     price: &str,
     description: Option<&str>,
     dependencies: Option<&str>,
-    _compute_backend: Option<&str>,
+    compute_backend: Option<&str>,
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
@@ -643,6 +643,7 @@ pub async fn publish_template(
         price: price.to_string(),
         description: description.map(|s| s.to_string()),
         dependencies: deps,
+        compute_backend: compute_backend.map(|s| s.to_string()),
         llm_config: None,
     };
 

@@ -11587,6 +11587,11 @@
             "type": "string",
             "description": "Template source code implementing run(input) -> output"
           },
+          "computeBackend": {
+            "type": "string",
+            "description": "Preferred compute backend (e.g., \"daytona\", \"modal\"). If not specified, uses default.",
+            "nullable": true
+          },
           "dependencies": {
             "type": "array",
             "items": {
