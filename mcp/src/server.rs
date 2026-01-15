@@ -699,6 +699,17 @@ pub struct UpdatePublisherParams {
     pub undocumented_endpoint_policy: Option<String>,
 }
 
+/// Parameters for uploading a publisher logo
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct UploadPublisherLogoParams {
+    /// Publisher slug (unique identifier)
+    pub slug: String,
+    /// Base64 encoded image data (PNG, JPEG, WebP, or SVG)
+    pub logo: String,
+    /// Content type of the image (image/png, image/jpeg, image/webp, image/svg+xml)
+    pub content_type: String,
+}
+
 /// Parameters for executing a paid streaming API request
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ExecutePaidApiStreamParams {
@@ -3771,6 +3782,45 @@ impl SerenMcpServer {
 
         let result = api_client
             .update_publisher_api_key(&params.slug, &body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Upload a logo image for a publisher. Accepts base64-encoded PNG, JPEG, WebP, or SVG images. Maximum size 100KB, automatically resized to 200x200 if larger. Requires API key authentication (organization-level).",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn upload_publisher_logo(
+        &self,
+        Parameters(params): Parameters<UploadPublisherLogoParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        validate_slug(&params.slug, "Publisher slug")?;
+
+        // Validate content type
+        let allowed_types = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
+        if !allowed_types.contains(&params.content_type.as_str()) {
+            return Err(McpError::invalid_params(
+                format!(
+                    "Invalid content_type. Allowed: {}",
+                    allowed_types.join(", ")
+                ),
+                None,
+            ));
+        }
+
+        let api_client = self.api_client(&extensions)?;
+
+        let body = seren::LogoUploadRequest {
+            logo: params.logo,
+            content_type: params.content_type,
+        };
+
+        let result = api_client
+            .upload_publisher_logo_api_key(&params.slug, &body)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();

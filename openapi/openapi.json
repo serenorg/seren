@@ -471,6 +471,64 @@
         }
       }
     },
+    "/agent/publishers/{slug}/logo": {
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "POST /agent/publishers/{slug}/logo",
+        "description": "Upload a logo for a publisher via organization API key (machine-to-machine).\nUses slug instead of publisher_id for easier identification.",
+        "operationId": "upload_publisher_logo_api_key",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Publisher slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogoUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Logo uploaded successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid image format or size"
+          },
+          "401": {
+            "description": "API key required"
+          },
+          "403": {
+            "description": "Not authorized to update this publisher"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/agent/stream": {
       "post": {
         "tags": [
@@ -14663,6 +14721,42 @@
               }
             ],
             "nullable": true
+          }
+        }
+      },
+      "LogoUploadRequest": {
+        "type": "object",
+        "description": "Logo upload request body",
+        "required": [
+          "logo",
+          "content_type"
+        ],
+        "properties": {
+          "content_type": {
+            "type": "string",
+            "description": "Content type of the image (image/png, image/jpeg, image/webp, image/svg+xml)"
+          },
+          "logo": {
+            "type": "string",
+            "description": "Base64 encoded image data"
+          }
+        }
+      },
+      "LogoUploadResponse": {
+        "type": "object",
+        "description": "Logo upload response",
+        "required": [
+          "message",
+          "logo_url"
+        ],
+        "properties": {
+          "logo_url": {
+            "type": "string",
+            "description": "URL to access the uploaded logo"
+          },
+          "message": {
+            "type": "string",
+            "description": "Message indicating success"
           }
         }
       },
