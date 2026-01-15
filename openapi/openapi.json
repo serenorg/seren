@@ -496,7 +496,7 @@
         "tags": [
           "templates"
         ],
-        "summary": "GET /api/agent/templates",
+        "summary": "GET /agent/templates",
         "description": "List available templates in the catalog",
         "operationId": "list_templates",
         "parameters": [
@@ -611,7 +611,7 @@
         "tags": [
           "templates"
         ],
-        "summary": "POST /api/agent/templates/publish",
+        "summary": "POST /agent/templates/publish",
         "description": "Publish a new agent template",
         "operationId": "publish_template",
         "requestBody": {
@@ -647,7 +647,12 @@
           "500": {
             "description": "Internal server error"
           }
-        }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
     "/agent/templates/{slug}": {
@@ -655,7 +660,7 @@
         "tags": [
           "templates"
         ],
-        "summary": "GET /api/agent/templates/:slug",
+        "summary": "GET /agent/templates/{slug}",
         "description": "Get template details by slug",
         "operationId": "get_template",
         "parameters": [
@@ -694,8 +699,8 @@
         "tags": [
           "templates"
         ],
-        "summary": "POST /api/agent/templates/:slug/invoke",
-        "description": "Invoke an agent template with x402 payment",
+        "summary": "POST /agent/templates/{slug}/invoke",
+        "description": "Invoke an agent template.\n\nSupports two modes:\n- **Bearer auth present**: uses the authenticated user's SerenBucks balance.\n- **No bearer auth**: uses x402 (requires `X-AGENT-WALLET` + payment headers).",
         "operationId": "invoke_template",
         "parameters": [
           {
@@ -731,6 +736,9 @@
           },
           "400": {
             "description": "Invalid request"
+          },
+          "401": {
+            "description": "Authentication failed"
           },
           "402": {
             "description": "Payment required"
@@ -1681,6 +1689,67 @@
           },
           "401": {
             "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/agent/templates/analytics/{publisher_id}": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "GET /organizations/{organization_id}/agent/templates/analytics/{publisher_id}",
+        "description": "Get template analytics for a specific publisher",
+        "operationId": "get_publisher_template_analytics",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "path",
+            "description": "Publisher ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Analytics retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublisherAnalyticsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
           }
         },
         "security": [
@@ -2810,6 +2879,207 @@
             "description": "Internal server error"
           }
         }
+      }
+    },
+    "/organizations/{organization_id}/publishers/{publisher_id}/analytics/revenue": {
+      "get": {
+        "tags": [
+          "Agent Analytics"
+        ],
+        "summary": "GET /api/organizations/:org_id/publishers/:publisher_id/analytics/revenue",
+        "description": "Get revenue metrics with period-over-period comparison.",
+        "operationId": "get_revenue_metrics",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "path",
+            "description": "Publisher ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "description": "Number of days to analyze (default: 30)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revenue metrics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevenueMetrics"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Publisher not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/publishers/{publisher_id}/analytics/revenue-by-day": {
+      "get": {
+        "tags": [
+          "Agent Analytics"
+        ],
+        "summary": "GET /api/organizations/:org_id/publishers/:publisher_id/analytics/revenue-by-day",
+        "description": "Get daily revenue breakdown.",
+        "operationId": "get_revenue_by_day",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "path",
+            "description": "Publisher ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "description": "Number of days to analyze (default: 30)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Daily revenue breakdown",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RevenueByDay"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Publisher not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/publishers/{publisher_id}/analytics/top-agents": {
+      "get": {
+        "tags": [
+          "Agent Analytics"
+        ],
+        "summary": "GET /api/organizations/:org_id/publishers/:publisher_id/analytics/top-agents",
+        "description": "Get top agents by spending.",
+        "operationId": "get_top_agents",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "path",
+            "description": "Publisher ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Number of agents to return (default: 10)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Top agents by spending",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TopAgent"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Publisher not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
     "/organizations/{organization_id}/publishers/{publisher_id}/earnings": {
@@ -9216,7 +9486,7 @@
       },
       "AgentTemplate": {
         "type": "object",
-        "description": "Agent template - executable code that runs in Daytona sandbox",
+        "description": "Agent template - executable code that runs in compute backends (Daytona, Modal, etc.)",
         "required": [
           "id",
           "publisher_id",
@@ -9238,6 +9508,11 @@
         "properties": {
           "code": {
             "type": "string"
+          },
+          "compute_backend": {
+            "type": "string",
+            "description": "Preferred compute backend (e.g., \"daytona\", \"modal\"). If None, uses default.",
+            "nullable": true
           },
           "created_at": {
             "type": "string",
@@ -9369,6 +9644,16 @@
           "total_invocations": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "AnalyticsQueryParams": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of days to analyze (default: 30)"
           }
         }
       },
@@ -17199,6 +17484,78 @@
           }
         }
       },
+      "PublisherAnalyticsResponse": {
+        "type": "object",
+        "description": "Response for publisher analytics",
+        "required": [
+          "publisher_id",
+          "templates",
+          "totals"
+        ],
+        "properties": {
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "templates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateAnalytics"
+            }
+          },
+          "totals": {
+            "$ref": "#/components/schemas/PublisherAnalyticsTotals"
+          }
+        }
+      },
+      "PublisherAnalyticsTotals": {
+        "type": "object",
+        "description": "Aggregated totals for publisher analytics",
+        "required": [
+          "total_templates",
+          "total_invocations",
+          "successful_invocations",
+          "failed_invocations",
+          "overall_success_rate",
+          "unique_agents_served",
+          "total_revenue_atomic",
+          "total_revenue_usd"
+        ],
+        "properties": {
+          "failed_invocations": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "overall_success_rate": {
+            "type": "number",
+            "format": "double"
+          },
+          "successful_invocations": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_invocations": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_revenue_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_revenue_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "total_templates": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "unique_agents_served": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "PublisherDataResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
@@ -17392,6 +17749,12 @@
           "billing_model": {
             "type": "string"
           },
+          "branch_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "SerenDB branch ID (for serendb source_type)",
+            "nullable": true
+          },
           "capabilities": {
             "type": "array",
             "items": {
@@ -17408,6 +17771,11 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "database_name": {
+            "type": "string",
+            "description": "Database name within the SerenDB project",
+            "nullable": true
           },
           "description": {
             "type": "string",
@@ -17455,6 +17823,12 @@
               "$ref": "#/components/schemas/PricingConfigResponse"
             },
             "description": "Pricing config per asset (if included)",
+            "nullable": true
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "SerenDB project ID (for serendb source_type)",
             "nullable": true
           },
           "protected_operations": {
@@ -18389,6 +18763,107 @@
           "propertyName": "type"
         }
       },
+      "RevenueByDay": {
+        "type": "object",
+        "description": "Revenue breakdown by day.",
+        "required": [
+          "date",
+          "revenue_atomic",
+          "revenue",
+          "query_count",
+          "unique_agents"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "Date (YYYY-MM-DD)"
+          },
+          "query_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of queries on this day"
+          },
+          "revenue": {
+            "type": "string",
+            "description": "Revenue as decimal string"
+          },
+          "revenue_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Revenue on this day (atomic units)"
+          },
+          "unique_agents": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of unique agents on this day"
+          }
+        }
+      },
+      "RevenueMetrics": {
+        "type": "object",
+        "description": "Revenue metrics with period-over-period comparison.",
+        "required": [
+          "total_revenue_atomic",
+          "total_revenue",
+          "active_agents",
+          "total_queries",
+          "avg_query_cost_atomic",
+          "revenue_change_pct",
+          "agents_change_pct",
+          "queries_change_pct",
+          "period_start",
+          "period_end"
+        ],
+        "properties": {
+          "active_agents": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of active agents in the period"
+          },
+          "agents_change_pct": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Agent count change from previous period (percentage)"
+          },
+          "avg_query_cost_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Average query cost (atomic units)"
+          },
+          "period_end": {
+            "type": "string",
+            "description": "Period end date (ISO 8601)"
+          },
+          "period_start": {
+            "type": "string",
+            "description": "Period start date (ISO 8601)"
+          },
+          "queries_change_pct": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Query count change from previous period (percentage)"
+          },
+          "revenue_change_pct": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Revenue change from previous period (percentage, e.g., 15 = +15%)"
+          },
+          "total_queries": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total queries executed in the period"
+          },
+          "total_revenue": {
+            "type": "string",
+            "description": "Total revenue as decimal string"
+          },
+          "total_revenue_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total revenue in the period (atomic units)"
+          }
+        }
+      },
       "Role": {
         "type": "object",
         "description": "PostgreSQL role/user within a SerenDB branch",
@@ -18953,6 +19428,67 @@
           }
         }
       },
+      "TemplateAnalytics": {
+        "type": "object",
+        "description": "Analytics data for a single template",
+        "required": [
+          "template_id",
+          "slug",
+          "name",
+          "total_invocations",
+          "successful_invocations",
+          "failed_invocations",
+          "success_rate",
+          "unique_agents_served",
+          "total_revenue_atomic",
+          "total_revenue_usd"
+        ],
+        "properties": {
+          "avg_execution_time_ms": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "failed_invocations": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "success_rate": {
+            "type": "number",
+            "format": "double"
+          },
+          "successful_invocations": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "template_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "total_invocations": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_revenue_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_revenue_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "unique_agents_served": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "TemplateDataResponse": {
         "type": "object",
         "description": "Response wrapper for template data",
@@ -19047,6 +19583,63 @@
               }
             ],
             "nullable": true
+          }
+        }
+      },
+      "TopAgent": {
+        "type": "object",
+        "description": "Top agent by spending.",
+        "required": [
+          "rank",
+          "agent_wallet",
+          "total_spent_atomic",
+          "total_spent",
+          "balance_atomic",
+          "query_count"
+        ],
+        "properties": {
+          "agent_wallet": {
+            "type": "string",
+            "description": "Agent wallet address"
+          },
+          "balance_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Current balance (atomic units)"
+          },
+          "last_active": {
+            "type": "string",
+            "description": "Last activity timestamp (ISO 8601)",
+            "nullable": true
+          },
+          "query_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of queries executed"
+          },
+          "rank": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Rank (1 = highest spender)"
+          },
+          "total_spent": {
+            "type": "string",
+            "description": "Total amount spent as decimal string"
+          },
+          "total_spent_atomic": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total amount spent (atomic units)"
+          }
+        }
+      },
+      "TopAgentsQueryParams": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of agents to return (default: 10)"
           }
         }
       },
@@ -20193,7 +20786,9 @@
           "funded_balance_usd",
           "promotional_balance_atomic",
           "promotional_balance_usd",
-          "by_source"
+          "by_source",
+          "total_purchases_cents",
+          "total_purchases_usd"
         ],
         "properties": {
           "balance_atomic": {
@@ -20225,6 +20820,14 @@
             "description": "Total promotional balance (bonuses, daily claims, referrals, admin grants)"
           },
           "promotional_balance_usd": {
+            "type": "string"
+          },
+          "total_purchases_cents": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total lifetime SerenBucks purchases in cents (for plan upgrade tracking)"
+          },
+          "total_purchases_usd": {
             "type": "string"
           },
           "wallet_address": {
