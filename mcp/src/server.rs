@@ -714,6 +714,9 @@ pub struct InvokeAgentTemplateParams {
     pub slug: String,
     /// Input data for the template (JSON object)
     pub input: serde_json::Value,
+    /// Set to true to confirm a payment that exceeded the auto-approve limit.
+    #[serde(default)]
+    pub confirm: bool,
 }
 // ============================================================================
 // Additional Parameter Types for Extended Functionality
@@ -4147,7 +4150,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Invoke an agent template with input data. Requires SerenBucks balance. Templates execute code in a sandboxed environment and return structured output.",
+        description = "Invoke an agent template with input data. Uses SerenBucks when authenticated; otherwise pays via x402 using your configured local wallet. Templates execute code in a sandboxed environment and return structured output.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn invoke_agent_template(
@@ -4158,12 +4161,26 @@ impl SerenMcpServer {
         // Check write permissions
         ensure_writes_allowed(&extensions)?;
 
-        let api_client = self.api_client(&extensions)?;
+        let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
 
         let body = seren::InvokeTemplateRequest {
             input: params.input,
         };
 
+        // Dual-mode:
+        // - If we have a Bearer token, invoke via SerenBucks.
+        // - Otherwise, fall back to x402 using the configured local wallet.
+        if matches!(self.auth, SerenAuth::FromRequestBearer)
+            && extract_bearer_token_from_extensions(&extensions).is_none()
+        {
+            let path = format!("/agent/templates/{}/invoke", params.slug);
+            let result = self
+                .execute_x402_roundtrip_json(&path, &body, params.confirm, &agent_metadata)
+                .await?;
+            return Ok(CallToolResult::success(vec![json_content(&result)?]));
+        }
+
+        let api_client = self.api_client(&extensions)?;
         let result = api_client
             .invoke_template(&params.slug, &body)
             .await
