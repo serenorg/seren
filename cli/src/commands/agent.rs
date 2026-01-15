@@ -330,6 +330,11 @@ pub async fn create_publisher(
         usage_examples: None,
         request_content_type: None,
         upstream_headers: None,
+        token_exchange_url: None,
+        token_exchange_method: None,
+        token_exchange_mode: None,
+        token_cache_ttl_seconds: None,
+        token_response_field: None,
     };
 
     let response = client

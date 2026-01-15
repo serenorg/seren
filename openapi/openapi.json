@@ -11887,6 +11887,32 @@
           "source_type": {
             "$ref": "#/components/schemas/SourceType"
           },
+          "token_cache_ttl_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "description": "TTL for cached exchanged tokens in seconds (60-86400, default: 3600)",
+            "nullable": true
+          },
+          "token_exchange_method": {
+            "type": "string",
+            "description": "HTTP method for exchange endpoint (POST or GET, default: POST)",
+            "nullable": true
+          },
+          "token_exchange_mode": {
+            "type": "string",
+            "description": "How to send Seren token: header, body, or query (default: header)",
+            "nullable": true
+          },
+          "token_exchange_url": {
+            "type": "string",
+            "description": "URL to call for exchanging Seren API keys for publisher auth tokens",
+            "nullable": true
+          },
+          "token_response_field": {
+            "type": "string",
+            "description": "JSON field in exchange response containing the token (default: access_token)",
+            "nullable": true
+          },
           "undocumented_endpoint_policy": {
             "allOf": [
               {
@@ -18013,6 +18039,32 @@
           "source_type": {
             "$ref": "#/components/schemas/SourceType"
           },
+          "token_cache_ttl_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "description": "TTL for cached exchanged tokens in seconds",
+            "nullable": true
+          },
+          "token_exchange_method": {
+            "type": "string",
+            "description": "HTTP method for exchange endpoint (POST or GET)",
+            "nullable": true
+          },
+          "token_exchange_mode": {
+            "type": "string",
+            "description": "How to send Seren token: header, body, or query",
+            "nullable": true
+          },
+          "token_exchange_url": {
+            "type": "string",
+            "description": "URL to call for exchanging Seren API keys for publisher auth tokens",
+            "nullable": true
+          },
+          "token_response_field": {
+            "type": "string",
+            "description": "JSON field in exchange response containing the token",
+            "nullable": true
+          },
           "total_queries": {
             "type": "integer",
             "format": "int64"
@@ -20206,6 +20258,32 @@
               }
             ],
             "nullable": true
+          },
+          "token_cache_ttl_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "description": "TTL for cached exchanged tokens in seconds (60-86400)",
+            "nullable": true
+          },
+          "token_exchange_method": {
+            "type": "string",
+            "description": "HTTP method for exchange endpoint (POST or GET)",
+            "nullable": true
+          },
+          "token_exchange_mode": {
+            "type": "string",
+            "description": "How to send Seren token: header, body, or query",
+            "nullable": true
+          },
+          "token_exchange_url": {
+            "type": "string",
+            "description": "URL to call for exchanging Seren API keys for publisher auth tokens",
+            "nullable": true
+          },
+          "token_response_field": {
+            "type": "string",
+            "description": "JSON field in exchange response containing the token",
+            "nullable": true
           }
         }
       },
@@ -20486,6 +20564,32 @@
           },
           "resource_name": {
             "type": "string",
+            "nullable": true
+          },
+          "token_cache_ttl_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "description": "TTL for cached exchanged tokens in seconds (60-86400)",
+            "nullable": true
+          },
+          "token_exchange_method": {
+            "type": "string",
+            "description": "HTTP method for exchange endpoint (POST or GET)",
+            "nullable": true
+          },
+          "token_exchange_mode": {
+            "type": "string",
+            "description": "How to send Seren token: header, body, or query",
+            "nullable": true
+          },
+          "token_exchange_url": {
+            "type": "string",
+            "description": "URL to call for exchanging Seren API keys for publisher auth tokens",
+            "nullable": true
+          },
+          "token_response_field": {
+            "type": "string",
+            "description": "JSON field in exchange response containing the token (default: access_token)",
             "nullable": true
           },
           "undocumented_endpoint_policy": {

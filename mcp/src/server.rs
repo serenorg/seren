@@ -640,6 +640,23 @@ pub struct CreatePublisherParams {
     /// "allow" (default) passes through undocumented paths, "block" returns 403
     #[serde(default)]
     pub undocumented_endpoint_policy: Option<String>,
+    /// URL to call for exchanging Seren API keys for publisher auth tokens.
+    /// When set, the gateway will call this URL to exchange agent credentials
+    /// for tokens the publisher's API understands.
+    #[serde(default)]
+    pub token_exchange_url: Option<String>,
+    /// HTTP method for token exchange endpoint (POST or GET, default: POST)
+    #[serde(default)]
+    pub token_exchange_method: Option<String>,
+    /// How to send Seren token to exchange endpoint: header, body, or query (default: header)
+    #[serde(default)]
+    pub token_exchange_mode: Option<String>,
+    /// TTL for cached exchanged tokens in seconds (60-86400, default: 3600)
+    #[serde(default)]
+    pub token_cache_ttl_seconds: Option<i32>,
+    /// JSON field in exchange response containing the token (default: access_token)
+    #[serde(default)]
+    pub token_response_field: Option<String>,
 }
 
 /// Parameters for updating a publisher in the store
@@ -701,6 +718,21 @@ pub struct UpdatePublisherParams {
     /// "allow" (default) passes through undocumented paths, "block" returns 403
     #[serde(default)]
     pub undocumented_endpoint_policy: Option<String>,
+    /// URL to call for exchanging Seren API keys for publisher auth tokens
+    #[serde(default)]
+    pub token_exchange_url: Option<String>,
+    /// HTTP method for token exchange endpoint (POST or GET)
+    #[serde(default)]
+    pub token_exchange_method: Option<String>,
+    /// How to send Seren token to exchange endpoint: header, body, or query
+    #[serde(default)]
+    pub token_exchange_mode: Option<String>,
+    /// TTL for cached exchanged tokens in seconds (60-86400)
+    #[serde(default)]
+    pub token_cache_ttl_seconds: Option<i32>,
+    /// JSON field in exchange response containing the token (default: access_token)
+    #[serde(default)]
+    pub token_response_field: Option<String>,
 }
 
 /// Parameters for uploading a publisher logo
@@ -3700,6 +3732,11 @@ impl SerenMcpServer {
                 "default_deny" | "block" => Some(seren::UndocumentedEndpointPolicy::DefaultDeny),
                 _ => None,
             }),
+            token_exchange_url: params.token_exchange_url,
+            token_exchange_method: params.token_exchange_method,
+            token_exchange_mode: params.token_exchange_mode,
+            token_cache_ttl_seconds: params.token_cache_ttl_seconds,
+            token_response_field: params.token_response_field,
         };
 
         let result = api_client
@@ -3759,6 +3796,12 @@ impl SerenMcpServer {
                 "default_deny" | "block" => Some(seren::UndocumentedEndpointPolicy::DefaultDeny),
                 _ => None,
             }),
+            // Token exchange fields
+            token_exchange_url: params.token_exchange_url,
+            token_exchange_method: params.token_exchange_method,
+            token_exchange_mode: params.token_exchange_mode,
+            token_cache_ttl_seconds: params.token_cache_ttl_seconds,
+            token_response_field: params.token_response_field,
             // Set defaults for fields not exposed in MCP params
             resource_name: None,
             resource_description: None,
