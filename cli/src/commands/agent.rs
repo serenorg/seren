@@ -254,11 +254,27 @@ pub async fn create_publisher(
     let client = ctx.client().await?;
 
     // Convert source_type string to enum
-    let source_type_enum = source_type.map(|s| match s {
-        "serendb" => seren::SourceType::Serendb,
-        "api" => seren::SourceType::Api,
-        _ => seren::SourceType::Serendb,
-    });
+    let source_type_enum = match source_type {
+        None => None,
+        Some(raw) => {
+            let normalized = raw.trim().to_ascii_lowercase();
+            let parsed = match normalized.as_str() {
+                "serendb" => seren::SourceType::Serendb,
+                "api" => seren::SourceType::Api,
+                "both" => seren::SourceType::Both,
+                "agent_template" | "agent-template" | "agenttemplate" => {
+                    seren::SourceType::AgentTemplate
+                }
+                other => {
+                    return Err(anyhow::anyhow!(
+                        "Invalid source_type '{}'. Expected one of: serendb, api, both, agent_template",
+                        other
+                    ));
+                }
+            };
+            Some(parsed)
+        }
+    };
 
     let body = seren::CreatePublisherRequest {
         name: name.to_string(),

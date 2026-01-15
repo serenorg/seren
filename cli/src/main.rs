@@ -256,7 +256,7 @@ enum AgentAction {
         /// Network ID for the wallet (e.g., "base-sepolia", "base-mainnet")
         #[arg(long)]
         wallet_network_id: String,
-        /// Source type: "serendb" or "api"
+        /// Source type: "serendb", "api", "both", or "agent_template"
         #[arg(long)]
         source_type: Option<String>,
         /// Publisher description
