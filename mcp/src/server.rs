@@ -4126,6 +4126,8 @@ impl SerenMcpServer {
         Parameters(params): Parameters<GetAgentTemplateParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        validate_slug(&params.slug, "template slug")?;
+
         let api_client = self.api_client(&extensions)?;
 
         let template = api_client
@@ -4158,6 +4160,8 @@ impl SerenMcpServer {
         Parameters(params): Parameters<InvokeAgentTemplateParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        validate_slug(&params.slug, "template slug")?;
+
         // Check write permissions
         ensure_writes_allowed(&extensions)?;
 
