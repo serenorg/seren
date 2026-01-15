@@ -533,17 +533,45 @@ pub enum ParamTypeParam {
 }
 
 /// Convert MCP endpoint definition param to SDK endpoint definition
-fn endpoint_param_to_definition(param: EndpointDefinitionParam) -> seren::EndpointDefinition {
-    seren::EndpointDefinition {
-        method: match param.method.to_uppercase().as_str() {
-            "GET" => seren::HttpMethod::Get,
-            "POST" => seren::HttpMethod::Post,
-            "PUT" => seren::HttpMethod::Put,
-            "DELETE" => seren::HttpMethod::Delete,
-            "PATCH" => seren::HttpMethod::Patch,
-            _ => seren::HttpMethod::Post, // Default to POST for unknown methods
-        },
-        path: param.path,
+fn endpoint_param_to_definition(
+    param: EndpointDefinitionParam,
+) -> Result<seren::EndpointDefinition, McpError> {
+    let method = param.method.trim();
+    if method.is_empty() {
+        return Err(McpError::invalid_params(
+            "endpoints[].method must not be empty",
+            None,
+        ));
+    }
+
+    let method = match method.to_ascii_uppercase().as_str() {
+        "GET" => seren::HttpMethod::Get,
+        "POST" => seren::HttpMethod::Post,
+        "PUT" => seren::HttpMethod::Put,
+        "DELETE" => seren::HttpMethod::Delete,
+        "PATCH" => seren::HttpMethod::Patch,
+        other => {
+            return Err(McpError::invalid_params(
+                format!(
+                    "Invalid endpoints[].method '{}'. Expected one of: GET, POST, PUT, DELETE, PATCH",
+                    other
+                ),
+                None,
+            ));
+        }
+    };
+
+    let path = param.path.trim();
+    if path.is_empty() {
+        return Err(McpError::invalid_params(
+            "endpoints[].path must not be empty",
+            None,
+        ));
+    }
+
+    Ok(seren::EndpointDefinition {
+        method,
+        path: path.to_string(),
         description: param.description,
         query_params: param.query_params.map(|qps| {
             qps.into_iter()
@@ -570,7 +598,7 @@ fn endpoint_param_to_definition(param: EndpointDefinitionParam) -> seren::Endpoi
         request_body: None,
         required_headers: None,
         response: None,
-    }
+    })
 }
 
 /// Parameters for creating a publisher in the store
@@ -1488,6 +1516,102 @@ fn validate_sql_query(query: &str) -> Result<(), McpError> {
         return Err(McpError::invalid_params("query must not exceed 1MB", None));
     }
     Ok(())
+}
+
+fn normalize_nonempty_optional_string(
+    value: Option<String>,
+    field: &str,
+) -> Result<Option<String>, McpError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(McpError::invalid_params(
+            format!("{} must not be empty", field),
+            None,
+        ));
+    }
+    Ok(Some(trimmed.to_string()))
+}
+
+fn parse_undocumented_endpoint_policy(
+    value: Option<String>,
+) -> Result<Option<seren::UndocumentedEndpointPolicy>, McpError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return Err(McpError::invalid_params(
+            "undocumented_endpoint_policy must not be empty",
+            None,
+        ));
+    }
+    match normalized.as_str() {
+        "default_allow" | "allow" => Ok(Some(seren::UndocumentedEndpointPolicy::DefaultAllow)),
+        "default_deny" | "block" => Ok(Some(seren::UndocumentedEndpointPolicy::DefaultDeny)),
+        other => Err(McpError::invalid_params(
+            format!(
+                "Invalid undocumented_endpoint_policy '{}'. Expected one of: allow, block",
+                other
+            ),
+            None,
+        )),
+    }
+}
+
+fn normalize_token_exchange_method(value: Option<String>) -> Result<Option<String>, McpError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let normalized = value.trim().to_ascii_uppercase();
+    if normalized.is_empty() {
+        return Err(McpError::invalid_params(
+            "token_exchange_method must not be empty",
+            None,
+        ));
+    }
+    if normalized != "GET" && normalized != "POST" {
+        return Err(McpError::invalid_params(
+            "token_exchange_method must be GET or POST",
+            None,
+        ));
+    }
+    Ok(Some(normalized))
+}
+
+fn normalize_token_exchange_mode(value: Option<String>) -> Result<Option<String>, McpError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return Err(McpError::invalid_params(
+            "token_exchange_mode must not be empty",
+            None,
+        ));
+    }
+    if normalized != "header" && normalized != "body" && normalized != "query" {
+        return Err(McpError::invalid_params(
+            "token_exchange_mode must be header, body, or query",
+            None,
+        ));
+    }
+    Ok(Some(normalized))
+}
+
+fn validate_token_cache_ttl_seconds(value: Option<i32>) -> Result<Option<i32>, McpError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if !(60..=86_400).contains(&value) {
+        return Err(McpError::invalid_params(
+            "token_cache_ttl_seconds must be between 60 and 86400",
+            None,
+        ));
+    }
+    Ok(Some(value))
 }
 
 // ============================================================================
@@ -3618,16 +3742,45 @@ impl SerenMcpServer {
         Parameters(params): Parameters<CreatePublisherParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        let CreatePublisherParams {
+            name,
+            slug,
+            email,
+            wallet_address,
+            wallet_network_id,
+            source_type,
+            description,
+            api_url,
+            project_id,
+            branch_id,
+            database_name,
+            base_price_per_1000_rows,
+            price_per_call,
+            price_per_execution,
+            billing_model,
+            categories,
+            logo_url,
+            request_content_type,
+            upstream_headers,
+            endpoints,
+            undocumented_endpoint_policy,
+            token_exchange_url,
+            token_exchange_method,
+            token_exchange_mode,
+            token_cache_ttl_seconds,
+            token_response_field,
+        } = params;
+
         ensure_writes_allowed(&extensions)?;
-        validate_resource_name(&params.name, "Publisher name")?;
-        validate_slug(&params.slug, "Publisher slug")?;
-        if params.wallet_address.trim().is_empty() {
+        validate_resource_name(&name, "Publisher name")?;
+        validate_slug(&slug, "Publisher slug")?;
+        if wallet_address.trim().is_empty() {
             return Err(McpError::invalid_params(
                 "wallet_address must not be empty",
                 None,
             ));
         }
-        if params.wallet_network_id.trim().is_empty() {
+        if wallet_network_id.trim().is_empty() {
             return Err(McpError::invalid_params(
                 "wallet_network_id must not be empty",
                 None,
@@ -3635,13 +3788,13 @@ impl SerenMcpServer {
         }
 
         let api_client = self.api_client(&extensions)?;
-        let name = params.name.trim().to_string();
-        let slug = params.slug.trim().to_string();
-        let wallet_address = params.wallet_address.trim().to_string();
-        let wallet_network_id = params.wallet_network_id.trim().to_string();
+        let name = name.trim().to_string();
+        let slug = slug.trim().to_string();
+        let wallet_address = wallet_address.trim().to_string();
+        let wallet_network_id = wallet_network_id.trim().to_ascii_lowercase();
 
         // Convert source_type string to enum
-        let source_type = match params.source_type.as_deref() {
+        let source_type = match source_type.as_deref() {
             None => None,
             Some(raw) => {
                 let normalized = raw.trim().to_ascii_lowercase();
@@ -3666,24 +3819,73 @@ impl SerenMcpServer {
             }
         };
 
+        let endpoints = match endpoints {
+            None => None,
+            Some(endpoints) => Some(
+                endpoints
+                    .into_iter()
+                    .map(endpoint_param_to_definition)
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+        };
+
+        let undocumented_endpoint_policy =
+            parse_undocumented_endpoint_policy(undocumented_endpoint_policy)?;
+
+        let token_exchange_url =
+            normalize_nonempty_optional_string(token_exchange_url, "token_exchange_url")?;
+        if let Some(ref url) = token_exchange_url
+            && !url.starts_with("https://")
+        {
+            return Err(McpError::invalid_params(
+                "token_exchange_url must use HTTPS",
+                None,
+            ));
+        }
+        let token_exchange_method = normalize_token_exchange_method(token_exchange_method)?;
+        let token_exchange_mode = normalize_token_exchange_mode(token_exchange_mode)?;
+        let token_cache_ttl_seconds = validate_token_cache_ttl_seconds(token_cache_ttl_seconds)?;
+        let token_response_field =
+            normalize_nonempty_optional_string(token_response_field, "token_response_field")?;
+
+        if token_exchange_url.is_none()
+            && (token_exchange_method.is_some()
+                || token_exchange_mode.is_some()
+                || token_cache_ttl_seconds.is_some()
+                || token_response_field.is_some())
+        {
+            return Err(McpError::invalid_params(
+                "token_exchange_url is required when setting token exchange fields",
+                None,
+            ));
+        }
+
+        let upstream_headers = match upstream_headers {
+            None => None,
+            Some(headers) => Some(
+                serde_json::to_value(headers)
+                    .map_err(|e| McpError::internal_error(e.to_string(), None))?,
+            ),
+        };
+
         let body = seren::CreatePublisherRequest {
             name,
             slug,
-            email: params.email,
+            email,
             wallet_address: seren::WalletAddress(wallet_address),
             wallet_network_id,
             source_type,
-            description: params.description,
-            api_url: params.api_url,
-            project_id: params.project_id,
-            branch_id: params.branch_id,
-            database_name: params.database_name,
-            base_price_per_1000_rows: params.base_price_per_1000_rows,
-            billing_model: params.billing_model,
-            categories: params.categories.unwrap_or_default(),
+            description,
+            api_url,
+            project_id,
+            branch_id,
+            database_name,
+            base_price_per_1000_rows,
+            billing_model,
+            categories: categories.unwrap_or_default(),
             capabilities: vec![],
             use_cases: vec![],
-            logo_url: params.logo_url,
+            logo_url,
             // Set defaults for other fields
             accepted_asset_ids: None,
             allowed_passthrough_headers: vec![],
@@ -3702,9 +3904,9 @@ impl SerenMcpServer {
             markup_multiplier: None,
             minimum_balance: None,
             ownership_tracking_enabled: None,
-            price_per_call: params.price_per_call,
+            price_per_call,
             price_per_delete: None,
-            price_per_execution: params.price_per_execution,
+            price_per_execution,
             price_per_get: None,
             price_per_patch: None,
             price_per_post: None,
@@ -3717,26 +3919,15 @@ impl SerenMcpServer {
             resource_name: None,
             upstream_api_key: None,
             usage_examples: None,
-            request_content_type: params.request_content_type,
-            upstream_headers: params
-                .upstream_headers
-                .and_then(|h| serde_json::to_value(h).ok()),
-            endpoints: params
-                .endpoints
-                .map(|e| e.into_iter().map(endpoint_param_to_definition).collect()),
-            undocumented_endpoint_policy: params.undocumented_endpoint_policy.and_then(|p| match p
-                .to_lowercase()
-                .as_str()
-            {
-                "default_allow" | "allow" => Some(seren::UndocumentedEndpointPolicy::DefaultAllow),
-                "default_deny" | "block" => Some(seren::UndocumentedEndpointPolicy::DefaultDeny),
-                _ => None,
-            }),
-            token_exchange_url: params.token_exchange_url,
-            token_exchange_method: params.token_exchange_method,
-            token_exchange_mode: params.token_exchange_mode,
-            token_cache_ttl_seconds: params.token_cache_ttl_seconds,
-            token_response_field: params.token_response_field,
+            request_content_type,
+            upstream_headers,
+            endpoints,
+            undocumented_endpoint_policy,
+            token_exchange_url,
+            token_exchange_method,
+            token_exchange_mode,
+            token_cache_ttl_seconds,
+            token_response_field,
         };
 
         let result = api_client
@@ -3756,11 +3947,43 @@ impl SerenMcpServer {
         Parameters(params): Parameters<UpdatePublisherParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        let UpdatePublisherParams {
+            slug,
+            name,
+            description,
+            logo_url,
+            categories,
+            capabilities,
+            use_cases,
+            wallet_address,
+            wallet_network_id,
+            is_active,
+            api_url,
+            project_id,
+            branch_id,
+            database_name,
+            billing_model,
+            email,
+            endpoints,
+            undocumented_endpoint_policy,
+            token_exchange_url,
+            token_exchange_method,
+            token_exchange_mode,
+            token_cache_ttl_seconds,
+            token_response_field,
+        } = params;
+
         ensure_writes_allowed(&extensions)?;
-        validate_slug(&params.slug, "Publisher slug")?;
+        let slug = slug.trim().to_string();
+        validate_slug(&slug, "Publisher slug")?;
+
+        let wallet_address = normalize_nonempty_optional_string(wallet_address, "wallet_address")?;
+        let wallet_network_id =
+            normalize_nonempty_optional_string(wallet_network_id, "wallet_network_id")?
+                .map(|v| v.to_ascii_lowercase());
 
         // Validate wallet updates (must provide both or neither)
-        if params.wallet_address.is_some() != params.wallet_network_id.is_some() {
+        if wallet_address.is_some() != wallet_network_id.is_some() {
             return Err(McpError::invalid_params(
                 "wallet_address and wallet_network_id must be provided together",
                 None,
@@ -3769,39 +3992,64 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
 
+        let endpoints = match endpoints {
+            None => None,
+            Some(endpoints) => Some(
+                endpoints
+                    .into_iter()
+                    .map(endpoint_param_to_definition)
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+        };
+
+        let undocumented_endpoint_policy =
+            parse_undocumented_endpoint_policy(undocumented_endpoint_policy)?;
+
+        let api_url = normalize_nonempty_optional_string(api_url, "api_url")?;
+        let database_name = normalize_nonempty_optional_string(database_name, "database_name")?;
+        let billing_model = normalize_nonempty_optional_string(billing_model, "billing_model")?;
+        let email = normalize_nonempty_optional_string(email, "email")?;
+
+        let token_exchange_url =
+            normalize_nonempty_optional_string(token_exchange_url, "token_exchange_url")?;
+        if let Some(ref url) = token_exchange_url
+            && !url.starts_with("https://")
+        {
+            return Err(McpError::invalid_params(
+                "token_exchange_url must use HTTPS",
+                None,
+            ));
+        }
+        let token_exchange_method = normalize_token_exchange_method(token_exchange_method)?;
+        let token_exchange_mode = normalize_token_exchange_mode(token_exchange_mode)?;
+        let token_cache_ttl_seconds = validate_token_cache_ttl_seconds(token_cache_ttl_seconds)?;
+        let token_response_field =
+            normalize_nonempty_optional_string(token_response_field, "token_response_field")?;
+
         let body = seren::UpdatePublisherRequest {
-            name: params.name,
-            description: params.description,
-            logo_url: params.logo_url,
-            categories: params.categories,
-            capabilities: params.capabilities,
-            use_cases: params.use_cases,
-            wallet_address: params.wallet_address.map(seren::WalletAddress),
-            wallet_network_id: params.wallet_network_id,
-            is_active: params.is_active,
-            api_url: params.api_url,
-            project_id: params.project_id,
-            branch_id: params.branch_id,
-            database_name: params.database_name,
-            billing_model: params.billing_model,
-            email: params.email,
-            endpoints: params
-                .endpoints
-                .map(|e| e.into_iter().map(endpoint_param_to_definition).collect()),
-            undocumented_endpoint_policy: params.undocumented_endpoint_policy.and_then(|p| match p
-                .to_lowercase()
-                .as_str()
-            {
-                "default_allow" | "allow" => Some(seren::UndocumentedEndpointPolicy::DefaultAllow),
-                "default_deny" | "block" => Some(seren::UndocumentedEndpointPolicy::DefaultDeny),
-                _ => None,
-            }),
+            name,
+            description,
+            logo_url,
+            categories,
+            capabilities,
+            use_cases,
+            wallet_address: wallet_address.map(seren::WalletAddress),
+            wallet_network_id,
+            is_active,
+            api_url,
+            project_id,
+            branch_id,
+            database_name,
+            billing_model,
+            email,
+            endpoints,
+            undocumented_endpoint_policy,
             // Token exchange fields
-            token_exchange_url: params.token_exchange_url,
-            token_exchange_method: params.token_exchange_method,
-            token_exchange_mode: params.token_exchange_mode,
-            token_cache_ttl_seconds: params.token_cache_ttl_seconds,
-            token_response_field: params.token_response_field,
+            token_exchange_url,
+            token_exchange_method,
+            token_exchange_mode,
+            token_cache_ttl_seconds,
+            token_response_field,
             // Set defaults for fields not exposed in MCP params
             resource_name: None,
             resource_description: None,
@@ -3828,7 +4076,7 @@ impl SerenMcpServer {
         };
 
         let result = api_client
-            .update_publisher_api_key(&params.slug, &body)
+            .update_publisher_api_key(&slug, &body)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
