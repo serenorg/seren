@@ -638,6 +638,67 @@ pub struct CreatePublisherParams {
     pub undocumented_endpoint_policy: Option<String>,
 }
 
+/// Parameters for updating a publisher in the store
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct UpdatePublisherParams {
+    /// Publisher slug (unique identifier) to update
+    pub slug: String,
+    /// New publisher display name
+    #[serde(default)]
+    pub name: Option<String>,
+    /// New publisher description
+    #[serde(default)]
+    pub description: Option<String>,
+    /// New logo URL for store listing
+    #[serde(default)]
+    pub logo_url: Option<String>,
+    /// Publisher categories (e.g., ["blockchain", "defi"])
+    #[serde(default)]
+    pub categories: Option<Vec<String>>,
+    /// Publisher-declared capabilities for task matching (e.g., ["web_scraping", "ai_search"])
+    #[serde(default)]
+    pub capabilities: Option<Vec<String>>,
+    /// Human-readable use case descriptions (e.g., ["Scrape dynamic JavaScript websites"])
+    #[serde(default)]
+    pub use_cases: Option<Vec<String>>,
+    /// New wallet address for receiving payments (0x...)
+    /// Must be provided together with wallet_network_id
+    #[serde(default)]
+    pub wallet_address: Option<String>,
+    /// Network ID for wallet (CAIP-2 format, e.g., "eip155:8453" for Base)
+    /// Must be provided together with wallet_address
+    #[serde(default)]
+    pub wallet_network_id: Option<String>,
+    /// Whether the publisher is active
+    #[serde(default)]
+    pub is_active: Option<bool>,
+    /// External API URL (for api source_type)
+    #[serde(default)]
+    pub api_url: Option<String>,
+    /// SerenDB project ID (for serendb source_type)
+    #[serde(default)]
+    pub project_id: Option<Uuid>,
+    /// SerenDB branch ID (for serendb source_type)
+    #[serde(default)]
+    pub branch_id: Option<Uuid>,
+    /// Database name within the SerenDB project
+    #[serde(default)]
+    pub database_name: Option<String>,
+    /// Billing model (x402_per_request, prepaid_credits, x402_passthrough)
+    #[serde(default)]
+    pub billing_model: Option<String>,
+    /// Contact email for notifications and support
+    #[serde(default)]
+    pub email: Option<String>,
+    /// Structured endpoint definitions for LLM discoverability and access control
+    #[serde(default)]
+    pub endpoints: Option<Vec<EndpointDefinitionParam>>,
+    /// Policy for handling requests to paths not in the endpoints catalog
+    /// "allow" (default) passes through undocumented paths, "block" returns 403
+    #[serde(default)]
+    pub undocumented_endpoint_policy: Option<String>,
+}
+
 /// Parameters for executing a paid streaming API request
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ExecutePaidApiStreamParams {
@@ -3628,6 +3689,88 @@ impl SerenMcpServer {
 
         let result = api_client
             .create_publisher_api_key(&body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Update an existing publisher's details. Requires API key authentication (organization-level). Only fields provided will be updated.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn update_publisher(
+        &self,
+        Parameters(params): Parameters<UpdatePublisherParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        validate_slug(&params.slug, "Publisher slug")?;
+
+        // Validate wallet updates (must provide both or neither)
+        if params.wallet_address.is_some() != params.wallet_network_id.is_some() {
+            return Err(McpError::invalid_params(
+                "wallet_address and wallet_network_id must be provided together",
+                None,
+            ));
+        }
+
+        let api_client = self.api_client(&extensions)?;
+
+        let body = seren::UpdatePublisherRequest {
+            name: params.name,
+            description: params.description,
+            logo_url: params.logo_url,
+            categories: params.categories,
+            capabilities: params.capabilities,
+            use_cases: params.use_cases,
+            wallet_address: params.wallet_address.map(seren::WalletAddress),
+            wallet_network_id: params.wallet_network_id,
+            is_active: params.is_active,
+            api_url: params.api_url,
+            project_id: params.project_id,
+            branch_id: params.branch_id,
+            database_name: params.database_name,
+            billing_model: params.billing_model,
+            email: params.email,
+            endpoints: params
+                .endpoints
+                .map(|e| e.into_iter().map(endpoint_param_to_definition).collect()),
+            undocumented_endpoint_policy: params.undocumented_endpoint_policy.and_then(|p| match p
+                .to_lowercase()
+                .as_str()
+            {
+                "default_allow" | "allow" => Some(seren::UndocumentedEndpointPolicy::DefaultAllow),
+                "default_deny" | "block" => Some(seren::UndocumentedEndpointPolicy::DefaultDeny),
+                _ => None,
+            }),
+            // Set defaults for fields not exposed in MCP params
+            resource_name: None,
+            resource_description: None,
+            usage_examples: None,
+            api_headers: None,
+            auth_type: None,
+            upstream_api_key: None,
+            api_key_header: None,
+            api_key_query_param: None,
+            jwt_access_key: None,
+            jwt_secret_key: None,
+            jwt_expiration_seconds: None,
+            jwt_algorithm: None,
+            allowed_passthrough_headers: None,
+            request_content_type: None,
+            upstream_headers: None,
+            gateway_fee_percent: None,
+            ownership_tracking_enabled: None,
+            resource_id_response_path: None,
+            resource_id_url_pattern: None,
+            protected_operations: None,
+            add_asset_ids: None,
+            remove_asset_ids: None,
+        };
+
+        let result = api_client
+            .update_publisher_api_key(&params.slug, &body)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();

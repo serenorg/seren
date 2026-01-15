@@ -413,6 +413,62 @@
             "description": "Internal server error"
           }
         }
+      },
+      "put": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "PUT /agent/publishers/{slug}",
+        "description": "Update a publisher via organization API key (machine-to-machine).\nUses slug instead of publisher_id for easier identification.",
+        "operationId": "update_publisher_api_key",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Publisher slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePublisherRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Publisher updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublisherDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "API key required"
+          },
+          "403": {
+            "description": "Not authorized to update this publisher"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
       }
     },
     "/agent/stream": {
