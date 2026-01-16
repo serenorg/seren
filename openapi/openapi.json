@@ -506,7 +506,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DataResponse"
+                  "$ref": "#/components/schemas/LogoUploadDataResponse"
                 }
               }
             }
@@ -11729,9 +11729,18 @@
               "type": "string"
             }
           },
+          "database_config": {
+            "description": "Provider-specific configuration\nFor connection_string auth: { \"connection_string\": \"postgresql://...\" }",
+            "nullable": true
+          },
           "database_name": {
             "type": "string",
             "description": "Database name within the SerenDB project (default: serendb)",
+            "nullable": true
+          },
+          "database_provider": {
+            "type": "string",
+            "description": "External database provider ('neon', 'supabase', etc.)",
             "nullable": true
           },
           "description": {
@@ -12636,6 +12645,27 @@
           }
         }
       },
+      "DatabaseAuthMethod": {
+        "type": "string",
+        "description": "Authentication method for database providers",
+        "enum": [
+          "connection_string"
+        ]
+      },
+      "DatabaseConfig": {
+        "type": "object",
+        "description": "Database configuration for connection string auth",
+        "properties": {
+          "auth_method": {
+            "$ref": "#/components/schemas/DatabaseAuthMethod"
+          },
+          "connection_string_encrypted": {
+            "type": "string",
+            "description": "Encrypted connection string\nInput: \"connection_string\" (plaintext)\nStored: \"connection_string_encrypted\" (encrypted)",
+            "nullable": true
+          }
+        }
+      },
       "DatabaseCreated": {
         "type": "object",
         "description": "Response after creating a database",
@@ -12687,6 +12717,16 @@
             "nullable": true
           }
         }
+      },
+      "DatabaseProvider": {
+        "type": "string",
+        "description": "Supported external database providers",
+        "enum": [
+          "neon",
+          "supabase",
+          "planetscale",
+          "turso"
+        ]
       },
       "DatabaseResponse": {
         "type": "object",
@@ -14739,6 +14779,26 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/LoginResult"
+          },
+          "pagination": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "LogoUploadDataResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/LogoUploadResponse"
           },
           "pagination": {
             "allOf": [
@@ -17948,9 +18008,17 @@
             "type": "string",
             "format": "date-time"
           },
+          "database_config": {
+            "description": "Provider config (sensitive fields redacted)",
+            "nullable": true
+          },
           "database_name": {
             "type": "string",
             "description": "Database name within the SerenDB project",
+            "nullable": true
+          },
+          "database_provider": {
+            "type": "string",
             "nullable": true
           },
           "description": {
@@ -20432,6 +20500,10 @@
             "description": "Upstream auth mode (\"static\" or \"jwt\")",
             "nullable": true
           },
+          "base_price_per_1000_rows": {
+            "type": "string",
+            "nullable": true
+          },
           "billing_model": {
             "type": "string",
             "description": "Billing model (\"x402_per_request\", \"prepaid_credits\", \"x402_passthrough\")",
@@ -20458,9 +20530,18 @@
             },
             "nullable": true
           },
+          "database_config": {
+            "description": "Provider-specific configuration",
+            "nullable": true
+          },
           "database_name": {
             "type": "string",
             "description": "Database name within the SerenDB project",
+            "nullable": true
+          },
+          "database_provider": {
+            "type": "string",
+            "description": "External database provider",
             "nullable": true
           },
           "description": {
@@ -20483,6 +20564,15 @@
           "gateway_fee_percent": {
             "type": "string",
             "description": "Gateway fee percentage for upstream x402 payments (pass-through).",
+            "nullable": true
+          },
+          "grace_period_minutes": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "hourly_rate": {
+            "type": "string",
             "nullable": true
           },
           "is_active": {
@@ -20515,6 +20605,18 @@
             "description": "Optional publisher branding URL",
             "nullable": true
           },
+          "low_balance_threshold": {
+            "type": "string",
+            "nullable": true
+          },
+          "markup_multiplier": {
+            "type": "string",
+            "nullable": true
+          },
+          "minimum_balance": {
+            "type": "string",
+            "nullable": true
+          },
           "name": {
             "type": "string",
             "nullable": true
@@ -20522,6 +20624,35 @@
           "ownership_tracking_enabled": {
             "type": "boolean",
             "description": "Enable resource ownership tracking (legacy gateway parity)",
+            "nullable": true
+          },
+          "price_per_call": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_delete": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_execution": {
+            "type": "string",
+            "description": "Price per execution for agent templates or usage-based billing",
+            "nullable": true
+          },
+          "price_per_get": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_patch": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_post": {
+            "type": "string",
+            "nullable": true
+          },
+          "price_per_put": {
+            "type": "string",
             "nullable": true
           },
           "project_id": {
