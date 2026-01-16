@@ -763,6 +763,49 @@ pub struct UpdatePublisherParams {
     pub token_response_field: Option<String>,
 }
 
+/// Parameters for updating a publisher's pricing configuration
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct UpdatePublisherPricingParams {
+    /// Publisher slug (unique identifier) to update pricing for
+    pub slug: String,
+    /// Price per API call (decimal string, e.g., "0.01" for $0.01 per call)
+    #[serde(default)]
+    pub price_per_call: Option<String>,
+    /// Price per execution for agent templates (decimal string)
+    #[serde(default)]
+    pub price_per_execution: Option<String>,
+    /// Base price per 1000 rows for database queries (decimal string)
+    #[serde(default)]
+    pub base_price_per_1000_rows: Option<String>,
+    /// Price per GET request (decimal string)
+    #[serde(default)]
+    pub price_per_get: Option<String>,
+    /// Price per POST request (decimal string)
+    #[serde(default)]
+    pub price_per_post: Option<String>,
+    /// Price per PUT request (decimal string)
+    #[serde(default)]
+    pub price_per_put: Option<String>,
+    /// Price per PATCH request (decimal string)
+    #[serde(default)]
+    pub price_per_patch: Option<String>,
+    /// Price per DELETE request (decimal string)
+    #[serde(default)]
+    pub price_per_delete: Option<String>,
+    /// Minimum charge per request (decimal string)
+    #[serde(default)]
+    pub min_charge: Option<String>,
+    /// Maximum charge per request (decimal string)
+    #[serde(default)]
+    pub max_charge: Option<String>,
+    /// Whether prepaid credits are enabled
+    #[serde(default)]
+    pub prepaid_enabled: Option<bool>,
+    /// Whether on-chain payments are enabled
+    #[serde(default)]
+    pub onchain_enabled: Option<bool>,
+}
+
 /// Parameters for uploading a publisher logo
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct UploadPublisherLogoParams {
@@ -4091,6 +4134,120 @@ impl SerenMcpServer {
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Update a publisher's pricing configuration. This updates prices for API calls, database queries, and other billable operations. Requires API key authentication (organization-level). Use get_agent_publisher first to see current pricing.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn update_publisher_pricing(
+        &self,
+        Parameters(params): Parameters<UpdatePublisherPricingParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let slug = params.slug.trim().to_string();
+        validate_slug(&slug, "Publisher slug")?;
+
+        let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
+
+        // First, get the publisher to retrieve its ID and current pricing (including asset_id)
+        let publisher_response = api_client
+            .get_store_publisher(&slug)
+            .await
+            .map_err(|e| {
+                if e.status() == Some(reqwest::StatusCode::NOT_FOUND) {
+                    McpError::internal_error(
+                        format!(
+                            "Publisher '{}' not found. Use list_agent_publishers to see available publishers.",
+                            slug
+                        ),
+                        None,
+                    )
+                } else {
+                    McpError::internal_error(e.to_string(), None)
+                }
+            })?
+            .into_inner();
+
+        let publisher = publisher_response.data;
+        let publisher_id = publisher.id;
+
+        // Get the asset_id from the publisher's pricing config
+        let asset_id = publisher
+            .pricing
+            .as_ref()
+            .and_then(|p| p.first())
+            .map(|pc| pc.asset_id)
+            .ok_or_else(|| {
+                McpError::invalid_params(
+                    format!(
+                        "Publisher '{}' has no pricing configuration. Cannot update pricing for a publisher without an existing pricing config.",
+                        slug
+                    ),
+                    None,
+                )
+            })?;
+
+        // Get the organization_id from list_organizations (API key is scoped to org)
+        let orgs_response = api_client
+            .list_organizations()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+
+        let organization_id = orgs_response
+            .data
+            .first()
+            .map(|org| org.id)
+            .ok_or_else(|| {
+                McpError::internal_error(
+                    "No organization found for this API key. Cannot update publisher pricing."
+                        .to_string(),
+                    None,
+                )
+            })?;
+
+        // Build the pricing update request
+        let body = seren::UpdatePricingRequest {
+            asset_id,
+            price_per_call: params.price_per_call,
+            price_per_execution: params.price_per_execution,
+            base_price_per_1000_rows: params.base_price_per_1000_rows,
+            price_per_get: params.price_per_get,
+            price_per_post: params.price_per_post,
+            price_per_put: params.price_per_put,
+            price_per_patch: params.price_per_patch,
+            price_per_delete: params.price_per_delete,
+            min_charge: params.min_charge,
+            max_charge: params.max_charge,
+            prepaid_enabled: params.prepaid_enabled,
+            onchain_enabled: params.onchain_enabled,
+            // Set defaults for fields not exposed in MCP params
+            grace_period_minutes: None,
+            hourly_rate: None,
+            low_balance_threshold: None,
+            markup_multiplier: None,
+            max_queries_per_minute: None,
+            min_display_price: None,
+            minimum_balance: None,
+            payment_expiry_minutes: None,
+            pricing_display_text: None,
+            pricing_model: None,
+            token_cache_ttl_seconds: None,
+            token_exchange_method: None,
+            token_exchange_mode: None,
+            token_exchange_url: None,
+            token_response_field: None,
+        };
+
+        let result = api_client
+            .update_publisher_pricing(&organization_id, &publisher_id, &body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
 
