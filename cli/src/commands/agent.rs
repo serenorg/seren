@@ -300,6 +300,8 @@ pub async fn create_publisher(
         api_key_header: None,
         api_key_query_param: None,
         auth_type: None,
+        database_config: None,
+        database_provider: None,
         gateway_fee_percent: None,
         grace_period_minutes: None,
         hourly_rate: None,

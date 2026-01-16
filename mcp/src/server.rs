@@ -685,6 +685,15 @@ pub struct CreatePublisherParams {
     /// JSON field in exchange response containing the token (default: access_token)
     #[serde(default)]
     pub token_response_field: Option<String>,
+    /// Upstream static API key (will be encrypted). Used for static API key authentication.
+    #[serde(default)]
+    pub upstream_api_key: Option<String>,
+    /// Header name to inject upstream_api_key into (e.g., "Authorization", "X-API-Key", "X-cb-user-key")
+    #[serde(default)]
+    pub api_key_header: Option<String>,
+    /// Query parameter name to inject upstream_api_key into (e.g., "api_key")
+    #[serde(default)]
+    pub api_key_query_param: Option<String>,
 }
 
 /// Parameters for updating a publisher in the store
@@ -761,6 +770,15 @@ pub struct UpdatePublisherParams {
     /// JSON field in exchange response containing the token (default: access_token)
     #[serde(default)]
     pub token_response_field: Option<String>,
+    /// Upstream static API key (will be encrypted). Used for static API key authentication.
+    #[serde(default)]
+    pub upstream_api_key: Option<String>,
+    /// Header name to inject upstream_api_key into (e.g., "Authorization", "X-API-Key", "X-cb-user-key")
+    #[serde(default)]
+    pub api_key_header: Option<String>,
+    /// Query parameter name to inject upstream_api_key into (e.g., "api_key")
+    #[serde(default)]
+    pub api_key_query_param: Option<String>,
 }
 
 /// Parameters for updating a publisher's pricing configuration
@@ -3823,6 +3841,9 @@ impl SerenMcpServer {
             token_exchange_mode,
             token_cache_ttl_seconds,
             token_response_field,
+            upstream_api_key,
+            api_key_header,
+            api_key_query_param,
         } = params;
 
         ensure_writes_allowed(&extensions)?;
@@ -3944,9 +3965,11 @@ impl SerenMcpServer {
             accepted_asset_ids: None,
             allowed_passthrough_headers: vec![],
             api_headers: None,
-            api_key_header: None,
-            api_key_query_param: None,
+            api_key_header,
+            api_key_query_param,
             auth_type: None,
+            database_config: None,
+            database_provider: None,
             gateway_fee_percent: None,
             grace_period_minutes: None,
             hourly_rate: None,
@@ -3971,7 +3994,7 @@ impl SerenMcpServer {
             resource_id_response_path: None,
             resource_id_url_pattern: None,
             resource_name: None,
-            upstream_api_key: None,
+            upstream_api_key,
             usage_examples: None,
             request_content_type,
             upstream_headers,
@@ -4025,6 +4048,9 @@ impl SerenMcpServer {
             token_exchange_mode,
             token_cache_ttl_seconds,
             token_response_field,
+            upstream_api_key,
+            api_key_header,
+            api_key_query_param,
         } = params;
 
         ensure_writes_allowed(&extensions)?;
@@ -4110,9 +4136,9 @@ impl SerenMcpServer {
             usage_examples: None,
             api_headers: None,
             auth_type: None,
-            upstream_api_key: None,
-            api_key_header: None,
-            api_key_query_param: None,
+            upstream_api_key,
+            api_key_header,
+            api_key_query_param,
             jwt_access_key: None,
             jwt_secret_key: None,
             jwt_expiration_seconds: None,
@@ -4127,6 +4153,23 @@ impl SerenMcpServer {
             protected_operations: None,
             add_asset_ids: None,
             remove_asset_ids: None,
+            // Database provider fields (not exposed in MCP params)
+            database_config: None,
+            database_provider: None,
+            // Pricing fields (not exposed in this tool - use update_publisher_pricing instead)
+            base_price_per_1000_rows: None,
+            markup_multiplier: None,
+            price_per_call: None,
+            price_per_get: None,
+            price_per_post: None,
+            price_per_put: None,
+            price_per_patch: None,
+            price_per_delete: None,
+            hourly_rate: None,
+            minimum_balance: None,
+            low_balance_threshold: None,
+            grace_period_minutes: None,
+            price_per_execution: None,
         };
 
         let result = api_client
