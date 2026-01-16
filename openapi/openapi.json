@@ -19629,6 +19629,82 @@
           "agent_template"
         ]
       },
+      "StreamingAsset": {
+        "type": "object",
+        "description": "Supported asset for streaming authorization",
+        "required": [
+          "address",
+          "symbol",
+          "decimals",
+          "network"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Asset contract address"
+          },
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Internal asset ID (for clients that want to request a specific asset)",
+            "nullable": true
+          },
+          "decimals": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Asset decimals",
+            "minimum": 0
+          },
+          "eip712": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Eip712Domain"
+              }
+            ],
+            "nullable": true
+          },
+          "is_primary": {
+            "type": "boolean",
+            "description": "Whether this is the publisher's primary streaming asset.",
+            "nullable": true
+          },
+          "network": {
+            "type": "string",
+            "description": "Network identifier (CAIP-2, e.g., \"eip155:8453\")"
+          },
+          "symbol": {
+            "type": "string",
+            "description": "Asset symbol (e.g., \"USDC\")"
+          }
+        }
+      },
+      "StreamingAuthExtra": {
+        "type": "object",
+        "description": "Extra metadata for streaming authorization (x402-aligned)",
+        "required": [
+          "request_id",
+          "token_name",
+          "token_version",
+          "eip712"
+        ],
+        "properties": {
+          "eip712": {
+            "$ref": "#/components/schemas/Eip712Domain"
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Unique request ID for tracking this authorization request"
+          },
+          "token_name": {
+            "type": "string",
+            "description": "Token name for EIP-712 domain"
+          },
+          "token_version": {
+            "type": "string",
+            "description": "Token version for EIP-712 domain"
+          }
+        }
+      },
       "StreamingAuthRequirementsDataResponse": {
         "type": "object",
         "description": "DataResponse wrapper for streaming auth requirements (for OpenAPI schema)",
@@ -19638,6 +19714,80 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/StreamingAuthRequirementsResponse"
+          }
+        }
+      },
+      "StreamingAuthRequirementsResponse": {
+        "type": "object",
+        "description": "Response for streaming authorization requirements\n\nThis endpoint returns the information agents need to create their\nEIP-3009 `TransferWithAuthorization` signature for streaming payments.",
+        "required": [
+          "publisher_slug",
+          "pay_to",
+          "supported_assets",
+          "pricing",
+          "min_authorization",
+          "suggested_authorization",
+          "chain_id",
+          "extra"
+        ],
+        "properties": {
+          "chain_id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Chain ID for EIP-712 signing",
+            "minimum": 0
+          },
+          "extra": {
+            "$ref": "#/components/schemas/StreamingAuthExtra"
+          },
+          "min_authorization": {
+            "type": "string",
+            "description": "Minimum authorization amount in atomic units"
+          },
+          "pay_to": {
+            "type": "string",
+            "description": "Address to authorize payment TO (Seren's settlement wallet)\nThis is the `to` address in EIP-3009 TransferWithAuthorization"
+          },
+          "pricing": {
+            "$ref": "#/components/schemas/StreamingPricing"
+          },
+          "publisher_slug": {
+            "type": "string",
+            "description": "Publisher slug"
+          },
+          "suggested_authorization": {
+            "type": "string",
+            "description": "Suggested authorization amount in atomic units"
+          },
+          "supported_assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StreamingAsset"
+            },
+            "description": "Supported payment assets"
+          }
+        }
+      },
+      "StreamingPricing": {
+        "type": "object",
+        "description": "Pricing information for streaming authorization",
+        "required": [
+          "base_cost_per_query",
+          "cost_per_row",
+          "cost_per_byte"
+        ],
+        "properties": {
+          "base_cost_per_query": {
+            "type": "string",
+            "description": "Base cost per query in atomic units"
+          },
+          "cost_per_byte": {
+            "type": "string",
+            "description": "Cost per byte in atomic units"
+          },
+          "cost_per_row": {
+            "type": "string",
+            "description": "Cost per row in atomic units"
           }
         }
       },
