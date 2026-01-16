@@ -1109,6 +1109,13 @@ fn is_retryable_error(e: &seren::Error) -> bool {
 /// Some publishers like sec-filings-intelligence can take 60-120s for complex queries.
 const QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
+/// Timeout duration for API list/get operations (60 seconds).
+/// Marketplace and publisher endpoints can be slower than basic project operations.
+const API_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Timeout duration for blockchain RPC calls (10 seconds).
+const RPC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// Maximum number of retries for transient errors.
 const MAX_RETRIES: u32 = 2;
 
@@ -2761,7 +2768,7 @@ impl SerenMcpServer {
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_organizations(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
+        let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
         let orgs = api_client
             .list_organizations()
             .await
@@ -3043,7 +3050,7 @@ impl SerenMcpServer {
         Parameters(params): Parameters<ListAgentPublishersParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
+        let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
 
         // Apply default limit of 20, max of 50 to prevent token overflow
         let limit = params.limit.unwrap_or(20).clamp(1, 50);
@@ -3139,7 +3146,7 @@ impl SerenMcpServer {
         Parameters(params): Parameters<GetAgentPublisherParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
+        let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
         let publisher = api_client
             .get_store_publisher(&params.slug)
             .await
@@ -3170,7 +3177,7 @@ impl SerenMcpServer {
         Parameters(params): Parameters<SuggestForTaskParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
+        let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
         let limit = params.limit.map(|l| l.min(10));
         let query_type = params.r#type.as_deref();
 
@@ -3232,7 +3239,7 @@ impl SerenMcpServer {
     )]
     async fn get_wallet_status(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
         // Get SerenBucks balance
-        let api_client = self.api_client(&extensions)?;
+        let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
         let prepaid_balance = api_client
             .get_wallet_balance()
             .await
@@ -3243,7 +3250,11 @@ impl SerenMcpServer {
         let has_local_wallet = self.wallet.is_some();
         let (local_wallet_address, onchain_usdc_balance) = if let Some(wallet) = &self.wallet {
             let address = wallet.address();
-            let balance = query_usdc_balance(address).await.ok();
+            // Wrap RPC call in timeout to prevent blocking on slow/unresponsive Base network
+            let balance = tokio::time::timeout(RPC_TIMEOUT, query_usdc_balance(address))
+                .await
+                .ok()
+                .and_then(|r| r.ok());
             (Some(address.to_string()), balance)
         } else {
             (None, None)
