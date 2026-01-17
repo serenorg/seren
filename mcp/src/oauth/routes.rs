@@ -207,7 +207,7 @@ async fn register(
     for uri in &req.redirect_uris {
         if !is_valid_redirect_uri(uri) {
             return Err(OAuthError::InvalidRequest(
-                "redirect_uris must be loopback (localhost/127.0.0.1) or mcp:// URLs".into(),
+                "redirect_uris must be loopback (localhost/127.0.0.1), mcp://, cursor://, or vscode:// URLs".into(),
             ));
         }
     }
@@ -1087,8 +1087,11 @@ fn is_valid_redirect_uri(uri: &str) -> bool {
                 let host = url.host_str().unwrap_or("");
                 host == "localhost" || host == "127.0.0.1"
             }
-            // Native app custom scheme used by some MCP clients.
-            "mcp" => true,
+            // Native app custom schemes used by MCP clients and IDEs.
+            // - mcp:// for MCP-native clients
+            // - cursor:// for Cursor IDE (cursor://anysphere.cursor-mcp/oauth/callback)
+            // - vscode:// for VS Code extensions
+            "mcp" | "cursor" | "vscode" => true,
             _ => false,
         }
     } else {
@@ -1842,5 +1845,42 @@ mod tests {
             refresh_res.get("token_type").and_then(|v| v.as_str()),
             Some("Bearer")
         );
+    }
+
+    #[test]
+    fn test_is_valid_redirect_uri() {
+        // Loopback URIs
+        assert!(is_valid_redirect_uri("http://localhost:8080/callback"));
+        assert!(is_valid_redirect_uri("http://127.0.0.1:3000/callback"));
+        assert!(is_valid_redirect_uri("https://localhost:8443/callback"));
+        assert!(is_valid_redirect_uri("https://127.0.0.1:8443/callback"));
+
+        // MCP scheme
+        assert!(is_valid_redirect_uri("mcp://callback"));
+        assert!(is_valid_redirect_uri("mcp://my-client/oauth/callback"));
+
+        // Cursor IDE scheme (issue #17)
+        assert!(is_valid_redirect_uri(
+            "cursor://anysphere.cursor-mcp/oauth/callback"
+        ));
+        assert!(is_valid_redirect_uri("cursor://callback"));
+
+        // VS Code scheme (future support)
+        assert!(is_valid_redirect_uri(
+            "vscode://my-extension/oauth/callback"
+        ));
+        assert!(is_valid_redirect_uri("vscode://callback"));
+
+        // Invalid: non-loopback HTTP(S)
+        assert!(!is_valid_redirect_uri("http://example.com/callback"));
+        assert!(!is_valid_redirect_uri("https://evil.com/callback"));
+
+        // Invalid: other schemes
+        assert!(!is_valid_redirect_uri("ftp://localhost/callback"));
+        assert!(!is_valid_redirect_uri("file:///etc/passwd"));
+
+        // Invalid: malformed
+        assert!(!is_valid_redirect_uri("not a url"));
+        assert!(!is_valid_redirect_uri(""));
     }
 }
