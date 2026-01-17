@@ -633,6 +633,14 @@ pub struct CreatePublisherParams {
     /// Database name within the SerenDB project (default: serendb)
     #[serde(default)]
     pub database_name: Option<String>,
+    /// External database provider ("neon" or "supabase")
+    /// Use this instead of project_id/branch_id for external databases
+    #[serde(default)]
+    pub database_provider: Option<String>,
+    /// Database connection string (required when database_provider is set)
+    /// Format: postgresql://user:password@host:port/database
+    #[serde(default)]
+    pub connection_string: Option<String>,
     /// Base price per 1000 rows (decimal string, e.g., "0.001")
     #[serde(default)]
     pub base_price_per_1000_rows: Option<String>,
@@ -742,6 +750,15 @@ pub struct UpdatePublisherParams {
     /// Database name within the SerenDB project
     #[serde(default)]
     pub database_name: Option<String>,
+    /// External database provider ("neon" or "supabase")
+    /// Use this instead of project_id/branch_id for external databases
+    #[serde(default)]
+    pub database_provider: Option<String>,
+    /// Database connection string (required when database_provider is set)
+    /// Format: postgresql://user:password@host:port/database
+    /// Leave blank to keep existing, provide new value to update
+    #[serde(default)]
+    pub connection_string: Option<String>,
     /// Billing model (x402_per_request, prepaid_credits, x402_passthrough)
     #[serde(default)]
     pub billing_model: Option<String>,
@@ -3826,6 +3843,8 @@ impl SerenMcpServer {
             project_id,
             branch_id,
             database_name,
+            database_provider,
+            connection_string,
             base_price_per_1000_rows,
             price_per_call,
             price_per_execution,
@@ -3968,8 +3987,9 @@ impl SerenMcpServer {
             api_key_header,
             api_key_query_param,
             auth_type: None,
-            database_config: None,
-            database_provider: None,
+            database_config: connection_string
+                .map(|cs| serde_json::json!({ "connection_string": cs })),
+            database_provider,
             gateway_fee_percent: None,
             grace_period_minutes: None,
             hourly_rate: None,
@@ -4039,6 +4059,8 @@ impl SerenMcpServer {
             project_id,
             branch_id,
             database_name,
+            database_provider,
+            connection_string,
             billing_model,
             email,
             endpoints,
@@ -4153,9 +4175,10 @@ impl SerenMcpServer {
             protected_operations: None,
             add_asset_ids: None,
             remove_asset_ids: None,
-            // Database provider fields (not exposed in MCP params)
-            database_config: None,
-            database_provider: None,
+            // Database provider fields
+            database_config: connection_string
+                .map(|cs| serde_json::json!({ "connection_string": cs })),
+            database_provider,
             // Pricing fields (not exposed in this tool - use update_publisher_pricing instead)
             base_price_per_1000_rows: None,
             markup_multiplier: None,

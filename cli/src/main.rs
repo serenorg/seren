@@ -280,6 +280,12 @@ enum AgentAction {
         /// Billing model (e.g., "per_row", "per_call", "hourly")
         #[arg(long)]
         billing_model: Option<String>,
+        /// External database provider ("neon" or "supabase")
+        #[arg(long)]
+        database_provider: Option<String>,
+        /// Database connection string (e.g., "postgresql://user:pass@host/db")
+        #[arg(long)]
+        connection_string: Option<String>,
     },
     /// Execute a paid database query using your SerenBucks balance
     ExecuteQuery {
@@ -2083,6 +2089,8 @@ async fn main() -> anyhow::Result<()> {
                 database_name,
                 base_price_per_1000_rows,
                 billing_model,
+                database_provider,
+                connection_string,
             } => {
                 commands::agent::create_publisher(
                     &name,
@@ -2098,6 +2106,8 @@ async fn main() -> anyhow::Result<()> {
                     database_name.as_deref(),
                     base_price_per_1000_rows.as_deref(),
                     billing_model.as_deref(),
+                    database_provider.as_deref(),
+                    connection_string.as_deref(),
                     &ctx,
                 )
                 .await?

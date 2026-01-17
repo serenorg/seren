@@ -249,6 +249,8 @@ pub async fn create_publisher(
     database_name: Option<&str>,
     base_price_per_1000_rows: Option<&str>,
     billing_model: Option<&str>,
+    database_provider: Option<&str>,
+    connection_string: Option<&str>,
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
@@ -276,6 +278,13 @@ pub async fn create_publisher(
         }
     };
 
+    // Build database_config JSON if connection_string is provided
+    let database_config = connection_string.map(|cs| {
+        serde_json::json!({
+            "connection_string": cs
+        })
+    });
+
     let body = seren::CreatePublisherRequest {
         name: name.to_string(),
         slug: slug.to_string(),
@@ -300,8 +309,8 @@ pub async fn create_publisher(
         api_key_header: None,
         api_key_query_param: None,
         auth_type: None,
-        database_config: None,
-        database_provider: None,
+        database_config,
+        database_provider: database_provider.map(|s| s.to_string()),
         gateway_fee_percent: None,
         grace_period_minutes: None,
         hourly_rate: None,
