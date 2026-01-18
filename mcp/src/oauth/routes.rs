@@ -1269,6 +1269,13 @@ async fn consent_page(
         .map_err(|e| OAuthError::ServerError(e.to_string()))?
         .ok_or(OAuthError::InvalidClient)?;
 
+    // Use JavaScript fetch() instead of form POST to avoid CSP form-action restrictions.
+    // Electron/VSCode-based apps like Cursor open OAuth pages in webviews with parent-frame
+    // CSP that blocks form submissions regardless of the page's own CSP headers.
+    // fetch() is controlled by connect-src (not form-action), and window.location navigation
+    // bypasses form-action entirely.
+    let consent_url = format!("{}/consent", state.server_host.trim_end_matches('/'));
+    let csp_value = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'";
     let html = format!(
         r#"<!doctype html>
 <html lang="en">
@@ -1284,9 +1291,11 @@ async fn consent_page(
         .muted {{ color: #a7b0c2; margin: 0 0 18px; }}
         .row {{ display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px; }}
         button {{ border: 0; border-radius: 10px; padding: 12px 14px; font-weight: 700; cursor: pointer; }}
+        button:disabled {{ opacity: 0.6; cursor: not-allowed; }}
         .approve {{ background: #2d6cdf; color: white; }}
         .deny {{ background: #2a3246; color: #e6e8ee; }}
         .box {{ background: #0c1220; border: 1px solid #23304a; border-radius: 10px; padding: 12px; margin-top: 12px; }}
+        .error {{ color: #ef4444; margin-top: 12px; display: none; }}
         code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }}
     </style>
 </head>
@@ -1300,35 +1309,104 @@ async fn consent_page(
                 <div><strong>Requested scope</strong>: <code>{scope}</code></div>
             </div>
             <div class="row">
-                <form method="post" action="{consent_url}">
-                    <input type="hidden" name="token" value="{token}">
-                    <input type="hidden" name="csrf_token" value="{csrf_token}">
-                    <input type="hidden" name="action" value="approve">
-                    <button class="approve" type="submit">Approve</button>
-                </form>
-                <form method="post" action="{consent_url}">
-                    <input type="hidden" name="token" value="{token}">
-                    <input type="hidden" name="csrf_token" value="{csrf_token}">
-                    <input type="hidden" name="action" value="deny">
-                    <button class="deny" type="submit">Deny</button>
-                </form>
+                <button class="approve" id="approve-btn">Approve</button>
+                <button class="deny" id="deny-btn">Deny</button>
             </div>
+            <p class="error" id="error-msg"></p>
         </div>
     </div>
+    <script>
+        const token = "{token}";
+        const csrfToken = "{csrf_token}";
+        const consentUrl = "{consent_url}";
+
+        async function submitConsent(action) {{
+            const approveBtn = document.getElementById('approve-btn');
+            const denyBtn = document.getElementById('deny-btn');
+            const errorMsg = document.getElementById('error-msg');
+
+            approveBtn.disabled = true;
+            denyBtn.disabled = true;
+            errorMsg.style.display = 'none';
+
+            try {{
+                const response = await fetch(consentUrl, {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/x-www-form-urlencoded' }},
+                    body: new URLSearchParams({{ token, csrf_token: csrfToken, action }})
+                }});
+
+                if (response.redirected) {{
+                    window.location.href = response.url;
+                    return;
+                }}
+
+                if (response.ok) {{
+                    const data = await response.json();
+                    if (data.redirect_url) {{
+                        window.location.href = data.redirect_url;
+                        return;
+                    }}
+                }}
+
+                throw new Error('Unexpected response');
+            }} catch (err) {{
+                errorMsg.textContent = 'An error occurred. Please try again.';
+                errorMsg.style.display = 'block';
+                approveBtn.disabled = false;
+                denyBtn.disabled = false;
+            }}
+        }}
+
+        document.getElementById('approve-btn').addEventListener('click', () => submitConsent('approve'));
+        document.getElementById('deny-btn').addEventListener('click', () => submitConsent('deny'));
+
+        // CSP diagnostic: check if browser received the expected CSP
+        (function() {{
+            const expectedCsp = "{expected_csp}";
+            const meta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+            const browserCsp = meta ? meta.getAttribute('content') : null;
+
+            // Log CSP info for debugging
+            console.log('[Seren OAuth] Expected CSP from server:', expectedCsp);
+            console.log('[Seren OAuth] Browser meta CSP:', browserCsp || 'none');
+
+            // Check for CSP violations
+            document.addEventListener('securitypolicyviolation', (e) => {{
+                console.error('[Seren OAuth] CSP Violation:', {{
+                    blockedURI: e.blockedURI,
+                    violatedDirective: e.violatedDirective,
+                    originalPolicy: e.originalPolicy,
+                    disposition: e.disposition
+                }});
+                const errorMsg = document.getElementById('error-msg');
+                errorMsg.innerHTML = 'CSP blocked this action. <details><summary>Debug info</summary>' +
+                    '<code>Directive: ' + e.violatedDirective + '<br>' +
+                    'Policy: ' + e.originalPolicy + '</code></details>';
+                errorMsg.style.display = 'block';
+            }});
+        }})();
+    </script>
 </body>
 </html>"#,
         client_name = html_escape(&client.name),
         scope = html_escape(&consent.scope),
         token = html_escape(&q.token),
         csrf_token = html_escape(&consent.csrf_token),
-        consent_url = format!("{}/consent", state.server_host.trim_end_matches('/')),
+        consent_url = consent_url,
+        expected_csp = csp_value,
     );
 
-    // Build CSP: form-action allows any URL because cross-origin redirect chains cause
-    // browsers to set origin to 'null', and neither 'self' nor explicit URLs match null origin.
-    // Other directives remain restrictive for defense-in-depth.
+    // Log CSP for debugging - helps diagnose if proxy/CDN is overriding headers
+    debug!(
+        event = "oauth_consent_page_csp",
+        csp = csp_value,
+        client_id = %consent.client_id,
+        "Serving consent page with CSP header"
+    );
+
     let csp = HeaderValue::from_static(
-        "default-src 'none'; style-src 'unsafe-inline'; form-action *; base-uri 'none'; frame-ancestors 'none'",
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'",
     );
 
     let mut headers = HeaderMap::new();
@@ -1396,7 +1474,8 @@ async fn consent_submit(
         .map_err(|e| OAuthError::ServerError(e.to_string()))?
         .ok_or_else(|| OAuthError::InvalidGrant("Invalid or expired consent request".into()))?;
 
-    match req.action.as_str() {
+    // Build the redirect URL based on the action
+    let redirect_url = match req.action.as_str() {
         "approve" => {
             state
                 .store
@@ -1404,15 +1483,12 @@ async fn consent_submit(
                 .await
                 .map_err(|e| OAuthError::ServerError(e.to_string()))?;
 
-            let mut redirect_url = reqwest::Url::parse(&consent.redirect_uri)
+            let mut url = reqwest::Url::parse(&consent.redirect_uri)
                 .map_err(|_| OAuthError::InvalidRequest("Invalid redirect_uri".into()))?;
-            redirect_url
-                .query_pairs_mut()
+            url.query_pairs_mut()
                 .append_pair("code", &consent.authorization_code);
             if let Some(state_param) = consent.client_state.as_deref() {
-                redirect_url
-                    .query_pairs_mut()
-                    .append_pair("state", state_param);
+                url.query_pairs_mut().append_pair("state", state_param);
             }
 
             debug!(
@@ -1422,9 +1498,7 @@ async fn consent_submit(
                 "User approved OAuth consent"
             );
 
-            // Use 303 See Other to convert POST to GET for the callback redirect.
-            // 307 would preserve POST method, which callback endpoints don't expect.
-            Ok(Redirect::to(redirect_url.as_str()).into_response())
+            url.to_string()
         }
         "deny" => {
             debug!(
@@ -1439,15 +1513,25 @@ async fn consent_submit(
                 .delete_authorization_code(&consent.authorization_code)
                 .await
                 .ok();
-            redirect_with_error(
-                &consent.redirect_uri,
-                consent.client_state.as_deref(),
-                "access_denied",
-                Some("User denied access"),
-            )
+
+            let mut url = reqwest::Url::parse(&consent.redirect_uri)
+                .map_err(|_| OAuthError::InvalidRequest("Invalid redirect_uri".into()))?;
+            url.query_pairs_mut()
+                .append_pair("error", "access_denied")
+                .append_pair("error_description", "User denied access");
+            if let Some(state_param) = consent.client_state.as_deref() {
+                url.query_pairs_mut().append_pair("state", state_param);
+            }
+
+            url.to_string()
         }
-        _ => Err(OAuthError::InvalidRequest("Invalid action".into())),
-    }
+        _ => return Err(OAuthError::InvalidRequest("Invalid action".into())),
+    };
+
+    // Return JSON with redirect_url for JavaScript fetch() to handle.
+    // This avoids CSP form-action restrictions in Electron/VSCode webviews (e.g., Cursor IDE).
+    // The JavaScript client will read the URL and navigate via window.location.href.
+    Ok(Json(serde_json::json!({ "redirect_url": redirect_url })).into_response())
 }
 
 fn html_escape(input: &str) -> String {
@@ -1751,7 +1835,7 @@ mod tests {
         assert_eq!(consent_redirect.path(), "/consent");
         let consent_token = find_query_param(&consent_redirect, "token").unwrap();
 
-        // 4) Approve consent -> should redirect back to downstream redirect_uri with code+state
+        // 4) Approve consent -> should return JSON with redirect_url (for JavaScript-based navigation)
         let consent_body = "token=".to_string() + &consent_token + "&action=approve";
         let res = app
             .clone()
@@ -1765,13 +1849,13 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(res.status(), StatusCode::TEMPORARY_REDIRECT);
-        let downstream_location = res
-            .headers()
-            .get(header::LOCATION)
-            .unwrap()
-            .to_str()
-            .unwrap()
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let consent_res: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let downstream_location = consent_res
+            .get("redirect_url")
+            .and_then(|v| v.as_str())
+            .expect("consent response should contain redirect_url")
             .to_string();
         let downstream_redirect = reqwest::Url::parse(&downstream_location).unwrap();
         assert_eq!(downstream_redirect.path(), "/callback");
