@@ -207,7 +207,7 @@ async fn register(
     for uri in &req.redirect_uris {
         if !is_valid_redirect_uri(uri) {
             return Err(OAuthError::InvalidRequest(
-                "redirect_uris must be loopback (localhost/127.0.0.1), browser extension (chromiumapp.org), or native app scheme (mcp://, cursor://, vscode://)".into(),
+                "redirect_uris must be loopback (localhost/127.0.0.1), an allowed domain suffix, or an allowed native app scheme".into(),
             ));
         }
     }
@@ -1079,30 +1079,94 @@ pub async fn exchange_upstream_token(
         .map_err(|e| OAuthError::ServerError(e.to_string()))
 }
 
+/// Default domain suffixes allowed for redirect URIs (in addition to localhost).
+/// These are platform-specific OAuth callback domains for browser extensions.
+const DEFAULT_ALLOWED_REDIRECT_DOMAINS: &[&str] = &[
+    ".chromiumapp.org",        // Chrome/Chromium extensions
+    ".extensions.allizom.org", // Firefox extensions
+];
+
+/// Default custom URL schemes allowed for native app redirect URIs.
+const DEFAULT_ALLOWED_REDIRECT_SCHEMES: &[&str] = &[
+    "mcp",    // MCP-native clients
+    "cursor", // Cursor IDE
+    "vscode", // VS Code extensions
+];
+
+/// Returns the list of allowed redirect domain suffixes.
+/// Combines defaults with any additional domains from `OAUTH_ALLOWED_REDIRECT_DOMAINS` env var.
+/// Format: comma-separated list of domain suffixes (e.g., ".example.com,.other.org")
+fn get_allowed_redirect_domains() -> Vec<String> {
+    let mut domains: Vec<String> = DEFAULT_ALLOWED_REDIRECT_DOMAINS
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
+
+    if let Ok(extra) = std::env::var("OAUTH_ALLOWED_REDIRECT_DOMAINS") {
+        for domain in extra.split(',') {
+            let domain = domain.trim();
+            if !domain.is_empty() {
+                // Ensure domain starts with a dot for suffix matching
+                let domain = if domain.starts_with('.') {
+                    domain.to_string()
+                } else {
+                    format!(".{}", domain)
+                };
+                if !domains.contains(&domain) {
+                    domains.push(domain);
+                }
+            }
+        }
+    }
+
+    domains
+}
+
+/// Returns the list of allowed custom URL schemes for native apps.
+/// Combines defaults with any additional schemes from `OAUTH_ALLOWED_REDIRECT_SCHEMES` env var.
+/// Format: comma-separated list of schemes (e.g., "myapp,otherapp")
+fn get_allowed_redirect_schemes() -> Vec<String> {
+    let mut schemes: Vec<String> = DEFAULT_ALLOWED_REDIRECT_SCHEMES
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
+
+    if let Ok(extra) = std::env::var("OAUTH_ALLOWED_REDIRECT_SCHEMES") {
+        for scheme in extra.split(',') {
+            let scheme = scheme.trim().to_lowercase();
+            if !scheme.is_empty() && !schemes.contains(&scheme) {
+                schemes.push(scheme);
+            }
+        }
+    }
+
+    schemes
+}
+
 fn is_valid_redirect_uri(uri: &str) -> bool {
     if let Ok(url) = reqwest::Url::parse(uri) {
         match url.scheme() {
             // Loopback redirect URIs (RFC 8252) – allow http/https on localhost.
             "http" | "https" => {
                 let host = url.host_str().unwrap_or("");
-                // Loopback addresses
+                // Loopback addresses (always allowed per RFC 8252)
                 if host == "localhost" || host == "127.0.0.1" {
                     return true;
                 }
-                // Browser extension redirect URIs (platform-specific OAuth callbacks)
-                // - Chrome/Chromium: https://<extension-id>.chromiumapp.org/
-                // - Firefox: https://<extension-id>.extensions.allizom.org/
-                if host.ends_with(".chromiumapp.org") || host.ends_with(".extensions.allizom.org") {
-                    return true;
+                // Check against allowed domain suffixes (browser extensions, etc.)
+                let allowed_domains = get_allowed_redirect_domains();
+                for domain in &allowed_domains {
+                    if host.ends_with(domain.as_str()) {
+                        return true;
+                    }
                 }
                 false
             }
-            // Native app custom schemes used by MCP clients and IDEs.
-            // - mcp:// for MCP-native clients
-            // - cursor:// for Cursor IDE (cursor://anysphere.cursor-mcp/oauth/callback)
-            // - vscode:// for VS Code extensions
-            "mcp" | "cursor" | "vscode" => true,
-            _ => false,
+            // Native app custom schemes - check against allowed list
+            scheme => {
+                let allowed_schemes = get_allowed_redirect_schemes();
+                allowed_schemes.iter().any(|s| s == scheme)
+            }
         }
     } else {
         false
@@ -1989,5 +2053,97 @@ mod tests {
         // Invalid: malformed
         assert!(!is_valid_redirect_uri("not a url"));
         assert!(!is_valid_redirect_uri(""));
+    }
+
+    #[test]
+    fn test_get_allowed_redirect_domains_defaults() {
+        // Clear any env var that might be set
+        // SAFETY: This is a unit test running in isolation
+        unsafe { std::env::remove_var("OAUTH_ALLOWED_REDIRECT_DOMAINS") };
+
+        let domains = get_allowed_redirect_domains();
+        assert!(domains.contains(&".chromiumapp.org".to_string()));
+        assert!(domains.contains(&".extensions.allizom.org".to_string()));
+    }
+
+    #[test]
+    fn test_get_allowed_redirect_domains_with_env() {
+        // SAFETY: This is a unit test running in isolation
+        unsafe {
+            std::env::set_var("OAUTH_ALLOWED_REDIRECT_DOMAINS", "example.com, .custom.org");
+        }
+
+        let domains = get_allowed_redirect_domains();
+        assert!(domains.contains(&".chromiumapp.org".to_string()));
+        assert!(domains.contains(&".extensions.allizom.org".to_string()));
+        assert!(domains.contains(&".example.com".to_string())); // auto-prefixed with dot
+        assert!(domains.contains(&".custom.org".to_string()));
+
+        // Clean up
+        // SAFETY: This is a unit test running in isolation
+        unsafe { std::env::remove_var("OAUTH_ALLOWED_REDIRECT_DOMAINS") };
+    }
+
+    #[test]
+    fn test_get_allowed_redirect_schemes_defaults() {
+        // Clear any env var that might be set
+        // SAFETY: This is a unit test running in isolation
+        unsafe { std::env::remove_var("OAUTH_ALLOWED_REDIRECT_SCHEMES") };
+
+        let schemes = get_allowed_redirect_schemes();
+        assert!(schemes.contains(&"mcp".to_string()));
+        assert!(schemes.contains(&"cursor".to_string()));
+        assert!(schemes.contains(&"vscode".to_string()));
+    }
+
+    #[test]
+    fn test_get_allowed_redirect_schemes_with_env() {
+        // SAFETY: This is a unit test running in isolation
+        unsafe {
+            std::env::set_var("OAUTH_ALLOWED_REDIRECT_SCHEMES", "myapp, otherapp");
+        }
+
+        let schemes = get_allowed_redirect_schemes();
+        assert!(schemes.contains(&"mcp".to_string()));
+        assert!(schemes.contains(&"cursor".to_string()));
+        assert!(schemes.contains(&"vscode".to_string()));
+        assert!(schemes.contains(&"myapp".to_string()));
+        assert!(schemes.contains(&"otherapp".to_string()));
+
+        // Clean up
+        // SAFETY: This is a unit test running in isolation
+        unsafe { std::env::remove_var("OAUTH_ALLOWED_REDIRECT_SCHEMES") };
+    }
+
+    #[test]
+    fn test_is_valid_redirect_uri_with_custom_domain() {
+        // SAFETY: This is a unit test running in isolation
+        unsafe {
+            std::env::set_var("OAUTH_ALLOWED_REDIRECT_DOMAINS", "mycompany.com");
+        }
+
+        assert!(is_valid_redirect_uri(
+            "https://oauth.mycompany.com/callback"
+        ));
+        assert!(is_valid_redirect_uri("https://app.mycompany.com/auth"));
+
+        // Clean up
+        // SAFETY: This is a unit test running in isolation
+        unsafe { std::env::remove_var("OAUTH_ALLOWED_REDIRECT_DOMAINS") };
+    }
+
+    #[test]
+    fn test_is_valid_redirect_uri_with_custom_scheme() {
+        // SAFETY: This is a unit test running in isolation
+        unsafe {
+            std::env::set_var("OAUTH_ALLOWED_REDIRECT_SCHEMES", "myapp");
+        }
+
+        assert!(is_valid_redirect_uri("myapp://oauth/callback"));
+        assert!(is_valid_redirect_uri("myapp://auth"));
+
+        // Clean up
+        // SAFETY: This is a unit test running in isolation
+        unsafe { std::env::remove_var("OAUTH_ALLOWED_REDIRECT_SCHEMES") };
     }
 }
