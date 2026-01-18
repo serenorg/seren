@@ -207,7 +207,7 @@ async fn register(
     for uri in &req.redirect_uris {
         if !is_valid_redirect_uri(uri) {
             return Err(OAuthError::InvalidRequest(
-                "redirect_uris must be loopback (localhost/127.0.0.1), mcp://, cursor://, or vscode:// URLs".into(),
+                "redirect_uris must be loopback (localhost/127.0.0.1), browser extension (chromiumapp.org), or native app scheme (mcp://, cursor://, vscode://)".into(),
             ));
         }
     }
@@ -1085,7 +1085,17 @@ fn is_valid_redirect_uri(uri: &str) -> bool {
             // Loopback redirect URIs (RFC 8252) – allow http/https on localhost.
             "http" | "https" => {
                 let host = url.host_str().unwrap_or("");
-                host == "localhost" || host == "127.0.0.1"
+                // Loopback addresses
+                if host == "localhost" || host == "127.0.0.1" {
+                    return true;
+                }
+                // Browser extension redirect URIs (platform-specific OAuth callbacks)
+                // - Chrome/Chromium: https://<extension-id>.chromiumapp.org/
+                // - Firefox: https://<extension-id>.extensions.allizom.org/
+                if host.ends_with(".chromiumapp.org") || host.ends_with(".extensions.allizom.org") {
+                    return true;
+                }
+                false
             }
             // Native app custom schemes used by MCP clients and IDEs.
             // - mcp:// for MCP-native clients
@@ -1954,6 +1964,19 @@ mod tests {
             "vscode://my-extension/oauth/callback"
         ));
         assert!(is_valid_redirect_uri("vscode://callback"));
+
+        // Browser extension redirect URIs (issue #22)
+        // Chrome/Chromium extensions
+        assert!(is_valid_redirect_uri(
+            "https://oimaoadkkfnpgneadapdhdoeahgpojom.chromiumapp.org/oauth"
+        ));
+        assert!(is_valid_redirect_uri(
+            "https://abcdefghijklmnopqrstuvwxyz123456.chromiumapp.org/callback"
+        ));
+        // Firefox extensions
+        assert!(is_valid_redirect_uri(
+            "https://abc123@example.extensions.allizom.org/oauth"
+        ));
 
         // Invalid: non-loopback HTTP(S)
         assert!(!is_valid_redirect_uri("http://example.com/callback"));
