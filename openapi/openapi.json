@@ -11896,7 +11896,8 @@
           "name",
           "slug",
           "wallet_address",
-          "wallet_network_id"
+          "wallet_network_id",
+          "publisher_category"
         ],
         "properties": {
           "accepted_asset_ids": {
@@ -11982,11 +11983,6 @@
           "database_name": {
             "type": "string",
             "description": "Database name within the SerenDB project (default: serendb)",
-            "nullable": true
-          },
-          "database_provider": {
-            "type": "string",
-            "description": "External database provider ('neon', 'supabase', etc.)\nLegacy field - use database_type for new publishers",
             "nullable": true
           },
           "database_type": {
@@ -12127,12 +12123,7 @@
             "nullable": true
           },
           "publisher_category": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/PublisherCategory"
-              }
-            ],
-            "nullable": true
+            "$ref": "#/components/schemas/PublisherCategory"
           },
           "publisher_type": {
             "allOf": [
@@ -12167,9 +12158,6 @@
           },
           "slug": {
             "type": "string"
-          },
-          "source_type": {
-            "$ref": "#/components/schemas/SourceType"
           },
           "token_cache_ttl_seconds": {
             "type": "integer",
@@ -18648,7 +18636,6 @@
           "publisher_type",
           "wallet_address",
           "wallet_network_id",
-          "source_type",
           "publisher_category",
           "billing_model",
           "gateway_fee_percent",
@@ -18720,11 +18707,6 @@
           "database_name": {
             "type": "string",
             "description": "Database name within the SerenDB project",
-            "nullable": true
-          },
-          "database_provider": {
-            "type": "string",
-            "description": "Legacy field - kept for database compatibility",
             "nullable": true
           },
           "database_type": {
@@ -18837,9 +18819,6 @@
           },
           "slug": {
             "type": "string"
-          },
-          "source_type": {
-            "$ref": "#/components/schemas/SourceType"
           },
           "token_cache_ttl_seconds": {
             "type": "integer",
@@ -20295,16 +20274,6 @@
         "description": "A validated URL-safe slug.\n\nSlugs must be:\n- 2-64 characters long\n- Lowercase alphanumeric with hyphens\n- Cannot start or end with a hyphen\n- Cannot have consecutive hyphens\n\n# Examples\n\n```\nuse seren_core::models::Slug;\n\nlet slug = Slug::new(\"my-project\").unwrap();\nassert!(Slug::new(\"My Project\").is_err()); // spaces not allowed\nassert!(Slug::new(\"-invalid\").is_err()); // can't start with hyphen\n```",
         "example": "my-project"
       },
-      "SourceType": {
-        "type": "string",
-        "description": "Source type for publisher data (legacy, kept for database compatibility)",
-        "enum": [
-          "serendb",
-          "api",
-          "both",
-          "agent_template"
-        ]
-      },
       "StreamingAsset": {
         "type": "object",
         "description": "Supported asset for streaming authorization",
@@ -21465,11 +21434,6 @@
           "database_name": {
             "type": "string",
             "description": "Database name within the SerenDB project",
-            "nullable": true
-          },
-          "database_provider": {
-            "type": "string",
-            "description": "External database provider\nLegacy field - kept for database compatibility",
             "nullable": true
           },
           "database_type": {

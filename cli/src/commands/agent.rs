@@ -241,35 +241,69 @@ pub async fn create_publisher(
     email: Option<&str>,
     wallet_address: &str,
     wallet_network_id: &str,
-    source_type: Option<&str>,
+    publisher_category: &str,
+    database_type: Option<&str>,
+    integration_type: Option<&str>,
     description: Option<&str>,
     api_url: Option<&str>,
+    mcp_endpoint: Option<&str>,
     project_id: Option<Uuid>,
     branch_id: Option<Uuid>,
     database_name: Option<&str>,
     base_price_per_1000_rows: Option<&str>,
     billing_model: Option<&str>,
-    database_provider: Option<&str>,
     connection_string: Option<&str>,
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
 
-    // Convert source_type string to enum
-    let source_type_enum = match source_type {
+    // Convert publisher_category string to enum
+    let publisher_category_enum = {
+        let normalized = publisher_category.trim().to_ascii_lowercase();
+        match normalized.as_str() {
+            "database" => seren::PublisherCategory::Database,
+            "integration" => seren::PublisherCategory::Integration,
+            "compute" => seren::PublisherCategory::Compute,
+            other => {
+                return Err(anyhow::anyhow!(
+                    "Invalid publisher_category '{}'. Expected one of: database, integration, compute",
+                    other
+                ));
+            }
+        }
+    };
+
+    // Convert database_type string to enum
+    let database_type_enum = match database_type {
         None => None,
         Some(raw) => {
             let normalized = raw.trim().to_ascii_lowercase();
             let parsed = match normalized.as_str() {
-                "serendb" => seren::SourceType::Serendb,
-                "api" => seren::SourceType::Api,
-                "both" => seren::SourceType::Both,
-                "agent_template" | "agent-template" | "agenttemplate" => {
-                    seren::SourceType::AgentTemplate
-                }
+                "serendb" => seren::DatabaseType::Serendb,
+                "neon" => seren::DatabaseType::Neon,
+                "supabase" => seren::DatabaseType::Supabase,
                 other => {
                     return Err(anyhow::anyhow!(
-                        "Invalid source_type '{}'. Expected one of: serendb, api, both, agent_template",
+                        "Invalid database_type '{}'. Expected one of: serendb, neon, supabase",
+                        other
+                    ));
+                }
+            };
+            Some(parsed)
+        }
+    };
+
+    // Convert integration_type string to enum
+    let integration_type_enum = match integration_type {
+        None => None,
+        Some(raw) => {
+            let normalized = raw.trim().to_ascii_lowercase();
+            let parsed = match normalized.as_str() {
+                "api" => seren::IntegrationType::Api,
+                "mcp" => seren::IntegrationType::Mcp,
+                other => {
+                    return Err(anyhow::anyhow!(
+                        "Invalid integration_type '{}'. Expected one of: api, mcp",
                         other
                     ));
                 }
@@ -291,9 +325,13 @@ pub async fn create_publisher(
         email: email.map(|s| s.to_string()),
         wallet_address: seren::WalletAddress(wallet_address.to_string()),
         wallet_network_id: wallet_network_id.to_string(),
-        source_type: source_type_enum,
+        publisher_category: publisher_category_enum,
+        database_type: database_type_enum,
+        integration_type: integration_type_enum,
+        compute_type: None,
         description: description.map(|s| s.to_string()),
         api_url: api_url.map(|s| s.to_string()),
+        mcp_endpoint: mcp_endpoint.map(|s| s.to_string()),
         project_id,
         branch_id,
         database_name: database_name.map(|s| s.to_string()),
@@ -310,7 +348,6 @@ pub async fn create_publisher(
         api_key_query_param: None,
         auth_type: None,
         database_config,
-        database_provider: database_provider.map(|s| s.to_string()),
         gateway_fee_percent: None,
         grace_period_minutes: None,
         hourly_rate: None,
@@ -346,12 +383,6 @@ pub async fn create_publisher(
         token_exchange_mode: None,
         token_cache_ttl_seconds: None,
         token_response_field: None,
-        // New publisher category fields
-        publisher_category: None,
-        database_type: None,
-        integration_type: None,
-        compute_type: None,
-        mcp_endpoint: None,
     };
 
     let response = client

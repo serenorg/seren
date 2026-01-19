@@ -284,7 +284,7 @@ struct PublisherListEntry {
     categories: Vec<String>,
     is_verified: bool,
     billing_model: String,
-    source_type: seren::SourceType,
+    publisher_category: seren::PublisherCategory,
     #[serde(skip_serializing_if = "Option::is_none")]
     pricing: Option<PublisherPricingSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -615,29 +615,33 @@ pub struct CreatePublisherParams {
     pub wallet_address: String,
     /// Network ID for wallet (CAIP-2 format, e.g., "eip155:8453" for Base)
     pub wallet_network_id: String,
-    /// Data source type (serendb, api, both, agent_template)
+    /// Publisher category: database, integration, or compute
+    pub publisher_category: String,
+    /// Database type: serendb, neon, or supabase (for database category)
     #[serde(default)]
-    pub source_type: Option<String>,
+    pub database_type: Option<String>,
+    /// Integration type: api or mcp (for integration category)
+    #[serde(default)]
+    pub integration_type: Option<String>,
     /// Publisher description
     #[serde(default)]
     pub description: Option<String>,
-    /// External API URL (required for api source_type)
+    /// External API URL (required for integration_type: api)
     #[serde(default)]
     pub api_url: Option<String>,
-    /// SerenDB project ID (required for serendb source_type)
+    /// MCP server endpoint URL (required for integration_type: mcp)
+    #[serde(default)]
+    pub mcp_endpoint: Option<String>,
+    /// SerenDB project ID (required for database_type: serendb)
     #[serde(default)]
     pub project_id: Option<Uuid>,
-    /// SerenDB branch ID (required for serendb source_type)
+    /// SerenDB branch ID (required for database_type: serendb)
     #[serde(default)]
     pub branch_id: Option<Uuid>,
     /// Database name within the SerenDB project (default: serendb)
     #[serde(default)]
     pub database_name: Option<String>,
-    /// External database provider ("neon" or "supabase")
-    /// Use this instead of project_id/branch_id for external databases
-    #[serde(default)]
-    pub database_provider: Option<String>,
-    /// Database connection string (required when database_provider is set)
+    /// Database connection string (required for database_type: neon or supabase)
     /// Format: postgresql://user:password@host:port/database
     #[serde(default)]
     pub connection_string: Option<String>,
@@ -738,23 +742,22 @@ pub struct UpdatePublisherParams {
     /// Whether the publisher is active
     #[serde(default)]
     pub is_active: Option<bool>,
-    /// External API URL (for api source_type)
+    /// External API URL (for integration_type: api)
     #[serde(default)]
     pub api_url: Option<String>,
-    /// SerenDB project ID (for serendb source_type)
+    /// MCP server endpoint URL (for integration_type: mcp)
+    #[serde(default)]
+    pub mcp_endpoint: Option<String>,
+    /// SerenDB project ID (for database_type: serendb)
     #[serde(default)]
     pub project_id: Option<Uuid>,
-    /// SerenDB branch ID (for serendb source_type)
+    /// SerenDB branch ID (for database_type: serendb)
     #[serde(default)]
     pub branch_id: Option<Uuid>,
     /// Database name within the SerenDB project
     #[serde(default)]
     pub database_name: Option<String>,
-    /// External database provider ("neon" or "supabase")
-    /// Use this instead of project_id/branch_id for external databases
-    #[serde(default)]
-    pub database_provider: Option<String>,
-    /// Database connection string (required when database_provider is set)
+    /// Database connection string (for database_type: neon or supabase)
     /// Format: postgresql://user:password@host:port/database
     /// Leave blank to keep existing, provide new value to update
     #[serde(default)]
@@ -3236,7 +3239,7 @@ impl SerenMcpServer {
                     categories: p.categories,
                     is_verified: p.is_verified,
                     billing_model: p.billing_model,
-                    source_type: p.source_type,
+                    publisher_category: p.publisher_category,
                     pricing,
                     usage_example,
                 }
@@ -3546,7 +3549,7 @@ impl SerenMcpServer {
                             if status == reqwest::StatusCode::NOT_FOUND {
                                 return Err(McpError::internal_error(
                                     format!(
-                                        "Publisher '{}' query endpoint returned 404. The publisher may not have database access configured, or the database may be unavailable. Use get_agent_publisher to check the publisher's source_type and configuration.",
+                                        "Publisher '{}' query endpoint returned 404. The publisher may not have database access configured, or the database may be unavailable. Use get_agent_publisher to check the publisher's category and configuration.",
                                         params.publisher
                                     ),
                                     None,
@@ -3694,7 +3697,7 @@ impl SerenMcpServer {
                             if status == reqwest::StatusCode::NOT_FOUND {
                                 return Err(McpError::internal_error(
                                     format!(
-                                        "Publisher '{}' API endpoint returned 404. The publisher may not have API access configured, or the endpoint may be unavailable. Use get_agent_publisher to check the publisher's source_type and api_url configuration.",
+                                        "Publisher '{}' API endpoint returned 404. The publisher may not have API access configured, or the endpoint may be unavailable. Use get_agent_publisher to check the publisher's category and api_url configuration.",
                                         params.publisher
                                     ),
                                     None,
@@ -3877,13 +3880,15 @@ impl SerenMcpServer {
             email,
             wallet_address,
             wallet_network_id,
-            source_type,
+            publisher_category,
+            database_type,
+            integration_type,
             description,
             api_url,
+            mcp_endpoint,
             project_id,
             branch_id,
             database_name,
-            database_provider,
             connection_string,
             base_price_per_1000_rows,
             price_per_call,
@@ -3927,22 +3932,60 @@ impl SerenMcpServer {
         let wallet_address = wallet_address.trim().to_string();
         let wallet_network_id = wallet_network_id.trim().to_ascii_lowercase();
 
-        // Convert source_type string to enum
-        let source_type = match source_type.as_deref() {
+        // Convert publisher_category string to enum
+        let publisher_category_enum = {
+            let normalized = publisher_category.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "database" => seren::PublisherCategory::Database,
+                "integration" => seren::PublisherCategory::Integration,
+                "compute" => seren::PublisherCategory::Compute,
+                other => {
+                    return Err(McpError::invalid_request(
+                        format!(
+                            "Invalid publisher_category '{}'. Expected one of: database, integration, compute",
+                            other
+                        ),
+                        None,
+                    ));
+                }
+            }
+        };
+
+        // Convert database_type string to enum
+        let database_type_enum = match database_type.as_deref() {
             None => None,
             Some(raw) => {
                 let normalized = raw.trim().to_ascii_lowercase();
                 let parsed = match normalized.as_str() {
-                    "serendb" => seren::SourceType::Serendb,
-                    "api" => seren::SourceType::Api,
-                    "both" => seren::SourceType::Both,
-                    "agent_template" | "agent-template" | "agenttemplate" => {
-                        seren::SourceType::AgentTemplate
-                    }
+                    "serendb" => seren::DatabaseType::Serendb,
+                    "neon" => seren::DatabaseType::Neon,
+                    "supabase" => seren::DatabaseType::Supabase,
                     other => {
                         return Err(McpError::invalid_request(
                             format!(
-                                "Invalid source_type '{}'. Expected one of: serendb, api, both, agent_template",
+                                "Invalid database_type '{}'. Expected one of: serendb, neon, supabase",
+                                other
+                            ),
+                            None,
+                        ));
+                    }
+                };
+                Some(parsed)
+            }
+        };
+
+        // Convert integration_type string to enum
+        let integration_type_enum = match integration_type.as_deref() {
+            None => None,
+            Some(raw) => {
+                let normalized = raw.trim().to_ascii_lowercase();
+                let parsed = match normalized.as_str() {
+                    "api" => seren::IntegrationType::Api,
+                    "mcp" => seren::IntegrationType::Mcp,
+                    other => {
+                        return Err(McpError::invalid_request(
+                            format!(
+                                "Invalid integration_type '{}'. Expected one of: api, mcp",
                                 other
                             ),
                             None,
@@ -4008,9 +4051,13 @@ impl SerenMcpServer {
             email,
             wallet_address: seren::WalletAddress(wallet_address),
             wallet_network_id,
-            source_type,
+            publisher_category: publisher_category_enum,
+            database_type: database_type_enum,
+            integration_type: integration_type_enum,
+            compute_type: None,
             description,
             api_url,
+            mcp_endpoint,
             project_id,
             branch_id,
             database_name,
@@ -4029,7 +4076,6 @@ impl SerenMcpServer {
             auth_type: None,
             database_config: connection_string
                 .map(|cs| serde_json::json!({ "connection_string": cs })),
-            database_provider,
             gateway_fee_percent: None,
             grace_period_minutes: None,
             hourly_rate: None,
@@ -4065,12 +4111,6 @@ impl SerenMcpServer {
             token_exchange_mode,
             token_cache_ttl_seconds,
             token_response_field,
-            // New publisher category fields - defaults for legacy API compatibility
-            publisher_category: None,
-            database_type: None,
-            integration_type: None,
-            compute_type: None,
-            mcp_endpoint: None,
         };
 
         let result = api_client
@@ -4102,10 +4142,10 @@ impl SerenMcpServer {
             wallet_network_id,
             is_active,
             api_url,
+            mcp_endpoint,
             project_id,
             branch_id,
             database_name,
-            database_provider,
             connection_string,
             billing_model,
             email,
@@ -4221,10 +4261,9 @@ impl SerenMcpServer {
             protected_operations: None,
             add_asset_ids: None,
             remove_asset_ids: None,
-            // Database provider fields
+            // Database config fields
             database_config: connection_string
                 .map(|cs| serde_json::json!({ "connection_string": cs })),
-            database_provider,
             // Pricing fields (not exposed in this tool - use update_publisher_pricing instead)
             base_price_per_1000_rows: None,
             markup_multiplier: None,
@@ -4239,12 +4278,12 @@ impl SerenMcpServer {
             low_balance_threshold: None,
             grace_period_minutes: None,
             price_per_execution: None,
-            // New publisher category fields - not exposed in this tool
+            // Publisher category fields - category cannot be changed after creation
             publisher_category: None,
             database_type: None,
             integration_type: None,
             compute_type: None,
-            mcp_endpoint: None,
+            mcp_endpoint,
         };
 
         let result = api_client

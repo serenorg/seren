@@ -256,15 +256,24 @@ enum AgentAction {
         /// Network ID for the wallet (e.g., "base-sepolia", "base-mainnet")
         #[arg(long)]
         wallet_network_id: String,
-        /// Source type: "serendb", "api", "both", or "agent_template"
+        /// Publisher category: "database", "integration", or "compute"
         #[arg(long)]
-        source_type: Option<String>,
+        publisher_category: String,
+        /// Database type: "serendb", "neon", or "supabase" (for database category)
+        #[arg(long)]
+        database_type: Option<String>,
+        /// Integration type: "api" or "mcp" (for integration category)
+        #[arg(long)]
+        integration_type: Option<String>,
         /// Publisher description
         #[arg(long)]
         description: Option<String>,
         /// API URL for API-type publishers
         #[arg(long)]
         api_url: Option<String>,
+        /// MCP server endpoint URL for MCP-type publishers
+        #[arg(long)]
+        mcp_endpoint: Option<String>,
         /// Project ID for SerenDB publishers
         #[arg(long)]
         project_id: Option<Uuid>,
@@ -280,10 +289,7 @@ enum AgentAction {
         /// Billing model (e.g., "per_row", "per_call", "hourly")
         #[arg(long)]
         billing_model: Option<String>,
-        /// External database provider ("neon" or "supabase")
-        #[arg(long)]
-        database_provider: Option<String>,
-        /// Database connection string (e.g., "postgresql://user:pass@host/db")
+        /// Database connection string (e.g., "postgresql://user:pass@host/db") - for external databases
         #[arg(long)]
         connection_string: Option<String>,
     },
@@ -2081,15 +2087,17 @@ async fn main() -> anyhow::Result<()> {
                 email,
                 wallet_address,
                 wallet_network_id,
-                source_type,
+                publisher_category,
+                database_type,
+                integration_type,
                 description,
                 api_url,
+                mcp_endpoint,
                 project_id,
                 branch_id,
                 database_name,
                 base_price_per_1000_rows,
                 billing_model,
-                database_provider,
                 connection_string,
             } => {
                 commands::agent::create_publisher(
@@ -2098,15 +2106,17 @@ async fn main() -> anyhow::Result<()> {
                     email.as_deref(),
                     &wallet_address,
                     &wallet_network_id,
-                    source_type.as_deref(),
+                    &publisher_category,
+                    database_type.as_deref(),
+                    integration_type.as_deref(),
                     description.as_deref(),
                     api_url.as_deref(),
+                    mcp_endpoint.as_deref(),
                     project_id,
                     branch_id,
                     database_name.as_deref(),
                     base_price_per_1000_rows.as_deref(),
                     billing_model.as_deref(),
-                    database_provider.as_deref(),
                     connection_string.as_deref(),
                     &ctx,
                 )

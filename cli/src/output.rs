@@ -628,7 +628,7 @@ pub fn print_publishers_table(publishers: &[seren::PublisherResponse]) {
             Cell::new(publisher.id.to_string()),
             Cell::new(&publisher.slug),
             Cell::new(&publisher.name),
-            Cell::new(debug_trim_quotes(&publisher.source_type)),
+            Cell::new(debug_trim_quotes(&publisher.publisher_category)),
             Cell::new(if publisher.is_active { "Yes" } else { "No" }),
             Cell::new(if publisher.is_verified { "Yes" } else { "No" }),
             Cell::new(publisher.resource_name.as_deref().unwrap_or("-")),
@@ -666,8 +666,8 @@ pub fn print_store_publisher(
                 Cell::new(debug_trim_quotes(&publisher.publisher_type)),
             ]);
             table.add_row(vec![
-                Cell::new("Source Type"),
-                Cell::new(debug_trim_quotes(&publisher.source_type)),
+                Cell::new("Category"),
+                Cell::new(debug_trim_quotes(&publisher.publisher_category)),
             ]);
             table.add_row(vec![
                 Cell::new("Active"),
