@@ -11173,6 +11173,15 @@
           }
         }
       },
+      "ComputeType": {
+        "type": "string",
+        "description": "Compute type - specific compute offering when publisher_category = Compute",
+        "enum": [
+          "template",
+          "workflow",
+          "function"
+        ]
+      },
       "ComputeUsageEventDebugRecord": {
         "type": "object",
         "description": "Debug view: compute_usage_events entry for an endpoint",
@@ -13014,6 +13023,15 @@
           }
         }
       },
+      "DatabaseType": {
+        "type": "string",
+        "description": "Database type - specific database provider when publisher_category = Database",
+        "enum": [
+          "serendb",
+          "neon",
+          "supabase"
+        ]
+      },
       "DatabaseWithContext": {
         "type": "object",
         "description": "Database with full project and branch context for cross-project listing",
@@ -14194,6 +14212,14 @@
           "PATCH"
         ]
       },
+      "IntegrationType": {
+        "type": "string",
+        "description": "Integration type - specific integration when publisher_category = Integration",
+        "enum": [
+          "api",
+          "mcp"
+        ]
+      },
       "InternalAuthorizeRequest": {
         "type": "object",
         "description": "Internal authorization request from SerenDB proxy",
@@ -15258,6 +15284,49 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "McpPromptArgument": {
+        "type": "object",
+        "description": "Argument for an MCP prompt",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean",
+            "nullable": true
+          }
+        }
+      },
+      "McpPromptInfo": {
+        "type": "object",
+        "description": "Information about an MCP prompt",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "arguments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/McpPromptArgument"
+            },
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
           }
         }
       },
@@ -18341,6 +18410,15 @@
             "format": "int64"
           }
         }
+      },
+      "PublisherCategory": {
+        "type": "string",
+        "description": "Publisher category - the primary classification of what a publisher offers",
+        "enum": [
+          "database",
+          "integration",
+          "compute"
+        ]
       },
       "PublisherDataResponse": {
         "type": "object",
