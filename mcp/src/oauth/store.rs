@@ -816,7 +816,7 @@ impl TokenStore {
 
     /// Returns true if the given user has approved the given OAuth client.
     pub async fn is_client_approved(&self, user_id: Uuid, client_id: &str) -> Result<bool> {
-        let exists: Option<(i64,)> = sqlx::query_as(
+        let exists: Option<(i32,)> = sqlx::query_as(
             r#"
             SELECT 1
             FROM mcp_oauth.approved_clients
