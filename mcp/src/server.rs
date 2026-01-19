@@ -598,6 +598,8 @@ fn endpoint_param_to_definition(
         request_body: None,
         required_headers: None,
         response: None,
+        body_template: None,
+        is_default: None,
     })
 }
 
