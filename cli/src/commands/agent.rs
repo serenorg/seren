@@ -346,6 +346,12 @@ pub async fn create_publisher(
         token_exchange_mode: None,
         token_cache_ttl_seconds: None,
         token_response_field: None,
+        // New publisher category fields
+        publisher_category: None,
+        database_type: None,
+        integration_type: None,
+        compute_type: None,
+        mcp_endpoint: None,
     };
 
     let response = client

@@ -1183,6 +1183,211 @@
         ]
       }
     },
+    "/api/agent/mcp/call": {
+      "post": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "Call a tool on an MCP publisher",
+        "description": "Executes a tool on the MCP server and returns the result.\nThis operation is metered and may require payment.",
+        "operationId": "call_mcp_tool",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallMcpToolRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Tool called successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpToolCallResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "404": {
+            "description": "Publisher or tool not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agent/mcp/capabilities": {
+      "post": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "Discover all capabilities of an MCP publisher",
+        "description": "Returns the full set of capabilities (tools, resources, prompts) exposed by the MCP server.",
+        "operationId": "discover_mcp_capabilities",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscoverMcpCapabilitiesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Capabilities discovered successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpCapabilitiesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agent/mcp/resource": {
+      "post": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "Read a resource from an MCP publisher",
+        "description": "Fetches the content of a resource from the MCP server.\nThis operation is metered and may require payment.",
+        "operationId": "read_mcp_resource",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadMcpResourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Resource read successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpResourceReadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "404": {
+            "description": "Publisher or resource not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agent/mcp/resources": {
+      "post": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "List resources available on an MCP publisher",
+        "description": "Returns the list of resources exposed by the MCP server.",
+        "operationId": "list_mcp_resources",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ListMcpResourcesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Resources listed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpResourcesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/agent/mcp/tools": {
+      "post": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "List tools available on an MCP publisher",
+        "description": "Returns the list of tools exposed by the MCP server.",
+        "operationId": "list_mcp_tools",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ListMcpToolsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Tools listed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpToolsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/auth/forgot-password": {
       "post": {
         "tags": [
@@ -10917,6 +11122,36 @@
           }
         }
       },
+      "CallMcpToolRequest": {
+        "type": "object",
+        "description": "Request to call a tool on an MCP publisher",
+        "required": [
+          "tool_name"
+        ],
+        "properties": {
+          "arguments": {
+            "type": "object",
+            "description": "Arguments to pass to the tool (optional)",
+            "additionalProperties": {},
+            "nullable": true
+          },
+          "publisher": {
+            "type": "string",
+            "description": "Publisher slug or ID",
+            "nullable": true
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher UUID (alternative to slug)",
+            "nullable": true
+          },
+          "tool_name": {
+            "type": "string",
+            "description": "Name of the tool to call"
+          }
+        }
+      },
       "ChangePlanRequest": {
         "type": "object",
         "description": "Request to upgrade/downgrade an organization's plan",
@@ -11687,7 +11922,7 @@
           },
           "api_url": {
             "type": "string",
-            "description": "External API URL (required for api source_type)",
+            "description": "External API URL (required for integration_type = api)",
             "nullable": true
           },
           "auth_type": {
@@ -11707,7 +11942,7 @@
           "branch_id": {
             "type": "string",
             "format": "uuid",
-            "description": "SerenDB branch ID (required for serendb source_type)",
+            "description": "SerenDB branch ID (required for database_type = serendb)",
             "nullable": true
           },
           "capabilities": {
@@ -11723,6 +11958,14 @@
               "type": "string"
             }
           },
+          "compute_type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ComputeType"
+              }
+            ],
+            "nullable": true
+          },
           "database_config": {
             "description": "Provider-specific configuration\nFor connection_string auth: { \"connection_string\": \"postgresql://...\" }",
             "nullable": true
@@ -11734,7 +11977,15 @@
           },
           "database_provider": {
             "type": "string",
-            "description": "External database provider ('neon', 'supabase', etc.)",
+            "description": "External database provider ('neon', 'supabase', etc.)\nLegacy field - use database_type for new publishers",
+            "nullable": true
+          },
+          "database_type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DatabaseType"
+              }
+            ],
             "nullable": true
           },
           "description": {
@@ -11766,6 +12017,14 @@
           },
           "hourly_rate": {
             "type": "string",
+            "nullable": true
+          },
+          "integration_type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IntegrationType"
+              }
+            ],
             "nullable": true
           },
           "jwt_access_key": {
@@ -11800,6 +12059,11 @@
           },
           "markup_multiplier": {
             "type": "string",
+            "nullable": true
+          },
+          "mcp_endpoint": {
+            "type": "string",
+            "description": "MCP server endpoint URL (required for integration_type = mcp)",
             "nullable": true
           },
           "minimum_balance": {
@@ -11846,11 +12110,19 @@
           "project_id": {
             "type": "string",
             "format": "uuid",
-            "description": "SerenDB project ID (required for serendb source_type)",
+            "description": "SerenDB project ID (required for database_type = serendb)",
             "nullable": true
           },
           "protected_operations": {
-            "description": "Protected operations configuration - DEPRECATED: Use endpoints[].is_protected instead",
+            "description": "Protected operations configuration - legacy, use endpoints[].is_protected instead",
+            "nullable": true
+          },
+          "publisher_category": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PublisherCategory"
+              }
+            ],
             "nullable": true
           },
           "publisher_type": {
@@ -12648,7 +12920,7 @@
       },
       "DatabaseConfig": {
         "type": "object",
-        "description": "Database configuration for connection string auth",
+        "description": "Database configuration for external providers\n\nBoth Neon and Supabase use connection string authentication.",
         "properties": {
           "auth_method": {
             "$ref": "#/components/schemas/DatabaseAuthMethod"
@@ -13043,6 +13315,23 @@
           },
           "total_usd": {
             "type": "string"
+          }
+        }
+      },
+      "DiscoverMcpCapabilitiesRequest": {
+        "type": "object",
+        "description": "Request to discover capabilities of an MCP publisher",
+        "properties": {
+          "publisher": {
+            "type": "string",
+            "description": "Publisher slug or ID",
+            "nullable": true
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher UUID (alternative to slug)",
+            "nullable": true
           }
         }
       },
@@ -14626,6 +14915,40 @@
           }
         }
       },
+      "ListMcpResourcesRequest": {
+        "type": "object",
+        "description": "Request to list resources on an MCP publisher",
+        "properties": {
+          "publisher": {
+            "type": "string",
+            "description": "Publisher slug or ID",
+            "nullable": true
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher UUID (alternative to slug)",
+            "nullable": true
+          }
+        }
+      },
+      "ListMcpToolsRequest": {
+        "type": "object",
+        "description": "Request to list tools on an MCP publisher",
+        "properties": {
+          "publisher": {
+            "type": "string",
+            "description": "Publisher slug or ID",
+            "nullable": true
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher UUID (alternative to slug)",
+            "nullable": true
+          }
+        }
+      },
       "ListPublisherPayoutsParams": {
         "type": "object",
         "description": "Query params for listing publisher payouts.",
@@ -14882,6 +15205,219 @@
               }
             ],
             "nullable": true
+          }
+        }
+      },
+      "McpCapabilities": {
+        "type": "object",
+        "description": "Discovered capabilities of an MCP server",
+        "properties": {
+          "prompts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/McpPromptInfo"
+            },
+            "nullable": true
+          },
+          "resources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/McpResourceInfo"
+            },
+            "nullable": true
+          },
+          "server_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "server_version": {
+            "type": "string",
+            "nullable": true
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/McpToolInfo"
+            },
+            "nullable": true
+          }
+        }
+      },
+      "McpCapabilitiesResponse": {
+        "type": "object",
+        "description": "Response containing MCP capabilities",
+        "required": [
+          "capabilities",
+          "execution_time_ms"
+        ],
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/McpCapabilities"
+          },
+          "execution_time_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "McpResourceContent": {
+        "type": "object",
+        "description": "Content of an MCP resource",
+        "required": [
+          "uri"
+        ],
+        "properties": {
+          "blob": {
+            "type": "string",
+            "nullable": true
+          },
+          "mime_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "text": {
+            "type": "string",
+            "nullable": true
+          },
+          "uri": {
+            "type": "string"
+          }
+        }
+      },
+      "McpResourceInfo": {
+        "type": "object",
+        "description": "Information about an MCP resource",
+        "required": [
+          "uri",
+          "name"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "mime_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "uri": {
+            "type": "string"
+          }
+        }
+      },
+      "McpResourceReadResponse": {
+        "type": "object",
+        "description": "Response from reading an MCP resource",
+        "required": [
+          "contents",
+          "execution_time_ms",
+          "response_bytes"
+        ],
+        "properties": {
+          "contents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/McpResourceContent"
+            }
+          },
+          "execution_time_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "response_bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "McpResourcesResponse": {
+        "type": "object",
+        "description": "Response containing MCP resources",
+        "required": [
+          "resources",
+          "execution_time_ms"
+        ],
+        "properties": {
+          "execution_time_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "resources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/McpResourceInfo"
+            }
+          }
+        }
+      },
+      "McpToolCallResponse": {
+        "type": "object",
+        "description": "Response from an MCP tool call",
+        "required": [
+          "result",
+          "is_error",
+          "execution_time_ms",
+          "response_bytes"
+        ],
+        "properties": {
+          "execution_time_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "is_error": {
+            "type": "boolean"
+          },
+          "response_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "result": {}
+        }
+      },
+      "McpToolInfo": {
+        "type": "object",
+        "description": "Information about an MCP tool",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "input_schema": {
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "McpToolsResponse": {
+        "type": "object",
+        "description": "Response containing MCP tools",
+        "required": [
+          "tools",
+          "execution_time_ms"
+        ],
+        "properties": {
+          "execution_time_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/McpToolInfo"
+            }
           }
         }
       },
@@ -18035,6 +18571,7 @@
           "wallet_address",
           "wallet_network_id",
           "source_type",
+          "publisher_category",
           "billing_model",
           "gateway_fee_percent",
           "allowed_passthrough_headers",
@@ -18070,7 +18607,7 @@
           "branch_id": {
             "type": "string",
             "format": "uuid",
-            "description": "SerenDB branch ID (for serendb source_type)",
+            "description": "SerenDB branch ID (for database_type = serendb)",
             "nullable": true
           },
           "capabilities": {
@@ -18085,6 +18622,14 @@
             "items": {
               "type": "string"
             }
+          },
+          "compute_type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ComputeType"
+              }
+            ],
+            "nullable": true
           },
           "created_at": {
             "type": "string",
@@ -18101,6 +18646,15 @@
           },
           "database_provider": {
             "type": "string",
+            "description": "Legacy field - kept for database compatibility",
+            "nullable": true
+          },
+          "database_type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DatabaseType"
+              }
+            ],
             "nullable": true
           },
           "description": {
@@ -18127,6 +18681,14 @@
             "type": "string",
             "format": "uuid"
           },
+          "integration_type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IntegrationType"
+              }
+            ],
+            "nullable": true
+          },
           "is_active": {
             "type": "boolean"
           },
@@ -18135,6 +18697,15 @@
           },
           "logo_url": {
             "type": "string",
+            "nullable": true
+          },
+          "mcp_capabilities": {
+            "description": "Cached MCP capabilities (tools, resources, prompts)",
+            "nullable": true
+          },
+          "mcp_endpoint": {
+            "type": "string",
+            "description": "MCP server endpoint URL (for integration_type = mcp)",
             "nullable": true
           },
           "name": {
@@ -18154,11 +18725,14 @@
           "project_id": {
             "type": "string",
             "format": "uuid",
-            "description": "SerenDB project ID (for serendb source_type)",
+            "description": "SerenDB project ID (for database_type = serendb)",
             "nullable": true
           },
           "protected_operations": {
             "nullable": true
+          },
+          "publisher_category": {
+            "$ref": "#/components/schemas/PublisherCategory"
           },
           "publisher_type": {
             "$ref": "#/components/schemas/PublisherType"
@@ -18670,6 +19244,30 @@
               }
             ],
             "nullable": true
+          }
+        }
+      },
+      "ReadMcpResourceRequest": {
+        "type": "object",
+        "description": "Request to read a resource from an MCP publisher",
+        "required": [
+          "uri"
+        ],
+        "properties": {
+          "publisher": {
+            "type": "string",
+            "description": "Publisher slug or ID",
+            "nullable": true
+          },
+          "publisher_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher UUID (alternative to slug)",
+            "nullable": true
+          },
+          "uri": {
+            "type": "string",
+            "description": "URI of the resource to read"
           }
         }
       },
@@ -19621,7 +20219,7 @@
       },
       "SourceType": {
         "type": "string",
-        "description": "Source type for publisher data",
+        "description": "Source type for publisher data (legacy, kept for database compatibility)",
         "enum": [
           "serendb",
           "api",
@@ -20736,7 +21334,7 @@
           },
           "api_url": {
             "type": "string",
-            "description": "External API URL (for api source_type)",
+            "description": "External API URL (for integration_type = api)",
             "nullable": true
           },
           "auth_type": {
@@ -20756,7 +21354,7 @@
           "branch_id": {
             "type": "string",
             "format": "uuid",
-            "description": "SerenDB branch ID (for serendb source_type)",
+            "description": "SerenDB branch ID (for database_type = serendb)",
             "nullable": true
           },
           "capabilities": {
@@ -20774,6 +21372,14 @@
             },
             "nullable": true
           },
+          "compute_type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ComputeType"
+              }
+            ],
+            "nullable": true
+          },
           "database_config": {
             "description": "Provider-specific configuration",
             "nullable": true
@@ -20785,7 +21391,15 @@
           },
           "database_provider": {
             "type": "string",
-            "description": "External database provider",
+            "description": "External database provider\nLegacy field - kept for database compatibility",
+            "nullable": true
+          },
+          "database_type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DatabaseType"
+              }
+            ],
             "nullable": true
           },
           "description": {
@@ -20817,6 +21431,14 @@
           },
           "hourly_rate": {
             "type": "string",
+            "nullable": true
+          },
+          "integration_type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IntegrationType"
+              }
+            ],
             "nullable": true
           },
           "is_active": {
@@ -20855,6 +21477,11 @@
           },
           "markup_multiplier": {
             "type": "string",
+            "nullable": true
+          },
+          "mcp_endpoint": {
+            "type": "string",
+            "description": "MCP server endpoint URL (for integration_type = mcp)",
             "nullable": true
           },
           "minimum_balance": {
@@ -20902,11 +21529,19 @@
           "project_id": {
             "type": "string",
             "format": "uuid",
-            "description": "SerenDB project ID (for serendb source_type)",
+            "description": "SerenDB project ID (for database_type = serendb)",
             "nullable": true
           },
           "protected_operations": {
-            "description": "Protected operations configuration - DEPRECATED: Use endpoints[].is_protected instead",
+            "description": "Protected operations configuration - legacy, use endpoints[].is_protected instead",
+            "nullable": true
+          },
+          "publisher_category": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PublisherCategory"
+              }
+            ],
             "nullable": true
           },
           "remove_asset_ids": {

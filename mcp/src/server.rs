@@ -932,6 +932,46 @@ pub struct InvokeAgentTemplateParams {
     #[serde(default)]
     pub confirm: bool,
 }
+
+// ============================================================================
+// MCP Publisher Parameter Types
+// ============================================================================
+
+/// Parameters for listing tools available on an MCP publisher
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ListMcpToolsParams {
+    /// Publisher slug (URL-friendly identifier) of the MCP publisher
+    pub publisher: String,
+}
+
+/// Parameters for calling a tool on an MCP publisher
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CallMcpToolParams {
+    /// Publisher slug (URL-friendly identifier) of the MCP publisher
+    pub publisher: String,
+    /// Name of the tool to call
+    pub tool_name: String,
+    /// Arguments to pass to the tool (JSON object)
+    #[serde(default)]
+    pub arguments: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+/// Parameters for listing resources available on an MCP publisher
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ListMcpResourcesParams {
+    /// Publisher slug (URL-friendly identifier) of the MCP publisher
+    pub publisher: String,
+}
+
+/// Parameters for reading a resource from an MCP publisher
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ReadMcpResourceParams {
+    /// Publisher slug (URL-friendly identifier) of the MCP publisher
+    pub publisher: String,
+    /// URI of the resource to read
+    pub uri: String,
+}
+
 // ============================================================================
 // Additional Parameter Types for Extended Functionality
 // ============================================================================
@@ -4025,6 +4065,12 @@ impl SerenMcpServer {
             token_exchange_mode,
             token_cache_ttl_seconds,
             token_response_field,
+            // New publisher category fields - defaults for legacy API compatibility
+            publisher_category: None,
+            database_type: None,
+            integration_type: None,
+            compute_type: None,
+            mcp_endpoint: None,
         };
 
         let result = api_client
@@ -4193,6 +4239,12 @@ impl SerenMcpServer {
             low_balance_threshold: None,
             grace_period_minutes: None,
             price_per_execution: None,
+            // New publisher category fields - not exposed in this tool
+            publisher_category: None,
+            database_type: None,
+            integration_type: None,
+            compute_type: None,
+            mcp_endpoint: None,
         };
 
         let result = api_client
@@ -4931,6 +4983,254 @@ impl SerenMcpServer {
             .into_inner();
 
         Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    // ========================================================================
+    // MCP Publisher Tools (for interacting with MCP server publishers)
+    // These tools call Seren API for proper billing/metering
+    // ========================================================================
+
+    #[tool(
+        description = "List tools available on an MCP publisher. MCP publishers expose tools, resources, and prompts that can be invoked. Use this to discover what capabilities an MCP publisher provides.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_mcp_tools(
+        &self,
+        Parameters(params): Parameters<ListMcpToolsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
+
+        // Call Seren API to list tools (this enables billing/metering)
+        let request = seren::ListMcpToolsRequest {
+            publisher: Some(params.publisher.clone()),
+            publisher_id: None,
+        };
+
+        let result = api_client
+            .list_mcp_tools(&request)
+            .await
+            .map_err(|e| {
+                if e.status() == Some(reqwest::StatusCode::NOT_FOUND) {
+                    McpError::internal_error(
+                        format!(
+                            "Publisher '{}' not found or does not have MCP capabilities. Use list_agent_publishers to see available publishers.",
+                            params.publisher
+                        ),
+                        None,
+                    )
+                } else if e.status() == Some(reqwest::StatusCode::BAD_REQUEST) {
+                    McpError::invalid_params(
+                        format!(
+                            "Publisher '{}' does not have an MCP endpoint configured.",
+                            params.publisher
+                        ),
+                        None,
+                    )
+                } else {
+                    McpError::internal_error(e.to_string(), None)
+                }
+            })?
+            .into_inner();
+
+        let response = serde_json::json!({
+            "publisher": params.publisher,
+            "tools": result.tools,
+            "tool_count": result.tools.len(),
+            "execution_time_ms": result.execution_time_ms,
+        });
+
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Call a tool on an MCP publisher. MCP publishers expose tools that can be invoked with arguments. Use list_mcp_tools first to see available tools and their input schemas.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn call_mcp_tool(
+        &self,
+        Parameters(params): Parameters<CallMcpToolParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
+
+        // Call Seren API to execute the tool (this enables billing/metering)
+        let request = seren::CallMcpToolRequest {
+            publisher: Some(params.publisher.clone()),
+            publisher_id: None,
+            tool_name: params.tool_name.clone(),
+            arguments: params.arguments,
+        };
+
+        let result = api_client
+            .call_mcp_tool(&request)
+            .await
+            .map_err(|e| {
+                if e.status() == Some(reqwest::StatusCode::NOT_FOUND) {
+                    McpError::internal_error(
+                        format!(
+                            "Publisher '{}' or tool '{}' not found. Use list_mcp_tools to see available tools.",
+                            params.publisher, params.tool_name
+                        ),
+                        None,
+                    )
+                } else if e.status() == Some(reqwest::StatusCode::BAD_REQUEST) {
+                    McpError::invalid_params(
+                        format!(
+                            "Publisher '{}' does not have an MCP endpoint configured.",
+                            params.publisher
+                        ),
+                        None,
+                    )
+                } else {
+                    McpError::internal_error(e.to_string(), None)
+                }
+            })?
+            .into_inner();
+
+        let response = serde_json::json!({
+            "publisher": params.publisher,
+            "tool": params.tool_name,
+            "is_error": result.is_error,
+            "result": result.result,
+            "execution_time_ms": result.execution_time_ms,
+            "response_bytes": result.response_bytes,
+        });
+
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List resources available on an MCP publisher. MCP publishers can expose resources (like files, data sources) that can be read. Use this to discover what resources an MCP publisher provides.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_mcp_resources(
+        &self,
+        Parameters(params): Parameters<ListMcpResourcesParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
+
+        // Call Seren API to list resources (this enables billing/metering)
+        let request = seren::ListMcpResourcesRequest {
+            publisher: Some(params.publisher.clone()),
+            publisher_id: None,
+        };
+
+        let result = api_client
+            .list_mcp_resources(&request)
+            .await
+            .map_err(|e| {
+                if e.status() == Some(reqwest::StatusCode::NOT_FOUND) {
+                    McpError::internal_error(
+                        format!(
+                            "Publisher '{}' not found or does not have MCP capabilities. Use list_agent_publishers to see available publishers.",
+                            params.publisher
+                        ),
+                        None,
+                    )
+                } else if e.status() == Some(reqwest::StatusCode::BAD_REQUEST) {
+                    McpError::invalid_params(
+                        format!(
+                            "Publisher '{}' does not have an MCP endpoint configured.",
+                            params.publisher
+                        ),
+                        None,
+                    )
+                } else {
+                    McpError::internal_error(e.to_string(), None)
+                }
+            })?
+            .into_inner();
+
+        let response = serde_json::json!({
+            "publisher": params.publisher,
+            "resources": result.resources,
+            "resource_count": result.resources.len(),
+            "execution_time_ms": result.execution_time_ms,
+        });
+
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Read a resource from an MCP publisher. Use list_mcp_resources first to see available resources and their URIs.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn read_mcp_resource(
+        &self,
+        Parameters(params): Parameters<ReadMcpResourceParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
+
+        // Call Seren API to read the MCP resource (for billing/metering)
+        let request = seren::ReadMcpResourceRequest {
+            publisher: Some(params.publisher.clone()),
+            publisher_id: None,
+            uri: params.uri.clone(),
+        };
+
+        let result = api_client
+            .read_mcp_resource(&request)
+            .await
+            .map_err(|e| {
+                if e.status() == Some(reqwest::StatusCode::NOT_FOUND) {
+                    McpError::internal_error(
+                        format!(
+                            "Publisher '{}' not found. Use list_agent_publishers to see available publishers.",
+                            params.publisher
+                        ),
+                        None,
+                    )
+                } else if e.status() == Some(reqwest::StatusCode::BAD_REQUEST) {
+                    McpError::invalid_params(
+                        format!(
+                            "Publisher '{}' does not have an MCP endpoint configured or resource '{}' not found.",
+                            params.publisher, params.uri
+                        ),
+                        None,
+                    )
+                } else {
+                    McpError::internal_error(e.to_string(), None)
+                }
+            })?
+            .into_inner();
+
+        // Convert SDK response to JSON
+        let contents: Vec<serde_json::Value> = result
+            .contents
+            .into_iter()
+            .map(|c| {
+                let mut content = serde_json::json!({
+                    "uri": c.uri,
+                });
+                if let Some(text) = c.text {
+                    content["type"] = serde_json::json!("text");
+                    content["text"] = serde_json::json!(text);
+                } else if let Some(blob) = c.blob {
+                    content["type"] = serde_json::json!("blob");
+                    content["blob"] = serde_json::json!(blob);
+                }
+                if let Some(mime_type) = c.mime_type {
+                    content["mime_type"] = serde_json::json!(mime_type);
+                }
+                content
+            })
+            .collect();
+
+        let response = serde_json::json!({
+            "publisher": params.publisher,
+            "uri": params.uri,
+            "contents": contents,
+            "execution_time_ms": result.execution_time_ms,
+        });
+
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 }
 
