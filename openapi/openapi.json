@@ -1987,6 +1987,590 @@
         ]
       }
     },
+    "/notes": {
+      "get": {
+        "tags": [
+          "Notes"
+        ],
+        "summary": "GET /api/notes",
+        "description": "List notes with optional filters.",
+        "operationId": "list_notes",
+        "parameters": [
+          {
+            "name": "parent_id",
+            "in": "query",
+            "description": "Filter by parent note ID",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "nullable": true
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "description": "Filter by tag",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "description": "Include archived notes",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of notes to return",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of notes to skip",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notes retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteSummariesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Notes"
+        ],
+        "summary": "POST /api/notes",
+        "description": "Create a new note.",
+        "operationId": "create_note",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateNoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Note created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/notes/search": {
+      "get": {
+        "tags": [
+          "Notes"
+        ],
+        "summary": "GET /api/notes/search",
+        "description": "Full-text search across notes.",
+        "operationId": "search_notes",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "description": "Search query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "description": "Include archived notes",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of notes to return",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of notes to skip",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteSummariesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid query"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/notes/tags": {
+      "get": {
+        "tags": [
+          "Notes"
+        ],
+        "summary": "GET /api/notes/tags",
+        "description": "List all tags used by the user.",
+        "operationId": "list_tags",
+        "responses": {
+          "200": {
+            "description": "Tags retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/notes/{note_id}": {
+      "get": {
+        "tags": [
+          "Notes"
+        ],
+        "summary": "GET /api/notes/{note_id}",
+        "description": "Get a specific note by ID.",
+        "operationId": "get_note",
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "description": "Note ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "Output format: markdown, org, or json",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Note retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteDataResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Note not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Notes"
+        ],
+        "summary": "DELETE /api/notes/{note_id}",
+        "description": "Delete a note.",
+        "operationId": "delete_note",
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "description": "Note ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Note deleted successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Note not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Notes"
+        ],
+        "summary": "PATCH /api/notes/{note_id}",
+        "description": "Update a note.",
+        "operationId": "update_note",
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "description": "Note ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Note updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Note not found"
+          },
+          "409": {
+            "description": "Version conflict"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/notes/{note_id}/append": {
+      "post": {
+        "tags": [
+          "Notes"
+        ],
+        "summary": "POST /api/notes/{note_id}/append",
+        "description": "Append content to an existing note.",
+        "operationId": "append_to_note",
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "description": "Note ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppendToNoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Content appended successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Note not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/notes/{note_id}/tags": {
+      "post": {
+        "tags": [
+          "Notes"
+        ],
+        "summary": "POST /api/notes/{note_id}/tags",
+        "description": "Add tags to a note.",
+        "operationId": "add_tags",
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "description": "Note ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTagsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Tags added successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Note not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Notes"
+        ],
+        "summary": "DELETE /api/notes/{note_id}/tags",
+        "description": "Remove tags from a note.",
+        "operationId": "remove_tags",
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "description": "Note ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveTagsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Tags removed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Note not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/organizations": {
       "get": {
         "tags": [
@@ -9646,6 +10230,22 @@
           }
         }
       },
+      "AddTagsRequest": {
+        "type": "object",
+        "description": "Request to add tags to a note",
+        "required": [
+          "tags"
+        ],
+        "properties": {
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags to add"
+          }
+        }
+      },
       "AgentBalanceDataResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
@@ -10221,6 +10821,27 @@
             "format": "int32",
             "description": "HTTP status from publisher",
             "minimum": 0
+          }
+        }
+      },
+      "AppendToNoteRequest": {
+        "type": "object",
+        "description": "Request to append content to a note",
+        "required": [
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "Content to append"
+          },
+          "format": {
+            "$ref": "#/components/schemas/NoteFormat"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Optional idempotency key for safe retries",
+            "nullable": true
           }
         }
       },
@@ -11695,6 +12316,46 @@
           },
           "target_asset": {
             "$ref": "#/components/schemas/AssetInfo"
+          }
+        }
+      },
+      "CreateNoteRequest": {
+        "type": "object",
+        "description": "Request to create a new note",
+        "required": [
+          "title",
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "Note content (format specified by `format` field)"
+          },
+          "format": {
+            "$ref": "#/components/schemas/NoteFormat"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Optional idempotency key for safe retries",
+            "nullable": true
+          },
+          "parent_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional parent note ID for hierarchical organization",
+            "nullable": true
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional tags for categorization",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "description": "Note title"
           }
         }
       },
@@ -14166,6 +14827,15 @@
           }
         }
       },
+      "GetNoteQuery": {
+        "type": "object",
+        "description": "Query parameters for getting a note",
+        "properties": {
+          "format": {
+            "$ref": "#/components/schemas/NoteFormat"
+          }
+        }
+      },
       "GrantCreditsRequest": {
         "type": "object",
         "description": "Request to grant credits to an organization (admin)",
@@ -14971,6 +15641,35 @@
           }
         }
       },
+      "ListNotesQuery": {
+        "type": "object",
+        "description": "Query parameters for listing notes",
+        "properties": {
+          "include_archived": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "parent_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "tag": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "ListPublisherPayoutsParams": {
         "type": "object",
         "description": "Query params for listing publisher payouts.",
@@ -15490,6 +16189,280 @@
         "type": "string",
         "description": "A validated network identifier.\n\nSupports common blockchain networks. Stored as TEXT in database.\n\n# Known Networks\n- `evm:1` - Ethereum Mainnet\n- `evm:8453` - Base\n- `evm:137` - Polygon\n- `evm:42161` - Arbitrum One\n- `evm:10` - Optimism\n- `solana:mainnet` - Solana Mainnet\n- `solana:devnet` - Solana Devnet\n\n# Examples\n\n```\nuse seren_core::models::NetworkId;\n\nlet eth = NetworkId::new(\"evm:1\").unwrap();\nassert!(eth.is_evm());\n\nlet sol = NetworkId::new(\"solana:mainnet\").unwrap();\nassert!(sol.is_solana());\n```",
         "example": "evm:8453"
+      },
+      "Note": {
+        "type": "object",
+        "description": "A note stored in SerenNotes",
+        "required": [
+          "id",
+          "user_id",
+          "title",
+          "content",
+          "content_text",
+          "position",
+          "is_archived",
+          "is_pinned",
+          "metadata",
+          "schema_version",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "archived_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "content": {
+            "description": "ProseMirror JSON content"
+          },
+          "content_text": {
+            "type": "string",
+            "description": "Plain text content for display/search"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_archived": {
+            "type": "boolean"
+          },
+          "is_pinned": {
+            "type": "boolean"
+          },
+          "metadata": {},
+          "parent_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "position": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "NoteDataResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/NoteResponse"
+          },
+          "pagination": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "NoteFormat": {
+        "type": "string",
+        "description": "Note format for input/output",
+        "enum": [
+          "markdown",
+          "json",
+          "org"
+        ]
+      },
+      "NoteResponse": {
+        "type": "object",
+        "description": "Response type for note retrieval with converted content",
+        "required": [
+          "id",
+          "title",
+          "content",
+          "format",
+          "position",
+          "is_archived",
+          "is_pinned",
+          "tags",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "archived_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "content": {
+            "type": "string",
+            "description": "Content in the requested format (markdown, org, or JSON string)"
+          },
+          "content_json": {
+            "description": "Raw ProseMirror JSON (only included when format is Json)",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "format": {
+            "$ref": "#/components/schemas/NoteFormat"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_archived": {
+            "type": "boolean"
+          },
+          "is_pinned": {
+            "type": "boolean"
+          },
+          "parent_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "position": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "NoteSummariesResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoteSummary"
+            },
+            "description": "The actual response data (can be a single object or a collection)"
+          },
+          "pagination": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "NoteSummary": {
+        "type": "object",
+        "description": "Note summary for list/search responses (without full content)",
+        "required": [
+          "id",
+          "title",
+          "excerpt",
+          "is_archived",
+          "is_pinned",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "excerpt": {
+            "type": "string",
+            "description": "First ~200 characters of content_text"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_archived": {
+            "type": "boolean"
+          },
+          "is_pinned": {
+            "type": "boolean"
+          },
+          "parent_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "NoteWithTags": {
+        "type": "object",
+        "description": "Note with tags included (for API responses)",
+        "required": [
+          "note",
+          "tags"
+        ],
+        "properties": {
+          "note": {
+            "$ref": "#/components/schemas/Note"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags associated with this note"
+          }
+        }
       },
       "OffsetPaginationMeta": {
         "type": "object",
@@ -19470,6 +20443,22 @@
           }
         }
       },
+      "RemoveTagsRequest": {
+        "type": "object",
+        "description": "Request to remove tags from a note",
+        "required": [
+          "tags"
+        ],
+        "properties": {
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags to remove"
+          }
+        }
+      },
       "RenameBranchRequest": {
         "type": "object",
         "description": "Request to rename a branch",
@@ -20130,6 +21119,32 @@
           }
         }
       },
+      "SearchNotesQuery": {
+        "type": "object",
+        "description": "Query parameters for searching notes",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "include_archived": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "query": {
+            "type": "string"
+          }
+        }
+      },
       "Session": {
         "type": "object",
         "description": "Response for listing user sessions (hides sensitive token hash)",
@@ -20601,6 +21616,30 @@
           },
           "signers": {
             "description": "Signer addresses by network family",
+            "nullable": true
+          }
+        }
+      },
+      "TagsResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n\"data\": T,\n\"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet project = Project {\nid: \"123\".to_string(),\nname: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::{DataResponse, PaginationMeta};\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\nid: String,\nname: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\ntotal: 0,\npage: 1,\nper_page: 20,\nnext_cursor: None,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 100, \"page\": 1, \"per_page\": 20}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The actual response data (can be a single object or a collection)"
+          },
+          "pagination": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ],
             "nullable": true
           }
         }
@@ -21121,6 +22160,47 @@
         "properties": {
           "enabled": {
             "type": "boolean"
+          }
+        }
+      },
+      "UpdateNoteRequest": {
+        "type": "object",
+        "description": "Request to update an existing note",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "Updated content (optional, format specified by `format` field)",
+            "nullable": true
+          },
+          "expected_version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Expected version for optimistic concurrency control",
+            "nullable": true
+          },
+          "format": {
+            "$ref": "#/components/schemas/NoteFormat"
+          },
+          "is_archived": {
+            "type": "boolean",
+            "description": "Archive or unarchive the note",
+            "nullable": true
+          },
+          "is_pinned": {
+            "type": "boolean",
+            "description": "Pin or unpin the note",
+            "nullable": true
+          },
+          "parent_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Move note to a different parent",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "description": "Updated title (optional)",
+            "nullable": true
           }
         }
       },
@@ -22562,6 +23642,10 @@
     {
       "name": "agent-wallet",
       "description": "Wallet (funded + promotional)"
+    },
+    {
+      "name": "Notes",
+      "description": "AI-native note-taking with ProseMirror JSON storage"
     }
   ]
 }

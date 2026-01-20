@@ -9,6 +9,7 @@ pub mod databases;
 pub mod endpoints;
 pub mod env;
 pub mod ip_allow_list;
+pub mod notes;
 pub mod operations;
 pub mod organizations;
 pub mod projects;
