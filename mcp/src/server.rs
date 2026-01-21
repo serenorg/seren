@@ -708,6 +708,12 @@ pub struct CreatePublisherParams {
     /// Query parameter name to inject upstream_api_key into (e.g., "api_key")
     #[serde(default)]
     pub api_key_query_param: Option<String>,
+    /// Display name for the publisher resource (shown on website)
+    #[serde(default)]
+    pub resource_name: Option<String>,
+    /// Description of the publisher resource (shown on website)
+    #[serde(default)]
+    pub resource_description: Option<String>,
 }
 
 /// Parameters for updating a publisher in the store
@@ -801,6 +807,12 @@ pub struct UpdatePublisherParams {
     /// Query parameter name to inject upstream_api_key into (e.g., "api_key")
     #[serde(default)]
     pub api_key_query_param: Option<String>,
+    /// Display name for the publisher resource (shown on website)
+    #[serde(default)]
+    pub resource_name: Option<String>,
+    /// Description of the publisher resource (shown on website)
+    #[serde(default)]
+    pub resource_description: Option<String>,
 }
 
 /// Parameters for updating a publisher's pricing configuration
@@ -3912,6 +3924,8 @@ impl SerenMcpServer {
             upstream_api_key,
             api_key_header,
             api_key_query_param,
+            resource_name,
+            resource_description,
         } = params;
 
         ensure_writes_allowed(&extensions)?;
@@ -4100,10 +4114,10 @@ impl SerenMcpServer {
             price_per_put: None,
             protected_operations: None,
             publisher_type: None,
-            resource_description: None,
+            resource_description,
             resource_id_response_path: None,
             resource_id_url_pattern: None,
-            resource_name: None,
+            resource_name,
             upstream_api_key,
             usage_examples: None,
             request_content_type,
@@ -4163,6 +4177,8 @@ impl SerenMcpServer {
             upstream_api_key,
             api_key_header,
             api_key_query_param,
+            resource_name,
+            resource_description,
         } = params;
 
         ensure_writes_allowed(&extensions)?;
@@ -4242,9 +4258,10 @@ impl SerenMcpServer {
             token_exchange_mode,
             token_cache_ttl_seconds,
             token_response_field,
+            // Resource display fields
+            resource_name,
+            resource_description,
             // Set defaults for fields not exposed in MCP params
-            resource_name: None,
-            resource_description: None,
             usage_examples: None,
             api_headers: None,
             auth_type: None,
