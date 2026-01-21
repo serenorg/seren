@@ -657,6 +657,21 @@ pub struct CreatePublisherParams {
     /// Price per execution for agent templates (decimal string, e.g., "0.01")
     #[serde(default)]
     pub price_per_execution: Option<String>,
+    /// Price per GET request (decimal string)
+    #[serde(default)]
+    pub price_per_get: Option<String>,
+    /// Price per POST request (decimal string)
+    #[serde(default)]
+    pub price_per_post: Option<String>,
+    /// Price per PUT request (decimal string)
+    #[serde(default)]
+    pub price_per_put: Option<String>,
+    /// Price per PATCH request (decimal string)
+    #[serde(default)]
+    pub price_per_patch: Option<String>,
+    /// Price per DELETE request (decimal string)
+    #[serde(default)]
+    pub price_per_delete: Option<String>,
     /// Billing model (x402_per_request, prepaid_credits, x402_passthrough)
     #[serde(default)]
     pub billing_model: Option<String>,
@@ -3963,6 +3978,11 @@ impl SerenMcpServer {
             base_price_per_1000_rows,
             price_per_call,
             price_per_execution,
+            price_per_get,
+            price_per_post,
+            price_per_put,
+            price_per_patch,
+            price_per_delete,
             billing_model,
             categories,
             logo_url,
@@ -4160,12 +4180,12 @@ impl SerenMcpServer {
             minimum_balance: None,
             ownership_tracking_enabled: None,
             price_per_call,
-            price_per_delete: None,
+            price_per_delete,
             price_per_execution,
-            price_per_get: None,
-            price_per_patch: None,
-            price_per_post: None,
-            price_per_put: None,
+            price_per_get,
+            price_per_patch,
+            price_per_post,
+            price_per_put,
             protected_operations: None,
             publisher_type: None,
             resource_description,
