@@ -1,4 +1,4 @@
-use clap::{ArgAction, Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, Parser, Subcommand};
 use uuid::Uuid;
 
 mod command_context;
@@ -23,28 +23,6 @@ impl std::str::FromStr for OutputFormat {
             "json" => Ok(OutputFormat::Json),
             "table" => Ok(OutputFormat::Table),
             _ => Err(format!("Invalid output format: {}", s)),
-        }
-    }
-}
-
-/// Content format for notes (input and output)
-#[derive(Debug, Clone, Copy, Default, ValueEnum)]
-pub enum NoteContentFormat {
-    /// Markdown format (default)
-    #[default]
-    Markdown,
-    /// Org-mode format
-    Org,
-    /// Raw ProseMirror JSON
-    Json,
-}
-
-impl From<NoteContentFormat> for seren::NoteFormat {
-    fn from(format: NoteContentFormat) -> Self {
-        match format {
-            NoteContentFormat::Markdown => seren::NoteFormat::Markdown,
-            NoteContentFormat::Org => seren::NoteFormat::Org,
-            NoteContentFormat::Json => seren::NoteFormat::Json,
         }
     }
 }
@@ -237,11 +215,6 @@ enum Commands {
     Agent {
         #[command(subcommand)]
         action: AgentAction,
-    },
-    /// Manage notes (AI-native note-taking)
-    Notes {
-        #[command(subcommand)]
-        action: NotesAction,
     },
 }
 
@@ -1441,147 +1414,6 @@ enum ReplicationAction {
     },
 }
 
-#[derive(Subcommand)]
-enum NotesAction {
-    /// Create a new note
-    Create {
-        /// Note title
-        #[arg(long)]
-        title: String,
-
-        /// Note content in markdown format
-        #[arg(long)]
-        content: String,
-
-        /// Content format
-        #[arg(long, value_enum, default_value = "markdown")]
-        format: NoteContentFormat,
-
-        /// Parent note ID for hierarchical organization
-        #[arg(long)]
-        parent_id: Option<String>,
-
-        /// Tags for the note (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        tags: Option<Vec<String>>,
-    },
-    /// Get a note by ID
-    Get {
-        /// Note ID
-        id: String,
-
-        /// Output format
-        #[arg(long, value_enum, default_value = "markdown")]
-        format: NoteContentFormat,
-    },
-    /// Update an existing note
-    Update {
-        /// Note ID
-        id: String,
-
-        /// New title
-        #[arg(long)]
-        title: Option<String>,
-
-        /// New content
-        #[arg(long)]
-        content: Option<String>,
-
-        /// Content format
-        #[arg(long, value_enum, default_value = "markdown")]
-        format: NoteContentFormat,
-
-        /// Move to a different parent note
-        #[arg(long)]
-        parent_id: Option<String>,
-
-        /// Archive or unarchive the note
-        #[arg(long)]
-        archived: Option<bool>,
-
-        /// Pin or unpin the note
-        #[arg(long)]
-        pinned: Option<bool>,
-    },
-    /// Delete a note
-    Delete {
-        /// Note ID
-        id: String,
-    },
-    /// List notes
-    List {
-        /// Filter by parent note ID
-        #[arg(long)]
-        parent_id: Option<String>,
-
-        /// Filter by tag
-        #[arg(long)]
-        tag: Option<String>,
-
-        /// Include archived notes
-        #[arg(long)]
-        include_archived: Option<bool>,
-
-        /// Maximum number of notes to return
-        #[arg(long)]
-        limit: Option<i64>,
-
-        /// Offset for pagination
-        #[arg(long)]
-        offset: Option<i64>,
-    },
-    /// Search notes using full-text search
-    Search {
-        /// Search query
-        query: String,
-
-        /// Include archived notes
-        #[arg(long)]
-        include_archived: Option<bool>,
-
-        /// Maximum number of results
-        #[arg(long)]
-        limit: Option<i64>,
-
-        /// Offset for pagination
-        #[arg(long)]
-        offset: Option<i64>,
-    },
-    /// Append content to an existing note
-    Append {
-        /// Note ID
-        id: String,
-
-        /// Content to append
-        #[arg(long)]
-        content: String,
-
-        /// Content format
-        #[arg(long, value_enum, default_value = "markdown")]
-        format: NoteContentFormat,
-    },
-    /// Add tags to a note
-    AddTags {
-        /// Note ID
-        id: String,
-
-        /// Tags to add (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        tags: Vec<String>,
-    },
-    /// Remove tags from a note
-    RemoveTags {
-        /// Note ID
-        id: String,
-
-        /// Tags to remove (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        tags: Vec<String>,
-    },
-    /// List all tags used across notes
-    ListTags,
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -2351,83 +2183,6 @@ async fn main() -> anyhow::Result<()> {
             AgentAction::InvokeTemplate { slug, input } => {
                 commands::agent::invoke_template(&slug, &input, &ctx).await?
             }
-        },
-        Commands::Notes { action } => match action {
-            NotesAction::Create {
-                title,
-                content,
-                format,
-                parent_id,
-                tags,
-            } => {
-                commands::notes::create(
-                    &title,
-                    &content,
-                    format.into(),
-                    parent_id.as_deref(),
-                    tags,
-                    &ctx,
-                )
-                .await?
-            }
-            NotesAction::Get { id, format } => {
-                commands::notes::get(&id, format.into(), &ctx).await?
-            }
-            NotesAction::Update {
-                id,
-                title,
-                content,
-                format,
-                parent_id,
-                archived,
-                pinned,
-            } => {
-                commands::notes::update(
-                    &id,
-                    title.as_deref(),
-                    content.as_deref(),
-                    format.into(),
-                    parent_id.as_deref(),
-                    archived,
-                    pinned,
-                    &ctx,
-                )
-                .await?
-            }
-            NotesAction::Delete { id } => commands::notes::delete(&id, &ctx).await?,
-            NotesAction::List {
-                parent_id,
-                tag,
-                include_archived,
-                limit,
-                offset,
-            } => {
-                commands::notes::list(
-                    parent_id.as_deref(),
-                    tag.as_deref(),
-                    include_archived,
-                    limit,
-                    offset,
-                    &ctx,
-                )
-                .await?
-            }
-            NotesAction::Search {
-                query,
-                include_archived,
-                limit,
-                offset,
-            } => commands::notes::search(&query, include_archived, limit, offset, &ctx).await?,
-            NotesAction::Append {
-                id,
-                content,
-                format,
-            } => commands::notes::append(&id, &content, format.into(), &ctx).await?,
-            NotesAction::AddTags { id, tags } => commands::notes::add_tags(&id, tags, &ctx).await?,
-            NotesAction::RemoveTags { id, tags } => {
-                commands::notes::remove_tags(&id, tags, &ctx).await?
-            }
-            NotesAction::ListTags => commands::notes::list_tags(&ctx).await?,
         },
     }
 
