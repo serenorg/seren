@@ -1211,6 +1211,60 @@ fn truncate_for_client(value: &str, max_chars: usize) -> String {
     format!("{truncated}... (truncated)")
 }
 
+/// Convert a seren SDK error to an MCP error, extracting response body for better diagnostics.
+///
+/// This properly handles `UnexpectedResponse` errors by reading the response body,
+/// which is not included in the default `Display` implementation.
+async fn seren_error_to_mcp_error<T: std::fmt::Debug>(e: seren::Error<T>) -> McpError {
+    match e {
+        seren::Error::UnexpectedResponse(response) => {
+            let status = response.status();
+            let headers = response.headers().clone();
+            let body = response.text().await.unwrap_or_default();
+
+            // Try to extract a meaningful error message from JSON body
+            let error_message = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                // Try common error message fields
+                json.get("message")
+                    .or_else(|| json.get("error"))
+                    .or_else(|| json.get("detail"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| truncate_for_client(&body, 1200))
+            } else if body.is_empty() {
+                format!(
+                    "Empty response body (content-length: {:?})",
+                    headers.get("content-length")
+                )
+            } else {
+                truncate_for_client(&body, 1200)
+            };
+
+            McpError::internal_error(format!("API error {status}: {error_message}"), None)
+        }
+        seren::Error::ErrorResponse(resp) => {
+            let status = resp.status();
+            McpError::internal_error(format!("API error {status}: {:?}", resp.into_inner()), None)
+        }
+        seren::Error::InvalidRequest(msg) => {
+            McpError::invalid_params(format!("Invalid request: {msg}"), None)
+        }
+        seren::Error::CommunicationError(e) => {
+            McpError::internal_error(format!("Communication error: {e}"), None)
+        }
+        seren::Error::InvalidUpgrade(e) => {
+            McpError::internal_error(format!("Upgrade error: {e}"), None)
+        }
+        seren::Error::ResponseBodyError(e) => {
+            McpError::internal_error(format!("Response body error: {e}"), None)
+        }
+        seren::Error::InvalidResponsePayload(_bytes, e) => {
+            McpError::internal_error(format!("Invalid response payload: {e}"), None)
+        }
+        seren::Error::Custom(msg) => McpError::internal_error(format!("Custom error: {msg}"), None),
+    }
+}
+
 /// Check if a seren SDK error is retryable (transient connection/timeout errors).
 ///
 /// Returns true for:
@@ -4131,11 +4185,10 @@ impl SerenMcpServer {
             token_response_field,
         };
 
-        let result = api_client
-            .create_publisher_api_key(&body)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
+        let result = match api_client.create_publisher_api_key(&body).await {
+            Ok(resp) => resp.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
 
@@ -4307,11 +4360,10 @@ impl SerenMcpServer {
             mcp_endpoint,
         };
 
-        let result = api_client
-            .update_publisher_api_key(&slug, &body)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
+        let result = match api_client.update_publisher_api_key(&slug, &body).await {
+            Ok(resp) => resp.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
 
@@ -4420,11 +4472,13 @@ impl SerenMcpServer {
             token_response_field: None,
         };
 
-        let result = api_client
+        let result = match api_client
             .update_publisher_pricing(&organization_id, &publisher_id, &body)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
+        {
+            Ok(resp) => resp.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
 
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
@@ -4460,11 +4514,13 @@ impl SerenMcpServer {
             content_type: params.content_type,
         };
 
-        let result = api_client
+        let result = match api_client
             .upload_publisher_logo_api_key(&params.slug, &body)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
+        {
+            Ok(resp) => resp.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
 
