@@ -1558,6 +1558,7 @@ fn extract_bearer_token_from_extensions(extensions: &Extensions) -> Option<Strin
 /// Agent metadata extracted from OAuth client registration
 #[derive(Debug, Clone, Default)]
 struct AgentMetadata {
+    user_id: Option<String>,
     client_id: Option<String>,
     client_name: Option<String>,
     software_id: Option<String>,
@@ -1571,6 +1572,11 @@ fn extract_agent_metadata_from_extensions(extensions: &Extensions) -> AgentMetad
     };
 
     AgentMetadata {
+        user_id: parts
+            .headers
+            .get("x-user-id")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string()),
         client_id: parts
             .headers
             .get("x-agent-client-id")
@@ -1842,6 +1848,12 @@ impl SerenMcpServer {
         headers: &mut reqwest::header::HeaderMap,
         agent_metadata: &AgentMetadata,
     ) {
+        // Forward user identity header to the backend for BYOC OAuth token lookup
+        if let Some(ref user_id) = agent_metadata.user_id
+            && let Ok(v) = reqwest::header::HeaderValue::from_str(user_id)
+        {
+            headers.insert(reqwest::header::HeaderName::from_static("x-user-id"), v);
+        }
         // Forward agent metadata headers to the backend for tracking
         if let Some(ref client_id) = agent_metadata.client_id
             && let Ok(v) = reqwest::header::HeaderValue::from_str(client_id)
