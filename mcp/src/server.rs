@@ -5744,4 +5744,112 @@ mod tests {
             .unwrap();
         assert_eq!(result, serde_json::json!({ "ok": true }));
     }
+
+    #[test]
+    fn extract_agent_metadata_includes_user_id_from_header() {
+        let extensions =
+            extensions_with_headers(&[("x-user-id", "550e8400-e29b-41d4-a716-446655440000")]);
+        let metadata = extract_agent_metadata_from_extensions(&extensions);
+        assert_eq!(
+            metadata.user_id.as_deref(),
+            Some("550e8400-e29b-41d4-a716-446655440000")
+        );
+    }
+
+    #[test]
+    fn extract_agent_metadata_returns_none_for_missing_user_id() {
+        let extensions = extensions_with_headers(&[]);
+        let metadata = extract_agent_metadata_from_extensions(&extensions);
+        assert!(metadata.user_id.is_none());
+    }
+
+    #[test]
+    fn extract_agent_metadata_includes_all_agent_headers() {
+        let extensions = extensions_with_headers(&[
+            ("x-user-id", "user-123"),
+            ("x-agent-client-id", "client-456"),
+            ("x-agent-client-name", "Test Agent"),
+            ("x-agent-software-id", "software-789"),
+            ("x-agent-software-version", "1.0.0"),
+        ]);
+        let metadata = extract_agent_metadata_from_extensions(&extensions);
+        assert_eq!(metadata.user_id.as_deref(), Some("user-123"));
+        assert_eq!(metadata.client_id.as_deref(), Some("client-456"));
+        assert_eq!(metadata.client_name.as_deref(), Some("Test Agent"));
+        assert_eq!(metadata.software_id.as_deref(), Some("software-789"));
+        assert_eq!(metadata.software_version.as_deref(), Some("1.0.0"));
+    }
+
+    #[test]
+    fn insert_agent_metadata_headers_forwards_user_id() {
+        let metadata = AgentMetadata {
+            user_id: Some("550e8400-e29b-41d4-a716-446655440000".to_string()),
+            client_id: None,
+            client_name: None,
+            software_id: None,
+            software_version: None,
+        };
+        let mut headers = reqwest::header::HeaderMap::new();
+        SerenMcpServer::insert_agent_metadata_headers(&mut headers, &metadata);
+
+        assert_eq!(
+            headers.get("x-user-id").and_then(|v| v.to_str().ok()),
+            Some("550e8400-e29b-41d4-a716-446655440000")
+        );
+    }
+
+    #[test]
+    fn insert_agent_metadata_headers_forwards_all_metadata() {
+        let metadata = AgentMetadata {
+            user_id: Some("user-123".to_string()),
+            client_id: Some("client-456".to_string()),
+            client_name: Some("Test Agent".to_string()),
+            software_id: Some("software-789".to_string()),
+            software_version: Some("1.0.0".to_string()),
+        };
+        let mut headers = reqwest::header::HeaderMap::new();
+        SerenMcpServer::insert_agent_metadata_headers(&mut headers, &metadata);
+
+        assert_eq!(
+            headers.get("x-user-id").and_then(|v| v.to_str().ok()),
+            Some("user-123")
+        );
+        assert_eq!(
+            headers
+                .get("x-agent-client-id")
+                .and_then(|v| v.to_str().ok()),
+            Some("client-456")
+        );
+        assert_eq!(
+            headers
+                .get("x-agent-client-name")
+                .and_then(|v| v.to_str().ok()),
+            Some("Test Agent")
+        );
+        assert_eq!(
+            headers
+                .get("x-agent-software-id")
+                .and_then(|v| v.to_str().ok()),
+            Some("software-789")
+        );
+        assert_eq!(
+            headers
+                .get("x-agent-software-version")
+                .and_then(|v| v.to_str().ok()),
+            Some("1.0.0")
+        );
+    }
+
+    #[test]
+    fn insert_agent_metadata_headers_skips_none_values() {
+        let metadata = AgentMetadata::default();
+        let mut headers = reqwest::header::HeaderMap::new();
+        SerenMcpServer::insert_agent_metadata_headers(&mut headers, &metadata);
+
+        assert!(headers.get("x-user-id").is_none());
+        assert!(headers.get("x-agent-client-id").is_none());
+        assert!(headers.get("x-agent-client-name").is_none());
+        assert!(headers.get("x-agent-software-id").is_none());
+        assert!(headers.get("x-agent-software-version").is_none());
+    }
 }
