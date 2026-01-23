@@ -383,6 +383,8 @@ pub async fn create_publisher(
         token_exchange_mode: None,
         token_cache_ttl_seconds: None,
         token_response_field: None,
+        oauth_provider_slug: None,
+        requires_user_oauth: Some(false),
     };
 
     let response = client

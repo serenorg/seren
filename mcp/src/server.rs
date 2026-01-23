@@ -735,6 +735,12 @@ pub struct CreatePublisherParams {
     /// Description of the publisher resource (shown on website)
     #[serde(default)]
     pub resource_description: Option<String>,
+    /// OAuth provider slug for BYOC (Bring Your Own Credentials) authentication
+    #[serde(default)]
+    pub oauth_provider_slug: Option<String>,
+    /// If true, users must connect via OAuth before using this publisher
+    #[serde(default)]
+    pub requires_user_oauth: Option<bool>,
 }
 
 /// Parameters for updating a publisher in the store
@@ -834,6 +840,12 @@ pub struct UpdatePublisherParams {
     /// Description of the publisher resource (shown on website)
     #[serde(default)]
     pub resource_description: Option<String>,
+    /// OAuth provider ID for BYOC (Bring Your Own Credentials) authentication
+    #[serde(default)]
+    pub oauth_provider_id: Option<Uuid>,
+    /// If true, users must connect via OAuth before using this publisher
+    #[serde(default)]
+    pub requires_user_oauth: Option<bool>,
 }
 
 /// Parameters for updating a publisher's pricing configuration
@@ -4018,6 +4030,8 @@ impl SerenMcpServer {
             api_key_query_param,
             resource_name,
             resource_description,
+            oauth_provider_slug,
+            requires_user_oauth,
         } = params;
 
         ensure_writes_allowed(&extensions)?;
@@ -4221,6 +4235,8 @@ impl SerenMcpServer {
             token_exchange_mode,
             token_cache_ttl_seconds,
             token_response_field,
+            oauth_provider_slug,
+            requires_user_oauth,
         };
 
         let result = match api_client.create_publisher_api_key(&body).await {
@@ -4270,6 +4286,8 @@ impl SerenMcpServer {
             api_key_query_param,
             resource_name,
             resource_description,
+            oauth_provider_id,
+            requires_user_oauth,
         } = params;
 
         ensure_writes_allowed(&extensions)?;
@@ -4396,6 +4414,9 @@ impl SerenMcpServer {
             integration_type: None,
             compute_type: None,
             mcp_endpoint,
+            // BYOC OAuth fields
+            oauth_provider_id,
+            requires_user_oauth,
         };
 
         let result = match api_client.update_publisher_api_key(&slug, &body).await {
