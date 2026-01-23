@@ -1189,7 +1189,7 @@
           "MCP"
         ],
         "summary": "Call a tool on an MCP publisher",
-        "description": "Executes a tool on the MCP server and returns the result.\nThis operation is metered and may require payment.",
+        "description": "Executes a tool on the MCP server and returns the result.\nThis operation is metered and may require payment.\nFor BYOC publishers, requires authentication via Bearer token.",
         "operationId": "call_mcp_tool",
         "requestBody": {
           "content": {
@@ -1215,6 +1215,9 @@
           "400": {
             "description": "Invalid request"
           },
+          "403": {
+            "description": "OAuth connection required for BYOC publisher"
+          },
           "404": {
             "description": "Publisher or tool not found"
           },
@@ -1230,7 +1233,7 @@
           "MCP"
         ],
         "summary": "Discover all capabilities of an MCP publisher",
-        "description": "Returns the full set of capabilities (tools, resources, prompts) exposed by the MCP server.",
+        "description": "Returns the full set of capabilities (tools, resources, prompts) exposed by the MCP server.\nFor BYOC publishers, requires authentication via Bearer token.",
         "operationId": "discover_mcp_capabilities",
         "requestBody": {
           "content": {
@@ -1256,6 +1259,9 @@
           "400": {
             "description": "Invalid request"
           },
+          "403": {
+            "description": "OAuth connection required for BYOC publisher"
+          },
           "404": {
             "description": "Publisher not found"
           },
@@ -1271,7 +1277,7 @@
           "MCP"
         ],
         "summary": "Read a resource from an MCP publisher",
-        "description": "Fetches the content of a resource from the MCP server.\nThis operation is metered and may require payment.",
+        "description": "Fetches the content of a resource from the MCP server.\nThis operation is metered and may require payment.\nFor BYOC publishers, requires authentication via Bearer token.",
         "operationId": "read_mcp_resource",
         "requestBody": {
           "content": {
@@ -1297,6 +1303,9 @@
           "400": {
             "description": "Invalid request"
           },
+          "403": {
+            "description": "OAuth connection required for BYOC publisher"
+          },
           "404": {
             "description": "Publisher or resource not found"
           },
@@ -1312,7 +1321,7 @@
           "MCP"
         ],
         "summary": "List resources available on an MCP publisher",
-        "description": "Returns the list of resources exposed by the MCP server.",
+        "description": "Returns the list of resources exposed by the MCP server.\nFor BYOC publishers, requires authentication via Bearer token.",
         "operationId": "list_mcp_resources",
         "requestBody": {
           "content": {
@@ -1338,6 +1347,9 @@
           "400": {
             "description": "Invalid request"
           },
+          "403": {
+            "description": "OAuth connection required for BYOC publisher"
+          },
           "404": {
             "description": "Publisher not found"
           },
@@ -1353,7 +1365,7 @@
           "MCP"
         ],
         "summary": "List tools available on an MCP publisher",
-        "description": "Returns the list of tools exposed by the MCP server.",
+        "description": "Returns the list of tools exposed by the MCP server.\nFor BYOC publishers, requires authentication via Bearer token.",
         "operationId": "list_mcp_tools",
         "requestBody": {
           "content": {
@@ -1379,6 +1391,9 @@
           "400": {
             "description": "Invalid request"
           },
+          "403": {
+            "description": "OAuth connection required for BYOC publisher"
+          },
           "404": {
             "description": "Publisher not found"
           },
@@ -1386,6 +1401,225 @@
             "description": "Internal server error"
           }
         }
+      }
+    },
+    "/api/oauth/connections": {
+      "get": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "List user's OAuth connections",
+        "description": "Returns all OAuth providers the user has connected to.",
+        "operationId": "list_connections",
+        "responses": {
+          "200": {
+            "description": "List of user's OAuth connections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/oauth/connections/{provider}": {
+      "delete": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "Revoke an OAuth connection",
+        "description": "Disconnects the user's account from the OAuth provider and deletes stored tokens.",
+        "operationId": "revoke_connection",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "OAuth provider slug to disconnect",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Connection revoked successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Connection not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/oauth/providers": {
+      "get": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "List available OAuth providers",
+        "description": "Returns all active OAuth providers that users can connect to.",
+        "operationId": "list_providers",
+        "responses": {
+          "200": {
+            "description": "List of available OAuth providers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvidersResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/oauth/{provider}/authorize": {
+      "get": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "Initiate OAuth authorization flow",
+        "description": "Redirects the user to the OAuth provider's consent screen.\nAfter authorization, the provider will redirect back to the callback URL.",
+        "operationId": "initiate_oauth",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "OAuth provider slug (e.g., 'neon')",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "redirect_uri",
+            "in": "query",
+            "description": "Where to redirect after OAuth completes",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to OAuth provider"
+          },
+          "404": {
+            "description": "Provider not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/oauth/{provider}/callback": {
+      "get": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "Handle OAuth callback",
+        "description": "Called by the OAuth provider after the user authorizes.\nExchanges the authorization code for tokens and stores them.",
+        "operationId": "oauth_callback",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "OAuth provider slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "description": "Authorization code from provider",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "State parameter for CSRF verification",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to frontend with success/error"
+          },
+          "400": {
+            "description": "Invalid callback parameters"
+          }
+        }
+      }
+    },
+    "/auth/api-key": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "GET /auth/api-key",
+        "description": "Return (or create) the authenticated user's API key for token exchange flows.\n\nThis endpoint returns sensitive credentials. It must remain protected by auth middleware,\nand responses should not be cached.\n\n## Key Stability\n\nThis endpoint prioritizes stability by returning the same auto-generated key on\nsubsequent calls. If a key named \"MCP Auto-Generated\" exists, it will be returned.\nOtherwise, any existing user key for the organization is returned.\n\n## Key Rotation\n\nTo rotate a compromised key, manually revoke the key named \"MCP Auto-Generated\"\nvia the API (`DELETE /organizations/{org_id}/api-keys/{key_id}`) or the console UI.\nThe next call to this endpoint will create a new key automatically.",
+        "operationId": "get_api_key",
+        "responses": {
+          "200": {
+            "description": "User API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyExchangeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
     "/auth/forgot-password": {
@@ -10030,6 +10264,18 @@
           }
         }
       },
+      "ApiKeyExchangeResponse": {
+        "type": "object",
+        "description": "Response for GET /auth/api-key (token exchange).\n\nReturns the full API key (including secret). Do not cache.",
+        "required": [
+          "api_key"
+        ],
+        "properties": {
+          "api_key": {
+            "type": "string"
+          }
+        }
+      },
       "ApiKeyInfo": {
         "type": "object",
         "description": "Response struct for listing API keys (never includes the secret)",
@@ -11244,6 +11490,20 @@
               }
             ],
             "nullable": true
+          }
+        }
+      },
+      "ConnectionsResponse": {
+        "type": "object",
+        "required": [
+          "connections"
+        ],
+        "properties": {
+          "connections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserOAuthConnectionResponse"
+            }
           }
         }
       },
@@ -13785,6 +14045,11 @@
           "path": {
             "type": "string",
             "description": "Path relative to api_url (e.g., \"/chat/completions\")"
+          },
+          "price": {
+            "type": "string",
+            "description": "Endpoint-specific price override (in asset decimals, e.g., \"0.49\" for $0.49)\nIf set, takes precedence over method-level pricing (price_per_post, etc.)",
+            "nullable": true
           },
           "protection_reason": {
             "type": "string",
@@ -18083,6 +18348,20 @@
           }
         }
       },
+      "ProvidersResponse": {
+        "type": "object",
+        "required": [
+          "providers"
+        ],
+        "properties": {
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublisherOAuthProviderResponse"
+            }
+          }
+        }
+      },
       "ProxyAssetInfo": {
         "type": "object",
         "description": "Asset info returned to proxy for metering and settlement.",
@@ -18531,6 +18810,51 @@
           },
           "wallet_address": {
             "$ref": "#/components/schemas/WalletAddress"
+          }
+        }
+      },
+      "PublisherOAuthProviderResponse": {
+        "type": "object",
+        "description": "Response type for OAuth provider (excludes sensitive fields)",
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "scopes",
+          "is_active",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "logo_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "slug": {
+            "type": "string"
           }
         }
       },
@@ -19891,6 +20215,21 @@
             "type": "integer",
             "format": "int64",
             "description": "Total revenue in the period (atomic units)"
+          }
+        }
+      },
+      "RevokeResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
           }
         }
       },
@@ -21983,6 +22322,70 @@
           }
         }
       },
+      "UserOAuthConnectionResponse": {
+        "type": "object",
+        "description": "Response type for user OAuth connection (excludes tokens)",
+        "required": [
+          "id",
+          "provider_id",
+          "provider_slug",
+          "provider_name",
+          "scopes",
+          "is_valid",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_valid": {
+            "type": "boolean"
+          },
+          "last_used_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "provider_email": {
+            "type": "string",
+            "nullable": true
+          },
+          "provider_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provider_logo_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "provider_name": {
+            "type": "string"
+          },
+          "provider_slug": {
+            "type": "string"
+          },
+          "provider_user_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "UserStatus": {
         "type": "string",
         "description": "User status enum matching PostgreSQL enum",
@@ -22507,6 +22910,10 @@
     {
       "name": "Auth",
       "description": "Authentication and user management endpoints"
+    },
+    {
+      "name": "OAuth",
+      "description": "OAuth connections for BYOC integrations"
     },
     {
       "name": "Organizations",

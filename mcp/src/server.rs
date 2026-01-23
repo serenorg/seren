@@ -499,6 +499,10 @@ pub struct EndpointDefinitionParam {
     /// Reason why this endpoint is protected (shown in error messages)
     #[serde(default)]
     pub protection_reason: Option<String>,
+    /// Endpoint-specific price override (in asset decimals, e.g., "0.49" for $0.49)
+    /// If set, takes precedence over method-level pricing (price_per_post, etc.)
+    #[serde(default)]
+    pub price: Option<String>,
 }
 
 /// Query parameter definition for endpoint documentation
@@ -592,6 +596,8 @@ fn endpoint_param_to_definition(
         }),
         is_protected: Some(param.is_protected),
         protection_reason: param.protection_reason,
+        // Endpoint-specific pricing
+        price: param.price,
         // New fields from endpoint catalog feature - not exposed via MCP params yet
         example_request: None,
         example_response: None,
