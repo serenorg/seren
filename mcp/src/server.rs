@@ -4247,7 +4247,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Update an existing publisher's details. Requires API key authentication (organization-level). Only fields provided will be updated.",
+        description = "Update an existing publisher's details. Supports both API key and OAuth authentication. Only fields provided will be updated.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn update_publisher(
@@ -4543,7 +4543,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Upload a logo image for a publisher. Accepts base64-encoded PNG, JPEG, WebP, or SVG images. Maximum size 100KB, automatically resized to 200x200 if larger. Requires API key authentication (organization-level).",
+        description = "Upload a logo image for a publisher. Accepts base64-encoded PNG, JPEG, WebP, or SVG images. Maximum size 100KB, automatically resized to 200x200 if larger. Supports both API key and OAuth authentication.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn upload_publisher_logo(
