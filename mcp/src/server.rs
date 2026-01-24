@@ -180,6 +180,9 @@ pub struct RunSqlParams {
     pub database: String,
     /// SQL query to execute
     pub query: String,
+    /// Optional timeout in milliseconds for the query (default: 120000ms = 2 minutes)
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -199,6 +202,9 @@ pub struct RunSqlTransactionParams {
     /// If set, request a deferrable transaction
     #[serde(default)]
     pub deferrable: Option<bool>,
+    /// Optional timeout in milliseconds for the transaction (default: 120000ms = 2 minutes)
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -2192,10 +2198,11 @@ impl SerenMcpServer {
         query: &str,
         params: Vec<serde_json::Value>,
         bearer_token: Option<&str>,
+        timeout: std::time::Duration,
     ) -> Result<serde_json::Value, McpError> {
         let http_url = sql_proxy_url_from_connection_string(connection_string)?;
 
-        tracing::debug!(url = %http_url, "Executing SQL query");
+        tracing::debug!(url = %http_url, timeout_secs = timeout.as_secs(), "Executing SQL query");
 
         let mut request_builder = self.http_client.post(&http_url);
         request_builder = request_builder
@@ -2212,13 +2219,26 @@ impl SerenMcpServer {
                 request_builder.header(reqwest::header::AUTHORIZATION, format!("Bearer {}", token));
         }
 
-        let response = request_builder
+        // Wrap the HTTP request with a timeout to handle long-running queries
+        let send_future = request_builder
             .json(&SqlRequest {
                 query: query.to_string(),
                 params,
             })
-            .send()
+            .send();
+
+        let response = tokio::time::timeout(timeout, send_future)
             .await
+            .map_err(|_| {
+                tracing::error!(timeout_secs = timeout.as_secs(), "SQL query timed out");
+                McpError::internal_error(
+                    format!(
+                        "Query timed out after {} seconds. For long-running queries, increase the timeout_ms parameter.",
+                        timeout.as_secs()
+                    ),
+                    None,
+                )
+            })?
             .map_err(|e| {
                 tracing::error!(error = %e, "SQL HTTP request failed");
                 McpError::internal_error(e.to_string(), None)
@@ -2256,10 +2276,11 @@ impl SerenMcpServer {
         isolation_level: Option<String>,
         deferrable: Option<bool>,
         bearer_token: Option<&str>,
+        timeout: std::time::Duration,
     ) -> Result<serde_json::Value, McpError> {
         let http_url = sql_proxy_url_from_connection_string(connection_string)?;
 
-        tracing::debug!(url = %http_url, "Executing SQL transaction");
+        tracing::debug!(url = %http_url, timeout_secs = timeout.as_secs(), "Executing SQL transaction");
 
         let batch_queries: Vec<SqlBatchQuery> = queries
             .into_iter()
@@ -2294,12 +2315,25 @@ impl SerenMcpServer {
             request_builder = request_builder.header("SerenDB-Batch-Deferrable", "true");
         }
 
-        let response = request_builder
+        // Wrap the HTTP request with a timeout to handle long-running transactions
+        let send_future = request_builder
             .json(&SqlBatchRequest {
                 queries: batch_queries,
             })
-            .send()
+            .send();
+
+        let response = tokio::time::timeout(timeout, send_future)
             .await
+            .map_err(|_| {
+                tracing::error!(timeout_secs = timeout.as_secs(), "SQL transaction timed out");
+                McpError::internal_error(
+                    format!(
+                        "Transaction timed out after {} seconds. For long-running transactions, increase the timeout_ms parameter.",
+                        timeout.as_secs()
+                    ),
+                    None,
+                )
+            })?
             .map_err(|e| {
                 tracing::error!(error = %e, "SQL batch HTTP request failed");
                 McpError::internal_error(e.to_string(), None)
@@ -2798,8 +2832,20 @@ impl SerenMcpServer {
             &params.database,
         )?;
 
+        // Use custom timeout if provided, otherwise default to QUERY_TIMEOUT (120s)
+        let timeout = params
+            .timeout_ms
+            .map(|ms| std::time::Duration::from_millis(ms))
+            .unwrap_or(QUERY_TIMEOUT);
+
         let result = self
-            .execute_sql(&conn_str, &params.query, vec![], Some(&bearer_token))
+            .execute_sql(
+                &conn_str,
+                &params.query,
+                vec![],
+                Some(&bearer_token),
+                timeout,
+            )
             .await?;
 
         Ok(CallToolResult::success(vec![json_content(&result)?]))
@@ -2852,6 +2898,12 @@ impl SerenMcpServer {
             &params.database,
         )?;
 
+        // Use custom timeout if provided, otherwise default to QUERY_TIMEOUT (120s)
+        let timeout = params
+            .timeout_ms
+            .map(|ms| std::time::Duration::from_millis(ms))
+            .unwrap_or(QUERY_TIMEOUT);
+
         let result = self
             .execute_sql_transaction(
                 &conn_str,
@@ -2860,6 +2912,7 @@ impl SerenMcpServer {
                 params.isolation_level,
                 params.deferrable,
                 Some(&bearer_token),
+                timeout,
             )
             .await?;
 
@@ -2903,7 +2956,13 @@ impl SerenMcpServer {
         )?;
 
         let result = self
-            .execute_sql(&conn_str, query, vec![schema.into()], Some(&bearer_token))
+            .execute_sql(
+                &conn_str,
+                query,
+                vec![schema.into()],
+                Some(&bearer_token),
+                QUERY_TIMEOUT,
+            )
             .await?;
 
         Ok(CallToolResult::success(vec![json_content(&result)?]))
@@ -2938,7 +2997,13 @@ impl SerenMcpServer {
         )?;
 
         let result = self
-            .execute_sql(&conn_str, &explain_query, vec![], Some(&bearer_token))
+            .execute_sql(
+                &conn_str,
+                &explain_query,
+                vec![],
+                Some(&bearer_token),
+                QUERY_TIMEOUT,
+            )
             .await?;
 
         Ok(CallToolResult::success(vec![json_content(&result)?]))
@@ -2993,6 +3058,7 @@ impl SerenMcpServer {
                 query,
                 vec![schema.into(), params.table_name.into()],
                 Some(&bearer_token),
+                QUERY_TIMEOUT,
             )
             .await?;
 
@@ -5643,7 +5709,13 @@ mod tests {
 
         let server = SerenMcpServer::new("test-key", "https://api.serendb.com").unwrap();
         let result = server
-            .execute_sql(&conn, "select $1", vec![serde_json::json!(1)], None)
+            .execute_sql(
+                &conn,
+                "select $1",
+                vec![serde_json::json!(1)],
+                None,
+                QUERY_TIMEOUT,
+            )
             .await
             .unwrap();
         assert_eq!(result, serde_json::json!({ "ok": true }));
@@ -5682,6 +5754,7 @@ mod tests {
                 "select $1",
                 vec![serde_json::json!(1)],
                 Some("token123"),
+                QUERY_TIMEOUT,
             )
             .await
             .unwrap();
@@ -5721,6 +5794,7 @@ mod tests {
                 "select $1",
                 vec![serde_json::json!(1)],
                 Some("token123"),
+                QUERY_TIMEOUT,
             )
             .await
             .unwrap();
@@ -5766,6 +5840,7 @@ mod tests {
                 Some("read_committed".to_string()),
                 Some(true),
                 None,
+                QUERY_TIMEOUT,
             )
             .await
             .unwrap();
