@@ -216,6 +216,29 @@ enum Commands {
         #[command(subcommand)]
         action: AgentAction,
     },
+    /// Manage OAuth connections for BYOC publishers
+    Oauth {
+        #[command(subcommand)]
+        action: OAuthAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum OAuthAction {
+    /// List available OAuth providers
+    Providers,
+    /// List your OAuth connections
+    Connections,
+    /// Connect to an OAuth provider
+    Connect {
+        /// Provider slug (e.g., "attio", "neon")
+        provider_slug: String,
+    },
+    /// Disconnect from an OAuth provider
+    Disconnect {
+        /// Provider slug
+        provider_slug: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2182,6 +2205,16 @@ async fn main() -> anyhow::Result<()> {
             }
             AgentAction::InvokeTemplate { slug, input } => {
                 commands::agent::invoke_template(&slug, &input, &ctx).await?
+            }
+        },
+        Commands::Oauth { action } => match action {
+            OAuthAction::Providers => commands::oauth::list_providers(&ctx).await?,
+            OAuthAction::Connections => commands::oauth::list_connections(&ctx).await?,
+            OAuthAction::Connect { provider_slug } => {
+                commands::oauth::connect(&provider_slug, &ctx).await?
+            }
+            OAuthAction::Disconnect { provider_slug } => {
+                commands::oauth::disconnect(&provider_slug, &ctx).await?
             }
         },
     }
