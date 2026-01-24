@@ -54,6 +54,16 @@ impl CommandContext {
     /// Create an authenticated reqwest client for raw HTTP requests.
     /// Use this for endpoints not covered by the SDK.
     pub async fn http_client(&self) -> Result<reqwest::Client> {
+        self.http_client_with_redirect(reqwest::redirect::Policy::default())
+            .await
+    }
+
+    /// Create an authenticated reqwest client for raw HTTP requests with a custom redirect policy.
+    /// Use this for endpoints not covered by the SDK.
+    pub async fn http_client_with_redirect(
+        &self,
+        redirect_policy: reqwest::redirect::Policy,
+    ) -> Result<reqwest::Client> {
         let bearer_token = get_bearer_token(self.api_key.clone()).await?;
 
         let mut headers = HeaderMap::new();
@@ -65,7 +75,17 @@ impl CommandContext {
 
         reqwest::Client::builder()
             .default_headers(headers)
+            .redirect(redirect_policy)
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))
+    }
+
+    /// Create an authenticated reqwest client with redirects disabled.
+    ///
+    /// Useful when the API endpoint intentionally returns 3xx (e.g. OAuth authorize redirect)
+    /// and the caller needs to inspect the Location header.
+    pub async fn http_client_no_redirect(&self) -> Result<reqwest::Client> {
+        self.http_client_with_redirect(reqwest::redirect::Policy::none())
+            .await
     }
 }

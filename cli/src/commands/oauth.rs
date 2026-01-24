@@ -19,9 +19,13 @@ pub struct OAuthProvider {
     pub slug: String,
     pub name: String,
     pub logo_url: Option<String>,
-    pub authorization_url: String,
     pub scopes: Vec<String>,
     pub is_active: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProvidersResponse {
+    providers: Vec<OAuthProvider>,
 }
 
 /// User's OAuth connection
@@ -42,11 +46,17 @@ pub struct OAuthConnection {
     pub created_at: String,
 }
 
-/// Response from authorization initiation
 #[derive(Debug, Deserialize)]
-struct AuthorizeResponse {
-    authorization_url: String,
-    state: String,
+struct ConnectionsResponse {
+    connections: Vec<OAuthConnection>,
+}
+
+#[derive(Debug)]
+struct LocalOAuthCallback {
+    success: Option<bool>,
+    provider: Option<String>,
+    error: Option<String>,
+    error_description: Option<String>,
 }
 
 /// List available OAuth providers
@@ -66,7 +76,7 @@ pub async fn list_providers(ctx: &CommandContext) -> Result<()> {
         anyhow::bail!("Failed to list OAuth providers: {} - {}", status, body);
     }
 
-    let providers: Vec<OAuthProvider> = response.json().await?;
+    let ProvidersResponse { providers } = response.json().await?;
 
     if providers.is_empty() {
         println!("No OAuth providers available.");
@@ -116,7 +126,7 @@ pub async fn list_connections(ctx: &CommandContext) -> Result<()> {
         anyhow::bail!("Failed to list OAuth connections: {} - {}", status, body);
     }
 
-    let connections: Vec<OAuthConnection> = response.json().await?;
+    let ConnectionsResponse { connections } = response.json().await?;
 
     if connections.is_empty() {
         println!("No OAuth connections found.");
@@ -165,7 +175,8 @@ pub async fn list_connections(ctx: &CommandContext) -> Result<()> {
 
 /// Initiate OAuth flow to connect to a provider
 pub async fn connect(provider_slug: &str, ctx: &CommandContext) -> Result<()> {
-    let client = ctx.http_client().await?;
+    // Avoid following redirects so we can read the provider authorization URL from Location.
+    let client = ctx.http_client_no_redirect().await?;
     let api_base = ctx.api_base();
 
     println!("{}", "Starting OAuth connection flow...".bold());
@@ -188,7 +199,7 @@ pub async fn connect(provider_slug: &str, ctx: &CommandContext) -> Result<()> {
         .await
         .context("Failed to initiate OAuth flow")?;
 
-    if !response.status().is_success() {
+    if !response.status().is_redirection() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         if status.as_u16() == 404 {
@@ -200,66 +211,83 @@ pub async fn connect(provider_slug: &str, ctx: &CommandContext) -> Result<()> {
         anyhow::bail!("Failed to initiate OAuth flow: {} - {}", status, body);
     }
 
-    let auth_response: AuthorizeResponse = response.json().await?;
+    let authorization_url = response
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("OAuth authorize response missing Location header"))?;
 
     println!("Opening browser for {} authorization...", provider_slug);
     println!("If the browser doesn't open, visit:");
-    println!("{}", auth_response.authorization_url.cyan());
+    println!("{}", authorization_url.cyan());
     println!();
 
     // Try to open browser
-    if let Err(e) = open::that(&auth_response.authorization_url) {
+    if let Err(e) = open::that(&authorization_url) {
         eprintln!("Warning: Could not open browser: {}", e);
     }
 
     println!("Waiting for authorization...");
 
     // Wait for callback
-    let (code, state, error) = receive_oauth_callback(listener)?;
+    let callback = receive_oauth_callback(listener)?;
 
     // Check for errors
-    if let Some(err) = error {
-        anyhow::bail!("OAuth authorization failed: {}", err);
+    if let Some(err) = callback.error {
+        if let Some(desc) = callback.error_description {
+            anyhow::bail!("OAuth authorization failed: {err}: {desc}");
+        }
+        anyhow::bail!("OAuth authorization failed: {err}");
     }
 
-    // Verify state matches
-    if state != auth_response.state {
-        anyhow::bail!("OAuth state mismatch - possible CSRF attack");
+    if callback.success != Some(true) {
+        anyhow::bail!("OAuth authorization did not complete successfully.");
     }
 
-    let _code = code.ok_or_else(|| anyhow::anyhow!("No authorization code received"))?;
+    if let Some(provider) = callback.provider.as_deref()
+        && provider != provider_slug
+    {
+        eprintln!(
+            "Warning: OAuth completed for provider '{}', expected '{}'",
+            provider, provider_slug
+        );
+    }
 
-    println!("Completing authorization...");
+    println!("Authorization complete. Verifying connection...");
 
     // The callback is handled server-side, but we need to inform the user
     // The server should have already exchanged the code when the callback was received
     // We just need to verify the connection was established
 
     // Poll for connection status
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    let verify_client = ctx.http_client().await?;
+    for _ in 0..5 {
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    let response = client
-        .get(format!("{}/api/oauth/connections", api_base))
-        .send()
-        .await
-        .context("Failed to verify connection")?;
+        let response = verify_client
+            .get(format!("{}/api/oauth/connections", api_base))
+            .send()
+            .await
+            .context("Failed to verify connection")?;
 
-    if response.status().is_success() {
-        let connections: Vec<OAuthConnection> = response.json().await?;
-        if connections
-            .iter()
-            .any(|c| c.provider_slug == provider_slug && c.is_valid)
-        {
-            println!();
-            println!(
-                "{}",
-                format!("✓ Successfully connected to {}!", provider_slug)
-                    .green()
-                    .bold()
-            );
-            println!();
-            println!("You can now use publishers that require this OAuth connection.");
-            return Ok(());
+        if response.status().is_success() {
+            let ConnectionsResponse { connections } = response.json().await?;
+            if connections
+                .iter()
+                .any(|c| c.provider_slug == provider_slug && c.is_valid)
+            {
+                println!();
+                println!(
+                    "{}",
+                    format!("✓ Successfully connected to {}!", provider_slug)
+                        .green()
+                        .bold()
+                );
+                println!();
+                println!("You can now use publishers that require this OAuth connection.");
+                return Ok(());
+            }
         }
     }
 
@@ -318,18 +346,17 @@ pub async fn disconnect(provider_slug: &str, ctx: &CommandContext) -> Result<()>
 }
 
 /// Receive OAuth callback on local server
-fn receive_oauth_callback(
-    listener: TcpListener,
-) -> Result<(Option<String>, String, Option<String>)> {
+fn receive_oauth_callback(listener: TcpListener) -> Result<LocalOAuthCallback> {
     let (mut stream, _) = listener.accept()?;
     let mut reader = BufReader::new(&stream);
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
 
-    // Parse the request to extract code, state, and error
-    let mut code = None;
-    let mut state = String::new();
+    // Parse the request to extract success/error info from query params.
+    let mut success = None;
+    let mut provider = None;
     let mut error = None;
+    let mut error_description = None;
 
     if let Some(path_start) = request_line.find(' ') {
         if let Some(path_end) = request_line[path_start + 1..].find(' ') {
@@ -339,14 +366,14 @@ fn receive_oauth_callback(
                 for param in query.split('&') {
                     if let Some((key, value)) = param.split_once('=') {
                         match key {
-                            "code" => code = Some(urlencoding::decode(value)?.into_owned()),
-                            "state" => state = urlencoding::decode(value)?.into_owned(),
+                            "success" => {
+                                let v = urlencoding::decode(value)?.into_owned();
+                                success = Some(v == "true" || v == "1");
+                            }
+                            "provider" => provider = Some(urlencoding::decode(value)?.into_owned()),
                             "error" => error = Some(urlencoding::decode(value)?.into_owned()),
                             "error_description" => {
-                                if error.is_some() {
-                                    let desc = urlencoding::decode(value)?.into_owned();
-                                    error = Some(format!("{}: {}", error.unwrap(), desc));
-                                }
+                                error_description = Some(urlencoding::decode(value)?.into_owned());
                             }
                             _ => {}
                         }
@@ -387,5 +414,10 @@ fn receive_oauth_callback(
     stream.write_all(response.as_bytes())?;
     stream.flush()?;
 
-    Ok((code, state, error))
+    Ok(LocalOAuthCallback {
+        success,
+        provider,
+        error,
+        error_description,
+    })
 }
