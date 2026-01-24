@@ -735,6 +735,23 @@ pub struct CreatePublisherParams {
     /// Query parameter name to inject upstream_api_key into (e.g., "api_key")
     #[serde(default)]
     pub api_key_query_param: Option<String>,
+    /// Upstream auth mode: "static", "jwt", or "oauth2_cc" (default: static)
+    ///
+    /// For OAuth2 Client Credentials flow, set auth_type="oauth2_cc" and provide oauth2_* fields.
+    #[serde(default)]
+    pub auth_type: Option<String>,
+    /// OAuth2 token endpoint URL for Client Credentials flow
+    #[serde(default)]
+    pub oauth2_token_url: Option<String>,
+    /// OAuth2 client ID for Client Credentials flow
+    #[serde(default)]
+    pub oauth2_client_id: Option<String>,
+    /// OAuth2 client secret for Client Credentials flow (will be encrypted)
+    #[serde(default)]
+    pub oauth2_client_secret: Option<String>,
+    /// OAuth2 scopes to request during Client Credentials flow (optional)
+    #[serde(default)]
+    pub oauth2_scopes: Option<Vec<String>>,
     /// Display name for the publisher resource (shown on website)
     #[serde(default)]
     pub resource_name: Option<String>,
@@ -840,6 +857,21 @@ pub struct UpdatePublisherParams {
     /// Query parameter name to inject upstream_api_key into (e.g., "api_key")
     #[serde(default)]
     pub api_key_query_param: Option<String>,
+    /// Upstream auth mode: "static", "jwt", or "oauth2_cc"
+    #[serde(default)]
+    pub auth_type: Option<String>,
+    /// OAuth2 token endpoint URL for Client Credentials flow
+    #[serde(default)]
+    pub oauth2_token_url: Option<String>,
+    /// OAuth2 client ID for Client Credentials flow
+    #[serde(default)]
+    pub oauth2_client_id: Option<String>,
+    /// OAuth2 client secret for Client Credentials flow (will be encrypted)
+    #[serde(default)]
+    pub oauth2_client_secret: Option<String>,
+    /// OAuth2 scopes to request during Client Credentials flow
+    #[serde(default)]
+    pub oauth2_scopes: Option<Vec<String>>,
     /// Display name for the publisher resource (shown on website)
     #[serde(default)]
     pub resource_name: Option<String>,
@@ -1840,6 +1872,29 @@ fn normalize_token_exchange_mode(value: Option<String>) -> Result<Option<String>
         ));
     }
     Ok(Some(normalized))
+}
+
+fn normalize_auth_type(value: Option<String>) -> Result<Option<String>, McpError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return Err(McpError::invalid_params(
+            "auth_type must not be empty",
+            None,
+        ));
+    }
+    match normalized.as_str() {
+        "static" | "jwt" | "oauth2_cc" => Ok(Some(normalized)),
+        other => Err(McpError::invalid_params(
+            format!(
+                "Invalid auth_type '{}'. Expected one of: static, jwt, oauth2_cc",
+                other
+            ),
+            None,
+        )),
+    }
 }
 
 fn validate_token_cache_ttl_seconds(value: Option<i32>) -> Result<Option<i32>, McpError> {
@@ -4094,6 +4149,11 @@ impl SerenMcpServer {
             upstream_api_key,
             api_key_header,
             api_key_query_param,
+            auth_type,
+            oauth2_token_url,
+            oauth2_client_id,
+            oauth2_client_secret,
+            oauth2_scopes,
             resource_name,
             resource_description,
             oauth_provider_slug,
@@ -4227,6 +4287,62 @@ impl SerenMcpServer {
             ));
         }
 
+        let auth_type = normalize_auth_type(auth_type)?;
+        let oauth2_token_url =
+            normalize_nonempty_optional_string(oauth2_token_url, "oauth2_token_url")?;
+        if let Some(ref url) = oauth2_token_url
+            && !url.starts_with("https://")
+        {
+            return Err(McpError::invalid_params(
+                "oauth2_token_url must use HTTPS",
+                None,
+            ));
+        }
+        let oauth2_client_id =
+            normalize_nonempty_optional_string(oauth2_client_id, "oauth2_client_id")?;
+        let oauth2_client_secret =
+            normalize_nonempty_optional_string(oauth2_client_secret, "oauth2_client_secret")?;
+        let oauth2_scopes = match oauth2_scopes {
+            None => Vec::new(),
+            Some(scopes) => {
+                let mut out = Vec::with_capacity(scopes.len());
+                for (i, scope) in scopes.into_iter().enumerate() {
+                    let trimmed = scope.trim();
+                    if trimmed.is_empty() {
+                        return Err(McpError::invalid_params(
+                            format!("oauth2_scopes[{}] must not be empty", i),
+                            None,
+                        ));
+                    }
+                    out.push(trimmed.to_string());
+                }
+                out
+            }
+        };
+
+        if auth_type.as_deref() == Some("oauth2_cc")
+            && (oauth2_token_url.is_none()
+                || oauth2_client_id.is_none()
+                || oauth2_client_secret.is_none())
+        {
+            return Err(McpError::invalid_params(
+                "oauth2_token_url, oauth2_client_id, and oauth2_client_secret are required when auth_type is oauth2_cc",
+                None,
+            ));
+        }
+
+        if auth_type.as_deref() != Some("oauth2_cc")
+            && (oauth2_token_url.is_some()
+                || oauth2_client_id.is_some()
+                || oauth2_client_secret.is_some()
+                || !oauth2_scopes.is_empty())
+        {
+            return Err(McpError::invalid_params(
+                "oauth2_* fields require auth_type=oauth2_cc",
+                None,
+            ));
+        }
+
         let upstream_headers = match upstream_headers {
             None => None,
             Some(headers) => Some(
@@ -4263,7 +4379,11 @@ impl SerenMcpServer {
             api_headers: None,
             api_key_header,
             api_key_query_param,
-            auth_type: None,
+            auth_type,
+            oauth2_token_url,
+            oauth2_client_id,
+            oauth2_client_secret,
+            oauth2_scopes,
             database_config: connection_string
                 .map(|cs| serde_json::json!({ "connection_string": cs })),
             gateway_fee_percent: None,
@@ -4350,6 +4470,11 @@ impl SerenMcpServer {
             upstream_api_key,
             api_key_header,
             api_key_query_param,
+            auth_type,
+            oauth2_token_url,
+            oauth2_client_id,
+            oauth2_client_secret,
+            oauth2_scopes,
             resource_name,
             resource_description,
             oauth_provider_id,
@@ -4409,6 +4534,63 @@ impl SerenMcpServer {
         let token_response_field =
             normalize_nonempty_optional_string(token_response_field, "token_response_field")?;
 
+        let auth_type = normalize_auth_type(auth_type)?;
+        let oauth2_token_url =
+            normalize_nonempty_optional_string(oauth2_token_url, "oauth2_token_url")?;
+        if let Some(ref url) = oauth2_token_url
+            && !url.starts_with("https://")
+        {
+            return Err(McpError::invalid_params(
+                "oauth2_token_url must use HTTPS",
+                None,
+            ));
+        }
+        let oauth2_client_id =
+            normalize_nonempty_optional_string(oauth2_client_id, "oauth2_client_id")?;
+        let oauth2_client_secret =
+            normalize_nonempty_optional_string(oauth2_client_secret, "oauth2_client_secret")?;
+        let oauth2_scopes = match oauth2_scopes {
+            None => None,
+            Some(scopes) => {
+                let mut out = Vec::with_capacity(scopes.len());
+                for (i, scope) in scopes.into_iter().enumerate() {
+                    let trimmed = scope.trim();
+                    if trimmed.is_empty() {
+                        return Err(McpError::invalid_params(
+                            format!("oauth2_scopes[{}] must not be empty", i),
+                            None,
+                        ));
+                    }
+                    out.push(trimmed.to_string());
+                }
+                Some(out)
+            }
+        };
+
+        if auth_type.as_deref() == Some("oauth2_cc")
+            && (oauth2_token_url.is_none()
+                || oauth2_client_id.is_none()
+                || oauth2_client_secret.is_none())
+        {
+            return Err(McpError::invalid_params(
+                "oauth2_token_url, oauth2_client_id, and oauth2_client_secret are required when auth_type is oauth2_cc",
+                None,
+            ));
+        }
+
+        if let Some(ref at) = auth_type
+            && at != "oauth2_cc"
+            && (oauth2_token_url.is_some()
+                || oauth2_client_id.is_some()
+                || oauth2_client_secret.is_some()
+                || oauth2_scopes.is_some())
+        {
+            return Err(McpError::invalid_params(
+                "oauth2_* fields require auth_type=oauth2_cc",
+                None,
+            ));
+        }
+
         let body = seren::UpdatePublisherRequest {
             name,
             description,
@@ -4439,7 +4621,11 @@ impl SerenMcpServer {
             // Set defaults for fields not exposed in MCP params
             usage_examples: None,
             api_headers: None,
-            auth_type: None,
+            auth_type,
+            oauth2_token_url,
+            oauth2_client_id,
+            oauth2_client_secret,
+            oauth2_scopes,
             upstream_api_key,
             api_key_header,
             api_key_query_param,

@@ -315,6 +315,21 @@ enum AgentAction {
         /// Database connection string (e.g., "postgresql://user:pass@host/db") - for external databases
         #[arg(long)]
         connection_string: Option<String>,
+        /// Upstream auth mode: "static", "jwt", or "oauth2_cc" (default: static)
+        #[arg(long)]
+        auth_type: Option<String>,
+        /// OAuth2 token endpoint URL for Client Credentials flow (required when auth_type=oauth2_cc)
+        #[arg(long)]
+        oauth2_token_url: Option<String>,
+        /// OAuth2 client ID for Client Credentials flow (required when auth_type=oauth2_cc)
+        #[arg(long)]
+        oauth2_client_id: Option<String>,
+        /// OAuth2 client secret for Client Credentials flow (required when auth_type=oauth2_cc)
+        #[arg(long)]
+        oauth2_client_secret: Option<String>,
+        /// OAuth2 scopes for Client Credentials flow (comma-separated)
+        #[arg(long = "oauth2-scope", value_delimiter = ',')]
+        oauth2_scopes: Option<Vec<String>>,
     },
     /// Execute a paid database query using your SerenBucks balance
     ExecuteQuery {
@@ -2122,6 +2137,11 @@ async fn main() -> anyhow::Result<()> {
                 base_price_per_1000_rows,
                 billing_model,
                 connection_string,
+                auth_type,
+                oauth2_token_url,
+                oauth2_client_id,
+                oauth2_client_secret,
+                oauth2_scopes,
             } => {
                 commands::agent::create_publisher(
                     &name,
@@ -2141,6 +2161,11 @@ async fn main() -> anyhow::Result<()> {
                     base_price_per_1000_rows.as_deref(),
                     billing_model.as_deref(),
                     connection_string.as_deref(),
+                    auth_type.as_deref(),
+                    oauth2_token_url.as_deref(),
+                    oauth2_client_id.as_deref(),
+                    oauth2_client_secret.as_deref(),
+                    oauth2_scopes.unwrap_or_default(),
                     &ctx,
                 )
                 .await?

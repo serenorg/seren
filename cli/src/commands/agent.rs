@@ -253,6 +253,11 @@ pub async fn create_publisher(
     base_price_per_1000_rows: Option<&str>,
     billing_model: Option<&str>,
     connection_string: Option<&str>,
+    auth_type: Option<&str>,
+    oauth2_token_url: Option<&str>,
+    oauth2_client_id: Option<&str>,
+    oauth2_client_secret: Option<&str>,
+    oauth2_scopes: Vec<String>,
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
@@ -319,6 +324,72 @@ pub async fn create_publisher(
         })
     });
 
+    let auth_type = match auth_type {
+        None => None,
+        Some(raw) => {
+            let normalized = raw.trim().to_ascii_lowercase();
+            if normalized.is_empty() {
+                return Err(anyhow::anyhow!("auth_type must not be empty"));
+            }
+            match normalized.as_str() {
+                "static" | "jwt" | "oauth2_cc" => Some(normalized),
+                other => {
+                    return Err(anyhow::anyhow!(
+                        "Invalid auth_type '{}'. Expected one of: static, jwt, oauth2_cc",
+                        other
+                    ));
+                }
+            }
+        }
+    };
+
+    let oauth2_token_url = oauth2_token_url
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    if let Some(ref url) = oauth2_token_url
+        && !url.starts_with("https://")
+    {
+        return Err(anyhow::anyhow!("oauth2_token_url must use HTTPS"));
+    }
+
+    let oauth2_client_id = oauth2_client_id
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let oauth2_client_secret = oauth2_client_secret
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let mut normalized_scopes = Vec::with_capacity(oauth2_scopes.len());
+    for (i, scope) in oauth2_scopes.into_iter().enumerate() {
+        let trimmed = scope.trim();
+        if trimmed.is_empty() {
+            return Err(anyhow::anyhow!("oauth2_scopes[{}] must not be empty", i));
+        }
+        normalized_scopes.push(trimmed.to_string());
+    }
+
+    if auth_type.as_deref() == Some("oauth2_cc")
+        && (oauth2_token_url.is_none()
+            || oauth2_client_id.is_none()
+            || oauth2_client_secret.is_none())
+    {
+        return Err(anyhow::anyhow!(
+            "oauth2_token_url, oauth2_client_id, and oauth2_client_secret are required when auth_type is oauth2_cc"
+        ));
+    }
+
+    if auth_type.as_deref() != Some("oauth2_cc")
+        && (oauth2_token_url.is_some()
+            || oauth2_client_id.is_some()
+            || oauth2_client_secret.is_some()
+            || !normalized_scopes.is_empty())
+    {
+        return Err(anyhow::anyhow!(
+            "oauth2_* fields require auth_type=oauth2_cc"
+        ));
+    }
+
     let body = seren::CreatePublisherRequest {
         name: name.to_string(),
         slug: slug.to_string(),
@@ -346,7 +417,11 @@ pub async fn create_publisher(
         api_headers: None,
         api_key_header: None,
         api_key_query_param: None,
-        auth_type: None,
+        auth_type,
+        oauth2_token_url,
+        oauth2_client_id,
+        oauth2_client_secret,
+        oauth2_scopes: normalized_scopes,
         database_config,
         gateway_fee_percent: None,
         grace_period_minutes: None,

@@ -12197,7 +12197,7 @@
           },
           "auth_type": {
             "type": "string",
-            "description": "Upstream auth mode (\"static\" or \"jwt\") (default: static)",
+            "description": "Upstream auth mode (\"static\", \"jwt\", or \"oauth2_cc\") (default: static)",
             "nullable": true
           },
           "base_price_per_1000_rows": {
@@ -12337,6 +12337,28 @@
           },
           "name": {
             "type": "string"
+          },
+          "oauth2_client_id": {
+            "type": "string",
+            "description": "OAuth2 client ID for Client Credentials flow",
+            "nullable": true
+          },
+          "oauth2_client_secret": {
+            "type": "string",
+            "description": "OAuth2 client secret for Client Credentials flow (will be encrypted)",
+            "nullable": true
+          },
+          "oauth2_scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "OAuth2 scopes to request during Client Credentials flow"
+          },
+          "oauth2_token_url": {
+            "type": "string",
+            "description": "OAuth2 token endpoint URL for Client Credentials flow",
+            "nullable": true
           },
           "oauth_provider_slug": {
             "type": "string",
@@ -21914,6 +21936,29 @@
           },
           "name": {
             "type": "string",
+            "nullable": true
+          },
+          "oauth2_client_id": {
+            "type": "string",
+            "description": "OAuth2 client ID for Client Credentials flow",
+            "nullable": true
+          },
+          "oauth2_client_secret": {
+            "type": "string",
+            "description": "OAuth2 client secret for Client Credentials flow (will be encrypted)",
+            "nullable": true
+          },
+          "oauth2_scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "OAuth2 scopes to request during Client Credentials flow",
+            "nullable": true
+          },
+          "oauth2_token_url": {
+            "type": "string",
+            "description": "OAuth2 token endpoint URL for Client Credentials flow",
             "nullable": true
           },
           "oauth_provider_id": {
