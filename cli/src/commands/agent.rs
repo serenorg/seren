@@ -253,6 +253,7 @@ pub async fn create_publisher(
     base_price_per_1000_rows: Option<&str>,
     billing_model: Option<&str>,
     connection_string: Option<&str>,
+    upstream_api_key: Option<&str>,
     auth_type: Option<&str>,
     oauth2_token_url: Option<&str>,
     oauth2_client_id: Option<&str>,
@@ -325,6 +326,10 @@ pub async fn create_publisher(
         })
     });
 
+    let upstream_api_key = upstream_api_key
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
     let auth_type = match auth_type {
         None => None,
         Some(raw) => {
@@ -343,6 +348,22 @@ pub async fn create_publisher(
             }
         }
     };
+
+    // MongoDB Atlas Data API publishers require api_url + upstream_api_key.
+    if publisher_category_enum == seren::PublisherCategory::Database
+        && matches!(database_type_enum, Some(seren::DatabaseType::Mongodb))
+    {
+        if api_url.is_none() {
+            return Err(anyhow::anyhow!(
+                "api_url is required for database_type=mongodb (Atlas Data API base URL)"
+            ));
+        }
+        if upstream_api_key.is_none() {
+            return Err(anyhow::anyhow!(
+                "upstream_api_key is required for database_type=mongodb (Atlas Data API key)"
+            ));
+        }
+    }
 
     let oauth2_token_url = oauth2_token_url
         .map(|s| s.trim().to_string())
@@ -450,7 +471,7 @@ pub async fn create_publisher(
         resource_id_response_path: None,
         resource_id_url_pattern: None,
         resource_name: None,
-        upstream_api_key: None,
+        upstream_api_key,
         usage_examples: None,
         request_content_type: None,
         upstream_headers: None,

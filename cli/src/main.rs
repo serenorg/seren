@@ -282,7 +282,7 @@ enum AgentAction {
         /// Publisher category: "database", "integration", or "compute"
         #[arg(long)]
         publisher_category: String,
-        /// Database type: "serendb", "neon", or "supabase" (for database category)
+        /// Database type: "serendb", "neon", "supabase", or "mongodb" (for database category)
         #[arg(long)]
         database_type: Option<String>,
         /// Integration type: "api" or "mcp" (for integration category)
@@ -291,7 +291,7 @@ enum AgentAction {
         /// Publisher description
         #[arg(long)]
         description: Option<String>,
-        /// API URL for API-type publishers
+        /// API URL for API-type publishers (also used for MongoDB Atlas Data API publishers)
         #[arg(long)]
         api_url: Option<String>,
         /// MCP server endpoint URL for MCP-type publishers
@@ -312,9 +312,12 @@ enum AgentAction {
         /// Billing model (e.g., "per_row", "per_call", "hourly")
         #[arg(long)]
         billing_model: Option<String>,
-        /// Database connection string (e.g., "postgresql://user:pass@host/db") - for external databases
+        /// Database connection string (e.g., "postgresql://user:pass@host/db") - for external SQL databases (Neon/Supabase)
         #[arg(long)]
         connection_string: Option<String>,
+        /// Upstream API key (encrypted). Required for MongoDB Atlas Data API publishers.
+        #[arg(long)]
+        upstream_api_key: Option<String>,
         /// Upstream auth mode: "static", "jwt", or "oauth2_cc" (default: static)
         #[arg(long)]
         auth_type: Option<String>,
@@ -2137,6 +2140,7 @@ async fn main() -> anyhow::Result<()> {
                 base_price_per_1000_rows,
                 billing_model,
                 connection_string,
+                upstream_api_key,
                 auth_type,
                 oauth2_token_url,
                 oauth2_client_id,
@@ -2161,6 +2165,7 @@ async fn main() -> anyhow::Result<()> {
                     base_price_per_1000_rows.as_deref(),
                     billing_model.as_deref(),
                     connection_string.as_deref(),
+                    upstream_api_key.as_deref(),
                     auth_type.as_deref(),
                     oauth2_token_url.as_deref(),
                     oauth2_client_id.as_deref(),
