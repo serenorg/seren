@@ -13279,7 +13279,8 @@
           "neon",
           "supabase",
           "planetscale",
-          "turso"
+          "turso",
+          "mongodb"
         ]
       },
       "DatabaseResponse": {
@@ -13308,7 +13309,8 @@
         "enum": [
           "serendb",
           "neon",
-          "supabase"
+          "supabase",
+          "mongodb"
         ]
       },
       "DatabaseWithContext": {

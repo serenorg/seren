@@ -287,9 +287,10 @@ pub async fn create_publisher(
                 "serendb" => seren::DatabaseType::Serendb,
                 "neon" => seren::DatabaseType::Neon,
                 "supabase" => seren::DatabaseType::Supabase,
+                "mongodb" => seren::DatabaseType::Mongodb,
                 other => {
                     return Err(anyhow::anyhow!(
-                        "Invalid database_type '{}'. Expected one of: serendb, neon, supabase",
+                        "Invalid database_type '{}'. Expected one of: serendb, neon, supabase, mongodb",
                         other
                     ));
                 }

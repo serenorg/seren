@@ -631,7 +631,7 @@ pub struct CreatePublisherParams {
     pub wallet_network_id: String,
     /// Publisher category: database, integration, or compute
     pub publisher_category: String,
-    /// Database type: serendb, neon, or supabase (for database category)
+    /// Database type: serendb, neon, supabase, or mongodb (for database category)
     #[serde(default)]
     pub database_type: Option<String>,
     /// Integration type: api or mcp (for integration category)
@@ -4210,10 +4210,11 @@ impl SerenMcpServer {
                     "serendb" => seren::DatabaseType::Serendb,
                     "neon" => seren::DatabaseType::Neon,
                     "supabase" => seren::DatabaseType::Supabase,
+                    "mongodb" => seren::DatabaseType::Mongodb,
                     other => {
                         return Err(McpError::invalid_request(
                             format!(
-                                "Invalid database_type '{}'. Expected one of: serendb, neon, supabase",
+                                "Invalid database_type '{}'. Expected one of: serendb, neon, supabase, mongodb",
                                 other
                             ),
                             None,
