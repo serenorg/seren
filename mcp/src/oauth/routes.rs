@@ -729,7 +729,12 @@ async fn token(
                 return Err(OAuthError::InvalidGrant("PKCE verification failed".into()));
             }
 
+            // Generate MCP refresh token hash first (needed for JWT claim)
+            let mcp_refresh_token = TokenStore::generate_token();
+            let refresh_token_hash = TokenStore::hash_refresh_token(&mcp_refresh_token);
+
             // Mint MCP access token (JWT signed by this server)
+            // Include refresh_token_hash to link this JWT to its specific upstream token vault
             let (mcp_access_token, mcp_expires_in) = state
                 .jwt_signer
                 .sign_access_token(
@@ -738,13 +743,13 @@ async fn token(
                     &auth_code.scope,
                     None, // email not available here
                     None, // name not available here
+                    Some(&refresh_token_hash),
                 )
                 .map_err(|e| OAuthError::ServerError(format!("Failed to sign token: {}", e)))?;
 
-            // Generate MCP refresh token and store upstream tokens server-side
-            let mcp_refresh_token = TokenStore::generate_token();
+            // Store upstream tokens server-side with the pre-computed hash
             let refresh_token = RefreshToken {
-                token_hash: TokenStore::hash_refresh_token(&mcp_refresh_token),
+                token_hash: refresh_token_hash,
                 client_id: auth_code.client_id.clone(),
                 user_id: auth_code.user_id,
                 scope: auth_code.scope.clone(),
@@ -848,7 +853,11 @@ async fn token(
             let new_upstream_expires_at =
                 OffsetDateTime::now_utc() + Duration::seconds(token_body.expires_in.max(0));
 
-            // Mint new MCP access token
+            // Generate new MCP refresh token hash first (needed for JWT claim)
+            let new_mcp_refresh_token = TokenStore::generate_token();
+            let new_refresh_token_hash = TokenStore::hash_refresh_token(&new_mcp_refresh_token);
+
+            // Mint new MCP access token with the new refresh_token_hash
             let (new_mcp_access_token, mcp_expires_in) = state
                 .jwt_signer
                 .sign_access_token(
@@ -857,11 +866,9 @@ async fn token(
                     &refresh_token.scope,
                     None,
                     None,
+                    Some(&new_refresh_token_hash),
                 )
                 .map_err(|e| OAuthError::ServerError(format!("Failed to sign token: {}", e)))?;
-
-            // Generate new MCP refresh token (rotation)
-            let new_mcp_refresh_token = TokenStore::generate_token();
 
             // Update stored upstream tokens and rotate MCP refresh token
             let updated = state

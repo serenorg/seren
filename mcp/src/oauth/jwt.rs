@@ -27,7 +27,7 @@ pub struct McpClaims {
     pub exp: i64,
     /// Issued at (Unix timestamp)
     pub iat: i64,
-    /// JWT ID (unique token identifier, links to refresh token)
+    /// JWT ID (unique token identifier)
     pub jti: String,
     /// OAuth client ID
     pub client_id: String,
@@ -39,6 +39,10 @@ pub struct McpClaims {
     /// User name (for convenience)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Refresh token hash - links this JWT to its specific upstream token vault.
+    /// Enables multiple concurrent sessions per user without token conflicts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rth: Option<String>,
 }
 
 impl McpClaims {
@@ -119,6 +123,9 @@ impl McpJwtSigner {
     }
 
     /// Sign a new MCP access token
+    ///
+    /// The `refresh_token_hash` parameter links this JWT to its specific upstream token vault,
+    /// enabling multiple concurrent sessions per user without token conflicts.
     pub fn sign_access_token(
         &self,
         user_id: Uuid,
@@ -126,6 +133,7 @@ impl McpJwtSigner {
         scope: &str,
         email: Option<&str>,
         name: Option<&str>,
+        refresh_token_hash: Option<&str>,
     ) -> Result<(String, i64), JwtError> {
         let now = OffsetDateTime::now_utc();
         let exp = now.unix_timestamp() + MCP_ACCESS_TOKEN_TTL_SECS;
@@ -141,6 +149,7 @@ impl McpJwtSigner {
             scope: scope.to_string(),
             email: email.map(String::from),
             name: name.map(String::from),
+            rth: refresh_token_hash.map(String::from),
         };
 
         let header = Header::new(Algorithm::HS256);
@@ -200,6 +209,7 @@ mod tests {
                 "api",
                 Some("test@example.com"),
                 Some("Test User"),
+                Some("test-refresh-token-hash"),
             )
             .unwrap();
 
@@ -210,6 +220,7 @@ mod tests {
         assert_eq!(claims.client_id, "client-456");
         assert_eq!(claims.scope, "api");
         assert_eq!(claims.email, Some("test@example.com".to_string()));
+        assert_eq!(claims.rth, Some("test-refresh-token-hash".to_string()));
         assert_eq!(claims.iss, "https://mcp.example.com");
         assert_eq!(claims.aud, "https://mcp.example.com/mcp");
     }
@@ -233,7 +244,7 @@ mod tests {
         let user_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
 
         let (token, _) = signer1
-            .sign_access_token(user_id, "client-456", "api", None, None)
+            .sign_access_token(user_id, "client-456", "api", None, None, None)
             .unwrap();
 
         let result = signer2.validate_access_token(&token);
@@ -253,7 +264,7 @@ mod tests {
 
         let user_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let (token, _) = signer_old
-            .sign_access_token(user_id, "client-456", "api", None, None)
+            .sign_access_token(user_id, "client-456", "api", None, None, None)
             .unwrap();
 
         let claims = signer_rotated.validate_access_token(&token).unwrap();

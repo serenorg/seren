@@ -313,35 +313,78 @@ async fn require_oauth_auth(
                     );
                 };
 
-                let refresh_token = match state
-                    .store
-                    .get_refresh_token_by_user_client(session_user_id, &session_client_id)
-                    .await
-                {
-                    Ok(Some(refresh_token)) => refresh_token,
-                    Ok(None) => {
-                        return state.unauthorized_response(
-                            "invalid_token",
-                            "No active session found for this user/client (re-authentication required)",
-                        );
+                // Look up upstream tokens using the session's linked refresh_token_hash.
+                // This ensures each session maintains its own independent upstream token lifecycle,
+                // supporting multiple concurrent sessions (e.g., Claude Code + Cursor) without conflicts.
+                let refresh_token = match &session.refresh_token_hash {
+                    Some(token_hash) => {
+                        match state.store.get_refresh_token_by_hash(token_hash).await {
+                            Ok(Some(refresh_token)) => refresh_token,
+                            Ok(None) => {
+                                tracing::warn!(
+                                    event = "oauth_auth_refresh_token_hash_not_found",
+                                    session_id = %sid,
+                                    token_hash = %token_hash,
+                                    "Linked refresh token not found or expired"
+                                );
+                                return state.unauthorized_response(
+                                    "invalid_token",
+                                    "Session's linked token expired (re-authentication required)",
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    event = "oauth_auth_refresh_token_db_error",
+                                    session_id = %sid,
+                                    token_hash = %token_hash,
+                                    error = %e,
+                                    "Failed to lookup refresh token by hash"
+                                );
+                                return (
+                                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                                    axum::Json(serde_json::json!({
+                                        "error": "server_error",
+                                        "error_description": "Token lookup failed",
+                                    })),
+                                )
+                                    .into_response();
+                            }
+                        }
                     }
-                    Err(e) => {
-                        tracing::warn!(
-                            event = "oauth_auth_refresh_token_db_error",
-                            session_id = %sid,
-                            user_id = %session_user_id,
-                            client_id = %session_client_id,
-                            error = %e,
-                            "Failed to lookup refresh token for session re-issue"
-                        );
-                        return (
-                            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                            axum::Json(serde_json::json!({
-                                "error": "server_error",
-                                "error_description": "Token lookup failed",
-                            })),
-                        )
-                            .into_response();
+                    None => {
+                        // Legacy session without refresh_token_hash link - fall back to user/client lookup.
+                        // This maintains backward compatibility during migration.
+                        match state
+                            .store
+                            .get_refresh_token_by_user_client(session_user_id, &session_client_id)
+                            .await
+                        {
+                            Ok(Some(refresh_token)) => refresh_token,
+                            Ok(None) => {
+                                return state.unauthorized_response(
+                                    "invalid_token",
+                                    "No active session found for this user/client (re-authentication required)",
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    event = "oauth_auth_refresh_token_db_error",
+                                    session_id = %sid,
+                                    user_id = %session_user_id,
+                                    client_id = %session_client_id,
+                                    error = %e,
+                                    "Failed to lookup refresh token for session re-issue"
+                                );
+                                return (
+                                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                                    axum::Json(serde_json::json!({
+                                        "error": "server_error",
+                                        "error_description": "Token lookup failed",
+                                    })),
+                                )
+                                    .into_response();
+                            }
+                        }
                     }
                 };
 
@@ -351,6 +394,7 @@ async fn require_oauth_auth(
                     &refresh_token.scope,
                     None,
                     None,
+                    Some(&refresh_token.token_hash),
                 ) {
                     Ok(v) => v,
                     Err(e) => {
@@ -416,48 +460,109 @@ async fn require_oauth_auth(
     };
 
     // Look up upstream token for API calls (server-side only, never exposed to client).
-    let mut refresh_token = match state
-        .store
-        .get_refresh_token_by_user_client(user_id, &claims.client_id)
-        .await
-    {
-        Ok(Some(refresh_token)) => {
+    // New tokens include an `rth` (refresh_token_hash) claim that links directly to
+    // their upstream token vault. Legacy tokens without `rth` fall back to user/client lookup.
+    let mut refresh_token = match &claims.rth {
+        Some(token_hash) => {
+            // New path: lookup by the JWT's embedded refresh_token_hash
+            match state.store.get_refresh_token_by_hash(token_hash).await {
+                Ok(Some(refresh_token)) => {
+                    tracing::debug!(
+                        event = "oauth_auth_upstream_token_found_by_hash",
+                        user_id = %user_id,
+                        client_id = %claims.client_id,
+                        token_hash = %token_hash,
+                        "Found upstream token via JWT rth claim"
+                    );
+                    refresh_token
+                }
+                Ok(None) => {
+                    tracing::warn!(
+                        event = "oauth_auth_no_upstream_token_for_hash",
+                        user_id = %user_id,
+                        client_id = %claims.client_id,
+                        token_hash = %token_hash,
+                        "No upstream token found for JWT rth claim - session may have been revoked"
+                    );
+                    return state.unauthorized_response(
+                        "invalid_token",
+                        "Session has been revoked or expired (re-authentication required)",
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        event = "oauth_auth_upstream_token_hash_error",
+                        user_id = %user_id,
+                        client_id = %claims.client_id,
+                        token_hash = %token_hash,
+                        error = %e,
+                        "Failed to look up upstream token by hash"
+                    );
+                    return (
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                        axum::Json(serde_json::json!({
+                            "error": "server_error",
+                            "error_description": "Token lookup failed",
+                        })),
+                    )
+                        .into_response();
+                }
+            }
+        }
+        None => {
+            // Legacy fallback: tokens without rth claim use user/client lookup
+            // This returns the most recent token, which may not be this session's token
+            // if the user has multiple concurrent sessions.
             tracing::debug!(
-                event = "oauth_auth_upstream_token_found",
+                event = "oauth_auth_legacy_token_lookup",
                 user_id = %user_id,
                 client_id = %claims.client_id,
-                "Found upstream token for API calls"
+                "JWT missing rth claim, using legacy user/client lookup"
             );
-            refresh_token
-        }
-        Ok(None) => {
-            tracing::warn!(
-                event = "oauth_auth_no_upstream_token",
-                user_id = %user_id,
-                client_id = %claims.client_id,
-                "No upstream token found - user may need to re-authenticate"
-            );
-            return state.unauthorized_response(
-                "invalid_token",
-                "No active session found for this token (re-authentication required)",
-            );
-        }
-        Err(e) => {
-            tracing::error!(
-                event = "oauth_auth_upstream_token_error",
-                user_id = %user_id,
-                client_id = %claims.client_id,
-                error = %e,
-                "Failed to look up upstream token"
-            );
-            return (
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                axum::Json(serde_json::json!({
-                    "error": "server_error",
-                    "error_description": "Token lookup failed",
-                })),
-            )
-                .into_response();
+            match state
+                .store
+                .get_refresh_token_by_user_client(user_id, &claims.client_id)
+                .await
+            {
+                Ok(Some(refresh_token)) => {
+                    tracing::debug!(
+                        event = "oauth_auth_upstream_token_found",
+                        user_id = %user_id,
+                        client_id = %claims.client_id,
+                        "Found upstream token for API calls (legacy path)"
+                    );
+                    refresh_token
+                }
+                Ok(None) => {
+                    tracing::warn!(
+                        event = "oauth_auth_no_upstream_token",
+                        user_id = %user_id,
+                        client_id = %claims.client_id,
+                        "No upstream token found - user may need to re-authenticate"
+                    );
+                    return state.unauthorized_response(
+                        "invalid_token",
+                        "No active session found for this token (re-authentication required)",
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        event = "oauth_auth_upstream_token_error",
+                        user_id = %user_id,
+                        client_id = %claims.client_id,
+                        error = %e,
+                        "Failed to look up upstream token"
+                    );
+                    return (
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                        axum::Json(serde_json::json!({
+                            "error": "server_error",
+                            "error_description": "Token lookup failed",
+                        })),
+                    )
+                        .into_response();
+                }
+            }
         }
     };
 
@@ -892,6 +997,7 @@ async fn require_oauth_auth(
         // restarts significantly more reliable.
         //
         // Use refresh token TTL for session expiry to allow session persistence.
+        // Link to the specific refresh_token_hash to support multiple concurrent sessions.
         let session_expires_at = time::OffsetDateTime::now_utc()
             + time::Duration::hours(oauth::store::REFRESH_TOKEN_TTL_HOURS);
         if let Err(e) = state
@@ -902,6 +1008,7 @@ async fn require_oauth_auth(
                 client_id.as_deref(),
                 user_id,
                 session_expires_at,
+                Some(&refresh_token.token_hash),
             )
             .await
         {
@@ -915,7 +1022,8 @@ async fn require_oauth_auth(
             tracing::debug!(
                 event = "session_token_persisted",
                 session_id = %sid,
-                "New session token persisted to database"
+                refresh_token_hash = %refresh_token.token_hash,
+                "New session token persisted to database with refresh token link"
             );
         }
     }

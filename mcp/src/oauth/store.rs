@@ -178,6 +178,10 @@ pub struct McpSession {
     pub client_id: Option<String>,
     pub user_id: Option<Uuid>,
     pub expires_at: Option<OffsetDateTime>,
+    /// Links this session to its specific refresh token and upstream token vault.
+    /// Each session maintains independent upstream tokens to support multiple concurrent
+    /// sessions per user (e.g., Claude Code + Cursor) without token conflicts.
+    pub refresh_token_hash: Option<String>,
     // Protocol state for restoration
     pub initialize_request: Option<serde_json::Value>,
     pub initialize_response: Option<serde_json::Value>,
@@ -505,6 +509,42 @@ impl TokenStore {
             .execute(&self.pool)
             .await;
         }
+
+        if let Some(ref mut refresh_token) = refresh_token {
+            refresh_token.upstream_access_token =
+                self.decrypt_upstream_token(&refresh_token.upstream_access_token)?;
+            refresh_token.upstream_refresh_token =
+                match refresh_token.upstream_refresh_token.as_deref() {
+                    Some(token) => Some(self.decrypt_upstream_token(token)?),
+                    None => None,
+                };
+        }
+
+        Ok(refresh_token)
+    }
+
+    /// Get a refresh token by its hash (for session-linked lookups).
+    ///
+    /// Unlike `get_refresh_token` which takes a plaintext token and hashes it,
+    /// this function takes a pre-computed hash directly. Used when looking up
+    /// upstream tokens via the session's `refresh_token_hash` link.
+    pub async fn get_refresh_token_by_hash(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<RefreshToken>> {
+        let mut refresh_token = sqlx::query_as::<_, RefreshToken>(
+            r#"
+            SELECT token_hash, client_id, user_id, scope, expires_at, created_at,
+                upstream_access_token, upstream_refresh_token, upstream_expires_at
+            FROM mcp_oauth.refresh_tokens
+            WHERE token_hash = $1
+            AND (expires_at IS NULL OR expires_at > NOW())
+            "#,
+        )
+        .bind(token_hash)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
 
         if let Some(ref mut refresh_token) = refresh_token {
             refresh_token.upstream_access_token =
@@ -947,6 +987,9 @@ impl TokenStore {
 
     /// Save auth binding (access token) for an MCP session.
     /// Called after OAuth completes to bind the token to the session.
+    ///
+    /// The `refresh_token_hash` links this session to its specific upstream token vault,
+    /// enabling multiple concurrent sessions per user without token conflicts.
     pub async fn save_session_token(
         &self,
         session_id: &str,
@@ -954,17 +997,20 @@ impl TokenStore {
         client_id: Option<&str>,
         user_id: Uuid,
         expires_at: OffsetDateTime,
+        refresh_token_hash: Option<&str>,
     ) -> Result<()> {
         sqlx::query(
             r#"
             INSERT INTO mcp_oauth.mcp_sessions
-                (session_id, access_token, client_id, user_id, expires_at, created_at, updated_at, last_activity)
-            VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
+                (session_id, access_token, client_id, user_id, expires_at, refresh_token_hash,
+                created_at, updated_at, last_activity)
+            VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW(), NOW())
             ON CONFLICT (session_id) DO UPDATE SET
                 access_token = EXCLUDED.access_token,
                 client_id = COALESCE(EXCLUDED.client_id, mcp_oauth.mcp_sessions.client_id),
                 user_id = EXCLUDED.user_id,
                 expires_at = EXCLUDED.expires_at,
+                refresh_token_hash = COALESCE(EXCLUDED.refresh_token_hash, mcp_oauth.mcp_sessions.refresh_token_hash),
                 updated_at = NOW(),
                 last_activity = NOW()
             "#,
@@ -974,6 +1020,7 @@ impl TokenStore {
         .bind(client_id)
         .bind(user_id)
         .bind(expires_at)
+        .bind(refresh_token_hash)
         .execute(&self.pool)
         .await
         .map_err(McpError::Database)?;
@@ -1019,7 +1066,7 @@ impl TokenStore {
         let session = sqlx::query_as::<_, McpSession>(
             r#"
             SELECT session_id, access_token, client_id, user_id, expires_at,
-                initialize_request, initialize_response, protocol_version,
+                refresh_token_hash, initialize_request, initialize_response, protocol_version,
                 created_at, updated_at, last_activity
             FROM mcp_oauth.mcp_sessions
             WHERE session_id = $1
@@ -1039,7 +1086,7 @@ impl TokenStore {
         let session = sqlx::query_as::<_, McpSession>(
             r#"
             SELECT session_id, access_token, client_id, user_id, expires_at,
-                initialize_request, initialize_response, protocol_version,
+                refresh_token_hash, initialize_request, initialize_response, protocol_version,
                 created_at, updated_at, last_activity
             FROM mcp_oauth.mcp_sessions
             WHERE session_id = $1
@@ -1061,7 +1108,7 @@ impl TokenStore {
         let session = sqlx::query_as::<_, McpSession>(
             r#"
             SELECT session_id, access_token, client_id, user_id, expires_at,
-                initialize_request, initialize_response, protocol_version,
+                refresh_token_hash, initialize_request, initialize_response, protocol_version,
                 created_at, updated_at, last_activity
             FROM mcp_oauth.mcp_sessions
             WHERE session_id = $1 AND initialize_request IS NOT NULL
