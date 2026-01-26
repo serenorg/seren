@@ -264,8 +264,9 @@ async fn require_oauth_auth(
             );
 
             // Streamable HTTP clients may omit Authorization after the initial request.
-            // If we have a session id, re-issue a fresh MCP access token server-side and continue.
-            if let Some(ref sid) = session_id {
+            // If the token came from the session cache, re-issue a fresh MCP access token
+            // server-side and continue.
+            if token_from_session_cache && let Some(ref sid) = session_id {
                 tracing::debug!(
                     event = "oauth_auth_jwt_invalid_attempt_session_reissue",
                     session_id = %sid,
@@ -416,6 +417,38 @@ async fn require_oauth_auth(
                 };
 
                 token = new_token;
+
+                // Update the session cache with the new token so subsequent requests don't need
+                // to re-issue on every call once the cached token expires.
+                state
+                    .session_tokens
+                    .lock()
+                    .await
+                    .put(sid.clone(), token.clone());
+
+                // Best-effort: persist the re-issued session token so restarts don't regress
+                // to an expired cached token.
+                let session_expires_at = time::OffsetDateTime::now_utc()
+                    + time::Duration::hours(oauth::store::REFRESH_TOKEN_TTL_HOURS);
+                if let Err(e) = state
+                    .store
+                    .save_session_token(
+                        sid,
+                        &token,
+                        Some(session_client_id.as_str()),
+                        session_user_id,
+                        session_expires_at,
+                        Some(refresh_token.token_hash.as_str()),
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        event = "session_token_persist_error",
+                        session_id = %sid,
+                        error = %e,
+                        "Failed to persist re-issued session token to database"
+                    );
+                }
 
                 tracing::info!(
                     event = "oauth_session_token_reissued",
@@ -570,13 +603,14 @@ async fn require_oauth_auth(
     let refresh_window = time::Duration::seconds(60);
 
     if refresh_token.upstream_expires_at <= time::OffsetDateTime::now_utc() + refresh_window {
-        // Refresh can race across concurrent requests; serialize per (user_id, client_id)
-        // to avoid refresh token rotation conflicts.
+        let refresh_token_hash = refresh_token.token_hash.clone();
+
+        // Refresh can race across concurrent requests; serialize per refresh_token_hash
+        // so concurrent sessions for the same (user_id, client_id) don't trample each other.
         let lock_key: i64 = {
             use sha2::{Digest, Sha256};
             let mut h = Sha256::new();
-            h.update(user_id.as_bytes());
-            h.update(claims.client_id.as_bytes());
+            h.update(refresh_token_hash.as_bytes());
             let digest = h.finalize();
             i64::from_le_bytes(digest[..8].try_into().expect("sha256 is 32 bytes"))
         };
@@ -629,7 +663,7 @@ async fn require_oauth_auth(
         // Re-fetch the latest token under the lock (another request may have refreshed it).
         match state
             .store
-            .get_refresh_token_by_user_client(user_id, &claims.client_id)
+            .get_refresh_token_by_hash(&refresh_token_hash)
             .await
         {
             Ok(Some(latest)) => refresh_token = latest,

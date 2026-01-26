@@ -2322,6 +2322,7 @@ impl SerenMcpServer {
         Ok(result)
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[instrument(skip(self, connection_string, queries), fields(query_count = queries.len()))]
     async fn execute_sql_transaction(
         &self,
@@ -2890,7 +2891,7 @@ impl SerenMcpServer {
         // Use custom timeout if provided, otherwise default to QUERY_TIMEOUT (120s)
         let timeout = params
             .timeout_ms
-            .map(|ms| std::time::Duration::from_millis(ms))
+            .map(std::time::Duration::from_millis)
             .unwrap_or(QUERY_TIMEOUT);
 
         let result = self
@@ -2956,7 +2957,7 @@ impl SerenMcpServer {
         // Use custom timeout if provided, otherwise default to QUERY_TIMEOUT (120s)
         let timeout = params
             .timeout_ms
-            .map(|ms| std::time::Duration::from_millis(ms))
+            .map(std::time::Duration::from_millis)
             .unwrap_or(QUERY_TIMEOUT);
 
         let result = self

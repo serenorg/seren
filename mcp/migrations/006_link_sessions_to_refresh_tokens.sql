@@ -13,7 +13,12 @@
 -- upstream token lifecycle.
 -- Add refresh_token_hash column to link sessions to their specific tokens
 ALTER TABLE mcp_oauth.mcp_sessions
-    ADD COLUMN refresh_token_hash text REFERENCES mcp_oauth.refresh_tokens (token_hash) ON DELETE SET NULL;
+    ADD COLUMN refresh_token_hash text;
+
+-- Add foreign key constraint with ON UPDATE CASCADE so session links remain valid
+-- when MCP refresh tokens are rotated (token_hash updated in-place).
+ALTER TABLE mcp_oauth.mcp_sessions
+    ADD CONSTRAINT fk_mcp_sessions_refresh_token_hash FOREIGN KEY (refresh_token_hash) REFERENCES mcp_oauth.refresh_tokens (token_hash) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- Index for efficient lookups
 CREATE INDEX idx_mcp_sessions_refresh_token ON mcp_oauth.mcp_sessions (refresh_token_hash)
