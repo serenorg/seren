@@ -12391,6 +12391,68 @@
           }
         }
       },
+      "CreateOAuthProviderRequest": {
+        "type": "object",
+        "description": "Request to create/update an OAuth provider (admin only)",
+        "required": [
+          "slug",
+          "name",
+          "authorization_url",
+          "token_url",
+          "client_id",
+          "client_secret",
+          "scopes"
+        ],
+        "properties": {
+          "authorization_url": {
+            "type": "string"
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "client_secret": {
+            "type": "string",
+            "description": "Client secret (will be encrypted)"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "logo_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "pkce_required": {
+            "type": "boolean"
+          },
+          "revocation_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "slug": {
+            "type": "string"
+          },
+          "token_endpoint_auth_method": {
+            "type": "string"
+          },
+          "token_url": {
+            "type": "string"
+          },
+          "userinfo_url": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "CreateOrganizationInviteRequest": {
         "type": "object",
         "description": "Request body for creating an organization invite.",
@@ -22057,6 +22119,76 @@
         "properties": {
           "enabled": {
             "type": "boolean"
+          }
+        }
+      },
+      "UpdateOAuthProviderRequest": {
+        "type": "object",
+        "description": "Request to update an OAuth provider (admin only).\n\nFields use `Option<Option<T>>` where `null` explicitly clears the value.",
+        "properties": {
+          "authorization_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "client_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "client_secret": {
+            "type": "string",
+            "description": "Optional new client secret (will be re-encrypted). If omitted, keep existing.",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "description": "If omitted, leave unchanged. If null, clear.",
+            "nullable": true
+          },
+          "is_active": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "logo_url": {
+            "type": "string",
+            "description": "If omitted, leave unchanged. If null, clear.",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "pkce_required": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "revocation_url": {
+            "type": "string",
+            "description": "If omitted, leave unchanged. If null, clear.",
+            "nullable": true
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "slug": {
+            "type": "string",
+            "nullable": true
+          },
+          "token_endpoint_auth_method": {
+            "type": "string",
+            "nullable": true
+          },
+          "token_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "userinfo_url": {
+            "type": "string",
+            "description": "If omitted, leave unchanged. If null, clear.",
+            "nullable": true
           }
         }
       },
