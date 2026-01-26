@@ -1430,6 +1430,47 @@
         ]
       }
     },
+    "/api/oauth/connections/providers/{provider_id}": {
+      "delete": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "Revoke an OAuth connection by provider ID (supports org-scoped providers)",
+        "operationId": "revoke_connection_by_id",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "description": "OAuth provider UUID to disconnect",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Connection revoked successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Connection not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/oauth/connections/{provider}": {
       "delete": {
         "tags": [
@@ -1496,6 +1537,100 @@
             "bearer_auth": []
           }
         ]
+      }
+    },
+    "/api/oauth/providers/{provider_id}/authorize": {
+      "get": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "Initiate OAuth authorization flow by provider ID (supports org-scoped providers)",
+        "operationId": "initiate_oauth_by_id",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "description": "OAuth provider UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "redirect_uri",
+            "in": "query",
+            "description": "Where to redirect after OAuth completes",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to OAuth provider"
+          },
+          "404": {
+            "description": "Provider not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/oauth/providers/{provider_id}/callback": {
+      "get": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "Handle OAuth callback by provider ID (supports org-scoped providers)",
+        "operationId": "oauth_callback_by_id",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "description": "OAuth provider UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "description": "Authorization code from provider",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "State parameter for CSRF verification",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to frontend with success/error"
+          },
+          "400": {
+            "description": "Invalid callback parameters"
+          },
+          "404": {
+            "description": "Provider not found"
+          }
+        }
       }
     },
     "/api/oauth/{provider}/authorize": {
@@ -2979,6 +3114,304 @@
           },
           "404": {
             "description": "Member or role not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/oauth/providers": {
+      "get": {
+        "tags": [
+          "oauth-providers"
+        ],
+        "summary": "GET /organizations/{organization_id}/oauth/providers",
+        "description": "List all OAuth providers for an organization.",
+        "operationId": "list_org_oauth_providers",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of OAuth providers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthProvidersDataResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - not a member of the organization"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "oauth-providers"
+        ],
+        "summary": "POST /organizations/{organization_id}/oauth/providers",
+        "description": "Create a new OAuth provider for an organization.",
+        "operationId": "create_org_oauth_provider",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOAuthProviderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "OAuth provider created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthProviderDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - not a member of the organization"
+          },
+          "409": {
+            "description": "Conflict - provider with this slug already exists"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/oauth/providers/{provider_id}": {
+      "get": {
+        "tags": [
+          "oauth-providers"
+        ],
+        "summary": "GET /organizations/{organization_id}/oauth/providers/{provider_id}",
+        "description": "Get a specific OAuth provider for an organization.",
+        "operationId": "get_org_oauth_provider",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "provider_id",
+            "in": "path",
+            "description": "OAuth provider ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OAuth provider details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthProviderDataResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - not a member of the organization"
+          },
+          "404": {
+            "description": "Provider not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "oauth-providers"
+        ],
+        "summary": "DELETE /organizations/{organization_id}/oauth/providers/{provider_id}",
+        "description": "Delete an OAuth provider for an organization.",
+        "operationId": "delete_org_oauth_provider",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "provider_id",
+            "in": "path",
+            "description": "OAuth provider ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "OAuth provider deleted"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - not a member of the organization"
+          },
+          "404": {
+            "description": "Provider not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "oauth-providers"
+        ],
+        "summary": "PATCH /organizations/{organization_id}/oauth/providers/{provider_id}",
+        "description": "Update an OAuth provider for an organization.",
+        "operationId": "update_org_oauth_provider",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "provider_id",
+            "in": "path",
+            "description": "OAuth provider ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOAuthProviderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OAuth provider updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthProviderDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - not a member of the organization"
+          },
+          "404": {
+            "description": "Provider not found"
+          },
+          "409": {
+            "description": "Conflict - provider with this slug already exists"
+          },
+          "500": {
+            "description": "Internal server error"
           }
         },
         "security": [
@@ -15789,6 +16222,116 @@
         "description": "A validated network identifier.\n\nSupports common blockchain networks. Stored as TEXT in database.\n\n# Known Networks\n- `evm:1` - Ethereum Mainnet\n- `evm:8453` - Base\n- `evm:137` - Polygon\n- `evm:42161` - Arbitrum One\n- `evm:10` - Optimism\n- `solana:mainnet` - Solana Mainnet\n- `solana:devnet` - Solana Devnet\n\n# Examples\n\n```\nuse seren_core::models::NetworkId;\n\nlet eth = NetworkId::new(\"evm:1\").unwrap();\nassert!(eth.is_evm());\n\nlet sol = NetworkId::new(\"solana:mainnet\").unwrap();\nassert!(sol.is_solana());\n```",
         "example": "evm:8453"
       },
+      "OAuthProviderDataResponse": {
+        "type": "object",
+        "description": "DataResponse wrapper for OpenAPI schema",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/OAuthProviderResponse"
+          }
+        }
+      },
+      "OAuthProviderResponse": {
+        "type": "object",
+        "description": "Response type for OAuth provider (excludes sensitive fields like client_secret)",
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "authorization_url",
+          "token_url",
+          "client_id",
+          "scopes",
+          "pkce_required",
+          "token_endpoint_auth_method",
+          "is_active",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "authorization_url": {
+            "type": "string"
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "logo_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "pkce_required": {
+            "type": "boolean"
+          },
+          "revocation_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "slug": {
+            "type": "string"
+          },
+          "token_endpoint_auth_method": {
+            "type": "string"
+          },
+          "token_url": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "userinfo_url": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "OAuthProvidersDataResponse": {
+        "type": "object",
+        "description": "DataResponse wrapper for list of providers",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OAuthProviderResponse"
+            }
+          }
+        }
+      },
       "OffsetPaginationMeta": {
         "type": "object",
         "description": "Offset-based pagination metadata\n\nUsed for APIs that use limit/offset pagination instead of page/per_page.\nStandard fields following REST API conventions.",
@@ -18879,6 +19422,11 @@
           },
           "name": {
             "type": "string"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
           },
           "scopes": {
             "type": "array",
@@ -22992,6 +23540,10 @@
     {
       "name": "OAuth",
       "description": "OAuth connections for BYOC integrations"
+    },
+    {
+      "name": "oauth-providers",
+      "description": "Organization OAuth provider configuration (BYOC)"
     },
     {
       "name": "Organizations",
