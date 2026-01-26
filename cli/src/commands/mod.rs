@@ -11,6 +11,7 @@ pub mod env;
 pub mod ip_allow_list;
 pub mod oauth;
 pub mod operations;
+pub mod org_oauth_providers;
 pub mod organizations;
 pub mod projects;
 pub mod rbac;

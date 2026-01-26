@@ -470,6 +470,117 @@ enum OrgAction {
         #[arg(long, default_value = "member")]
         role: String,
     },
+    /// Manage OAuth provider configurations (BYOC)
+    Oauth {
+        /// Organization ID
+        #[arg(long)]
+        org_id: String,
+
+        #[command(subcommand)]
+        action: OrgOauthAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum OrgOauthAction {
+    /// List OAuth providers for the organization
+    List,
+    /// Get details about a specific OAuth provider
+    Get {
+        /// OAuth provider ID (UUID)
+        provider_id: String,
+    },
+    /// Create a new OAuth provider configuration
+    Create {
+        /// URL-friendly slug (unique identifier)
+        #[arg(long)]
+        slug: String,
+        /// Display name for the provider
+        #[arg(long)]
+        name: String,
+        /// OAuth authorization URL
+        #[arg(long)]
+        authorization_url: String,
+        /// OAuth token URL
+        #[arg(long)]
+        token_url: String,
+        /// OAuth client ID
+        #[arg(long)]
+        client_id: String,
+        /// OAuth client secret
+        #[arg(long)]
+        client_secret: String,
+        /// Description of the provider
+        #[arg(long)]
+        description: Option<String>,
+        /// Logo URL
+        #[arg(long)]
+        logo_url: Option<String>,
+        /// Userinfo URL (for fetching user details after auth)
+        #[arg(long)]
+        userinfo_url: Option<String>,
+        /// Token revocation URL
+        #[arg(long)]
+        revocation_url: Option<String>,
+        /// OAuth scopes (comma-separated or multiple --scope flags)
+        #[arg(long = "scope", value_delimiter = ',')]
+        scopes: Vec<String>,
+        /// Require PKCE for authorization
+        #[arg(long, default_value_t = true)]
+        pkce_required: bool,
+        /// Token endpoint auth method (client_secret_basic, client_secret_post)
+        #[arg(long)]
+        token_endpoint_auth_method: Option<String>,
+    },
+    /// Update an OAuth provider configuration
+    Update {
+        /// OAuth provider ID (UUID)
+        provider_id: String,
+        /// New display name
+        #[arg(long)]
+        name: Option<String>,
+        /// New description
+        #[arg(long)]
+        description: Option<String>,
+        /// New logo URL
+        #[arg(long)]
+        logo_url: Option<String>,
+        /// New authorization URL
+        #[arg(long)]
+        authorization_url: Option<String>,
+        /// New token URL
+        #[arg(long)]
+        token_url: Option<String>,
+        /// New userinfo URL
+        #[arg(long)]
+        userinfo_url: Option<String>,
+        /// New revocation URL
+        #[arg(long)]
+        revocation_url: Option<String>,
+        /// New client ID
+        #[arg(long)]
+        client_id: Option<String>,
+        /// New client secret
+        #[arg(long)]
+        client_secret: Option<String>,
+        /// New scopes (replaces existing)
+        #[arg(long = "scope", value_delimiter = ',')]
+        scopes: Option<Vec<String>>,
+        /// Require PKCE
+        #[arg(long)]
+        pkce_required: Option<bool>,
+        /// Token endpoint auth method
+        #[arg(long)]
+        token_endpoint_auth_method: Option<String>,
+        /// Enable or disable the provider
+        #[arg(long)]
+        is_active: Option<bool>,
+    },
+    /// Delete an OAuth provider configuration
+    Delete {
+        /// OAuth provider ID (UUID)
+        provider_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1484,6 +1595,85 @@ async fn main() -> anyhow::Result<()> {
                 email,
                 role,
             } => commands::organizations::create_invite(&org_id, &email, &role, &ctx).await?,
+            OrgAction::Oauth { org_id, action } => match action {
+                OrgOauthAction::List => commands::org_oauth_providers::list(&org_id, &ctx).await?,
+                OrgOauthAction::Get { provider_id } => {
+                    commands::org_oauth_providers::get(&org_id, &provider_id, &ctx).await?
+                }
+                OrgOauthAction::Create {
+                    slug,
+                    name,
+                    authorization_url,
+                    token_url,
+                    client_id,
+                    client_secret,
+                    description,
+                    logo_url,
+                    userinfo_url,
+                    revocation_url,
+                    scopes,
+                    pkce_required,
+                    token_endpoint_auth_method,
+                } => {
+                    commands::org_oauth_providers::create(
+                        &org_id,
+                        &slug,
+                        &name,
+                        &authorization_url,
+                        &token_url,
+                        &client_id,
+                        &client_secret,
+                        description.as_deref(),
+                        logo_url.as_deref(),
+                        userinfo_url.as_deref(),
+                        revocation_url.as_deref(),
+                        &scopes,
+                        pkce_required,
+                        token_endpoint_auth_method.as_deref(),
+                        &ctx,
+                    )
+                    .await?
+                }
+                OrgOauthAction::Update {
+                    provider_id,
+                    name,
+                    description,
+                    logo_url,
+                    authorization_url,
+                    token_url,
+                    userinfo_url,
+                    revocation_url,
+                    client_id,
+                    client_secret,
+                    scopes,
+                    pkce_required,
+                    token_endpoint_auth_method,
+                    is_active,
+                } => {
+                    commands::org_oauth_providers::update(
+                        &org_id,
+                        &provider_id,
+                        name.as_deref(),
+                        description.as_deref(),
+                        logo_url.as_deref(),
+                        authorization_url.as_deref(),
+                        token_url.as_deref(),
+                        userinfo_url.as_deref(),
+                        revocation_url.as_deref(),
+                        client_id.as_deref(),
+                        client_secret.as_deref(),
+                        scopes.as_deref(),
+                        pkce_required,
+                        token_endpoint_auth_method.as_deref(),
+                        is_active,
+                        &ctx,
+                    )
+                    .await?
+                }
+                OrgOauthAction::Delete { provider_id } => {
+                    commands::org_oauth_providers::delete(&org_id, &provider_id, &ctx).await?
+                }
+            },
         },
         Commands::Projects { action } => match action {
             ProjectAction::List => commands::projects::list(&ctx).await?,

@@ -160,6 +160,46 @@ pub struct CreateApiKeyParams {
 
 pub type RevokeApiKeyParams = ApiKeyPath;
 
+// Organization OAuth provider operations
+/// Path parameters for org OAuth provider operations
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct OrgOAuthProviderPath {
+    /// The organization ID (UUID)
+    pub organization_id: Uuid,
+    /// The OAuth provider ID (UUID)
+    pub provider_id: Uuid,
+}
+
+pub type ListOrgOAuthProvidersParams = OrganizationPath;
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetOrgOAuthProviderParams {
+    /// The organization ID (UUID)
+    pub organization_id: Uuid,
+    /// The OAuth provider ID (UUID)
+    pub provider_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CreateOrgOAuthProviderParams {
+    #[serde(flatten)]
+    pub path: OrganizationPath,
+    #[serde(flatten)]
+    pub body: seren::CreateOAuthProviderRequest,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct UpdateOrgOAuthProviderParams {
+    /// The organization ID (UUID)
+    pub organization_id: Uuid,
+    /// The OAuth provider ID (UUID)
+    pub provider_id: Uuid,
+    #[serde(flatten)]
+    pub body: seren::UpdateOAuthProviderRequest,
+}
+
+pub type DeleteOrgOAuthProviderParams = OrgOAuthProviderPath;
+
 // Connection and SQL operations (branch path + additional params)
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GetConnectionStringParams {
@@ -3392,6 +3432,121 @@ impl SerenMcpServer {
         Ok(CallToolResult::success(vec![Content::text(format!(
             "API key {} revoked successfully",
             params.key_id
+        ))]))
+    }
+
+    // ========================================================================
+    // Organization OAuth Provider Management Tools
+    // ========================================================================
+
+    #[tool(
+        description = "List OAuth providers configured for an organization. These are BYOC (Bring Your Own Credentials) OAuth configurations that can be linked to publishers.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_org_oauth_providers(
+        &self,
+        Parameters(params): Parameters<ListOrgOAuthProvidersParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .list_org_oauth_providers(&params.organization_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get details about a specific OAuth provider configuration for an organization.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_org_oauth_provider(
+        &self,
+        Parameters(params): Parameters<GetOrgOAuthProviderParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .get_org_oauth_provider(&params.organization_id, &params.provider_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Create a new OAuth provider configuration for an organization. This enables BYOC (Bring Your Own Credentials) authentication for publishers.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn create_org_oauth_provider(
+        &self,
+        Parameters(params): Parameters<CreateOrgOAuthProviderParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        validate_resource_name(&params.body.name, "OAuth provider name")?;
+
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .create_org_oauth_provider(&params.path.organization_id, &params.body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Update an OAuth provider configuration for an organization.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn update_org_oauth_provider(
+        &self,
+        Parameters(params): Parameters<UpdateOrgOAuthProviderParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .update_org_oauth_provider(&params.organization_id, &params.provider_id, &params.body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Delete an OAuth provider configuration from an organization. Warning: This will break any publishers using this OAuth provider.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn delete_org_oauth_provider(
+        &self,
+        Parameters(params): Parameters<DeleteOrgOAuthProviderParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+        api_client
+            .delete_org_oauth_provider(&params.organization_id, &params.provider_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "OAuth provider {} deleted successfully",
+            params.provider_id
         ))]))
     }
 
