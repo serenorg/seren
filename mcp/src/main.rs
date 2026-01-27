@@ -70,6 +70,12 @@ struct OAuthAuthState {
     /// We cache the validated token so later requests can be authorized and the token
     /// can be re-injected for downstream API calls.
     session_tokens: Arc<Mutex<LruCache<String, String>>>,
+    /// API key validation cache with TTL (reduces backend calls for repeated API key auth).
+    ///
+    /// When users authenticate with API keys instead of OAuth, we cache the validated
+    /// user info to avoid hitting the backend /auth/me endpoint on every request.
+    /// Cache entries expire after 5 minutes (similar to Neon's approach).
+    api_key_cache: Arc<Mutex<LruCache<String, CachedApiKeyValidation>>>,
     /// Shared OAuth state for endpoints and configuration.
     oauth_state: Arc<OAuthState>,
 }
@@ -123,14 +129,80 @@ fn extract_bearer_token(req: &axum::http::Request<axum::body::Body>) -> Option<&
 /// Seren API key prefix - all Seren API keys start with this.
 const SEREN_API_KEY_PREFIX: &str = "seren_";
 
+/// API key validation cache TTL in seconds (5 minutes, similar to Neon's approach).
+const API_KEY_CACHE_TTL_SECS: u64 = 300;
+
+/// Maximum number of cached API key validations.
+const API_KEY_CACHE_SIZE: usize = 1_000;
+
+/// Cached API key validation result with expiry timestamp.
+#[derive(Clone)]
+struct CachedApiKeyValidation {
+    user_info: seren::UserInfo,
+    expires_at: std::time::Instant,
+}
+
 /// Check if a token is a Seren API key (starts with "seren_" prefix).
 fn is_seren_api_key(token: &str) -> bool {
     token.starts_with(SEREN_API_KEY_PREFIX)
 }
 
 /// Validate an API key against the Seren API by calling /auth/me.
+/// Uses an LRU cache with 5-minute TTL to avoid redundant API calls.
 /// Returns the user info if the API key is valid, None otherwise.
-async fn validate_api_key(api_base_url: &str, api_key: &str) -> Option<seren::UserInfo> {
+async fn validate_api_key_cached(
+    api_base_url: &str,
+    api_key: &str,
+    cache: &Arc<Mutex<LruCache<String, CachedApiKeyValidation>>>,
+) -> Option<seren::UserInfo> {
+    // Check cache first
+    {
+        let mut cache_guard = cache.lock().await;
+        if let Some(cached) = cache_guard.get(api_key) {
+            if cached.expires_at > std::time::Instant::now() {
+                tracing::debug!(
+                    event = "api_key_cache_hit",
+                    user_id = %cached.user_info.id,
+                    "API key validation served from cache"
+                );
+                return Some(cached.user_info.clone());
+            }
+            // Expired entry - remove it
+            cache_guard.pop(api_key);
+            tracing::debug!(
+                event = "api_key_cache_expired",
+                "Cached API key validation expired"
+            );
+        }
+    }
+
+    // Cache miss - validate against backend
+    let user_info = validate_api_key_uncached(api_base_url, api_key).await?;
+
+    // Store in cache
+    {
+        let mut cache_guard = cache.lock().await;
+        cache_guard.put(
+            api_key.to_string(),
+            CachedApiKeyValidation {
+                user_info: user_info.clone(),
+                expires_at: std::time::Instant::now()
+                    + std::time::Duration::from_secs(API_KEY_CACHE_TTL_SECS),
+            },
+        );
+        tracing::debug!(
+            event = "api_key_cache_miss",
+            user_id = %user_info.id,
+            ttl_secs = API_KEY_CACHE_TTL_SECS,
+            "API key validated and cached"
+        );
+    }
+
+    Some(user_info)
+}
+
+/// Validate an API key against the Seren API by calling /auth/me (uncached).
+async fn validate_api_key_uncached(api_base_url: &str, api_key: &str) -> Option<seren::UserInfo> {
     // Build HTTP client with the API key as bearer token
     let mut headers = reqwest::header::HeaderMap::new();
     let auth_value = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", api_key)).ok()?;
@@ -280,8 +352,14 @@ async fn require_oauth_auth(
             "Seren API key detected, using API key authentication"
         );
 
-        // Validate the API key against Seren API
-        match validate_api_key(&state.oauth_state.upstream_api_base_url, &token).await {
+        // Validate the API key against Seren API (with caching)
+        match validate_api_key_cached(
+            &state.oauth_state.upstream_api_base_url,
+            &token,
+            &state.api_key_cache,
+        )
+        .await
+        {
             Some(user_info) => {
                 tracing::info!(
                     event = "oauth_auth_api_key_valid",
@@ -1586,6 +1664,11 @@ async fn run_oauth(config: Config) -> Result<()> {
         NonZeroUsize::new(SESSION_TOKEN_CACHE_SIZE).expect("SESSION_TOKEN_CACHE_SIZE must be > 0"),
     )));
 
+    // API key validation cache (5-minute TTL to reduce backend calls)
+    let api_key_cache = Arc::new(Mutex::new(LruCache::new(
+        NonZeroUsize::new(API_KEY_CACHE_SIZE).expect("API_KEY_CACHE_SIZE must be > 0"),
+    )));
+
     // Wrap with StaleSessionRecoveryService to handle stale sessions after pod restarts
     let mcp_router = axum::Router::new()
         .route(
@@ -1599,6 +1682,7 @@ async fn run_oauth(config: Config) -> Result<()> {
             OAuthAuthState {
                 store,
                 session_tokens,
+                api_key_cache,
                 oauth_state: oauth_state.clone(),
             },
             require_oauth_auth,
