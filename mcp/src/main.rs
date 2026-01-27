@@ -120,6 +120,37 @@ fn extract_bearer_token(req: &axum::http::Request<axum::body::Body>) -> Option<&
         .filter(|v| !v.is_empty())
 }
 
+/// Seren API key prefix - all Seren API keys start with this.
+const SEREN_API_KEY_PREFIX: &str = "seren_";
+
+/// Check if a token is a Seren API key (starts with "seren_" prefix).
+fn is_seren_api_key(token: &str) -> bool {
+    token.starts_with(SEREN_API_KEY_PREFIX)
+}
+
+/// Validate an API key against the Seren API by calling /auth/me.
+/// Returns the user info if the API key is valid, None otherwise.
+async fn validate_api_key(api_base_url: &str, api_key: &str) -> Option<seren::UserInfo> {
+    // Build HTTP client with the API key as bearer token
+    let mut headers = reqwest::header::HeaderMap::new();
+    let auth_value = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", api_key)).ok()?;
+    headers.insert(reqwest::header::AUTHORIZATION, auth_value);
+
+    let http_client = reqwest::Client::builder()
+        .default_headers(headers)
+        .timeout(std::time::Duration::from_secs(10))
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .build()
+        .ok()?;
+
+    let api_client = seren::Client::new_with_client(api_base_url, http_client);
+
+    match api_client.get_current_user().await {
+        Ok(response) => Some(response.into_inner().data),
+        Err(_) => None,
+    }
+}
+
 /// Simple token auth middleware (for start:http mode)
 async fn require_simple_auth(
     axum::extract::State(state): axum::extract::State<SimpleAuthState>,
@@ -228,7 +259,7 @@ async fn require_oauth_auth(
         }
     }
 
-    let Some(mut token) = token else {
+    let Some(token) = token else {
         tracing::warn!(
             event = "oauth_auth_no_token",
             method = %method,
@@ -239,7 +270,88 @@ async fn require_oauth_auth(
         return state.unauthorized_response("unauthorized", "Bearer token required");
     };
 
-    // Validate MCP-issued JWT (signed by this server with HS256)
+    // Check if this is a Seren API key (starts with "seren_" prefix).
+    // API keys can be used directly against the hosted MCP without going through OAuth flow.
+    if is_seren_api_key(&token) {
+        tracing::debug!(
+            event = "oauth_auth_api_key_detected",
+            method = %method,
+            uri = %uri,
+            "Seren API key detected, using API key authentication"
+        );
+
+        // Validate the API key against Seren API
+        match validate_api_key(&state.oauth_state.upstream_api_base_url, &token).await {
+            Some(user_info) => {
+                tracing::info!(
+                    event = "oauth_auth_api_key_valid",
+                    user_id = %user_info.id,
+                    email = ?user_info.email,
+                    "API key authentication successful"
+                );
+
+                // Inject the API key directly as the upstream token
+                if let Ok(v) = axum::http::HeaderValue::from_str(&format!("Bearer {}", token)) {
+                    req.headers_mut()
+                        .insert(axum::http::header::AUTHORIZATION, v);
+                }
+
+                // Inject user metadata headers
+                if let Ok(v) = axum::http::HeaderValue::from_str(&user_info.id.to_string()) {
+                    req.headers_mut()
+                        .insert(axum::http::header::HeaderName::from_static("x-user-id"), v);
+                }
+                if let Ok(v) = axum::http::HeaderValue::from_str(&user_info.email) {
+                    req.headers_mut().insert(
+                        axum::http::header::HeaderName::from_static("x-user-email"),
+                        v,
+                    );
+                }
+
+                // Mark this as an API key session (no MCP client registration)
+                req.headers_mut().insert(
+                    axum::http::header::HeaderName::from_static("x-auth-method"),
+                    axum::http::HeaderValue::from_static("api_key"),
+                );
+
+                let response = next.run(req).await;
+
+                let response_status = response.status();
+                if response_status.is_server_error() {
+                    tracing::error!(
+                        event = "oauth_auth_api_key_response_error",
+                        method = %method,
+                        uri = %uri,
+                        status = %response_status,
+                        user_id = %user_info.id,
+                        "Handler returned server error after API key auth"
+                    );
+                } else {
+                    tracing::debug!(
+                        event = "oauth_auth_api_key_response",
+                        method = %method,
+                        uri = %uri,
+                        status = %response_status,
+                        "API key authenticated request completed"
+                    );
+                }
+
+                return response;
+            }
+            None => {
+                tracing::warn!(
+                    event = "oauth_auth_api_key_invalid",
+                    method = %method,
+                    uri = %uri,
+                    "API key validation failed"
+                );
+                return state.unauthorized_response("invalid_token", "Invalid API key or token");
+            }
+        }
+    }
+
+    // Token looks like a JWT - validate MCP-issued JWT (signed by this server with HS256)
+    let mut token = token; // Make mutable for potential re-issue
     tracing::debug!(
         event = "oauth_auth_validating_mcp_jwt",
         "Validating MCP-issued JWT"
@@ -1616,5 +1728,28 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), axum::http::StatusCode::OK);
+    }
+
+    #[test]
+    fn is_seren_api_key_detects_prefix() {
+        // Valid Seren API keys (start with "seren_")
+        assert!(is_seren_api_key("seren_aK4iP9zB1234567890"));
+        assert!(is_seren_api_key("seren_"));
+        assert!(is_seren_api_key("seren_abc"));
+
+        // Not Seren API keys
+        assert!(!is_seren_api_key("sk-1234567890abcdef"));
+        assert!(!is_seren_api_key("simple-api-key"));
+        assert!(!is_seren_api_key("1234567890"));
+        assert!(!is_seren_api_key(""));
+
+        // JWTs are not API keys
+        assert!(!is_seren_api_key(
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+        ));
+
+        // Case sensitive - must be lowercase
+        assert!(!is_seren_api_key("SEREN_abc"));
+        assert!(!is_seren_api_key("Seren_abc"));
     }
 }
