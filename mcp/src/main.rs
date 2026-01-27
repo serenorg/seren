@@ -81,6 +81,28 @@ struct OAuthAuthState {
 }
 
 impl OAuthAuthState {
+    /// Escape a value for inclusion in a quoted-string auth parameter (e.g. error_description="...").
+    ///
+    /// We keep this intentionally conservative: remove newlines and escape quotes/backslashes to
+    /// avoid producing invalid headers.
+    fn escape_www_auth_value(value: &str) -> String {
+        value
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\r', " ")
+            .replace('\n', " ")
+    }
+
+    fn build_www_authenticate(error: &str, error_description: &str, server_host: &str) -> String {
+        let server_host = server_host.trim_end_matches('/');
+        format!(
+            r#"Bearer realm="serendb", resource_metadata="{}/.well-known/oauth-protected-resource", scope="api", error="{}", error_description="{}""#,
+            server_host,
+            Self::escape_www_auth_value(error),
+            Self::escape_www_auth_value(error_description)
+        )
+    }
+
     /// Build a 401 Unauthorized response with WWW-Authenticate header.
     ///
     /// Per RFC 9728 and the MCP OAuth spec, the WWW-Authenticate header must include
@@ -91,11 +113,8 @@ impl OAuthAuthState {
         error: &str,
         error_description: &str,
     ) -> axum::response::Response {
-        let server_host = self.oauth_state.server_host.trim_end_matches('/');
-        let www_authenticate = format!(
-            r#"Bearer realm="serendb", resource_metadata="{}/.well-known/oauth-protected-resource", scope="api""#,
-            server_host
-        );
+        let www_authenticate =
+            Self::build_www_authenticate(error, error_description, &self.oauth_state.server_host);
 
         (
             axum::http::StatusCode::UNAUTHORIZED,
@@ -142,6 +161,14 @@ struct CachedApiKeyValidation {
     expires_at: std::time::Instant,
 }
 
+#[derive(Debug)]
+enum ApiKeyValidationError {
+    InvalidToken,
+    UpstreamError {
+        status: Option<axum::http::StatusCode>,
+    },
+}
+
 /// Check if a token is a Seren API key (starts with "seren_" prefix).
 fn is_seren_api_key(token: &str) -> bool {
     token.starts_with(SEREN_API_KEY_PREFIX)
@@ -154,7 +181,7 @@ async fn validate_api_key_cached(
     api_base_url: &str,
     api_key: &str,
     cache: &Arc<Mutex<LruCache<String, CachedApiKeyValidation>>>,
-) -> Option<seren::UserInfo> {
+) -> Result<seren::UserInfo, ApiKeyValidationError> {
     // Check cache first
     {
         let mut cache_guard = cache.lock().await;
@@ -165,7 +192,7 @@ async fn validate_api_key_cached(
                     user_id = %cached.user_info.id,
                     "API key validation served from cache"
                 );
-                return Some(cached.user_info.clone());
+                return Ok(cached.user_info.clone());
             }
             // Expired entry - remove it
             cache_guard.pop(api_key);
@@ -198,14 +225,18 @@ async fn validate_api_key_cached(
         );
     }
 
-    Some(user_info)
+    Ok(user_info)
 }
 
 /// Validate an API key against the Seren API by calling /auth/me (uncached).
-async fn validate_api_key_uncached(api_base_url: &str, api_key: &str) -> Option<seren::UserInfo> {
+async fn validate_api_key_uncached(
+    api_base_url: &str,
+    api_key: &str,
+) -> Result<seren::UserInfo, ApiKeyValidationError> {
     // Build HTTP client with the API key as bearer token
     let mut headers = reqwest::header::HeaderMap::new();
-    let auth_value = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", api_key)).ok()?;
+    let auth_value = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", api_key))
+        .map_err(|_| ApiKeyValidationError::InvalidToken)?;
     headers.insert(reqwest::header::AUTHORIZATION, auth_value);
 
     let http_client = reqwest::Client::builder()
@@ -213,13 +244,22 @@ async fn validate_api_key_uncached(api_base_url: &str, api_key: &str) -> Option<
         .timeout(std::time::Duration::from_secs(10))
         .connect_timeout(std::time::Duration::from_secs(5))
         .build()
-        .ok()?;
+        .map_err(|e| ApiKeyValidationError::UpstreamError { status: e.status() })?;
 
     let api_client = seren::Client::new_with_client(api_base_url, http_client);
 
     match api_client.get_current_user().await {
-        Ok(response) => Some(response.into_inner().data),
-        Err(_) => None,
+        Ok(response) => Ok(response.into_inner().data),
+        Err(e) => {
+            let status = e.status();
+            match status {
+                Some(axum::http::StatusCode::UNAUTHORIZED)
+                | Some(axum::http::StatusCode::FORBIDDEN) => {
+                    Err(ApiKeyValidationError::InvalidToken)
+                }
+                _ => Err(ApiKeyValidationError::UpstreamError { status }),
+            }
+        }
     }
 }
 
@@ -360,11 +400,10 @@ async fn require_oauth_auth(
         )
         .await
         {
-            Some(user_info) => {
+            Ok(user_info) => {
                 tracing::info!(
                     event = "oauth_auth_api_key_valid",
                     user_id = %user_info.id,
-                    email = ?user_info.email,
                     "API key authentication successful"
                 );
 
@@ -394,6 +433,30 @@ async fn require_oauth_auth(
 
                 let response = next.run(req).await;
 
+                // Allow Streamable HTTP clients that only send Authorization on the initial request
+                // to continue using `Mcp-Session-Id` for subsequent requests.
+                //
+                // Unlike OAuth sessions, we do NOT persist API keys to the database.
+                if let Some(ref sid) = session_id {
+                    state
+                        .session_tokens
+                        .lock()
+                        .await
+                        .put(sid.clone(), token.clone());
+                }
+
+                if let Some(sid) = response
+                    .headers()
+                    .get(axum::http::header::HeaderName::from_static(
+                        "mcp-session-id",
+                    ))
+                    .and_then(|v| v.to_str().ok())
+                    .map(|v| v.trim().to_string())
+                    .filter(|v| !v.is_empty())
+                {
+                    state.session_tokens.lock().await.put(sid, token.clone());
+                }
+
                 let response_status = response.status();
                 if response_status.is_server_error() {
                     tracing::error!(
@@ -416,7 +479,7 @@ async fn require_oauth_auth(
 
                 return response;
             }
-            None => {
+            Err(ApiKeyValidationError::InvalidToken) => {
                 tracing::warn!(
                     event = "oauth_auth_api_key_invalid",
                     method = %method,
@@ -424,6 +487,23 @@ async fn require_oauth_auth(
                     "API key validation failed"
                 );
                 return state.unauthorized_response("invalid_token", "Invalid API key or token");
+            }
+            Err(ApiKeyValidationError::UpstreamError { status }) => {
+                tracing::warn!(
+                    event = "oauth_auth_api_key_upstream_error",
+                    method = %method,
+                    uri = %uri,
+                    status = ?status,
+                    "API key validation failed due to upstream error"
+                );
+                return (
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                    axum::Json(serde_json::json!({
+                        "error": "server_error",
+                        "error_description": "Authentication backend unavailable",
+                    })),
+                )
+                    .into_response();
             }
         }
     }
@@ -1835,5 +1915,22 @@ mod tests {
         // Case sensitive - must be lowercase
         assert!(!is_seren_api_key("SEREN_abc"));
         assert!(!is_seren_api_key("Seren_abc"));
+    }
+
+    #[test]
+    fn build_www_authenticate_includes_error_and_resource_metadata() {
+        let header = OAuthAuthState::build_www_authenticate(
+            "invalid_token",
+            "Bad \"token\"\ntry again",
+            "https://mcp.serendb.com/",
+        );
+
+        assert!(header.starts_with("Bearer "));
+        assert!(header.contains(r#"realm="serendb""#));
+        assert!(header.contains(
+            r#"resource_metadata="https://mcp.serendb.com/.well-known/oauth-protected-resource""#
+        ));
+        assert!(header.contains(r#"error="invalid_token""#));
+        assert!(header.contains(r#"error_description="Bad \"token\" try again""#));
     }
 }
