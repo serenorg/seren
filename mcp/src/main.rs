@@ -96,7 +96,7 @@ impl OAuthAuthState {
     fn build_www_authenticate(error: &str, error_description: &str, server_host: &str) -> String {
         let server_host = server_host.trim_end_matches('/');
         format!(
-            r#"Bearer realm="serendb", resource_metadata="{}/.well-known/oauth-protected-resource", scope="api", error="{}", error_description="{}""#,
+            r#"Bearer realm="seren-mcp", resource_metadata="{}/.well-known/oauth-protected-resource", scope="api", error="{}", error_description="{}""#,
             server_host,
             Self::escape_www_auth_value(error),
             Self::escape_www_auth_value(error_description)
@@ -1926,7 +1926,7 @@ mod tests {
         );
 
         assert!(header.starts_with("Bearer "));
-        assert!(header.contains(r#"realm="serendb""#));
+        assert!(header.contains(r#"realm="seren-mcp""#));
         assert!(header.contains(
             r#"resource_metadata="https://mcp.serendb.com/.well-known/oauth-protected-resource""#
         ));
