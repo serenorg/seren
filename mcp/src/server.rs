@@ -5890,7 +5890,7 @@ impl ServerHandler for SerenMcpServer {
             protocol_version: Default::default(),
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: rmcp::model::Implementation {
-                name: "seren-mcp".into(),
+                name: crate::MCP_SERVER_NAME.into(),
                 title: Some("Seren MCP Server".into()),
                 version: env!("CARGO_PKG_VERSION").into(),
                 icons: None,

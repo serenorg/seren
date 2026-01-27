@@ -2,7 +2,7 @@ use crate::error::{McpError, Result};
 
 /// OAuth client ID for upstream authentication.
 /// This identifies the MCP server as a trusted OAuth client.
-const UPSTREAM_OAUTH_CLIENT_ID: &str = "seren-mcp";
+const UPSTREAM_OAUTH_CLIENT_ID: &str = crate::MCP_SERVER_NAME;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -126,7 +126,7 @@ mod tests {
                         public_url,
                     } => {
                         assert_eq!(database_url, "postgres://localhost/test");
-                        assert_eq!(client_id, "seren-mcp");
+                        assert_eq!(client_id, crate::MCP_SERVER_NAME);
                         assert_eq!(public_url, "https://mcp.serendb.com");
                     }
                     _ => panic!("expected OAuth config"),

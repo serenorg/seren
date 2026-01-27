@@ -20,6 +20,12 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+/// Canonical name for the MCP server binary/service.
+pub(crate) const MCP_SERVER_NAME: &str = "seren-mcp";
+
+/// HTTP Bearer auth realm used in WWW-Authenticate challenges.
+pub(crate) const MCP_AUTH_REALM: &str = MCP_SERVER_NAME;
+
 /// Health check state with optional database store
 #[derive(Clone)]
 struct HealthCheckState {
@@ -39,7 +45,7 @@ async fn health_check(
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             axum::Json(serde_json::json!({
                 "status": "unhealthy",
-                "service": "seren-mcp",
+                "service": MCP_SERVER_NAME,
                 "version": env!("CARGO_PKG_VERSION"),
                 "error": "database unavailable"
             })),
@@ -48,7 +54,7 @@ async fn health_check(
 
     Ok(axum::Json(serde_json::json!({
         "status": "healthy",
-        "service": "seren-mcp",
+        "service": MCP_SERVER_NAME,
         "version": env!("CARGO_PKG_VERSION")
     })))
 }
@@ -96,7 +102,8 @@ impl OAuthAuthState {
     fn build_www_authenticate(error: &str, error_description: &str, server_host: &str) -> String {
         let server_host = server_host.trim_end_matches('/');
         format!(
-            r#"Bearer realm="seren-mcp", resource_metadata="{}/.well-known/oauth-protected-resource", scope="api", error="{}", error_description="{}""#,
+            r#"Bearer realm="{}", resource_metadata="{}/.well-known/oauth-protected-resource", scope="api", error="{}", error_description="{}""#,
+            MCP_AUTH_REALM,
             server_host,
             Self::escape_www_auth_value(error),
             Self::escape_www_auth_value(error_description)
@@ -1399,7 +1406,7 @@ async fn main() -> Result<()> {
         }
         cmd => {
             eprintln!("Unknown command: {}", cmd);
-            eprintln!("Usage: seren-mcp [start|start:http|start:oauth]");
+            eprintln!("Usage: {} [start|start:http|start:oauth]", MCP_SERVER_NAME);
             eprintln!();
             eprintln!("Commands:");
             eprintln!("  start        Start in stdio mode (local, default)");
@@ -1720,7 +1727,7 @@ async fn run_oauth(config: Config) -> Result<()> {
                 .unwrap_or(5);
 
             reqwest::Client::builder()
-                .user_agent(format!("seren-mcp/{}", env!("CARGO_PKG_VERSION")))
+                .user_agent(format!("{}/{}", MCP_SERVER_NAME, env!("CARGO_PKG_VERSION")))
                 .timeout(std::time::Duration::from_secs(upstream_timeout_secs))
                 .connect_timeout(std::time::Duration::from_secs(
                     upstream_connect_timeout_secs,
@@ -1926,7 +1933,7 @@ mod tests {
         );
 
         assert!(header.starts_with("Bearer "));
-        assert!(header.contains(r#"realm="seren-mcp""#));
+        assert!(header.contains(&format!(r#"realm="{}""#, MCP_AUTH_REALM)));
         assert!(header.contains(
             r#"resource_metadata="https://mcp.serendb.com/.well-known/oauth-protected-resource""#
         ));

@@ -45,15 +45,21 @@ impl SignerConfig {
     pub fn default_path() -> Option<PathBuf> {
         #[cfg(windows)]
         {
-            choose_native_strategy()
-                .ok()
-                .map(|strategy| strategy.config_dir().join("seren-mcp").join("signer.toml"))
+            choose_native_strategy().ok().map(|strategy| {
+                strategy
+                    .config_dir()
+                    .join(crate::MCP_SERVER_NAME)
+                    .join("signer.toml")
+            })
         }
         #[cfg(not(windows))]
         {
-            Xdg::new()
-                .ok()
-                .map(|strategy| strategy.config_dir().join("seren-mcp").join("signer.toml"))
+            Xdg::new().ok().map(|strategy| {
+                strategy
+                    .config_dir()
+                    .join(crate::MCP_SERVER_NAME)
+                    .join("signer.toml")
+            })
         }
     }
 

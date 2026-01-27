@@ -49,7 +49,7 @@ mod otel {
         }
 
         let service_name =
-            std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "seren-mcp".into());
+            std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| crate::MCP_SERVER_NAME.into());
         let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
             .unwrap_or_else(|_| "http://localhost:4318".into());
 
@@ -95,7 +95,7 @@ mod otel {
     where
         S: Subscriber + for<'span> LookupSpan<'span>,
     {
-        tracing_opentelemetry::layer().with_tracer(provider.tracer("seren-mcp"))
+        tracing_opentelemetry::layer().with_tracer(provider.tracer(crate::MCP_SERVER_NAME))
     }
 }
 
