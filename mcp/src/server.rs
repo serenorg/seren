@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use base64::Engine;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -476,7 +477,8 @@ pub struct ExecutePaidQueryParams {
     pub confirm: bool,
     /// Pre-signed x402 payment payload (base64-encoded JSON).
     /// Used for payment proxy mode where the client signs payments locally.
-    /// When provided, this payload is forwarded as the X-PAYMENT header
+    /// When provided, this payload is forwarded as the appropriate x402 header
+    /// (v1: X-PAYMENT, v2: PAYMENT-SIGNATURE)
     /// instead of using the server's local wallet.
     #[serde(default, rename = "_x402_payment")]
     pub x402_payment: Option<String>,
@@ -514,7 +516,8 @@ pub struct ExecutePaidApiParams {
     pub confirm: bool,
     /// Pre-signed x402 payment payload (base64-encoded JSON).
     /// Used for payment proxy mode where the client signs payments locally.
-    /// When provided, this payload is forwarded as the X-PAYMENT header
+    /// When provided, this payload is forwarded as the appropriate x402 header
+    /// (v1: X-PAYMENT, v2: PAYMENT-SIGNATURE)
     /// instead of using the server's local wallet.
     #[serde(default, rename = "_x402_payment")]
     pub x402_payment: Option<String>,
@@ -1024,7 +1027,8 @@ pub struct ExecutePaidApiStreamParams {
     pub confirm: bool,
     /// Pre-signed x402 payment payload (base64-encoded JSON).
     /// Used for payment proxy mode where the client signs payments locally.
-    /// When provided, this payload is forwarded as the X-PAYMENT header
+    /// When provided, this payload is forwarded as the appropriate x402 header
+    /// (v1: X-PAYMENT, v2: PAYMENT-SIGNATURE)
     /// instead of using the server's local wallet.
     #[serde(default, rename = "_x402_payment")]
     pub x402_payment: Option<String>,
@@ -1439,6 +1443,37 @@ const MAX_RETRIES: u32 = 2;
 
 /// Base delay for exponential backoff (doubles each retry).
 const RETRY_BASE_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
+
+fn x402_proxy_payment_header_name(x402_payment: &str) -> Result<&'static str, McpError> {
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(x402_payment.trim())
+        .map_err(|e| {
+            McpError::invalid_request(
+                format!("Invalid _x402_payment payload (base64 decode failed): {e}"),
+                None,
+            )
+        })?;
+
+    let value: serde_json::Value = serde_json::from_slice(&decoded).map_err(|e| {
+        McpError::invalid_request(
+            format!("Invalid _x402_payment payload (invalid JSON): {e}"),
+            None,
+        )
+    })?;
+
+    match value.get("x402Version").and_then(|v| v.as_u64()) {
+        Some(1) => Ok("X-PAYMENT"),
+        Some(2) => Ok("PAYMENT-SIGNATURE"),
+        Some(other) => Err(McpError::invalid_request(
+            format!("Unsupported x402Version in _x402_payment payload: {other}"),
+            None,
+        )),
+        None => Err(McpError::invalid_request(
+            "Missing x402Version in _x402_payment payload".to_string(),
+            None,
+        )),
+    }
+}
 
 fn payment_required_has_non_prepaid_option(body_text: &str) -> bool {
     let Ok(body_json) = serde_json::from_str::<serde_json::Value>(body_text) else {
@@ -2345,12 +2380,13 @@ impl SerenMcpServer {
             path.trim_start_matches('/')
         );
 
+        let payment_header = x402_proxy_payment_header_name(x402_payment)?;
+
         // Make the request with the pre-signed payment header.
-        // We support both X-PAYMENT (x402 v1) and PAYMENT-SIGNATURE (x402 v2).
-        // The client's signed payload should work with either header name.
+        // v1: X-PAYMENT, v2: PAYMENT-SIGNATURE
         let response = http_client
             .post(&url)
-            .header("X-PAYMENT", x402_payment)
+            .header(payment_header, x402_payment)
             .json(body)
             .send()
             .await
@@ -4754,6 +4790,7 @@ impl SerenMcpServer {
             resource_description,
             resource_id_response_path: None,
             resource_id_url_pattern: None,
+            upstream_cost_response_path: None,
             resource_name,
             upstream_api_key,
             usage_examples: None,
@@ -4985,6 +5022,7 @@ impl SerenMcpServer {
             ownership_tracking_enabled: None,
             resource_id_response_path: None,
             resource_id_url_pattern: None,
+            upstream_cost_response_path: None,
             protected_operations: None,
             add_asset_ids: None,
             remove_asset_ids: None,
@@ -6201,6 +6239,25 @@ mod tests {
         assert!(validate_resource_name("", "branch").is_err());
         assert!(validate_resource_name("_starts_with_underscore", "branch").is_err());
         assert!(validate_resource_name("bad/char", "branch").is_err());
+    }
+
+    #[test]
+    fn x402_proxy_payment_header_name_detects_v1_and_v2() {
+        let v1_payload = serde_json::json!({ "x402Version": 1 });
+        let v1_b64 = base64::engine::general_purpose::STANDARD.encode(v1_payload.to_string());
+        assert_eq!(
+            x402_proxy_payment_header_name(&v1_b64).unwrap(),
+            "X-PAYMENT"
+        );
+
+        let v2_payload = serde_json::json!({ "x402Version": 2 });
+        let v2_b64 = base64::engine::general_purpose::STANDARD.encode(v2_payload.to_string());
+        assert_eq!(
+            x402_proxy_payment_header_name(&v2_b64).unwrap(),
+            "PAYMENT-SIGNATURE"
+        );
+
+        assert!(x402_proxy_payment_header_name("not-base64").is_err());
     }
 
     #[test]

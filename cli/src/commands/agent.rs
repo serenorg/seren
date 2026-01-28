@@ -470,6 +470,7 @@ pub async fn create_publisher(
         resource_description: None,
         resource_id_response_path: None,
         resource_id_url_pattern: None,
+        upstream_cost_response_path: None,
         resource_name: None,
         upstream_api_key,
         usage_examples: None,
