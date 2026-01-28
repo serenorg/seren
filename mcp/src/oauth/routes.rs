@@ -671,6 +671,15 @@ fn no_store_json<T: Serialize>(value: T) -> Response {
     (headers, Json(value)).into_response()
 }
 
+fn refresh_lock_key(token_hash: &str) -> i64 {
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    hasher.update(token_hash.as_bytes());
+    let digest = hasher.finalize();
+    i64::from_le_bytes(digest[..8].try_into().expect("sha256 is 32 bytes"))
+}
+
 async fn token(
     State(state): State<Arc<OAuthState>>,
     Form(req): Form<TokenRequest>,
@@ -823,85 +832,166 @@ async fn token(
             )
             .await?;
 
-            // Get the stored upstream refresh token for server-side refresh
-            let upstream_refresh_token =
-                refresh_token
-                    .upstream_refresh_token
-                    .as_ref()
-                    .ok_or_else(|| {
-                        OAuthError::ServerError("No upstream refresh token stored".into())
-                    })?;
+            // Serialize refresh operations per token_hash to avoid racing upstream refresh token
+            // rotation (the upstream API uses single-use refresh tokens and will revoke sessions on reuse).
+            let refresh_token_hash = refresh_token.token_hash.clone();
+            let lock_key = refresh_lock_key(&refresh_token_hash);
 
-            // Refresh upstream tokens server-side (using stored upstream refresh token)
-            let token_body = exchange_upstream_token(
-                &state.http,
-                &state.upstream_api_base_url,
-                vec![
-                    ("grant_type", "refresh_token"),
-                    ("refresh_token", upstream_refresh_token.as_str()),
-                    ("client_id", state.upstream_client_id.as_str()),
-                ],
-                &state.circuit_breaker,
-            )
-            .await?;
-
-            // Log the granted scope for debugging
-            if let Some(ref granted_scope) = token_body.scope {
-                debug!(scope = %granted_scope, "Upstream token refreshed");
-            }
-
-            let new_upstream_expires_at =
-                OffsetDateTime::now_utc() + Duration::seconds(token_body.expires_in.max(0));
-
-            // Generate new MCP refresh token hash first (needed for JWT claim)
-            let new_mcp_refresh_token = TokenStore::generate_token();
-            let new_refresh_token_hash = TokenStore::hash_refresh_token(&new_mcp_refresh_token);
-
-            // Mint new MCP access token with the new refresh_token_hash
-            let (new_mcp_access_token, mcp_expires_in) = state
-                .jwt_signer
-                .sign_access_token(
-                    refresh_token.user_id,
-                    &refresh_token.client_id,
-                    &refresh_token.scope,
-                    None,
-                    None,
-                    Some(&new_refresh_token_hash),
-                )
-                .map_err(|e| OAuthError::ServerError(format!("Failed to sign token: {}", e)))?;
-
-            // Update stored upstream tokens and rotate MCP refresh token
-            let updated = state
+            let mut lock_conn = state
                 .store
-                .update_refresh_token(
-                    &refresh_token_str,
-                    &new_mcp_refresh_token,
-                    Some(TokenStore::token_expiry(REFRESH_TOKEN_TTL_HOURS)),
-                    &token_body.access_token,
-                    token_body.refresh_token.as_deref(),
-                    new_upstream_expires_at,
-                )
+                .pool()
+                .acquire()
                 .await
                 .map_err(|e| OAuthError::ServerError(e.to_string()))?;
-            if !updated {
-                return Err(OAuthError::InvalidGrant("refresh_token not found".into()));
+
+            sqlx::query("SELECT pg_advisory_lock($1)")
+                .bind(lock_key)
+                .execute(&mut *lock_conn)
+                .await
+                .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+
+            let refresh_result: Result<Response, OAuthError> = (async {
+                // Re-fetch under the lock to avoid using stale upstream tokens.
+                let refresh_token = match state
+                    .store
+                    .get_refresh_token_by_hash(&refresh_token_hash)
+                    .await
+                {
+                    Ok(Some(token)) => token,
+                    Ok(None) => {
+                        debug!(
+                            event = "oauth_refresh_token_not_found",
+                            "Refresh token not found under lock"
+                        );
+                        return Err(OAuthError::InvalidGrant(
+                            "Invalid or expired refresh token".into(),
+                        ));
+                    }
+                    Err(e) => {
+                        debug!(
+                            event = "oauth_refresh_token_db_error",
+                            error = %e,
+                            "Database error looking up refresh token under lock"
+                        );
+                        return Err(OAuthError::ServerError(e.to_string()));
+                    }
+                };
+
+                // Only refresh upstream tokens when the upstream access token is expired (or about
+                // to expire). MCP access tokens are short-lived (15m), upstream tokens are long-lived
+                // (~8h) and single-use refresh tokens; refreshing upstream on every MCP refresh makes
+                // token reuse/revocation far more likely.
+                let refresh_window = Duration::seconds(60);
+                let now = OffsetDateTime::now_utc();
+
+                let mut upstream_access_token = refresh_token.upstream_access_token.clone();
+                let mut upstream_refresh_token_update: Option<String> = None;
+                let mut upstream_expires_at = refresh_token.upstream_expires_at;
+
+                if refresh_token.upstream_expires_at <= now + refresh_window {
+                    let upstream_refresh_token = refresh_token
+                        .upstream_refresh_token
+                        .as_ref()
+                        .ok_or_else(|| {
+                            OAuthError::ServerError("No upstream refresh token stored".into())
+                        })?;
+
+                    let token_body = exchange_upstream_token(
+                        &state.http,
+                        &state.upstream_api_base_url,
+                        vec![
+                            ("grant_type", "refresh_token"),
+                            ("refresh_token", upstream_refresh_token.as_str()),
+                            ("client_id", state.upstream_client_id.as_str()),
+                        ],
+                        &state.circuit_breaker,
+                    )
+                    .await?;
+
+                    // Log the granted scope for debugging
+                    if let Some(ref granted_scope) = token_body.scope {
+                        debug!(scope = %granted_scope, "Upstream token refreshed");
+                    }
+
+                    upstream_access_token = token_body.access_token;
+                    upstream_refresh_token_update = token_body.refresh_token;
+                    upstream_expires_at =
+                        OffsetDateTime::now_utc() + Duration::seconds(token_body.expires_in.max(0));
+                } else {
+                    debug!(
+                        event = "oauth_upstream_refresh_skipped",
+                        user_id = %refresh_token.user_id,
+                        client_id = %refresh_token.client_id,
+                        upstream_expires_at = %refresh_token.upstream_expires_at,
+                        "Upstream access token still valid; skipping upstream refresh"
+                    );
+                }
+
+                // Generate new MCP refresh token hash first (needed for JWT claim)
+                let new_mcp_refresh_token = TokenStore::generate_token();
+                let new_refresh_token_hash = TokenStore::hash_refresh_token(&new_mcp_refresh_token);
+
+                // Mint new MCP access token with the new refresh_token_hash
+                let (new_mcp_access_token, mcp_expires_in) = state
+                    .jwt_signer
+                    .sign_access_token(
+                        refresh_token.user_id,
+                        &refresh_token.client_id,
+                        &refresh_token.scope,
+                        None,
+                        None,
+                        Some(&new_refresh_token_hash),
+                    )
+                    .map_err(|e| OAuthError::ServerError(format!("Failed to sign token: {}", e)))?;
+
+                // Rotate MCP refresh token (and persist latest upstream tokens).
+                let updated = state
+                    .store
+                    .update_refresh_token(
+                        &refresh_token_str,
+                        &new_mcp_refresh_token,
+                        Some(TokenStore::token_expiry(REFRESH_TOKEN_TTL_HOURS)),
+                        &upstream_access_token,
+                        upstream_refresh_token_update.as_deref(),
+                        upstream_expires_at,
+                    )
+                    .await
+                    .map_err(|e| OAuthError::ServerError(e.to_string()))?;
+                if !updated {
+                    return Err(OAuthError::InvalidGrant("refresh_token not found".into()));
+                }
+
+                debug!(
+                    event = "oauth_token_complete",
+                    grant_type = "refresh_token",
+                    client_id = %refresh_token.client_id,
+                    user_id = %refresh_token.user_id,
+                    "Token refresh completed (MCP token issued)"
+                );
+
+                Ok(no_store_json(TokenResponse {
+                    access_token: new_mcp_access_token,
+                    token_type: "Bearer".into(),
+                    expires_in: mcp_expires_in,
+                    refresh_token: Some(new_mcp_refresh_token),
+                    scope: refresh_token.scope,
+                }))
+            })
+            .await;
+
+            if let Err(e) = sqlx::query("SELECT pg_advisory_unlock($1)")
+                .bind(lock_key)
+                .execute(&mut *lock_conn)
+                .await
+            {
+                debug!(
+                    event = "oauth_refresh_unlock_failed",
+                    error = %e,
+                    "Failed to release refresh lock"
+                );
             }
 
-            debug!(
-                event = "oauth_token_complete",
-                grant_type = "refresh_token",
-                client_id = %refresh_token.client_id,
-                user_id = %refresh_token.user_id,
-                "Token refresh completed (MCP token issued)"
-            );
-
-            Ok(no_store_json(TokenResponse {
-                access_token: new_mcp_access_token,
-                token_type: "Bearer".into(),
-                expires_in: mcp_expires_in,
-                refresh_token: Some(new_mcp_refresh_token),
-                scope: refresh_token.scope,
-            }))
+            refresh_result
         }
         _ => Err(OAuthError::UnsupportedGrantType),
     }
