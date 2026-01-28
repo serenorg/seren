@@ -474,6 +474,12 @@ pub struct ExecutePaidQueryParams {
     /// This is required when the payment amount is above the configured threshold.
     #[serde(default)]
     pub confirm: bool,
+    /// Pre-signed x402 payment payload (base64-encoded JSON).
+    /// Used for payment proxy mode where the client signs payments locally.
+    /// When provided, this payload is forwarded as the X-PAYMENT header
+    /// instead of using the server's local wallet.
+    #[serde(default, rename = "_x402_payment")]
+    pub x402_payment: Option<String>,
 }
 
 /// Parameters for executing a prepaid API request
@@ -506,6 +512,12 @@ pub struct ExecutePaidApiParams {
     /// This is required when the payment amount is above the configured threshold.
     #[serde(default)]
     pub confirm: bool,
+    /// Pre-signed x402 payment payload (base64-encoded JSON).
+    /// Used for payment proxy mode where the client signs payments locally.
+    /// When provided, this payload is forwarded as the X-PAYMENT header
+    /// instead of using the server's local wallet.
+    #[serde(default, rename = "_x402_payment")]
+    pub x402_payment: Option<String>,
 }
 
 /// Parameters for getting x402 on-chain deposit requirements
@@ -1010,6 +1022,12 @@ pub struct ExecutePaidApiStreamParams {
     /// This is required when the payment amount is above the configured threshold.
     #[serde(default)]
     pub confirm: bool,
+    /// Pre-signed x402 payment payload (base64-encoded JSON).
+    /// Used for payment proxy mode where the client signs payments locally.
+    /// When provided, this payload is forwarded as the X-PAYMENT header
+    /// instead of using the server's local wallet.
+    #[serde(default, rename = "_x402_payment")]
+    pub x402_payment: Option<String>,
 }
 
 // ============================================================================
@@ -1516,6 +1534,31 @@ fn format_payment_required_body(status: reqwest::StatusCode, body_text: &str) ->
         "Payment required ({status}). {}",
         truncate_for_client(body_text, 1200)
     )
+}
+
+/// Format a payment-required error for the payment proxy pattern.
+/// Returns a JSON structure that clients can parse to extract payment requirements
+/// and retry with a pre-signed `_x402_payment` parameter.
+fn format_payment_proxy_error(body_text: &str, payment_required_header: Option<&str>) -> String {
+    // Build a structured response that includes:
+    // 1. A marker indicating this is a proxy payment error
+    // 2. The raw payment requirements for client-side signing
+    // 3. A human-readable message
+    let proxy_error = serde_json::json!({
+        "error": "payment_required",
+        "proxy_payment": true,
+        "payment_required_header": payment_required_header,
+        "payment_requirements": serde_json::from_str::<serde_json::Value>(body_text).ok(),
+        "message": "Payment required. Sign the payment locally and retry with _x402_payment parameter.",
+        "instructions": "Parse payment_requirements or payment_required_header, sign with your wallet, and call this tool again with _x402_payment set to the base64-encoded signed payload."
+    });
+
+    serde_json::to_string(&proxy_error).unwrap_or_else(|_| {
+        format!(
+            "Payment required for proxy mode. Raw requirements: {}",
+            truncate_for_client(body_text, 1200)
+        )
+    })
 }
 
 async fn resolve_publisher_id(
@@ -2278,6 +2321,98 @@ impl SerenMcpServer {
     ) -> Result<String, McpError> {
         let response = self
             .execute_x402_roundtrip(path, body, confirm, agent_metadata)
+            .await?;
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(String::from_utf8_lossy(&bytes).to_string())
+    }
+
+    /// Execute a request with a pre-signed x402 payment (payment proxy mode).
+    /// The client has already signed the payment and we just forward it.
+    async fn execute_with_proxy_payment<T: Serialize>(
+        &self,
+        path: &str,
+        body: &T,
+        x402_payment: &str,
+        agent_metadata: &AgentMetadata,
+    ) -> Result<reqwest::Response, McpError> {
+        let http_client = self.build_public_http_client(agent_metadata)?;
+        let url = format!(
+            "{}/{}",
+            self.api_base_url.trim_end_matches('/'),
+            path.trim_start_matches('/')
+        );
+
+        // Make the request with the pre-signed payment header.
+        // We support both X-PAYMENT (x402 v1) and PAYMENT-SIGNATURE (x402 v2).
+        // The client's signed payload should work with either header name.
+        let response = http_client
+            .post(&url)
+            .header("X-PAYMENT", x402_payment)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body_text = response.text().await.unwrap_or_default();
+
+            if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+                // Payment was rejected - return the new requirements
+                return Err(McpError::invalid_request(
+                    format!(
+                        "x402 payment rejected ({}). The payment may have expired or been invalid. New requirements: {}",
+                        status,
+                        truncate_for_client(&body_text, 1200)
+                    ),
+                    None,
+                ));
+            }
+
+            return Err(McpError::internal_error(
+                format!(
+                    "Request with proxy payment failed ({}): {}",
+                    status,
+                    truncate_for_client(&body_text, 500)
+                ),
+                None,
+            ));
+        }
+
+        Ok(response)
+    }
+
+    /// Execute a request with a pre-signed x402 payment and return JSON result.
+    async fn execute_with_proxy_payment_json<T: Serialize>(
+        &self,
+        path: &str,
+        body: &T,
+        x402_payment: &str,
+        agent_metadata: &AgentMetadata,
+    ) -> Result<serde_json::Value, McpError> {
+        let response = self
+            .execute_with_proxy_payment(path, body, x402_payment, agent_metadata)
+            .await?;
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(json)
+    }
+
+    /// Execute a request with a pre-signed x402 payment and return text result.
+    async fn execute_with_proxy_payment_text<T: Serialize>(
+        &self,
+        path: &str,
+        body: &T,
+        x402_payment: &str,
+        agent_metadata: &AgentMetadata,
+    ) -> Result<String, McpError> {
+        let response = self
+            .execute_with_proxy_payment(path, body, x402_payment, agent_metadata)
             .await?;
         let bytes = response
             .bytes()
@@ -3868,6 +4003,19 @@ impl SerenMcpServer {
             request_id: params.request_id,
         };
 
+        // Payment proxy mode: if client provided a pre-signed payment, forward it directly
+        if let Some(ref x402_payment) = params.x402_payment {
+            let result = self
+                .execute_with_proxy_payment_json(
+                    "/agent/database",
+                    &body,
+                    x402_payment,
+                    &agent_metadata,
+                )
+                .await?;
+            return Ok(CallToolResult::success(vec![json_content(&result)?]));
+        }
+
         // Retry loop with exponential backoff for transient errors
         let mut last_error = None;
         for attempt in 0..=MAX_RETRIES {
@@ -3905,14 +4053,17 @@ impl SerenMcpServer {
                         seren::Error::UnexpectedResponse(response) => {
                             let status = response.status();
                             if status == reqwest::StatusCode::PAYMENT_REQUIRED {
-                                let has_payment_required_header =
-                                    response.headers().get("PAYMENT-REQUIRED").is_some();
+                                let payment_required_header = response
+                                    .headers()
+                                    .get("PAYMENT-REQUIRED")
+                                    .and_then(|v| v.to_str().ok())
+                                    .map(|s| s.to_string());
                                 let body_text = response.text().await.unwrap_or_default();
+                                let has_x402_option = payment_required_header.is_some()
+                                    || payment_required_has_non_prepaid_option(&body_text);
 
-                                if self.wallet.is_some()
-                                    && (has_payment_required_header
-                                        || payment_required_has_non_prepaid_option(&body_text))
-                                {
+                                if self.wallet.is_some() && has_x402_option {
+                                    // Local wallet available - sign and pay directly
                                     let result = self
                                         .execute_x402_roundtrip_json(
                                             "/agent/database",
@@ -3926,6 +4077,19 @@ impl SerenMcpServer {
                                     )?]));
                                 }
 
+                                if has_x402_option {
+                                    // No local wallet but x402 is available - return proxy error
+                                    // so client can sign locally and retry with _x402_payment
+                                    return Err(McpError::invalid_request(
+                                        format_payment_proxy_error(
+                                            &body_text,
+                                            payment_required_header.as_deref(),
+                                        ),
+                                        None,
+                                    ));
+                                }
+
+                                // Only prepaid options available - return standard error
                                 return Err(McpError::invalid_request(
                                     format_payment_required_body(status, &body_text),
                                     None,
@@ -4016,6 +4180,14 @@ impl SerenMcpServer {
             request_id: params.request_id,
         };
 
+        // Payment proxy mode: if client provided a pre-signed payment, forward it directly
+        if let Some(ref x402_payment) = params.x402_payment {
+            let result = self
+                .execute_with_proxy_payment_json("/agent/api", &body, x402_payment, &agent_metadata)
+                .await?;
+            return Ok(CallToolResult::success(vec![json_content(&result)?]));
+        }
+
         // Retry loop with exponential backoff for transient errors
         let mut last_error = None;
         for attempt in 0..=MAX_RETRIES {
@@ -4053,14 +4225,17 @@ impl SerenMcpServer {
                         seren::Error::UnexpectedResponse(response) => {
                             let status = response.status();
                             if status == reqwest::StatusCode::PAYMENT_REQUIRED {
-                                let has_payment_required_header =
-                                    response.headers().get("PAYMENT-REQUIRED").is_some();
+                                let payment_required_header = response
+                                    .headers()
+                                    .get("PAYMENT-REQUIRED")
+                                    .and_then(|v| v.to_str().ok())
+                                    .map(|s| s.to_string());
                                 let body_text = response.text().await.unwrap_or_default();
+                                let has_x402_option = payment_required_header.is_some()
+                                    || payment_required_has_non_prepaid_option(&body_text);
 
-                                if self.wallet.is_some()
-                                    && (has_payment_required_header
-                                        || payment_required_has_non_prepaid_option(&body_text))
-                                {
+                                if self.wallet.is_some() && has_x402_option {
+                                    // Local wallet available - sign and pay directly
                                     let result = self
                                         .execute_x402_roundtrip_json(
                                             "/agent/api",
@@ -4074,6 +4249,19 @@ impl SerenMcpServer {
                                     )?]));
                                 }
 
+                                if has_x402_option {
+                                    // No local wallet but x402 is available - return proxy error
+                                    // so client can sign locally and retry with _x402_payment
+                                    return Err(McpError::invalid_request(
+                                        format_payment_proxy_error(
+                                            &body_text,
+                                            payment_required_header.as_deref(),
+                                        ),
+                                        None,
+                                    ));
+                                }
+
+                                // Only prepaid options available - return standard error
                                 return Err(McpError::invalid_request(
                                     format_payment_required_body(status, &body_text),
                                     None,
@@ -5017,6 +5205,19 @@ impl SerenMcpServer {
             request_id: params.request_id,
         };
 
+        // Payment proxy mode: if client provided a pre-signed payment, forward it directly
+        if let Some(ref x402_payment) = params.x402_payment {
+            let text = self
+                .execute_with_proxy_payment_text(
+                    "/agent/stream",
+                    &body,
+                    x402_payment,
+                    &agent_metadata,
+                )
+                .await?;
+            return Ok(CallToolResult::success(vec![Content::text(text)]));
+        }
+
         if self.wallet.is_some() {
             let text = self
                 .execute_x402_roundtrip_text(
@@ -5059,6 +5260,26 @@ impl SerenMcpServer {
                 seren::Error::UnexpectedResponse(response) => {
                     let status = response.status();
                     if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+                        let payment_required_header = response
+                            .headers()
+                            .get("PAYMENT-REQUIRED")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|s| s.to_string());
+                        let body_text = response.text().await.unwrap_or_default();
+                        let has_x402_option = payment_required_header.is_some()
+                            || payment_required_has_non_prepaid_option(&body_text);
+
+                        if has_x402_option {
+                            // Return proxy error so client can sign locally and retry
+                            return Err(McpError::invalid_request(
+                                format_payment_proxy_error(
+                                    &body_text,
+                                    payment_required_header.as_deref(),
+                                ),
+                                None,
+                            ));
+                        }
+
                         return Err(McpError::invalid_request(
                             "Streaming requests require x402. Configure WALLET_PRIVATE_KEY and retry, or use execute_paid_api for SerenBucks payments.".to_string(),
                             None,
