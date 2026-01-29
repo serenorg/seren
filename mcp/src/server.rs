@@ -4147,6 +4147,114 @@ impl SerenMcpServer {
                                     None,
                                 ));
                             }
+                            // Check for "not a database publisher" error and auto-recover
+                            // by calling the API endpoint instead
+                            if status == reqwest::StatusCode::BAD_REQUEST {
+                                let body_text = response.text().await.unwrap_or_default();
+                                if body_text.contains("not a database category publisher") {
+                                    tracing::info!(
+                                        publisher = %params.publisher,
+                                        "Publisher is not a database publisher, auto-recovering by calling API endpoint"
+                                    );
+                                    // Build API request body - use query as the body content
+                                    // since database queries don't map directly to API calls,
+                                    // we'll pass the query in the body for the publisher to interpret
+                                    let api_body = seren::ApiRequestBody {
+                                        publisher: Some(params.publisher.clone()),
+                                        publisher_id: None,
+                                        asset_id: params.asset_id,
+                                        method: Some("POST".to_string()),
+                                        path: None,
+                                        headers: None,
+                                        body: Some(serde_json::json!({ "query": params.query })),
+                                        estimated_rows: None,
+                                        pre_authorization: None,
+                                        request_id: params.request_id,
+                                    };
+
+                                    // Notification message to help LLM learn the correct tool
+                                    let correction_notice = Content::text(format!(
+                                        "NOTE: Publisher '{}' is an API publisher, not a database. This request was auto-recovered, but next time use execute_paid_api instead of execute_paid_query for this publisher.",
+                                        params.publisher
+                                    ));
+
+                                    // Try API endpoint with x402 payment if wallet available
+                                    if let Some(ref x402_payment) = params.x402_payment {
+                                        let result = self
+                                            .execute_with_proxy_payment_json(
+                                                "/agent/api",
+                                                &api_body,
+                                                x402_payment,
+                                                &agent_metadata,
+                                            )
+                                            .await?;
+                                        return Ok(CallToolResult::success(vec![
+                                            correction_notice,
+                                            json_content(&result)?,
+                                        ]));
+                                    }
+
+                                    match api_client.execute_api(&api_body).await {
+                                        Ok(response) => {
+                                            let result = response.into_inner();
+                                            return Ok(CallToolResult::success(vec![
+                                                correction_notice,
+                                                json_content(&result)?,
+                                            ]));
+                                        }
+                                        Err(api_err) => {
+                                            // If API also fails with payment required and we have wallet, try x402
+                                            if let seren::Error::UnexpectedResponse(api_response) =
+                                                api_err
+                                            {
+                                                if api_response.status()
+                                                    == reqwest::StatusCode::PAYMENT_REQUIRED
+                                                {
+                                                    if self.wallet.is_some() {
+                                                        let result = self
+                                                            .execute_x402_roundtrip_json(
+                                                                "/agent/api",
+                                                                &api_body,
+                                                                params.confirm,
+                                                                &agent_metadata,
+                                                            )
+                                                            .await?;
+                                                        return Ok(CallToolResult::success(vec![
+                                                            correction_notice,
+                                                            json_content(&result)?,
+                                                        ]));
+                                                    }
+                                                }
+                                                let api_body_text =
+                                                    api_response.text().await.unwrap_or_default();
+                                                return Err(McpError::internal_error(
+                                                    format!(
+                                                        "Auto-recovery to API endpoint also failed: {}",
+                                                        truncate_for_client(&api_body_text, 1200)
+                                                    ),
+                                                    None,
+                                                ));
+                                            }
+                                            return Err(McpError::internal_error(
+                                                format!(
+                                                    "Auto-recovery to API endpoint failed: {}",
+                                                    api_err
+                                                ),
+                                                None,
+                                            ));
+                                        }
+                                    }
+                                }
+                                // Not the specific error we're looking for, return as-is
+                                return Err(McpError::internal_error(
+                                    format!(
+                                        "Query failed ({}): {}",
+                                        status,
+                                        truncate_for_client(&body_text, 1200)
+                                    ),
+                                    None,
+                                ));
+                            }
                             let body = response.text().await.unwrap_or_default();
                             return Err(McpError::internal_error(
                                 format!(
@@ -4315,6 +4423,28 @@ impl SerenMcpServer {
                                     format!(
                                         "Publisher '{}' API endpoint returned 404. The publisher may not have API access configured, or the endpoint may be unavailable. Use get_agent_publisher to check the publisher's category and api_url configuration.",
                                         params.publisher
+                                    ),
+                                    None,
+                                ));
+                            }
+                            // Check for "not an integration publisher" error and provide helpful message
+                            if status == reqwest::StatusCode::BAD_REQUEST {
+                                let body_text = response.text().await.unwrap_or_default();
+                                if body_text.contains("not an integration category publisher") {
+                                    return Err(McpError::invalid_request(
+                                        format!(
+                                            "Publisher '{}' is a database publisher, not an API publisher. Use execute_paid_query with a SQL query instead of execute_paid_api.",
+                                            params.publisher
+                                        ),
+                                        None,
+                                    ));
+                                }
+                                // Not the specific error we're looking for, return as-is
+                                return Err(McpError::internal_error(
+                                    format!(
+                                        "API call failed ({}): {}",
+                                        status,
+                                        truncate_for_client(&body_text, 1200)
                                     ),
                                     None,
                                 ));
