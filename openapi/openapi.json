@@ -1403,333 +1403,12 @@
         ]
       }
     },
-    "/api/oauth/connections": {
-      "get": {
-        "tags": [
-          "OAuth"
-        ],
-        "summary": "List user's OAuth connections",
-        "description": "Returns all OAuth providers the user has connected to.",
-        "operationId": "list_connections",
-        "responses": {
-          "200": {
-            "description": "List of user's OAuth connections",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConnectionsResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/oauth/connections/providers/{provider_id}": {
-      "delete": {
-        "tags": [
-          "OAuth"
-        ],
-        "summary": "Revoke an OAuth connection by provider ID (supports org-scoped providers)",
-        "operationId": "revoke_connection_by_id",
-        "parameters": [
-          {
-            "name": "provider_id",
-            "in": "path",
-            "description": "OAuth provider UUID to disconnect",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Connection revoked successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RevokeResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Connection not found"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/oauth/connections/{provider}": {
-      "delete": {
-        "tags": [
-          "OAuth"
-        ],
-        "summary": "Revoke an OAuth connection",
-        "description": "Disconnects the user's account from the OAuth provider and deletes stored tokens.",
-        "operationId": "revoke_connection",
-        "parameters": [
-          {
-            "name": "provider",
-            "in": "path",
-            "description": "OAuth provider slug to disconnect",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Connection revoked successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RevokeResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Connection not found"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/oauth/providers": {
-      "get": {
-        "tags": [
-          "OAuth"
-        ],
-        "summary": "List available OAuth providers",
-        "description": "Returns all active OAuth providers that users can connect to.",
-        "operationId": "list_providers",
-        "responses": {
-          "200": {
-            "description": "List of available OAuth providers",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProvidersResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/oauth/providers/{provider_id}/authorize": {
-      "get": {
-        "tags": [
-          "OAuth"
-        ],
-        "summary": "Initiate OAuth authorization flow by provider ID (supports org-scoped providers)",
-        "operationId": "initiate_oauth_by_id",
-        "parameters": [
-          {
-            "name": "provider_id",
-            "in": "path",
-            "description": "OAuth provider UUID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "redirect_uri",
-            "in": "query",
-            "description": "Where to redirect after OAuth completes",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "nullable": true
-            }
-          }
-        ],
-        "responses": {
-          "302": {
-            "description": "Redirect to OAuth provider"
-          },
-          "404": {
-            "description": "Provider not found"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/oauth/providers/{provider_id}/callback": {
-      "get": {
-        "tags": [
-          "OAuth"
-        ],
-        "summary": "Handle OAuth callback by provider ID (supports org-scoped providers)",
-        "operationId": "oauth_callback_by_id",
-        "parameters": [
-          {
-            "name": "provider_id",
-            "in": "path",
-            "description": "OAuth provider UUID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "code",
-            "in": "query",
-            "description": "Authorization code from provider",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "state",
-            "in": "query",
-            "description": "State parameter for CSRF verification",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "302": {
-            "description": "Redirect to frontend with success/error"
-          },
-          "400": {
-            "description": "Invalid callback parameters"
-          },
-          "404": {
-            "description": "Provider not found"
-          }
-        }
-      }
-    },
-    "/api/oauth/{provider}/authorize": {
-      "get": {
-        "tags": [
-          "OAuth"
-        ],
-        "summary": "Initiate OAuth authorization flow",
-        "description": "Redirects the user to the OAuth provider's consent screen.\nAfter authorization, the provider will redirect back to the callback URL.",
-        "operationId": "initiate_oauth",
-        "parameters": [
-          {
-            "name": "provider",
-            "in": "path",
-            "description": "OAuth provider slug (e.g., 'neon')",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "redirect_uri",
-            "in": "query",
-            "description": "Where to redirect after OAuth completes",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "nullable": true
-            }
-          }
-        ],
-        "responses": {
-          "302": {
-            "description": "Redirect to OAuth provider"
-          },
-          "404": {
-            "description": "Provider not found"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/oauth/{provider}/callback": {
-      "get": {
-        "tags": [
-          "OAuth"
-        ],
-        "summary": "Handle OAuth callback",
-        "description": "Called by the OAuth provider after the user authorizes.\nExchanges the authorization code for tokens and stores them.",
-        "operationId": "oauth_callback",
-        "parameters": [
-          {
-            "name": "provider",
-            "in": "path",
-            "description": "OAuth provider slug",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "code",
-            "in": "query",
-            "description": "Authorization code from provider",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "state",
-            "in": "query",
-            "description": "State parameter for CSRF verification",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "302": {
-            "description": "Redirect to frontend with success/error"
-          },
-          "400": {
-            "description": "Invalid callback parameters"
-          }
-        }
-      }
-    },
     "/auth/forgot-password": {
       "post": {
         "tags": [
           "Auth"
         ],
-        "summary": "POST /api/auth/forgot-password",
+        "summary": "POST /auth/forgot-password",
         "description": "Request a password reset email",
         "operationId": "forgot_password",
         "requestBody": {
@@ -1794,7 +1473,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "POST /api/auth/resend-verification",
+        "summary": "POST /auth/resend-verification",
         "description": "Resend email verification link",
         "operationId": "resend_verification_email",
         "requestBody": {
@@ -1829,7 +1508,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "POST /api/auth/reset-password",
+        "summary": "POST /auth/reset-password",
         "description": "Reset password using a valid token",
         "operationId": "reset_password",
         "requestBody": {
@@ -1867,7 +1546,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "POST /api/auth/verify-email",
+        "summary": "POST /auth/verify-email",
         "description": "Verify email address using a token sent during signup\nOn success, automatically logs the user in and returns tokens",
         "operationId": "verify_email",
         "requestBody": {
@@ -1902,7 +1581,7 @@
         "tags": [
           "billing"
         ],
-        "summary": "GET /api/billing/health",
+        "summary": "GET /billing/health",
         "description": "High-level billing and metering health summary for Seren Core",
         "operationId": "get_billing_health",
         "responses": {
@@ -1927,7 +1606,7 @@
         "tags": [
           "billing"
         ],
-        "summary": "POST /api/billing/invoices/generate",
+        "summary": "POST /billing/invoices/generate",
         "description": "Generate monthly invoices for all organizations",
         "operationId": "generate_invoices",
         "requestBody": {
@@ -1965,7 +1644,7 @@
         "tags": [
           "billing"
         ],
-        "summary": "GET /api/billing/invoices/:id",
+        "summary": "GET /billing/invoices/:id",
         "description": "Get invoice details with line items",
         "operationId": "get_invoice",
         "parameters": [
@@ -2005,7 +1684,7 @@
         "tags": [
           "billing"
         ],
-        "summary": "POST /api/billing/invoices/:id/issue",
+        "summary": "POST /billing/invoices/:id/issue",
         "description": "Issue a draft invoice",
         "operationId": "issue_invoice",
         "parameters": [
@@ -2038,7 +1717,7 @@
         "tags": [
           "payments"
         ],
-        "summary": "POST /api/billing/invoices/:id/pay",
+        "summary": "POST /billing/invoices/:id/pay",
         "description": "Create a payment intent for an invoice",
         "operationId": "create_payment_intent",
         "parameters": [
@@ -2086,7 +1765,7 @@
         "tags": [
           "payments"
         ],
-        "summary": "GET /api/billing/invoices/:id/payments",
+        "summary": "GET /billing/invoices/:id/payments",
         "description": "Get payment history for an invoice",
         "operationId": "get_payment_history",
         "parameters": [
@@ -2131,7 +1810,7 @@
         "tags": [
           "payments"
         ],
-        "summary": "GET /api/billing/payment-methods",
+        "summary": "GET /billing/payment-methods",
         "description": "List payment methods for the organization",
         "operationId": "list_payment_methods",
         "responses": {
@@ -2159,7 +1838,7 @@
         "tags": [
           "payments"
         ],
-        "summary": "POST /api/billing/payment-methods",
+        "summary": "POST /billing/payment-methods",
         "description": "Add a payment method for the organization",
         "operationId": "add_payment_method",
         "requestBody": {
@@ -2202,7 +1881,7 @@
         "tags": [
           "payments"
         ],
-        "summary": "DELETE /api/billing/payment-methods/{id}",
+        "summary": "DELETE /billing/payment-methods/{id}",
         "description": "Remove a payment method from the organization",
         "operationId": "delete_payment_method",
         "parameters": [
@@ -2240,7 +1919,7 @@
         "tags": [
           "billing"
         ],
-        "summary": "GET /api/billing/usage/:organization_id",
+        "summary": "GET /billing/usage/:organization_id",
         "description": "Get usage summary for an organization",
         "operationId": "get_usage_summary",
         "parameters": [
@@ -2323,12 +2002,333 @@
         ]
       }
     },
+    "/oauth/connections": {
+      "get": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "List user's OAuth connections",
+        "description": "Returns all OAuth providers the user has connected to.",
+        "operationId": "list_connections",
+        "responses": {
+          "200": {
+            "description": "List of user's OAuth connections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/oauth/connections/providers/{provider_id}": {
+      "delete": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "Revoke an OAuth connection by provider ID (supports org-scoped providers)",
+        "operationId": "revoke_connection_by_id",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "description": "OAuth provider UUID to disconnect",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Connection revoked successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Connection not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/oauth/connections/{provider}": {
+      "delete": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "Revoke an OAuth connection",
+        "description": "Disconnects the user's account from the OAuth provider and deletes stored tokens.",
+        "operationId": "revoke_connection",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "OAuth provider slug to disconnect",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Connection revoked successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Connection not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/oauth/providers": {
+      "get": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "List available OAuth providers",
+        "description": "Returns all active OAuth providers that users can connect to.",
+        "operationId": "list_providers",
+        "responses": {
+          "200": {
+            "description": "List of available OAuth providers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvidersResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/oauth/providers/{provider_id}/authorize": {
+      "get": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "Initiate OAuth authorization flow by provider ID (supports org-scoped providers)",
+        "operationId": "initiate_oauth_by_id",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "description": "OAuth provider UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "redirect_uri",
+            "in": "query",
+            "description": "Where to redirect after OAuth completes",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to OAuth provider"
+          },
+          "404": {
+            "description": "Provider not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/oauth/providers/{provider_id}/callback": {
+      "get": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "Handle OAuth callback by provider ID (supports org-scoped providers)",
+        "operationId": "oauth_callback_by_id",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "description": "OAuth provider UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "description": "Authorization code from provider",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "State parameter for CSRF verification",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to frontend with success/error"
+          },
+          "400": {
+            "description": "Invalid callback parameters"
+          },
+          "404": {
+            "description": "Provider not found"
+          }
+        }
+      }
+    },
+    "/oauth/{provider}/authorize": {
+      "get": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "Initiate OAuth authorization flow",
+        "description": "Redirects the user to the OAuth provider's consent screen.\nAfter authorization, the provider will redirect back to the callback URL.",
+        "operationId": "initiate_oauth",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "OAuth provider slug (e.g., 'neon')",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "redirect_uri",
+            "in": "query",
+            "description": "Where to redirect after OAuth completes",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to OAuth provider"
+          },
+          "404": {
+            "description": "Provider not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/oauth/{provider}/callback": {
+      "get": {
+        "tags": [
+          "OAuth"
+        ],
+        "summary": "Handle OAuth callback",
+        "description": "Called by the OAuth provider after the user authorizes.\nExchanges the authorization code for tokens and stores them.",
+        "operationId": "oauth_callback",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "OAuth provider slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "description": "Authorization code from provider",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "State parameter for CSRF verification",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to frontend with success/error"
+          },
+          "400": {
+            "description": "Invalid callback parameters"
+          }
+        }
+      }
+    },
     "/organizations": {
       "get": {
         "tags": [
           "Organizations"
         ],
-        "summary": "GET /api/organizations",
+        "summary": "GET /organizations",
         "description": "List all organizations for the authenticated user",
         "operationId": "list_organizations",
         "responses": {
@@ -2344,6 +2344,119 @@
           },
           "401": {
             "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/default/api-keys": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "List API keys for the user's default organization",
+        "operationId": "list_default_org_api_keys",
+        "responses": {
+          "200": {
+            "description": "List of API keys",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeysResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "User has no organization"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Create a new API key for the user's default organization",
+        "description": "This is a convenience endpoint that resolves \"default\" to the user's\nfirst organization, avoiding an extra round-trip to /auth/me.",
+        "operationId": "create_default_org_api_key",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApiKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "API key created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyCreatedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "User has no organization"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/default/api-keys/{key_id}": {
+      "delete": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Revoke an API key from the user's default organization",
+        "operationId": "revoke_default_org_api_key",
+        "parameters": [
+          {
+            "name": "key_id",
+            "in": "path",
+            "description": "API key ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "API key revoked"
+          },
+          "400": {
+            "description": "User has no organization"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "API key not found"
           }
         },
         "security": [
@@ -2768,7 +2881,7 @@
         "tags": [
           "billing"
         ],
-        "summary": "GET /api/organizations/{organization_id}/billing/endpoints/{endpoint_id}/events",
+        "summary": "GET /organizations/{organization_id}/billing/endpoints/{endpoint_id}/events",
         "description": "Debug endpoint: show recent usage_events and compute_usage_events for an endpoint",
         "operationId": "get_endpoint_billing_events",
         "parameters": [
@@ -2818,7 +2931,7 @@
         "tags": [
           "billing"
         ],
-        "summary": "GET /api/organizations/{organization_id}/consumption",
+        "summary": "GET /organizations/{organization_id}/consumption",
         "description": "Aggregated organization-level consumption over a billing window.",
         "operationId": "get_organization_consumption",
         "parameters": [
@@ -2886,7 +2999,7 @@
         "tags": [
           "Organizations"
         ],
-        "summary": "GET /api/organizations/{organization_id}/invites",
+        "summary": "GET /organizations/{organization_id}/invites",
         "description": "List pending and historical organization invites.",
         "operationId": "list_invites",
         "parameters": [
@@ -2929,7 +3042,7 @@
         "tags": [
           "Organizations"
         ],
-        "summary": "POST /api/organizations/{organization_id}/invites",
+        "summary": "POST /organizations/{organization_id}/invites",
         "description": "Create a new organization invite and send an email via the configured mailer.",
         "operationId": "create_invite",
         "parameters": [
@@ -2987,7 +3100,7 @@
         "tags": [
           "Organizations"
         ],
-        "summary": "GET /api/organizations/{organization_id}/members",
+        "summary": "GET /organizations/{organization_id}/members",
         "description": "List organization members with basic user details.",
         "operationId": "list_members",
         "parameters": [
@@ -3493,7 +3606,7 @@
         "tags": [
           "Plans"
         ],
-        "summary": "GET /api/organizations/:org_id/plan",
+        "summary": "GET /organizations/:org_id/plan",
         "description": "Get the current plan for an organization",
         "operationId": "get_organization_plan",
         "parameters": [
@@ -3531,7 +3644,7 @@
         "tags": [
           "Plans"
         ],
-        "summary": "POST /api/organizations/:org_id/plan",
+        "summary": "POST /organizations/:org_id/plan",
         "description": "Upgrade or downgrade an organization's plan",
         "operationId": "change_organization_plan",
         "parameters": [
@@ -3839,7 +3952,7 @@
         "tags": [
           "Agent Analytics"
         ],
-        "summary": "GET /api/organizations/:org_id/publishers/:publisher_id/analytics/revenue",
+        "summary": "GET /organizations/:org_id/publishers/:publisher_id/analytics/revenue",
         "description": "Get revenue metrics with period-over-period comparison.",
         "operationId": "get_revenue_metrics",
         "parameters": [
@@ -3904,7 +4017,7 @@
         "tags": [
           "Agent Analytics"
         ],
-        "summary": "GET /api/organizations/:org_id/publishers/:publisher_id/analytics/revenue-by-day",
+        "summary": "GET /organizations/:org_id/publishers/:publisher_id/analytics/revenue-by-day",
         "description": "Get daily revenue breakdown.",
         "operationId": "get_revenue_by_day",
         "parameters": [
@@ -3972,7 +4085,7 @@
         "tags": [
           "Agent Analytics"
         ],
-        "summary": "GET /api/organizations/:org_id/publishers/:publisher_id/analytics/top-agents",
+        "summary": "GET /organizations/:org_id/publishers/:publisher_id/analytics/top-agents",
         "description": "Get top agents by spending.",
         "operationId": "get_top_agents",
         "parameters": [
@@ -4298,7 +4411,7 @@
         "tags": [
           "Plans"
         ],
-        "summary": "GET /api/organizations/:org_id/quota",
+        "summary": "GET /organizations/:org_id/quota",
         "description": "Get current quota usage for an organization",
         "operationId": "get_quota_usage",
         "parameters": [
@@ -5455,7 +5568,7 @@
         "tags": [
           "Plans"
         ],
-        "summary": "GET /api/plans",
+        "summary": "GET /plans",
         "description": "List all available subscription plans",
         "operationId": "list_plans",
         "responses": {
@@ -5480,7 +5593,7 @@
         "tags": [
           "Plans"
         ],
-        "summary": "GET /api/plans/:plan_id",
+        "summary": "GET /plans/:plan_id",
         "description": "Get details of a specific plan",
         "operationId": "get_plan",
         "parameters": [
@@ -8887,7 +9000,7 @@
         "tags": [
           "billing"
         ],
-        "summary": "GET /api/projects/{project_id}/consumption",
+        "summary": "GET /projects/{project_id}/consumption",
         "description": "Aggregated project-level consumption (compute, storage, PITR, network) over a billing window.",
         "operationId": "get_project_consumption",
         "parameters": [
@@ -10228,7 +10341,7 @@
         "tags": [
           "webhooks"
         ],
-        "summary": "POST /api/webhooks/stripe",
+        "summary": "POST /webhooks/stripe",
         "description": "Handle Stripe webhook events",
         "operationId": "handle_stripe_webhook",
         "responses": {

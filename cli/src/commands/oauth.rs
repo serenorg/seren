@@ -65,7 +65,7 @@ pub async fn list_providers(ctx: &CommandContext) -> Result<()> {
     let api_base = ctx.api_base();
 
     let response = client
-        .get(format!("{}/api/oauth/providers", api_base))
+        .get(format!("{}/oauth/providers", api_base))
         .send()
         .await
         .context("Failed to list OAuth providers")?;
@@ -115,7 +115,7 @@ pub async fn list_connections(ctx: &CommandContext) -> Result<()> {
     let api_base = ctx.api_base();
 
     let response = client
-        .get(format!("{}/api/oauth/connections", api_base))
+        .get(format!("{}/oauth/connections", api_base))
         .send()
         .await
         .context("Failed to list OAuth connections")?;
@@ -190,7 +190,7 @@ pub async fn connect(provider_slug: &str, ctx: &CommandContext) -> Result<()> {
     // Request authorization URL from the API
     let response = client
         .get(format!(
-            "{}/api/oauth/{}/authorize?redirect_uri={}",
+            "{}/oauth/{}/authorize?redirect_uri={}",
             api_base,
             provider_slug,
             urlencoding::encode(&redirect_url)
@@ -266,7 +266,7 @@ pub async fn connect(provider_slug: &str, ctx: &CommandContext) -> Result<()> {
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
         let response = verify_client
-            .get(format!("{}/api/oauth/connections", api_base))
+            .get(format!("{}/oauth/connections", api_base))
             .send()
             .await
             .context("Failed to verify connection")?;
@@ -317,10 +317,7 @@ pub async fn disconnect(provider_slug: &str, ctx: &CommandContext) -> Result<()>
     println!("Disconnecting from {}...", provider_slug);
 
     let response = client
-        .delete(format!(
-            "{}/api/oauth/connections/{}",
-            api_base, provider_slug
-        ))
+        .delete(format!("{}/oauth/connections/{}", api_base, provider_slug))
         .send()
         .await
         .context("Failed to disconnect OAuth connection")?;
