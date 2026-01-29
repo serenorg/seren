@@ -681,6 +681,22 @@ fn refresh_lock_key(token_hash: &str) -> i64 {
     i64::from_le_bytes(digest[..8].try_into().expect("sha256 is 32 bytes"))
 }
 
+fn canonical_refresh_token_hash(refresh_token_or_hash: &str) -> String {
+    // Most callers will pass a raw refresh token; allow passing the stored SHA-256 hex token hash
+    // too (used in some internal flows / migrations).
+    let looks_like_sha256_hex = refresh_token_or_hash.len() == 64
+        && refresh_token_or_hash
+            .as_bytes()
+            .iter()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+
+    if looks_like_sha256_hex {
+        refresh_token_or_hash.to_string()
+    } else {
+        TokenStore::hash_refresh_token(refresh_token_or_hash)
+    }
+}
+
 async fn token(
     State(state): State<Arc<OAuthState>>,
     Form(req): Form<TokenRequest>,
@@ -835,7 +851,7 @@ async fn token(
 
             // Serialize refresh operations per token_hash to avoid racing upstream refresh token
             // rotation (the upstream API uses single-use refresh tokens and will revoke sessions on reuse).
-            let refresh_token_hash = refresh_token.token_hash.clone();
+            let refresh_token_hash = canonical_refresh_token_hash(&refresh_token_str);
             let lock_key = refresh_lock_key(&refresh_token_hash);
 
             let mut lock_conn = state
@@ -860,13 +876,29 @@ async fn token(
                 {
                     Ok(Some(token)) => token,
                     Ok(None) => {
-                        debug!(
-                            event = "oauth_refresh_token_not_found",
-                            "Refresh token not found under lock"
-                        );
-                        return Err(OAuthError::InvalidGrant(
-                            "Invalid or expired refresh token".into(),
-                        ));
+                        // Legacy fallback: token_hash may still be stored plaintext in DB.
+                        // get_refresh_token can match both hashed and plaintext and will attempt
+                        // to upgrade plaintext to hashed storage.
+                        match state.store.get_refresh_token(&refresh_token_str).await {
+                            Ok(Some(token)) => token,
+                            Ok(None) => {
+                                debug!(
+                                    event = "oauth_refresh_token_not_found",
+                                    "Refresh token not found under lock"
+                                );
+                                return Err(OAuthError::InvalidGrant(
+                                    "Invalid or expired refresh token".into(),
+                                ));
+                            }
+                            Err(e) => {
+                                debug!(
+                                    event = "oauth_refresh_token_db_error",
+                                    error = %e,
+                                    "Database error looking up refresh token under lock"
+                                );
+                                return Err(OAuthError::ServerError(e.to_string()));
+                            }
+                        }
                     }
                     Err(e) => {
                         debug!(
@@ -931,9 +963,6 @@ async fn token(
                 // Keep using the existing refresh token hash - no rotation.
                 // This fixes race conditions when multiple sessions share the same refresh token:
                 // rotating the hash would invalidate other sessions' tokens. (GitHub #106)
-                let existing_refresh_token_hash = refresh_token.token_hash.clone();
-
-                // Mint new MCP access token with the existing refresh_token_hash
                 let (new_mcp_access_token, mcp_expires_in) = state
                     .jwt_signer
                     .sign_access_token(
@@ -942,7 +971,7 @@ async fn token(
                         &refresh_token.scope,
                         None,
                         None,
-                        Some(&existing_refresh_token_hash),
+                        Some(refresh_token_hash.as_str()),
                     )
                     .map_err(|e| OAuthError::ServerError(format!("Failed to sign token: {}", e)))?;
 
@@ -1849,7 +1878,8 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "access_token": "up_access_1",
                 "token_type": "Bearer",
-                "expires_in": 3600,
+                // Force an upstream refresh during the downstream refresh_token flow.
+                "expires_in": 0,
                 "refresh_token": "up_refresh_1",
                 "scope": "openid profile email",
             })))
@@ -2052,7 +2082,7 @@ mod tests {
             Some(downstream_state)
         );
 
-        // 5) Token exchange (downstream) -> should return upstream access token and persist it
+        // 5) Token exchange (downstream) -> should return MCP-issued tokens and persist upstream tokens
         let token_body = format!(
             "grant_type=authorization_code&code={}&redirect_uri=http://localhost/callback&client_id={}&code_verifier={}",
             downstream_code, client_id, downstream_code_verifier
@@ -2072,23 +2102,35 @@ mod tests {
         assert_eq!(res.status(), StatusCode::OK);
         let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
         let token_res: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(
-            token_res.get("access_token").and_then(|v| v.as_str()),
-            Some("up_access_1")
-        );
-        assert_eq!(
-            token_res.get("refresh_token").and_then(|v| v.as_str()),
-            Some("up_refresh_1")
-        );
+        let mcp_access_token = token_res
+            .get("access_token")
+            .and_then(|v| v.as_str())
+            .expect("token response should contain access_token");
+        let mcp_refresh_token = token_res
+            .get("refresh_token")
+            .and_then(|v| v.as_str())
+            .expect("token response should contain refresh_token");
+        assert!(!mcp_access_token.is_empty());
+        assert!(!mcp_refresh_token.is_empty());
         assert_eq!(
             token_res.get("token_type").and_then(|v| v.as_str()),
             Some("Bearer")
         );
 
-        // 6) Refresh token (downstream) -> should call upstream refresh and return new tokens
+        let claims = state
+            .jwt_signer
+            .validate_access_token(mcp_access_token)
+            .expect("MCP access token should be a valid JWT");
+        assert_eq!(claims.client_id, client_id);
+        assert_eq!(claims.scope, "api");
+
+        let refresh_token_hash = TokenStore::hash_refresh_token(mcp_refresh_token);
+        assert_eq!(claims.rth.as_deref(), Some(refresh_token_hash.as_str()));
+
+        // 6) Refresh token (downstream) -> should call upstream refresh and return new MCP access token
         let refresh_body = format!(
-            "grant_type=refresh_token&refresh_token=up_refresh_1&client_id={}",
-            client_id
+            "grant_type=refresh_token&refresh_token={}&client_id={}",
+            mcp_refresh_token, client_id
         );
         let res = app
             .oneshot(
@@ -2104,18 +2146,44 @@ mod tests {
         assert_eq!(res.status(), StatusCode::OK);
         let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
         let refresh_res: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(
-            refresh_res.get("access_token").and_then(|v| v.as_str()),
-            Some("up_access_2")
-        );
-        assert_eq!(
-            refresh_res.get("refresh_token").and_then(|v| v.as_str()),
-            Some("up_refresh_2")
-        );
+        let new_mcp_access_token = refresh_res
+            .get("access_token")
+            .and_then(|v| v.as_str())
+            .expect("refresh response should contain access_token");
+        assert!(!new_mcp_access_token.is_empty());
+        assert!(refresh_res.get("refresh_token").is_none());
         assert_eq!(
             refresh_res.get("token_type").and_then(|v| v.as_str()),
             Some("Bearer")
         );
+
+        let new_claims = state
+            .jwt_signer
+            .validate_access_token(new_mcp_access_token)
+            .expect("refreshed MCP access token should be a valid JWT");
+        assert_eq!(new_claims.client_id, client_id);
+        assert_eq!(new_claims.scope, "api");
+        assert_eq!(new_claims.rth.as_deref(), Some(refresh_token_hash.as_str()));
+
+        // Verify upstream tokens were refreshed and persisted.
+        let stored = store
+            .get_refresh_token_by_hash(&refresh_token_hash)
+            .await
+            .unwrap()
+            .expect("refresh token row should exist");
+        assert_eq!(stored.upstream_access_token, "up_access_2");
+        assert_eq!(
+            stored.upstream_refresh_token.as_deref(),
+            Some("up_refresh_2")
+        );
+    }
+
+    #[test]
+    fn canonical_refresh_token_hash_is_stable() {
+        let raw = "refresh-token-123";
+        let hash = TokenStore::hash_refresh_token(raw);
+        assert_eq!(canonical_refresh_token_hash(raw), hash);
+        assert_eq!(canonical_refresh_token_hash(&hash), hash);
     }
 
     #[test]

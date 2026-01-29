@@ -405,9 +405,7 @@ async fn maybe_refresh_oauth_token(config: &mut Config) -> Result<()> {
     let refreshed = request_token_refresh(&oauth_host, &client_id, &refresh_token).await?;
 
     let expires_at = Timestamp::now().as_second() + refreshed.expires_in;
-    let refresh_token = refreshed
-        .refresh_token
-        .ok_or_else(|| anyhow::anyhow!("Refresh response missing new refresh_token"))?;
+    let refresh_token = refreshed.refresh_token.unwrap_or(refresh_token);
 
     config.access_token = Some(refreshed.access_token);
     config.refresh_token = Some(refresh_token);
