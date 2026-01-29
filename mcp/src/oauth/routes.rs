@@ -13,7 +13,8 @@
 use crate::oauth::circuit_breaker::OAuthCircuitBreaker;
 use crate::oauth::jwt::McpJwtSigner;
 use crate::oauth::store::{
-    AuthRequest, AuthorizationCode, PkceMethod, REFRESH_TOKEN_TTL_HOURS, RefreshToken, TokenStore,
+    AuthRequest, AuthorizationCode, PkceMethod, REFRESH_TOKEN_TTL_HOURS, RefreshToken,
+    SLIDING_EXPIRY_RENEWAL_INTERVAL_HOURS, TokenStore,
 };
 use axum::{
     Form, Json, Router,
@@ -927,11 +928,12 @@ async fn token(
                     );
                 }
 
-                // Generate new MCP refresh token hash first (needed for JWT claim)
-                let new_mcp_refresh_token = TokenStore::generate_token();
-                let new_refresh_token_hash = TokenStore::hash_refresh_token(&new_mcp_refresh_token);
+                // Keep using the existing refresh token hash - no rotation.
+                // This fixes race conditions when multiple sessions share the same refresh token:
+                // rotating the hash would invalidate other sessions' tokens. (GitHub #106)
+                let existing_refresh_token_hash = refresh_token.token_hash.clone();
 
-                // Mint new MCP access token with the new refresh_token_hash
+                // Mint new MCP access token with the existing refresh_token_hash
                 let (new_mcp_access_token, mcp_expires_in) = state
                     .jwt_signer
                     .sign_access_token(
@@ -940,17 +942,15 @@ async fn token(
                         &refresh_token.scope,
                         None,
                         None,
-                        Some(&new_refresh_token_hash),
+                        Some(&existing_refresh_token_hash),
                     )
                     .map_err(|e| OAuthError::ServerError(format!("Failed to sign token: {}", e)))?;
 
-                // Rotate MCP refresh token (and persist latest upstream tokens).
+                // Update upstream tokens without rotating the MCP refresh token hash.
                 let updated = state
                     .store
-                    .update_refresh_token(
+                    .update_upstream_tokens(
                         &refresh_token_str,
-                        &new_mcp_refresh_token,
-                        Some(TokenStore::token_expiry(REFRESH_TOKEN_TTL_HOURS)),
                         &upstream_access_token,
                         upstream_refresh_token_update.as_deref(),
                         upstream_expires_at,
@@ -961,19 +961,35 @@ async fn token(
                     return Err(OAuthError::InvalidGrant("refresh_token not found".into()));
                 }
 
+                // Extend refresh token expiry periodically to support non-expiring sessions.
+                // Only updates if expiry is getting close (within renewal window).
+                let _ = state
+                    .store
+                    .extend_refresh_token_expiry_if_needed(
+                        &refresh_token_str,
+                        TokenStore::token_expiry(REFRESH_TOKEN_TTL_HOURS),
+                        OffsetDateTime::now_utc()
+                            + Duration::hours(
+                                REFRESH_TOKEN_TTL_HOURS - SLIDING_EXPIRY_RENEWAL_INTERVAL_HOURS,
+                            ),
+                    )
+                    .await;
+
                 debug!(
                     event = "oauth_token_complete",
                     grant_type = "refresh_token",
                     client_id = %refresh_token.client_id,
                     user_id = %refresh_token.user_id,
-                    "Token refresh completed (MCP token issued)"
+                    "Token refresh completed (MCP token issued, refresh token preserved)"
                 );
 
+                // Return the same refresh token - client continues using their existing token.
+                // This is safe because we're not rotating; the token remains valid.
                 Ok(no_store_json(TokenResponse {
                     access_token: new_mcp_access_token,
                     token_type: "Bearer".into(),
                     expires_in: mcp_expires_in,
-                    refresh_token: Some(new_mcp_refresh_token),
+                    refresh_token: None, // Client keeps using their existing refresh token
                     scope: refresh_token.scope,
                 }))
             })
