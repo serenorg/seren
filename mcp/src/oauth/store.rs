@@ -207,11 +207,6 @@ pub struct PendingConsent {
     pub created_at: OffsetDateTime,
 }
 
-/// Legacy type alias for compatibility during migration
-/// TODO: Remove after updating all call sites to use McpSession
-#[allow(dead_code)]
-pub type McpSessionToken = McpSession;
-
 /// Token store backed by PostgreSQL with LRU cache for client metadata
 #[derive(Clone)]
 pub struct TokenStore {
@@ -1149,51 +1144,6 @@ impl TokenStore {
             .map_err(McpError::Database)?;
 
         Ok(count.0)
-    }
-
-    // === Legacy method aliases for compatibility ===
-    // TODO: Remove after updating all call sites
-
-    /// Legacy alias for create_mcp_session
-    pub async fn track_rmcp_session(&self, session_id: &str) -> Result<()> {
-        self.create_mcp_session(session_id).await
-    }
-
-    /// Legacy alias for has_session
-    pub async fn has_rmcp_session(&self, session_id: &str) -> Result<bool> {
-        self.has_session(session_id).await
-    }
-
-    /// Legacy alias for touch_session
-    pub async fn touch_rmcp_session(&self, session_id: &str) -> Result<bool> {
-        self.touch_session(session_id).await
-    }
-
-    /// Legacy alias for touch_session_if_older_than
-    pub async fn touch_rmcp_session_if_older_than(
-        &self,
-        session_id: &str,
-        min_interval: Duration,
-    ) -> Result<bool> {
-        self.touch_session_if_older_than(session_id, min_interval)
-            .await
-    }
-
-    /// Legacy alias for save_session_state
-    pub async fn save_rmcp_session_state(
-        &self,
-        session_id: &str,
-        init_request: &serde_json::Value,
-        init_response: &serde_json::Value,
-        protocol_version: Option<&str>,
-    ) -> Result<()> {
-        self.save_session_state(session_id, init_request, init_response, protocol_version)
-            .await
-    }
-
-    /// Legacy alias for get_session_for_restore
-    pub async fn get_rmcp_session_state(&self, session_id: &str) -> Result<Option<McpSession>> {
-        self.get_session_for_restore(session_id).await
     }
 
     // === Utility operations ===

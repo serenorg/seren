@@ -1198,7 +1198,7 @@ pub fn print_operation(operation: &seren::Operation, format: OutputFormat) -> an
 }
 
 // User
-pub fn print_user(user: &seren::UserInfoResponse) -> anyhow::Result<()> {
+pub fn print_user(user: &seren::UserMeResponse) -> anyhow::Result<()> {
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)

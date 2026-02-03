@@ -2769,7 +2769,7 @@ impl SerenMcpServer {
     async fn list_projects(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let projects = api_client
-            .list_projects(None, None)
+            .list_projects(None, None, None)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -3991,7 +3991,10 @@ impl SerenMcpServer {
             ));
         }
 
-        let request = seren::DepositRequest { amount_cents };
+        let request = seren::DepositRequest {
+            amount_cents,
+            referral_code: None,
+        };
 
         let deposit = api_client
             .create_deposit(&request)
@@ -4028,22 +4031,20 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         // Use longer timeout for database queries (120s) - some publishers like
         // sec-filings-intelligence can take 60-120s for complex queries.
-        let api_client = self.api_client_with_timeout(&extensions, QUERY_TIMEOUT)?;
+        let _api_client = self.api_client_with_timeout(&extensions, QUERY_TIMEOUT)?;
         let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
-        let body = seren::QueryRequestBody {
-            publisher: Some(params.publisher.clone()),
-            publisher_id: None,
-            asset_id: params.asset_id,
+        let body = seren::DatabaseQueryRequest {
             query: params.query.clone(),
             database: params.database.clone(),
-            request_id: params.request_id,
+            params: vec![],
         };
+        let publisher_path = format!("/publishers/{}", params.publisher);
 
         // Payment proxy mode: if client provided a pre-signed payment, forward it directly
         if let Some(ref x402_payment) = params.x402_payment {
             let result = self
                 .execute_with_proxy_payment_json(
-                    "/agent/database",
+                    &publisher_path,
                     &body,
                     x402_payment,
                     &agent_metadata,
@@ -4066,11 +4067,33 @@ impl SerenMcpServer {
                 tokio::time::sleep(delay).await;
             }
 
-            match api_client.execute_query(&body).await {
-                Ok(response) => {
-                    let result = response.into_inner();
+            // Use custom HTTP call to new publisher endpoint
+            let http_client = self.build_http_client_with_timeout(
+                &self.bearer_token(&extensions)?,
+                &agent_metadata,
+                QUERY_TIMEOUT,
+            )?;
+            let query_url = format!(
+                "{}/{}",
+                self.api_base_url.trim_end_matches('/'),
+                publisher_path.trim_start_matches('/')
+            );
+            let query_response = http_client.post(&query_url).json(&body).send().await;
+
+            // Convert successful response or create Error for error handling
+            let query_result: Result<(), seren::Error<()>> = match query_response {
+                Ok(resp) if resp.status().is_success() => {
+                    let result: serde_json::Value = resp
+                        .json()
+                        .await
+                        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
                     return Ok(CallToolResult::success(vec![json_content(&result)?]));
                 }
+                Ok(resp) => Err(seren::Error::UnexpectedResponse(resp)),
+                Err(e) => Err(seren::Error::CommunicationError(e)),
+            };
+            match query_result {
+                Ok(_) => unreachable!(),
                 Err(e) => {
                     // Check if error is retryable before giving up
                     if is_retryable_error(&e) && attempt < MAX_RETRIES {
@@ -4102,7 +4125,7 @@ impl SerenMcpServer {
                                     // Local wallet available - sign and pay directly
                                     let result = self
                                         .execute_x402_roundtrip_json(
-                                            "/agent/database",
+                                            &publisher_path,
                                             &body,
                                             params.confirm,
                                             &agent_metadata,
@@ -4159,18 +4182,8 @@ impl SerenMcpServer {
                                     // Build API request body - use query as the body content
                                     // since database queries don't map directly to API calls,
                                     // we'll pass the query in the body for the publisher to interpret
-                                    let api_body = seren::ApiRequestBody {
-                                        publisher: Some(params.publisher.clone()),
-                                        publisher_id: None,
-                                        asset_id: params.asset_id,
-                                        method: Some("POST".to_string()),
-                                        path: None,
-                                        headers: None,
-                                        body: Some(serde_json::json!({ "query": params.query })),
-                                        estimated_rows: None,
-                                        pre_authorization: None,
-                                        request_id: params.request_id,
-                                    };
+                                    let api_body = serde_json::json!({ "query": params.query });
+                                    let api_path = format!("/publishers/{}", params.publisher);
 
                                     // Notification message to help LLM learn the correct tool
                                     let correction_notice = Content::text(format!(
@@ -4182,7 +4195,7 @@ impl SerenMcpServer {
                                     if let Some(ref x402_payment) = params.x402_payment {
                                         let result = self
                                             .execute_with_proxy_payment_json(
-                                                "/agent/api",
+                                                &api_path,
                                                 &api_body,
                                                 x402_payment,
                                                 &agent_metadata,
@@ -4194,51 +4207,68 @@ impl SerenMcpServer {
                                         ]));
                                     }
 
-                                    match api_client.execute_api(&api_body).await {
-                                        Ok(response) => {
-                                            let result = response.into_inner();
+                                    // Use custom HTTP call for auto-recovery to API endpoint
+                                    let recovery_url = format!(
+                                        "{}/{}",
+                                        self.api_base_url.trim_end_matches('/'),
+                                        api_path.trim_start_matches('/')
+                                    );
+                                    let recovery_http = self.build_http_client_with_timeout(
+                                        &self.bearer_token(&extensions)?,
+                                        &agent_metadata,
+                                        QUERY_TIMEOUT,
+                                    )?;
+                                    match recovery_http
+                                        .post(&recovery_url)
+                                        .json(&api_body)
+                                        .send()
+                                        .await
+                                    {
+                                        Ok(resp) if resp.status().is_success() => {
+                                            let result: serde_json::Value =
+                                                resp.json().await.map_err(|e| {
+                                                    McpError::internal_error(e.to_string(), None)
+                                                })?;
                                             return Ok(CallToolResult::success(vec![
                                                 correction_notice,
                                                 json_content(&result)?,
                                             ]));
                                         }
-                                        Err(api_err) => {
-                                            // If API also fails with payment required and we have wallet, try x402
-                                            if let seren::Error::UnexpectedResponse(api_response) =
-                                                api_err
+                                        Ok(resp) => {
+                                            // Handle non-success response
+                                            let status = resp.status();
+                                            if status == reqwest::StatusCode::PAYMENT_REQUIRED
+                                                && self.wallet.is_some()
                                             {
-                                                if api_response.status()
-                                                    == reqwest::StatusCode::PAYMENT_REQUIRED
-                                                {
-                                                    if self.wallet.is_some() {
-                                                        let result = self
-                                                            .execute_x402_roundtrip_json(
-                                                                "/agent/api",
-                                                                &api_body,
-                                                                params.confirm,
-                                                                &agent_metadata,
-                                                            )
-                                                            .await?;
-                                                        return Ok(CallToolResult::success(vec![
-                                                            correction_notice,
-                                                            json_content(&result)?,
-                                                        ]));
-                                                    }
-                                                }
-                                                let api_body_text =
-                                                    api_response.text().await.unwrap_or_default();
-                                                return Err(McpError::internal_error(
-                                                    format!(
-                                                        "Auto-recovery to API endpoint also failed: {}",
-                                                        truncate_for_client(&api_body_text, 1200)
-                                                    ),
-                                                    None,
-                                                ));
+                                                let result = self
+                                                    .execute_x402_roundtrip_json(
+                                                        &api_path,
+                                                        &api_body,
+                                                        params.confirm,
+                                                        &agent_metadata,
+                                                    )
+                                                    .await?;
+                                                return Ok(CallToolResult::success(vec![
+                                                    correction_notice,
+                                                    json_content(&result)?,
+                                                ]));
                                             }
+                                            let api_body_text =
+                                                resp.text().await.unwrap_or_default();
+                                            return Err(McpError::internal_error(
+                                                format!(
+                                                    "Auto-recovery to API endpoint failed ({}): {}",
+                                                    status,
+                                                    truncate_for_client(&api_body_text, 1200)
+                                                ),
+                                                None,
+                                            ));
+                                        }
+                                        Err(req_err) => {
                                             return Err(McpError::internal_error(
                                                 format!(
                                                     "Auto-recovery to API endpoint failed: {}",
-                                                    api_err
+                                                    req_err
                                                 ),
                                                 None,
                                             ));
@@ -4309,25 +4339,29 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         // Use longer timeout for API calls (120s) - some publishers like
         // Firecrawl can take time for complex web scraping operations.
-        let api_client = self.api_client_with_timeout(&extensions, QUERY_TIMEOUT)?;
+        let _api_client = self.api_client_with_timeout(&extensions, QUERY_TIMEOUT)?;
         let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
-        let body = seren::ApiRequestBody {
-            publisher: Some(params.publisher.clone()),
-            publisher_id: None,
-            asset_id: params.asset_id,
-            method: params.method.clone(),
-            path: params.path.clone(),
-            headers: params.headers.clone(),
-            body: params.body.clone(),
-            estimated_rows: params.estimated_rows,
-            pre_authorization: None,
-            request_id: params.request_id,
+        // Build the request body and publisher path
+        let body = params.body.clone().unwrap_or(serde_json::Value::Null);
+        let publisher_path = match &params.path {
+            Some(p) if !p.is_empty() => format!(
+                "/publishers/{}/{}",
+                params.publisher,
+                p.trim_start_matches('/')
+            ),
+            _ => format!("/publishers/{}", params.publisher),
         };
+        let method = params.method.as_deref().unwrap_or("POST");
 
         // Payment proxy mode: if client provided a pre-signed payment, forward it directly
         if let Some(ref x402_payment) = params.x402_payment {
             let result = self
-                .execute_with_proxy_payment_json("/agent/api", &body, x402_payment, &agent_metadata)
+                .execute_with_proxy_payment_json(
+                    &publisher_path,
+                    &body,
+                    x402_payment,
+                    &agent_metadata,
+                )
                 .await?;
             return Ok(CallToolResult::success(vec![json_content(&result)?]));
         }
@@ -4346,11 +4380,55 @@ impl SerenMcpServer {
                 tokio::time::sleep(delay).await;
             }
 
-            match api_client.execute_api(&body).await {
-                Ok(response) => {
-                    let result = response.into_inner();
+            // Use custom HTTP call to new publisher endpoint
+            let http_client = self.build_http_client_with_timeout(
+                &self.bearer_token(&extensions)?,
+                &agent_metadata,
+                QUERY_TIMEOUT,
+            )?;
+            let api_url = format!(
+                "{}/{}",
+                self.api_base_url.trim_end_matches('/'),
+                publisher_path.trim_start_matches('/')
+            );
+
+            // Build request with appropriate method
+            let request_builder = match method.to_uppercase().as_str() {
+                "GET" => http_client.get(&api_url),
+                "PUT" => http_client.put(&api_url),
+                "DELETE" => http_client.delete(&api_url),
+                "PATCH" => http_client.patch(&api_url),
+                _ => http_client.post(&api_url), // Default to POST
+            };
+
+            // Add optional headers
+            let mut request_builder = request_builder;
+            if let Some(ref headers) = params.headers {
+                for (key, value) in headers {
+                    if let Ok(header_name) = reqwest::header::HeaderName::from_bytes(key.as_bytes())
+                        && let Ok(header_value) = reqwest::header::HeaderValue::from_str(value)
+                    {
+                        request_builder = request_builder.header(header_name, header_value);
+                    }
+                }
+            }
+
+            let api_response = request_builder.json(&body).send().await;
+
+            // Convert response to result for error handling
+            let api_result: Result<(), seren::Error<()>> = match api_response {
+                Ok(resp) if resp.status().is_success() => {
+                    let result: serde_json::Value = resp
+                        .json()
+                        .await
+                        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
                     return Ok(CallToolResult::success(vec![json_content(&result)?]));
                 }
+                Ok(resp) => Err(seren::Error::UnexpectedResponse(resp)),
+                Err(e) => Err(seren::Error::CommunicationError(e)),
+            };
+            match api_result {
+                Ok(_) => unreachable!(),
                 Err(e) => {
                     // Check if error is retryable before giving up
                     if is_retryable_error(&e) && attempt < MAX_RETRIES {
@@ -4382,7 +4460,7 @@ impl SerenMcpServer {
                                     // Local wallet available - sign and pay directly
                                     let result = self
                                         .execute_x402_roundtrip_json(
-                                            "/agent/api",
+                                            &publisher_path,
                                             &body,
                                             params.confirm,
                                             &agent_metadata,
@@ -5347,7 +5425,6 @@ impl SerenMcpServer {
         };
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
-
     #[tool(
         description = "Execute a paid streaming API request against a publisher's endpoint. Streaming requires x402 local wallet signing; for SerenBucks payments use execute_paid_api instead.",
         annotations(read_only_hint = false, open_world_hint = false)
@@ -5357,27 +5434,25 @@ impl SerenMcpServer {
         Parameters(params): Parameters<ExecutePaidApiStreamParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
         let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
 
-        let body = seren::ApiRequestBody {
-            publisher: Some(params.publisher.clone()),
-            publisher_id: None,
-            asset_id: params.asset_id,
-            method: params.method,
-            path: params.path,
-            headers: params.headers,
-            body: params.body,
-            estimated_rows: params.estimated_rows,
-            pre_authorization: None,
-            request_id: params.request_id,
+        // Build the request body and publisher path (same pattern as execute_paid_api)
+        let body = params.body.clone().unwrap_or(serde_json::Value::Null);
+        let publisher_path = match &params.path {
+            Some(p) if !p.is_empty() => format!(
+                "/publishers/{}/{}",
+                params.publisher,
+                p.trim_start_matches('/')
+            ),
+            _ => format!("/publishers/{}", params.publisher),
         };
+        let method = params.method.as_deref().unwrap_or("POST");
 
         // Payment proxy mode: if client provided a pre-signed payment, forward it directly
         if let Some(ref x402_payment) = params.x402_payment {
             let text = self
                 .execute_with_proxy_payment_text(
-                    "/agent/stream",
+                    &publisher_path,
                     &body,
                     x402_payment,
                     &agent_metadata,
@@ -5386,10 +5461,11 @@ impl SerenMcpServer {
             return Ok(CallToolResult::success(vec![Content::text(text)]));
         }
 
+        // x402 wallet payment mode
         if self.wallet.is_some() {
             let text = self
                 .execute_x402_roundtrip_text(
-                    "/agent/stream",
+                    &publisher_path,
                     &body,
                     params.confirm,
                     &agent_metadata,
@@ -5398,12 +5474,46 @@ impl SerenMcpServer {
             return Ok(CallToolResult::success(vec![Content::text(text)]));
         }
 
-        match api_client.execute_api_stream(&body).await {
-            Ok(response) => {
-                // For streaming responses, we collect the full response into memory
-                // In a real streaming scenario, you'd want to handle chunks incrementally
+        // No wallet configured - use standard HTTP call and handle 402 errors
+        let http_client = self.build_http_client_with_timeout(
+            &self.bearer_token(&extensions)?,
+            &agent_metadata,
+            QUERY_TIMEOUT,
+        )?;
+        let api_url = format!(
+            "{}/{}",
+            self.api_base_url.trim_end_matches('/'),
+            publisher_path.trim_start_matches('/')
+        );
+
+        // Build request with appropriate method
+        let request_builder = match method.to_uppercase().as_str() {
+            "GET" => http_client.get(&api_url),
+            "PUT" => http_client.put(&api_url),
+            "DELETE" => http_client.delete(&api_url),
+            "PATCH" => http_client.patch(&api_url),
+            _ => http_client.post(&api_url),
+        };
+
+        // Add optional headers
+        let mut request_builder = request_builder;
+        if let Some(ref headers) = params.headers {
+            for (key, value) in headers {
+                if let Ok(header_name) = reqwest::header::HeaderName::from_bytes(key.as_bytes())
+                    && let Ok(header_value) = reqwest::header::HeaderValue::from_str(value)
+                {
+                    request_builder = request_builder.header(header_name, header_value);
+                }
+            }
+        }
+
+        let response = request_builder.json(&body).send().await;
+
+        match response {
+            Ok(resp) if resp.status().is_success() => {
+                // Collect streaming response
                 use futures::StreamExt;
-                let stream = response.into_inner();
+                let stream = resp.bytes_stream();
                 futures::pin_mut!(stream);
 
                 let mut collected = Vec::new();
@@ -5424,66 +5534,52 @@ impl SerenMcpServer {
                     text.to_string(),
                 )]))
             }
-            Err(e) => match e {
-                seren::Error::UnexpectedResponse(response) => {
-                    let status = response.status();
-                    if status == reqwest::StatusCode::PAYMENT_REQUIRED {
-                        let payment_required_header = response
-                            .headers()
-                            .get("PAYMENT-REQUIRED")
-                            .and_then(|v| v.to_str().ok())
-                            .map(|s| s.to_string());
-                        let body_text = response.text().await.unwrap_or_default();
-                        let has_x402_option = payment_required_header.is_some()
-                            || payment_required_has_non_prepaid_option(&body_text);
+            Ok(resp) => {
+                let status = resp.status();
+                if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+                    let payment_required_header = resp
+                        .headers()
+                        .get("PAYMENT-REQUIRED")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_string());
+                    let body_text = resp.text().await.unwrap_or_default();
+                    let has_x402_option = payment_required_header.is_some()
+                        || payment_required_has_non_prepaid_option(&body_text);
 
-                        if has_x402_option {
-                            // Return proxy error so client can sign locally and retry
-                            return Err(McpError::invalid_request(
-                                format_payment_proxy_error(
-                                    &body_text,
-                                    payment_required_header.as_deref(),
-                                ),
-                                None,
-                            ));
-                        }
-
+                    if has_x402_option {
                         return Err(McpError::invalid_request(
-                            "Streaming requests require x402. Configure WALLET_PRIVATE_KEY and retry, or use execute_paid_api for SerenBucks payments.".to_string(),
+                            format_payment_proxy_error(
+                                &body_text,
+                                payment_required_header.as_deref(),
+                            ),
                             None,
                         ));
                     }
-                    if status == reqwest::StatusCode::CONFLICT {
-                        return Err(McpError::invalid_request(
-                            "Duplicate request_id. Provide a new UUID and retry.".to_string(),
-                            None,
-                        ));
-                    }
-                    let body = response.text().await.unwrap_or_default();
-                    Err(McpError::internal_error(
-                        format!(
-                            "Streaming API call failed ({}): {}",
-                            status,
-                            truncate_for_client(&body, 1200)
-                        ),
+
+                    return Err(McpError::invalid_request(
+                        "Streaming requests require x402. Configure WALLET_PRIVATE_KEY and retry, or use execute_paid_api for SerenBucks payments.".to_string(),
                         None,
-                    ))
+                    ));
                 }
-                _ => {
-                    if let Some(status) = e.status()
-                        && status == reqwest::StatusCode::CONFLICT
-                    {
-                        return Err(McpError::invalid_request(
-                            "Duplicate request_id. Provide a new UUID and retry.".to_string(),
-                            None,
-                        ));
-                    }
-                    Err(McpError::internal_error(e.to_string(), None))
+                if status == reqwest::StatusCode::CONFLICT {
+                    return Err(McpError::invalid_request(
+                        "Duplicate request_id. Provide a new UUID and retry.".to_string(),
+                        None,
+                    ));
                 }
-            },
+                let body = resp.text().await.unwrap_or_default();
+                Err(McpError::internal_error(
+                    format!(
+                        "Streaming API call failed ({}): {}",
+                        status,
+                        truncate_for_client(&body, 1200)
+                    ),
+                    None,
+                ))
+            }
+            Err(e) => Err(McpError::internal_error(e.to_string(), None)),
         }
     }
-
     // ========================================================================
     // Project Management Tools
     // ========================================================================

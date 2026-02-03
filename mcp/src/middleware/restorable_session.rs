@@ -134,7 +134,7 @@ impl RestorableSessionManager {
         // Load session state from database
         let state = self
             .store
-            .get_rmcp_session_state(id.as_ref())
+            .get_session_for_restore(id.as_ref())
             .await
             .map_err(|e| RestorableSessionError::Database(e.to_string()))?
             .ok_or_else(|| {
@@ -242,7 +242,7 @@ impl RestorableSessionManager {
         self.sessions.write().await.insert(id.clone(), handle);
 
         // Update last activity timestamp
-        let _ = self.store.touch_rmcp_session(id.as_ref()).await;
+        let _ = self.store.touch_session(id.as_ref()).await;
 
         tracing::info!(
             event = "session_restored",
@@ -299,7 +299,7 @@ impl SessionManager for RestorableSessionManager {
         self.sessions.write().await.insert(id.clone(), handle);
 
         // Track in database (initialization state saved later during initialize_session)
-        if let Err(e) = self.store.track_rmcp_session(id.as_ref()).await {
+        if let Err(e) = self.store.create_mcp_session(id.as_ref()).await {
             tracing::warn!(
                 event = "session_track_failed",
                 session_id = %id,
@@ -341,11 +341,15 @@ impl SessionManager for RestorableSessionManager {
 
         // Extract protocol version from the response if available
         // The protocol version is in the result.protocolVersion field
-        let protocol_version: Option<String> = None; // TODO: extract from response if needed
+        let protocol_version: Option<String> = init_response
+            .get("result")
+            .and_then(|r| r.get("protocolVersion"))
+            .and_then(|v| v.as_str())
+            .map(String::from);
 
         if let Err(e) = self
             .store
-            .save_rmcp_session_state(
+            .save_session_state(
                 id.as_ref(),
                 &init_request,
                 &init_response,
@@ -377,13 +381,13 @@ impl SessionManager for RestorableSessionManager {
             // by the DB retention policy.
             let _ = self
                 .store
-                .touch_rmcp_session_if_older_than(id.as_ref(), Duration::hours(1))
+                .touch_session_if_older_than(id.as_ref(), Duration::hours(1))
                 .await;
             return Ok(true);
         }
 
         // Not in memory - check if we can restore from database
-        match self.store.get_rmcp_session_state(id.as_ref()).await {
+        match self.store.get_session_for_restore(id.as_ref()).await {
             Ok(Some(_state)) => {
                 // Session exists in DB with initialization state - attempt restoration
                 match self.restore_session(id).await {
@@ -408,7 +412,7 @@ impl SessionManager for RestorableSessionManager {
             }
             Ok(None) => {
                 // Check if it's a tracked but non-restorable session (no init state)
-                match self.store.has_rmcp_session(id.as_ref()).await {
+                match self.store.has_session(id.as_ref()).await {
                     Ok(true) => {
                         tracing::warn!(
                             event = "stale_session_no_state",
@@ -559,7 +563,7 @@ impl SessionManager for RestorableSessionManager {
         // Update last activity timestamp (throttled)
         let _ = self
             .store
-            .touch_rmcp_session_if_older_than(id.as_ref(), Duration::hours(1))
+            .touch_session_if_older_than(id.as_ref(), Duration::hours(1))
             .await;
 
         let handle = self.session_handle(id).await?;

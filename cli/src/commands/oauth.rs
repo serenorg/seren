@@ -251,10 +251,10 @@ pub async fn disconnect(provider_slug: &str, ctx: &CommandContext) -> Result<()>
     println!("Disconnecting from {}...", provider_slug);
 
     client.revoke_connection(provider_slug).await.map_err(|e| {
-        if let seren::Error::ErrorResponse(ref resp) = e {
-            if resp.status() == 404 {
-                return anyhow::anyhow!("No connection found for provider '{}'", provider_slug);
-            }
+        if let seren::Error::ErrorResponse(ref resp) = e
+            && resp.status() == 404
+        {
+            return anyhow::anyhow!("No connection found for provider '{}'", provider_slug);
         }
         anyhow::anyhow!("Failed to disconnect: {}", e)
     })?;
@@ -283,25 +283,25 @@ fn receive_oauth_callback(listener: TcpListener) -> Result<LocalOAuthCallback> {
     let mut error = None;
     let mut error_description = None;
 
-    if let Some(path_start) = request_line.find(' ') {
-        if let Some(path_end) = request_line[path_start + 1..].find(' ') {
-            let path = &request_line[path_start + 1..path_start + 1 + path_end];
-            if let Some(query_start) = path.find('?') {
-                let query = &path[query_start + 1..];
-                for param in query.split('&') {
-                    if let Some((key, value)) = param.split_once('=') {
-                        match key {
-                            "success" => {
-                                let v = urlencoding::decode(value)?.into_owned();
-                                success = Some(v == "true" || v == "1");
-                            }
-                            "provider" => provider = Some(urlencoding::decode(value)?.into_owned()),
-                            "error" => error = Some(urlencoding::decode(value)?.into_owned()),
-                            "error_description" => {
-                                error_description = Some(urlencoding::decode(value)?.into_owned());
-                            }
-                            _ => {}
+    if let Some(path_start) = request_line.find(' ')
+        && let Some(path_end) = request_line[path_start + 1..].find(' ')
+    {
+        let path = &request_line[path_start + 1..path_start + 1 + path_end];
+        if let Some(query_start) = path.find('?') {
+            let query = &path[query_start + 1..];
+            for param in query.split('&') {
+                if let Some((key, value)) = param.split_once('=') {
+                    match key {
+                        "success" => {
+                            let v = urlencoding::decode(value)?.into_owned();
+                            success = Some(v == "true" || v == "1");
                         }
+                        "provider" => provider = Some(urlencoding::decode(value)?.into_owned()),
+                        "error" => error = Some(urlencoding::decode(value)?.into_owned()),
+                        "error_description" => {
+                            error_description = Some(urlencoding::decode(value)?.into_owned());
+                        }
+                        _ => {}
                     }
                 }
             }

@@ -512,16 +512,13 @@ pub async fn execute_query(
 ) -> Result<()> {
     let client = ctx.client().await?;
 
-    let body = seren::QueryRequestBody {
-        publisher: Some(publisher.to_string()),
-        publisher_id: None,
+    let body = seren::DatabaseQueryRequest {
         query: query.to_string(),
         database: database.map(|s| s.to_string()),
-        asset_id: None,
-        request_id: None,
+        params: vec![],
     };
 
-    let response = match client.execute_query(&body).await {
+    let response = match client.publisher_root_handler(publisher, &body.into()).await {
         Ok(response) => response,
         Err(e) => return Err(anyhow_from_seren_error("Failed to execute query", e).await),
     };
@@ -575,7 +572,10 @@ pub async fn create_prepaid_deposit(amount: f64, ctx: &CommandContext) -> Result
         return Err(anyhow::anyhow!("Minimum deposit is $5.00"));
     }
 
-    let body = seren::DepositRequest { amount_cents };
+    let body = seren::DepositRequest {
+        amount_cents,
+        referral_code: None,
+    };
 
     let response = match client.create_deposit(&body).await {
         Ok(response) => response,

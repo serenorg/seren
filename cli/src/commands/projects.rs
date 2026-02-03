@@ -9,7 +9,7 @@ pub async fn list(ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
 
     let response = client
-        .list_projects(None, None)
+        .list_projects(None, None, None)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list projects: {}", e))?;
 

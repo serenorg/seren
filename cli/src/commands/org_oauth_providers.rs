@@ -225,6 +225,7 @@ pub async fn update(
         pkce_required,
         token_endpoint_auth_method: token_endpoint_auth_method.map(String::from),
         is_active,
+        organization_id: None,
     };
 
     let response = client

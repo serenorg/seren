@@ -49,13 +49,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### API Key
 
-Get your API key from the Seren Console at: https://app.seren.com/settings/api-keys
+Get your API key from the Seren Console at: https://console.serendb.com/settings/api-keys
 
 ### Custom API Host
 
 ```rust
 let config = ClientConfig::new("seren_your_api_key")
-    .with_base_url("https://api.seren.com/v1");
+    .with_base_url("https://api.serendb.com/v1");
 ```
 
 ### Custom Timeout
@@ -140,7 +140,7 @@ cargo doc --open
 
 ## Used By
 
-- [serenctl](https://github.com/seren/serenctl) - Official CLI tool
+- [serenctl](https://github.com/serenorg/serenctl) - Official CLI tool
 - Your project here! Open a PR to add your project
 
 ## Contributing
@@ -153,6 +153,6 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Support
 
-- Documentation: https://docs.seren.com
-- Issues: https://github.com/seren/seren/issues
-- Community: https://discord.gg/seren
+- Documentation: https://docs.serendb.com
+- Issues: https://github.com/serenorg/seren/issues
+- Community: https://discord.gg/serendb

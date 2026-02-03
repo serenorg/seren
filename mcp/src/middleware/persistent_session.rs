@@ -78,7 +78,7 @@ impl SessionManager for PersistentSessionManager {
 
         // Store session ID in PostgreSQL for persistence tracking
         // We use a separate table/method to track rmcp sessions
-        if let Err(e) = self.store.track_rmcp_session(session_id.as_ref()).await {
+        if let Err(e) = self.store.create_mcp_session(session_id.as_ref()).await {
             tracing::warn!(
                 event = "persistent_session_track_failed",
                 session_id = %session_id,
@@ -129,7 +129,7 @@ impl SessionManager for PersistentSessionManager {
         }
 
         // Not in memory - check if it's a stale session (was in DB)
-        match self.store.has_rmcp_session(id.as_ref()).await {
+        match self.store.has_session(id.as_ref()).await {
             Ok(true) => {
                 // Session exists in DB but not in memory → stale session
                 tracing::warn!(
@@ -201,7 +201,7 @@ impl SessionManager for PersistentSessionManager {
         message: ClientJsonRpcMessage,
     ) -> Result<(), Self::Error> {
         // Update last activity timestamp in database
-        if let Err(e) = self.store.touch_rmcp_session(id.as_ref()).await {
+        if let Err(e) = self.store.touch_session(id.as_ref()).await {
             tracing::trace!(
                 event = "persistent_session_touch_failed",
                 session_id = %id,
@@ -368,7 +368,7 @@ mod tests {
 
         // Manually insert a session into the database without creating it in memory
         let fake_session_id = format!("stale-test-{}", uuid::Uuid::new_v4());
-        let _ = store.track_rmcp_session(&fake_session_id).await;
+        let _ = store.create_mcp_session(&fake_session_id).await;
 
         // Create a new manager (simulating a server restart)
         let manager = PersistentSessionManager::with_store(store.clone());
