@@ -694,7 +694,7 @@ mod tests {
         let response_body = r#"{
             "x402Version": 2,
             "resource": {
-                "url": "/agent/database",
+                "url": "/publishers/test-publisher/query",
                 "description": "SQL query on Test Publisher",
                 "mimeType": "application/json"
             },
@@ -738,7 +738,7 @@ mod tests {
         let response_body = r#"{
             "x402Version": 2,
             "resource": {
-                "url": "/agent/database",
+                "url": "/publishers/test-publisher/query",
                 "description": "SQL query on Test Publisher",
                 "mimeType": "application/json"
             },
@@ -772,7 +772,7 @@ mod tests {
         let response_body = r#"{
             "x402Version": 2,
             "resource": {
-                "url": "/agent/database",
+                "url": "/publishers/test-publisher/query",
                 "description": "SQL query on Test Publisher",
                 "mimeType": "application/json"
             },
@@ -833,7 +833,7 @@ mod tests {
         let response_body = r#"{
             "x402Version": 2,
             "resource": {
-                "url": "/agent/database",
+                "url": "/publishers/test-publisher/query",
                 "description": "SQL query on Test Publisher",
                 "mimeType": "application/json"
             },
@@ -887,7 +887,7 @@ mod tests {
                 "maxAmountRequired": "1000000",
                 "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
                 "payTo": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-                "resource": "/agent/database",
+                "resource": "/publishers/test-publisher/query",
                 "description": "SQL query on Test Publisher",
                 "mimeType": "application/json",
                 "maxTimeoutSeconds": 300,
@@ -933,7 +933,7 @@ mod tests {
         let response_body = r#"{
             "x402Version": 2,
             "resource": {
-                "url": "/agent/database",
+                "url": "/publishers/test-publisher/query",
                 "description": "SQL query on Test Publisher",
                 "mimeType": "application/json"
             },
@@ -1001,7 +1001,7 @@ mod tests {
         let multi_response = r#"{
             "x402Version": 2,
             "resource": {
-                "url": "/agent/database",
+                "url": "/publishers/test-publisher/query",
                 "description": "SQL query on Test Publisher",
                 "mimeType": "application/json"
             },

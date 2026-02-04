@@ -264,6 +264,9 @@ enum AgentAction {
     GetSupported,
     /// Create a new publisher in the store
     CreatePublisher {
+        /// Organization ID (UUID) that owns this publisher
+        #[arg(long)]
+        organization_id: Uuid,
         /// Publisher name
         #[arg(long)]
         name: String,
@@ -2313,6 +2316,7 @@ async fn main() -> anyhow::Result<()> {
             }
             AgentAction::GetSupported => commands::agent::get_supported(&ctx).await?,
             AgentAction::CreatePublisher {
+                organization_id,
                 name,
                 slug,
                 email,
@@ -2338,6 +2342,7 @@ async fn main() -> anyhow::Result<()> {
                 oauth2_scopes,
             } => {
                 commands::agent::create_publisher(
+                    &organization_id,
                     &name,
                     &slug,
                     email.as_deref(),

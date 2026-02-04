@@ -10,6 +10,7 @@ pub async fn list_publishers(ctx: &CommandContext) -> Result<()> {
 
     let response = client
         .list_store_publishers(
+            None, // category
             None, // is_verified
             None, // limit
             None, // offset
@@ -88,11 +89,11 @@ async fn format_payment_required_response(response: reqwest::Response) -> String
                 let balance_endpoint = top_up
                     .get("balanceEndpoint")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("/agent/wallet/balance");
+                    .unwrap_or("/wallet/balance");
                 let deposit_endpoint = top_up
                     .get("depositEndpoint")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("/agent/wallet/deposit");
+                    .unwrap_or("/wallet/deposit");
 
                 return format!(
                     "Payment Required (402): insufficient SerenBucks balance. Required ${required}, available ${available}, deficit ${deficit}. Deposit more via {deposit_endpoint} and check balance via {balance_endpoint}."
@@ -139,7 +140,7 @@ pub async fn get_deposit_requirements(
         uuid
     } else {
         let response = client
-            .list_store_publishers(None, Some(100), None, Some(publisher))
+            .list_store_publishers(None, None, Some(100), None, Some(publisher))
             .await
             .map_err(|e| anyhow::anyhow!("Failed to search publishers: {}", e))?;
 
@@ -163,7 +164,7 @@ pub async fn get_deposit_requirements(
         Some(host) => defaults::api_base_url(host),
         None => defaults::api_base_url(defaults::DEFAULT_API_HOST),
     };
-    let url = format!("{}/agent/deposit", base_url);
+    let url = format!("{}/wallet/deposit", base_url);
 
     let response = http_client
         .post(&url)
@@ -233,9 +234,10 @@ pub async fn get_supported(ctx: &CommandContext) -> Result<()> {
     Ok(())
 }
 
-/// Create a new publisher in the store
+/// Create a new publisher in an organization
 #[allow(clippy::too_many_arguments)]
 pub async fn create_publisher(
+    organization_id: &Uuid,
     name: &str,
     slug: &str,
     email: Option<&str>,
@@ -486,7 +488,7 @@ pub async fn create_publisher(
     };
 
     let response = client
-        .create_publisher_api_key(&body)
+        .create_publisher(organization_id, &body)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create publisher: {}", e))?;
 
@@ -629,7 +631,7 @@ pub async fn estimate_query_cost(publisher: &str, query: &str, ctx: &CommandCont
     };
 
     let response = client
-        .estimate_query(&body)
+        .estimate_query(publisher, &body)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to estimate cost: {}", e))?;
 

@@ -289,6 +289,9 @@ pub struct DescribeTableSchemaParams {
 /// Parameters for listing publishers in the agent store
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ListAgentPublishersParams {
+    /// Filter by category (database, integration, compute)
+    #[serde(default)]
+    pub category: Option<String>,
     /// Filter to only verified publishers
     #[serde(default)]
     pub is_verified: Option<bool>,
@@ -674,6 +677,8 @@ fn endpoint_param_to_definition(
 /// Parameters for creating a publisher in the store
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CreatePublisherParams {
+    /// Organization ID that owns this publisher
+    pub organization_id: uuid::Uuid,
     /// Publisher display name
     pub name: String,
     /// URL-friendly slug (unique identifier)
@@ -825,8 +830,10 @@ pub struct CreatePublisherParams {
 /// Parameters for updating a publisher in the store
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct UpdatePublisherParams {
-    /// Publisher slug (unique identifier) to update
-    pub slug: String,
+    /// Organization ID that owns this publisher
+    pub organization_id: uuid::Uuid,
+    /// Publisher ID (UUID) to update
+    pub publisher_id: uuid::Uuid,
     /// New publisher display name
     #[serde(default)]
     pub name: Option<String>,
@@ -988,8 +995,10 @@ pub struct UpdatePublisherPricingParams {
 /// Parameters for uploading a publisher logo
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct UploadPublisherLogoParams {
-    /// Publisher slug (unique identifier)
-    pub slug: String,
+    /// Organization ID that owns this publisher
+    pub organization_id: uuid::Uuid,
+    /// Publisher ID (UUID)
+    pub publisher_id: uuid::Uuid,
     /// Base64 encoded image data (PNG, JPEG, WebP, or SVG)
     pub logo: String,
     /// Content type of the image (image/png, image/jpeg, image/webp, image/svg+xml)
@@ -1478,11 +1487,11 @@ fn format_payment_required_body(status: reqwest::StatusCode, body_text: &str) ->
                 let balance_endpoint = top_up
                     .get("balanceEndpoint")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("/agent/wallet/balance");
+                    .unwrap_or("/wallet/balance");
                 let deposit_endpoint = top_up
                     .get("depositEndpoint")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("/agent/wallet/deposit");
+                    .unwrap_or("/wallet/deposit");
 
                 let mut message = format!(
                     "Insufficient SerenBucks balance. Required ${required}, available ${available}, deficit ${deficit}. Deposit more via {deposit_endpoint} and check balance via {balance_endpoint}."
@@ -3724,8 +3733,21 @@ impl SerenMcpServer {
         let limit = params.limit.unwrap_or(20).clamp(1, 50);
         let offset = params.offset.unwrap_or(0).max(0);
 
+        // Parse category string to enum if provided
+        let category =
+            params
+                .category
+                .as_ref()
+                .and_then(|c| match c.trim().to_ascii_lowercase().as_str() {
+                    "database" => Some(seren::PublisherCategory::Database),
+                    "integration" => Some(seren::PublisherCategory::Integration),
+                    "compute" => Some(seren::PublisherCategory::Compute),
+                    _ => None,
+                });
+
         let response = api_client
             .list_store_publishers(
+                category,
                 params.is_verified,
                 Some(limit),
                 Some(offset),
@@ -3876,7 +3898,7 @@ impl SerenMcpServer {
             query: params.query,
         };
         let estimate = api_client
-            .estimate_query(&body)
+            .estimate_query(&params.publisher, &body)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -4918,7 +4940,7 @@ Examples:
             amount: params.amount,
         };
 
-        let url = format!("{}/agent/deposit", self.api_base_url);
+        let url = format!("{}/wallet/deposit/crypto", self.api_base_url);
         let response = http_client
             .post(&url)
             .header("X-AGENT-WALLET", &params.agent_wallet)
@@ -4990,6 +5012,7 @@ Examples:
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let CreatePublisherParams {
+            organization_id,
             name,
             slug,
             email,
@@ -5306,7 +5329,7 @@ Examples:
             requires_user_oauth,
         };
 
-        let result = match api_client.create_publisher_api_key(&body).await {
+        let result = match api_client.create_publisher(&organization_id, &body).await {
             Ok(resp) => resp.into_inner(),
             Err(e) => return Err(seren_error_to_mcp_error(e).await),
         };
@@ -5323,7 +5346,8 @@ Examples:
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let UpdatePublisherParams {
-            slug,
+            organization_id,
+            publisher_id,
             name,
             description,
             logo_url,
@@ -5363,8 +5387,6 @@ Examples:
         } = params;
 
         ensure_writes_allowed(&extensions)?;
-        let slug = slug.trim().to_string();
-        validate_slug(&slug, "Publisher slug")?;
 
         let wallet_address = normalize_nonempty_optional_string(wallet_address, "wallet_address")?;
         let wallet_network_id =
@@ -5553,7 +5575,10 @@ Examples:
             requires_user_oauth,
         };
 
-        let result = match api_client.update_publisher_api_key(&slug, &body).await {
+        let result = match api_client
+            .update_publisher(&organization_id, &publisher_id, &body)
+            .await
+        {
             Ok(resp) => resp.into_inner(),
             Err(e) => return Err(seren_error_to_mcp_error(e).await),
         };
@@ -5685,7 +5710,6 @@ Examples:
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
-        validate_slug(&params.slug, "Publisher slug")?;
 
         // Validate content type
         let allowed_types = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
@@ -5704,7 +5728,7 @@ Examples:
 
         let logo_size = params.logo.len();
         tracing::debug!(
-            slug = %params.slug,
+            publisher_id = %params.publisher_id,
             content_type = %params.content_type,
             logo_base64_size = logo_size,
             "Uploading publisher logo"
@@ -5716,15 +5740,15 @@ Examples:
         };
 
         let result = match api_client
-            .upload_publisher_logo_api_key(&params.slug, &body)
+            .upload_publisher_logo(&params.organization_id, &params.publisher_id, &body)
             .await
         {
             Ok(resp) => {
-                tracing::debug!(slug = %params.slug, "Logo upload successful");
+                tracing::debug!(publisher_id = %params.publisher_id, "Logo upload successful");
                 resp.into_inner()
             }
             Err(e) => {
-                tracing::error!(slug = %params.slug, error = %e, "Logo upload failed");
+                tracing::error!(publisher_id = %params.publisher_id, error = %e, "Logo upload failed");
                 return Err(seren_error_to_mcp_error(e).await);
             }
         };
@@ -6171,7 +6195,7 @@ Examples:
         if matches!(self.auth, SerenAuth::FromRequestBearer)
             && extract_bearer_token_from_extensions(&extensions).is_none()
         {
-            let path = format!("/agent/templates/{}/invoke", params.slug);
+            let path = format!("/templates/{}/invoke", params.slug);
             let result = self
                 .execute_x402_roundtrip_json(
                     &reqwest::Method::POST,
@@ -6247,7 +6271,7 @@ Examples:
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         if response.status().is_success() {
-            let result: seren::McpToolsResponse = response
+            let result: seren::ListMcpToolsResponse = response
                 .json()
                 .await
                 .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -6256,7 +6280,6 @@ Examples:
                 "publisher": params.publisher,
                 "tools": result.tools,
                 "tool_count": result.tools.len(),
-                "execution_time_ms": result.execution_time_ms,
             });
 
             return Ok(CallToolResult::success(vec![json_content(&response)?]));
@@ -6323,7 +6346,7 @@ Examples:
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         if response.status().is_success() {
-            let result: seren::McpResourcesResponse = response
+            let result: seren::ListMcpResourcesResponse = response
                 .json()
                 .await
                 .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -6332,7 +6355,6 @@ Examples:
                 "publisher": params.publisher,
                 "resources": result.resources,
                 "resource_count": result.resources.len(),
-                "execution_time_ms": result.execution_time_ms,
             });
 
             return Ok(CallToolResult::success(vec![json_content(&response)?]));
