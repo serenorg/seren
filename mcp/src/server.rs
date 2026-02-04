@@ -2109,6 +2109,7 @@ impl SerenMcpServer {
         method: &reqwest::Method,
         path: &str,
         body: Option<&T>,
+        request_id: Option<Uuid>,
         confirm: bool,
         agent_metadata: &AgentMetadata,
     ) -> Result<reqwest::Response, McpError> {
@@ -2132,6 +2133,9 @@ impl SerenMcpServer {
         let mut request_builder = http_client
             .request(method.clone(), &url)
             .header("X-AGENT-WALLET", &wallet_address);
+        if let Some(request_id) = request_id {
+            request_builder = request_builder.header("x-request-id", request_id.to_string());
+        }
         if let Some(body) = body {
             request_builder = request_builder.json(body);
         }
@@ -2209,6 +2213,9 @@ impl SerenMcpServer {
             .request(method.clone(), &url)
             .header("X-AGENT-WALLET", &wallet_address)
             .header(payload.header_name(), payload_b64);
+        if let Some(request_id) = request_id {
+            request_builder = request_builder.header("x-request-id", request_id.to_string());
+        }
 
         if let Some(request_id) = x402_option
             .extra
@@ -2282,11 +2289,12 @@ impl SerenMcpServer {
         method: &reqwest::Method,
         path: &str,
         body: Option<&T>,
+        request_id: Option<Uuid>,
         confirm: bool,
         agent_metadata: &AgentMetadata,
     ) -> Result<serde_json::Value, McpError> {
         let response = self
-            .execute_x402_roundtrip(method, path, body, confirm, agent_metadata)
+            .execute_x402_roundtrip(method, path, body, request_id, confirm, agent_metadata)
             .await?;
         let json: serde_json::Value = response
             .json()
@@ -2300,11 +2308,12 @@ impl SerenMcpServer {
         method: &reqwest::Method,
         path: &str,
         body: Option<&T>,
+        request_id: Option<Uuid>,
         confirm: bool,
         agent_metadata: &AgentMetadata,
     ) -> Result<String, McpError> {
         let response = self
-            .execute_x402_roundtrip(method, path, body, confirm, agent_metadata)
+            .execute_x402_roundtrip(method, path, body, request_id, confirm, agent_metadata)
             .await?;
         let bytes = response
             .bytes()
@@ -2320,6 +2329,7 @@ impl SerenMcpServer {
         method: &reqwest::Method,
         path: &str,
         body: Option<&T>,
+        request_id: Option<Uuid>,
         x402_payment: &str,
         agent_metadata: &AgentMetadata,
     ) -> Result<reqwest::Response, McpError> {
@@ -2337,6 +2347,9 @@ impl SerenMcpServer {
         let mut request_builder = http_client
             .request(method.clone(), &url)
             .header(payment_header, x402_payment);
+        if let Some(request_id) = request_id {
+            request_builder = request_builder.header("x-request-id", request_id.to_string());
+        }
         if let Some(body) = body {
             request_builder = request_builder.json(body);
         }
@@ -2380,11 +2393,19 @@ impl SerenMcpServer {
         method: &reqwest::Method,
         path: &str,
         body: Option<&T>,
+        request_id: Option<Uuid>,
         x402_payment: &str,
         agent_metadata: &AgentMetadata,
     ) -> Result<serde_json::Value, McpError> {
         let response = self
-            .execute_with_proxy_payment(method, path, body, x402_payment, agent_metadata)
+            .execute_with_proxy_payment(
+                method,
+                path,
+                body,
+                request_id,
+                x402_payment,
+                agent_metadata,
+            )
             .await?;
         let json: serde_json::Value = response
             .json()
@@ -2399,11 +2420,19 @@ impl SerenMcpServer {
         method: &reqwest::Method,
         path: &str,
         body: Option<&T>,
+        request_id: Option<Uuid>,
         x402_payment: &str,
         agent_metadata: &AgentMetadata,
     ) -> Result<String, McpError> {
         let response = self
-            .execute_with_proxy_payment(method, path, body, x402_payment, agent_metadata)
+            .execute_with_proxy_payment(
+                method,
+                path,
+                body,
+                request_id,
+                x402_payment,
+                agent_metadata,
+            )
             .await?;
         let bytes = response
             .bytes()
@@ -4001,6 +4030,29 @@ Examples:
         let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
         let return_text = params.response_format.as_deref() == Some("text");
 
+        let selector_count = (params.query.is_some() as u8)
+            + (params.tool.is_some() as u8)
+            + (params.resource_uri.is_some() as u8);
+        if selector_count > 1 {
+            return Err(McpError::invalid_params(
+                "call_publisher: provide only one of 'query', 'tool', or 'resource_uri'"
+                    .to_string(),
+                None,
+            ));
+        }
+        if params.tool_args.is_some() && params.tool.is_none() {
+            return Err(McpError::invalid_params(
+                "call_publisher: 'tool_args' requires 'tool'".to_string(),
+                None,
+            ));
+        }
+        if params.database.is_some() && params.query.is_none() {
+            return Err(McpError::invalid_params(
+                "call_publisher: 'database' requires 'query'".to_string(),
+                None,
+            ));
+        }
+
         // Determine operation type from parameters
         let operation = if params.query.is_some() {
             PublisherOperation::Database
@@ -4063,6 +4115,7 @@ Examples:
                         &reqwest::Method::POST,
                         &publisher_path,
                         Some(&body),
+                        params.request_id,
                         x402_payment,
                         agent_metadata,
                     )
@@ -4074,6 +4127,7 @@ Examples:
                         &reqwest::Method::POST,
                         &publisher_path,
                         Some(&body),
+                        params.request_id,
                         x402_payment,
                         agent_metadata,
                     )
@@ -4100,7 +4154,11 @@ Examples:
                 self.api_base_url.trim_end_matches('/'),
                 publisher_path.trim_start_matches('/')
             );
-            let query_response = http_client.post(&query_url).json(&body).send().await;
+            let mut request_builder = http_client.post(&query_url);
+            if let Some(request_id) = params.request_id {
+                request_builder = request_builder.header("x-request-id", request_id.to_string());
+            }
+            let query_response = request_builder.json(&body).send().await;
 
             let query_result: Result<(), seren::Error<()>> = match query_response {
                 Ok(resp) if resp.status().is_success() => {
@@ -4135,6 +4193,7 @@ Examples:
                             &params.publisher,
                             "database",
                             params.confirm,
+                            params.request_id,
                             &reqwest::Method::POST,
                             &publisher_path,
                             Some(&body),
@@ -4197,6 +4256,7 @@ Examples:
                         &method,
                         &publisher_path,
                         body,
+                        params.request_id,
                         x402_payment,
                         agent_metadata,
                     )
@@ -4208,6 +4268,7 @@ Examples:
                         &method,
                         &publisher_path,
                         body,
+                        params.request_id,
                         x402_payment,
                         agent_metadata,
                     )
@@ -4244,6 +4305,9 @@ Examples:
                         request_builder = request_builder.header(header_name, header_value);
                     }
                 }
+            }
+            if let Some(request_id) = params.request_id {
+                request_builder = request_builder.header("x-request-id", request_id.to_string());
             }
 
             if let Some(body) = body {
@@ -4299,6 +4363,7 @@ Examples:
                             &params.publisher,
                             "api",
                             params.confirm,
+                            params.request_id,
                             &method,
                             &publisher_path,
                             body,
@@ -4352,6 +4417,7 @@ Examples:
                         &reqwest::Method::POST,
                         &publisher_path,
                         Some(&body),
+                        params.request_id,
                         x402_payment,
                         agent_metadata,
                     )
@@ -4363,6 +4429,7 @@ Examples:
                         &reqwest::Method::POST,
                         &publisher_path,
                         Some(&body),
+                        params.request_id,
                         x402_payment,
                         agent_metadata,
                     )
@@ -4389,7 +4456,11 @@ Examples:
                 self.api_base_url.trim_end_matches('/'),
                 publisher_path.trim_start_matches('/')
             );
-            let tool_response = http_client.post(&tool_url).json(&body).send().await;
+            let mut request_builder = http_client.post(&tool_url);
+            if let Some(request_id) = params.request_id {
+                request_builder = request_builder.header("x-request-id", request_id.to_string());
+            }
+            let tool_response = request_builder.json(&body).send().await;
 
             let tool_result: Result<(), seren::Error<()>> = match tool_response {
                 Ok(resp) if resp.status().is_success() => {
@@ -4451,6 +4522,7 @@ Examples:
                                     &params.publisher,
                                     "mcp tool",
                                     params.confirm,
+                                    params.request_id,
                                     &reqwest::Method::POST,
                                     &publisher_path,
                                     Some(&body),
@@ -4511,6 +4583,7 @@ Examples:
                         &method,
                         &publisher_path,
                         None,
+                        params.request_id,
                         x402_payment,
                         agent_metadata,
                     )
@@ -4522,6 +4595,7 @@ Examples:
                         &method,
                         &publisher_path,
                         None,
+                        params.request_id,
                         x402_payment,
                         agent_metadata,
                     )
@@ -4548,7 +4622,11 @@ Examples:
                 self.api_base_url.trim_end_matches('/'),
                 publisher_path.trim_start_matches('/')
             );
-            let resource_response = http_client.get(&resource_url).send().await;
+            let mut request_builder = http_client.get(&resource_url);
+            if let Some(request_id) = params.request_id {
+                request_builder = request_builder.header("x-request-id", request_id.to_string());
+            }
+            let resource_response = request_builder.send().await;
 
             let resource_result: Result<(), seren::Error<()>> = match resource_response {
                 Ok(resp) if resp.status().is_success() => {
@@ -4610,6 +4688,7 @@ Examples:
                                     &params.publisher,
                                     "mcp resource",
                                     params.confirm,
+                                    params.request_id,
                                     &method,
                                     &publisher_path,
                                     None,
@@ -4640,6 +4719,7 @@ Examples:
         publisher: &str,
         publisher_type: &str,
         confirm: bool,
+        request_id: Option<Uuid>,
         method: &reqwest::Method,
         publisher_path: &str,
         body: Option<&T>,
@@ -4666,6 +4746,7 @@ Examples:
                                     method,
                                     publisher_path,
                                     body,
+                                    request_id,
                                     confirm,
                                     agent_metadata,
                                 )
@@ -4677,6 +4758,7 @@ Examples:
                                     method,
                                     publisher_path,
                                     body,
+                                    request_id,
                                     confirm,
                                     agent_metadata,
                                 )
@@ -6081,6 +6163,7 @@ Examples:
                     &reqwest::Method::POST,
                     &path,
                     Some(&body),
+                    None,
                     params.confirm,
                     &agent_metadata,
                 )
