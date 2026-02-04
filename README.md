@@ -1,6 +1,6 @@
 # Seren
 
-Official Rust SDK, CLI, and MCP server for [SerenDB](https://serendb.com) - the serverless Postgres platform.
+Official Rust SDK, CLI, and MCP server for [SerenDB](https://serendb.com) - the serverless Postgres platform for AI agents.
 
 ## Packages
 
