@@ -12,6 +12,9 @@ Official Rust SDK, CLI, and MCP server for [SerenDB](https://serendb.com) - the 
 
 ## Quick Start
 
+### Skills
+https://api.serendb.com/skill.md
+
 ### CLI
 
 ```bash
