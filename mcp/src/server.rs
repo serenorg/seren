@@ -5675,7 +5675,6 @@ Examples:
 
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
-
     #[tool(
         description = "Upload a logo image for a publisher. Accepts base64-encoded PNG, JPEG, WebP, or SVG images. Maximum size 100KB, automatically resized to 200x200 if larger. Supports both API key and OAuth authentication.",
         annotations(read_only_hint = false, open_world_hint = false)
@@ -5700,7 +5699,16 @@ Examples:
             ));
         }
 
-        let api_client = self.api_client(&extensions)?;
+        // Use extended timeout for logo uploads (may involve large base64 payloads)
+        let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
+
+        let logo_size = params.logo.len();
+        tracing::debug!(
+            slug = %params.slug,
+            content_type = %params.content_type,
+            logo_base64_size = logo_size,
+            "Uploading publisher logo"
+        );
 
         let body = seren::LogoUploadRequest {
             logo: params.logo,
@@ -5711,8 +5719,14 @@ Examples:
             .upload_publisher_logo_api_key(&params.slug, &body)
             .await
         {
-            Ok(resp) => resp.into_inner(),
-            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+            Ok(resp) => {
+                tracing::debug!(slug = %params.slug, "Logo upload successful");
+                resp.into_inner()
+            }
+            Err(e) => {
+                tracing::error!(slug = %params.slug, error = %e, "Logo upload failed");
+                return Err(seren_error_to_mcp_error(e).await);
+            }
         };
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
