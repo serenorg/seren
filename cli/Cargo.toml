@@ -29,4 +29,4 @@ oauth2 = { workspace = true }
 url = "2.5"
 open = "5.0"
 etcetera = "0.11.0"
-urlencoding = "2.1"
+urlencoding = { workspace = true }

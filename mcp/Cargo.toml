@@ -61,6 +61,7 @@ anyhow = { workspace = true }
 
 # HTTP client (for SQL proxy)
 reqwest = { workspace = true }
+urlencoding = { workspace = true }
 
 # Logging & Telemetry
 tracing = { workspace = true }

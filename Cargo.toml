@@ -61,6 +61,7 @@ opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.27", features = ["http-proto", "reqwest-client"] }
 opentelemetry-semantic-conventions = "0.27"
 uuid = { version = "1", features = ["serde", "v4"] }
+urlencoding = "2.1"
 
 # Ethereum wallet support
 alloy = { version = "1.0", default-features = false, features = ["signers", "signer-local", "sol-types", "provider-http", "rpc-types", "contract", "reqwest"] }

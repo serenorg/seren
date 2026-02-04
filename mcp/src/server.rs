@@ -2106,8 +2106,9 @@ impl SerenMcpServer {
 
     async fn execute_x402_roundtrip<T: Serialize>(
         &self,
+        method: &reqwest::Method,
         path: &str,
-        body: &T,
+        body: Option<&T>,
         confirm: bool,
         agent_metadata: &AgentMetadata,
     ) -> Result<reqwest::Response, McpError> {
@@ -2128,10 +2129,13 @@ impl SerenMcpServer {
         );
 
         // First request: trigger 402 (PAYMENT-REQUIRED)
-        let response = http_client
-            .post(&url)
-            .header("X-AGENT-WALLET", &wallet_address)
-            .json(body)
+        let mut request_builder = http_client
+            .request(method.clone(), &url)
+            .header("X-AGENT-WALLET", &wallet_address);
+        if let Some(body) = body {
+            request_builder = request_builder.json(body);
+        }
+        let response = request_builder
             .send()
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -2202,7 +2206,7 @@ impl SerenMcpServer {
 
         // Second request: retry with x402 payment header (v2 = PAYMENT-SIGNATURE, v1 = X-PAYMENT)
         let mut request_builder = http_client
-            .post(&url)
+            .request(method.clone(), &url)
             .header("X-AGENT-WALLET", &wallet_address)
             .header(payload.header_name(), payload_b64);
 
@@ -2214,8 +2218,10 @@ impl SerenMcpServer {
             request_builder = request_builder.header("X-PAYMENT-REQUEST-ID", request_id);
         }
 
+        if let Some(body) = body {
+            request_builder = request_builder.json(body);
+        }
         let paid = request_builder
-            .json(body)
             .send()
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -2273,13 +2279,14 @@ impl SerenMcpServer {
 
     async fn execute_x402_roundtrip_json<T: Serialize>(
         &self,
+        method: &reqwest::Method,
         path: &str,
-        body: &T,
+        body: Option<&T>,
         confirm: bool,
         agent_metadata: &AgentMetadata,
     ) -> Result<serde_json::Value, McpError> {
         let response = self
-            .execute_x402_roundtrip(path, body, confirm, agent_metadata)
+            .execute_x402_roundtrip(method, path, body, confirm, agent_metadata)
             .await?;
         let json: serde_json::Value = response
             .json()
@@ -2290,13 +2297,14 @@ impl SerenMcpServer {
 
     async fn execute_x402_roundtrip_text<T: Serialize>(
         &self,
+        method: &reqwest::Method,
         path: &str,
-        body: &T,
+        body: Option<&T>,
         confirm: bool,
         agent_metadata: &AgentMetadata,
     ) -> Result<String, McpError> {
         let response = self
-            .execute_x402_roundtrip(path, body, confirm, agent_metadata)
+            .execute_x402_roundtrip(method, path, body, confirm, agent_metadata)
             .await?;
         let bytes = response
             .bytes()
@@ -2309,8 +2317,9 @@ impl SerenMcpServer {
     /// The client has already signed the payment and we just forward it.
     async fn execute_with_proxy_payment<T: Serialize>(
         &self,
+        method: &reqwest::Method,
         path: &str,
-        body: &T,
+        body: Option<&T>,
         x402_payment: &str,
         agent_metadata: &AgentMetadata,
     ) -> Result<reqwest::Response, McpError> {
@@ -2325,10 +2334,13 @@ impl SerenMcpServer {
 
         // Make the request with the pre-signed payment header.
         // v1: X-PAYMENT, v2: PAYMENT-SIGNATURE
-        let response = http_client
-            .post(&url)
-            .header(payment_header, x402_payment)
-            .json(body)
+        let mut request_builder = http_client
+            .request(method.clone(), &url)
+            .header(payment_header, x402_payment);
+        if let Some(body) = body {
+            request_builder = request_builder.json(body);
+        }
+        let response = request_builder
             .send()
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -2365,13 +2377,14 @@ impl SerenMcpServer {
     /// Execute a request with a pre-signed x402 payment and return JSON result.
     async fn execute_with_proxy_payment_json<T: Serialize>(
         &self,
+        method: &reqwest::Method,
         path: &str,
-        body: &T,
+        body: Option<&T>,
         x402_payment: &str,
         agent_metadata: &AgentMetadata,
     ) -> Result<serde_json::Value, McpError> {
         let response = self
-            .execute_with_proxy_payment(path, body, x402_payment, agent_metadata)
+            .execute_with_proxy_payment(method, path, body, x402_payment, agent_metadata)
             .await?;
         let json: serde_json::Value = response
             .json()
@@ -2383,13 +2396,14 @@ impl SerenMcpServer {
     /// Execute a request with a pre-signed x402 payment and return text result.
     async fn execute_with_proxy_payment_text<T: Serialize>(
         &self,
+        method: &reqwest::Method,
         path: &str,
-        body: &T,
+        body: Option<&T>,
         x402_payment: &str,
         agent_metadata: &AgentMetadata,
     ) -> Result<String, McpError> {
         let response = self
-            .execute_with_proxy_payment(path, body, x402_payment, agent_metadata)
+            .execute_with_proxy_payment(method, path, body, x402_payment, agent_metadata)
             .await?;
         let bytes = response
             .bytes()
@@ -4007,9 +4021,13 @@ Examples:
                 self.call_publisher_api(&params, &extensions, &agent_metadata, return_text)
                     .await
             }
-            PublisherOperation::McpTool => self.call_publisher_mcp_tool(&params, &extensions).await,
+            PublisherOperation::McpTool => {
+                self.call_publisher_mcp_tool(&params, &extensions, &agent_metadata, return_text)
+                    .await
+            }
             PublisherOperation::McpResource => {
-                self.call_publisher_mcp_resource(&params, &extensions).await
+                self.call_publisher_mcp_resource(&params, &extensions, &agent_metadata, return_text)
+                    .await
             }
         }
     }
@@ -4042,8 +4060,9 @@ Examples:
             if return_text {
                 let text = self
                     .execute_with_proxy_payment_text(
+                        &reqwest::Method::POST,
                         &publisher_path,
-                        &body,
+                        Some(&body),
                         x402_payment,
                         agent_metadata,
                     )
@@ -4052,8 +4071,9 @@ Examples:
             } else {
                 let result = self
                     .execute_with_proxy_payment_json(
+                        &reqwest::Method::POST,
                         &publisher_path,
-                        &body,
+                        Some(&body),
                         x402_payment,
                         agent_metadata,
                     )
@@ -4115,8 +4135,9 @@ Examples:
                             &params.publisher,
                             "database",
                             params.confirm,
+                            &reqwest::Method::POST,
                             &publisher_path,
-                            &body,
+                            Some(&body),
                             agent_metadata,
                             return_text,
                         )
@@ -4144,7 +4165,7 @@ Examples:
         return_text: bool,
     ) -> Result<CallToolResult, McpError> {
         let _api_client = self.api_client_with_timeout(extensions, QUERY_TIMEOUT)?;
-        let body = params.body.clone().unwrap_or(serde_json::Value::Null);
+        let body = params.body.as_ref();
         let publisher_path = match &params.path {
             Some(p) if !p.is_empty() => format!(
                 "/publishers/{}/{}",
@@ -4154,14 +4175,28 @@ Examples:
             _ => format!("/publishers/{}", params.publisher),
         };
         let method = params.method.as_deref().unwrap_or("POST");
+        let method = match method.to_uppercase().as_str() {
+            "GET" => reqwest::Method::GET,
+            "POST" => reqwest::Method::POST,
+            "PUT" => reqwest::Method::PUT,
+            "DELETE" => reqwest::Method::DELETE,
+            "PATCH" => reqwest::Method::PATCH,
+            _ => {
+                return Err(McpError::invalid_params(
+                    "Invalid method. Use GET, POST, PUT, DELETE, or PATCH.".to_string(),
+                    None,
+                ));
+            }
+        };
 
         // Payment proxy mode
         if let Some(ref x402_payment) = params.x402_payment {
             if return_text {
                 let text = self
                     .execute_with_proxy_payment_text(
+                        &method,
                         &publisher_path,
-                        &body,
+                        body,
                         x402_payment,
                         agent_metadata,
                     )
@@ -4170,8 +4205,9 @@ Examples:
             } else {
                 let result = self
                     .execute_with_proxy_payment_json(
+                        &method,
                         &publisher_path,
-                        &body,
+                        body,
                         x402_payment,
                         agent_metadata,
                     )
@@ -4199,15 +4235,7 @@ Examples:
                 publisher_path.trim_start_matches('/')
             );
 
-            let request_builder = match method.to_uppercase().as_str() {
-                "GET" => http_client.get(&api_url),
-                "PUT" => http_client.put(&api_url),
-                "DELETE" => http_client.delete(&api_url),
-                "PATCH" => http_client.patch(&api_url),
-                _ => http_client.post(&api_url),
-            };
-
-            let mut request_builder = request_builder;
+            let mut request_builder = http_client.request(method.clone(), &api_url);
             if let Some(ref headers) = params.headers {
                 for (key, value) in headers {
                     if let Ok(header_name) = reqwest::header::HeaderName::from_bytes(key.as_bytes())
@@ -4218,7 +4246,10 @@ Examples:
                 }
             }
 
-            let api_response = request_builder.json(&body).send().await;
+            if let Some(body) = body {
+                request_builder = request_builder.json(body);
+            }
+            let api_response = request_builder.send().await;
 
             let api_result: Result<(), seren::Error<()>> = match api_response {
                 Ok(resp) if resp.status().is_success() => {
@@ -4268,8 +4299,9 @@ Examples:
                             &params.publisher,
                             "api",
                             params.confirm,
+                            &method,
                             &publisher_path,
-                            &body,
+                            body,
                             agent_metadata,
                             return_text,
                         )
@@ -4293,49 +4325,153 @@ Examples:
         &self,
         params: &CallPublisherParams,
         extensions: &Extensions,
+        agent_metadata: &AgentMetadata,
+        return_text: bool,
     ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client_with_timeout(extensions, API_TIMEOUT)?;
+        let _api_client = self.api_client_with_timeout(extensions, API_TIMEOUT)?;
         let tool_name = params.tool.as_ref().ok_or_else(|| {
             McpError::invalid_params("tool is required for MCP tool operations".to_string(), None)
         })?;
 
-        let request = seren::CallMcpToolRequest {
-            publisher: Some(params.publisher.clone()),
-            publisher_id: None,
-            tool_name: tool_name.clone(),
-            arguments: params.tool_args.clone(),
-        };
+        let tool_path = tool_name.trim_start_matches('/');
+        if tool_path.is_empty() {
+            return Err(McpError::invalid_params(
+                "tool cannot be empty".to_string(),
+                None,
+            ));
+        }
 
-        let result = api_client
-            .call_mcp_tool(&request)
-            .await
-            .map_err(|e| {
-                if e.status() == Some(reqwest::StatusCode::NOT_FOUND) {
-                    McpError::internal_error(
-                        format!("Publisher '{}' or tool '{}' not found. Use list_mcp_tools to see available tools.", params.publisher, tool_name),
-                        None,
+        let body = serde_json::Value::Object(params.tool_args.clone().unwrap_or_default());
+        let publisher_path = format!("/publishers/{}/{}", params.publisher, tool_path);
+
+        // Payment proxy mode
+        if let Some(ref x402_payment) = params.x402_payment {
+            if return_text {
+                let text = self
+                    .execute_with_proxy_payment_text(
+                        &reqwest::Method::POST,
+                        &publisher_path,
+                        Some(&body),
+                        x402_payment,
+                        agent_metadata,
                     )
-                } else if e.status() == Some(reqwest::StatusCode::BAD_REQUEST) {
-                    McpError::invalid_params(
-                        format!("Publisher '{}' does not have an MCP endpoint configured.", params.publisher),
-                        None,
+                    .await?;
+                return Ok(CallToolResult::success(vec![Content::text(text)]));
+            } else {
+                let result = self
+                    .execute_with_proxy_payment_json(
+                        &reqwest::Method::POST,
+                        &publisher_path,
+                        Some(&body),
+                        x402_payment,
+                        agent_metadata,
                     )
-                } else {
-                    McpError::internal_error(e.to_string(), None)
+                    .await?;
+                return Ok(CallToolResult::success(vec![json_content(&result)?]));
+            }
+        }
+
+        // Retry loop
+        let mut last_error = None;
+        for attempt in 0..=MAX_RETRIES {
+            if attempt > 0 {
+                let delay = RETRY_BASE_DELAY * 2u32.pow(attempt - 1);
+                tokio::time::sleep(delay).await;
+            }
+
+            let http_client = self.build_http_client_with_timeout(
+                &self.bearer_token(extensions)?,
+                agent_metadata,
+                API_TIMEOUT,
+            )?;
+            let tool_url = format!(
+                "{}/{}",
+                self.api_base_url.trim_end_matches('/'),
+                publisher_path.trim_start_matches('/')
+            );
+            let tool_response = http_client.post(&tool_url).json(&body).send().await;
+
+            let tool_result: Result<(), seren::Error<()>> = match tool_response {
+                Ok(resp) if resp.status().is_success() => {
+                    if return_text {
+                        let text = resp
+                            .text()
+                            .await
+                            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                        return Ok(CallToolResult::success(vec![Content::text(text)]));
+                    } else {
+                        let result: serde_json::Value = resp
+                            .json()
+                            .await
+                            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                        return Ok(CallToolResult::success(vec![json_content(&result)?]));
+                    }
                 }
-            })?
-            .into_inner();
+                Ok(resp) => Err(seren::Error::UnexpectedResponse(resp)),
+                Err(e) => Err(seren::Error::CommunicationError(e)),
+            };
 
-        let response = serde_json::json!({
-            "publisher": params.publisher,
-            "tool": tool_name,
-            "is_error": result.is_error,
-            "result": result.result,
-            "execution_time_ms": result.execution_time_ms,
-            "response_bytes": result.response_bytes,
-        });
+            match tool_result {
+                Ok(_) => unreachable!(),
+                Err(e) => {
+                    if is_retryable_error(&e) && attempt < MAX_RETRIES {
+                        last_error = Some(e);
+                        continue;
+                    }
 
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+                    match e {
+                        seren::Error::UnexpectedResponse(response)
+                            if response.status() == reqwest::StatusCode::NOT_FOUND =>
+                        {
+                            return Err(McpError::internal_error(
+                                format!(
+                                    "Publisher '{}' or tool '{}' not found. Use list_mcp_tools to see available tools.",
+                                    params.publisher, tool_name
+                                ),
+                                None,
+                            ));
+                        }
+                        seren::Error::UnexpectedResponse(response)
+                            if response.status() == reqwest::StatusCode::BAD_REQUEST =>
+                        {
+                            let body_text = response.text().await.unwrap_or_default();
+                            return Err(McpError::invalid_params(
+                                format!(
+                                    "MCP tool call failed ({}): {}",
+                                    reqwest::StatusCode::BAD_REQUEST,
+                                    truncate_for_client(&body_text, 1200)
+                                ),
+                                None,
+                            ));
+                        }
+                        _ => {
+                            return self
+                                .handle_call_publisher_error(
+                                    e,
+                                    &params.publisher,
+                                    "mcp tool",
+                                    params.confirm,
+                                    &reqwest::Method::POST,
+                                    &publisher_path,
+                                    Some(&body),
+                                    agent_metadata,
+                                    return_text,
+                                )
+                                .await;
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(McpError::internal_error(
+            format!(
+                "MCP tool call failed after {} retries: {}",
+                MAX_RETRIES,
+                last_error.map(|e| e.to_string()).unwrap_or_default()
+            ),
+            None,
+        ))
     }
 
     /// Handle MCP resource reads (internal helper for call_publisher)
@@ -4343,68 +4479,158 @@ Examples:
         &self,
         params: &CallPublisherParams,
         extensions: &Extensions,
+        agent_metadata: &AgentMetadata,
+        return_text: bool,
     ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client_with_timeout(extensions, API_TIMEOUT)?;
+        let _api_client = self.api_client_with_timeout(extensions, API_TIMEOUT)?;
         let uri = params.resource_uri.as_ref().ok_or_else(|| {
             McpError::invalid_params(
                 "resource_uri is required for MCP resource operations".to_string(),
                 None,
             )
         })?;
+        if uri.trim().is_empty() {
+            return Err(McpError::invalid_params(
+                "resource_uri cannot be empty".to_string(),
+                None,
+            ));
+        }
 
-        let request = seren::ReadMcpResourceRequest {
-            publisher: Some(params.publisher.clone()),
-            publisher_id: None,
-            uri: uri.clone(),
-        };
+        let encoded_uri = urlencoding::encode(uri);
+        let publisher_path = format!(
+            "/publishers/{}/mcp/resources?uri={}",
+            params.publisher, encoded_uri
+        );
+        let method = reqwest::Method::GET;
 
-        let result = api_client
-            .read_mcp_resource(&request)
-            .await
-            .map_err(|e| {
-                if e.status() == Some(reqwest::StatusCode::NOT_FOUND) {
-                    McpError::internal_error(
-                        format!("Publisher '{}' not found. Use list_agent_publishers to see available publishers.", params.publisher),
+        // Payment proxy mode
+        if let Some(ref x402_payment) = params.x402_payment {
+            if return_text {
+                let text = self
+                    .execute_with_proxy_payment_text::<serde_json::Value>(
+                        &method,
+                        &publisher_path,
                         None,
+                        x402_payment,
+                        agent_metadata,
                     )
-                } else if e.status() == Some(reqwest::StatusCode::BAD_REQUEST) {
-                    McpError::invalid_params(
-                        format!("Publisher '{}' does not have an MCP endpoint configured or resource '{}' not found.", params.publisher, uri),
+                    .await?;
+                return Ok(CallToolResult::success(vec![Content::text(text)]));
+            } else {
+                let result = self
+                    .execute_with_proxy_payment_json::<serde_json::Value>(
+                        &method,
+                        &publisher_path,
                         None,
+                        x402_payment,
+                        agent_metadata,
                     )
-                } else {
-                    McpError::internal_error(e.to_string(), None)
-                }
-            })?
-            .into_inner();
+                    .await?;
+                return Ok(CallToolResult::success(vec![json_content(&result)?]));
+            }
+        }
 
-        let contents: Vec<serde_json::Value> = result
-            .contents
-            .into_iter()
-            .map(|c| {
-                let mut content = serde_json::json!({ "uri": c.uri });
-                if let Some(mime) = c.mime_type {
-                    content["mime_type"] = serde_json::json!(mime);
-                }
-                if let Some(text) = c.text {
-                    content["text"] = serde_json::json!(text);
-                }
-                if let Some(blob) = c.blob {
-                    content["blob"] = serde_json::json!(blob);
-                }
-                content
-            })
-            .collect();
+        // Retry loop
+        let mut last_error = None;
+        for attempt in 0..=MAX_RETRIES {
+            if attempt > 0 {
+                let delay = RETRY_BASE_DELAY * 2u32.pow(attempt - 1);
+                tokio::time::sleep(delay).await;
+            }
 
-        let response = serde_json::json!({
-            "publisher": params.publisher,
-            "uri": uri,
-            "contents": contents,
-            "execution_time_ms": result.execution_time_ms,
-            "response_bytes": result.response_bytes,
-        });
+            let http_client = self.build_http_client_with_timeout(
+                &self.bearer_token(extensions)?,
+                agent_metadata,
+                API_TIMEOUT,
+            )?;
+            let resource_url = format!(
+                "{}/{}",
+                self.api_base_url.trim_end_matches('/'),
+                publisher_path.trim_start_matches('/')
+            );
+            let resource_response = http_client.get(&resource_url).send().await;
 
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+            let resource_result: Result<(), seren::Error<()>> = match resource_response {
+                Ok(resp) if resp.status().is_success() => {
+                    if return_text {
+                        let text = resp
+                            .text()
+                            .await
+                            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                        return Ok(CallToolResult::success(vec![Content::text(text)]));
+                    } else {
+                        let result: serde_json::Value = resp
+                            .json()
+                            .await
+                            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                        return Ok(CallToolResult::success(vec![json_content(&result)?]));
+                    }
+                }
+                Ok(resp) => Err(seren::Error::UnexpectedResponse(resp)),
+                Err(e) => Err(seren::Error::CommunicationError(e)),
+            };
+
+            match resource_result {
+                Ok(_) => unreachable!(),
+                Err(e) => {
+                    if is_retryable_error(&e) && attempt < MAX_RETRIES {
+                        last_error = Some(e);
+                        continue;
+                    }
+
+                    match e {
+                        seren::Error::UnexpectedResponse(response)
+                            if response.status() == reqwest::StatusCode::NOT_FOUND =>
+                        {
+                            return Err(McpError::internal_error(
+                                format!(
+                                    "Publisher '{}' or resource '{}' not found. Use list_mcp_resources to see available resources.",
+                                    params.publisher, uri
+                                ),
+                                None,
+                            ));
+                        }
+                        seren::Error::UnexpectedResponse(response)
+                            if response.status() == reqwest::StatusCode::BAD_REQUEST =>
+                        {
+                            let body_text = response.text().await.unwrap_or_default();
+                            return Err(McpError::invalid_params(
+                                format!(
+                                    "MCP resource read failed ({}): {}",
+                                    reqwest::StatusCode::BAD_REQUEST,
+                                    truncate_for_client(&body_text, 1200)
+                                ),
+                                None,
+                            ));
+                        }
+                        _ => {
+                            return self
+                                .handle_call_publisher_error::<serde_json::Value>(
+                                    e,
+                                    &params.publisher,
+                                    "mcp resource",
+                                    params.confirm,
+                                    &method,
+                                    &publisher_path,
+                                    None,
+                                    agent_metadata,
+                                    return_text,
+                                )
+                                .await;
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(McpError::internal_error(
+            format!(
+                "MCP resource read failed after {} retries: {}",
+                MAX_RETRIES,
+                last_error.map(|e| e.to_string()).unwrap_or_default()
+            ),
+            None,
+        ))
     }
 
     /// Handle errors from call_publisher with x402 payment flow
@@ -4414,8 +4640,9 @@ Examples:
         publisher: &str,
         publisher_type: &str,
         confirm: bool,
+        method: &reqwest::Method,
         publisher_path: &str,
-        body: &T,
+        body: Option<&T>,
         agent_metadata: &AgentMetadata,
         return_text: bool,
     ) -> Result<CallToolResult, McpError> {
@@ -4436,6 +4663,7 @@ Examples:
                         if return_text {
                             let text = self
                                 .execute_x402_roundtrip_text(
+                                    method,
                                     publisher_path,
                                     body,
                                     confirm,
@@ -4446,6 +4674,7 @@ Examples:
                         } else {
                             let result = self
                                 .execute_x402_roundtrip_json(
+                                    method,
                                     publisher_path,
                                     body,
                                     confirm,
@@ -5848,7 +6077,13 @@ Examples:
         {
             let path = format!("/agent/templates/{}/invoke", params.slug);
             let result = self
-                .execute_x402_roundtrip_json(&path, &body, params.confirm, &agent_metadata)
+                .execute_x402_roundtrip_json(
+                    &reqwest::Method::POST,
+                    &path,
+                    Some(&body),
+                    params.confirm,
+                    &agent_metadata,
+                )
                 .await?;
             return Ok(CallToolResult::success(vec![json_content(&result)?]));
         }
@@ -5894,48 +6129,72 @@ Examples:
         Parameters(params): Parameters<ListMcpToolsParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
+        let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
+        let http_client = self.build_http_client_with_timeout(
+            &self.bearer_token(&extensions)?,
+            &agent_metadata,
+            API_TIMEOUT,
+        )?;
 
-        // Call Seren API to list tools (this enables billing/metering)
-        let request = seren::ListMcpToolsRequest {
-            publisher: Some(params.publisher.clone()),
-            publisher_id: None,
-        };
+        let path = format!("/publishers/{}/mcp/tools", params.publisher);
+        let url = format!(
+            "{}/{}",
+            self.api_base_url.trim_end_matches('/'),
+            path.trim_start_matches('/')
+        );
 
-        let result = api_client
-            .list_mcp_tools(&request)
+        let response = http_client
+            .get(&url)
+            .send()
             .await
-            .map_err(|e| {
-                if e.status() == Some(reqwest::StatusCode::NOT_FOUND) {
-                    McpError::internal_error(
-                        format!(
-                            "Publisher '{}' not found or does not have MCP capabilities. Use list_agent_publishers to see available publishers.",
-                            params.publisher
-                        ),
-                        None,
-                    )
-                } else if e.status() == Some(reqwest::StatusCode::BAD_REQUEST) {
-                    McpError::invalid_params(
-                        format!(
-                            "Publisher '{}' does not have an MCP endpoint configured.",
-                            params.publisher
-                        ),
-                        None,
-                    )
-                } else {
-                    McpError::internal_error(e.to_string(), None)
-                }
-            })?
-            .into_inner();
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let response = serde_json::json!({
-            "publisher": params.publisher,
-            "tools": result.tools,
-            "tool_count": result.tools.len(),
-            "execution_time_ms": result.execution_time_ms,
-        });
+        if response.status().is_success() {
+            let result: seren::McpToolsResponse = response
+                .json()
+                .await
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+            let response = serde_json::json!({
+                "publisher": params.publisher,
+                "tools": result.tools,
+                "tool_count": result.tools.len(),
+                "execution_time_ms": result.execution_time_ms,
+            });
+
+            return Ok(CallToolResult::success(vec![json_content(&response)?]));
+        }
+
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Err(McpError::internal_error(
+                format!(
+                    "Publisher '{}' not found or does not have MCP capabilities. Use list_agent_publishers to see available publishers.",
+                    params.publisher
+                ),
+                None,
+            ));
+        }
+        if status == reqwest::StatusCode::BAD_REQUEST {
+            return Err(McpError::invalid_params(
+                format!(
+                    "Publisher '{}' does not have an MCP endpoint configured.",
+                    params.publisher
+                ),
+                None,
+            ));
+        }
+
+        Err(McpError::internal_error(
+            format!(
+                "List MCP tools failed ({}): {}",
+                status,
+                truncate_for_client(&body_text, 1200)
+            ),
+            None,
+        ))
     }
     #[tool(
         description = "List resources available on an MCP publisher. MCP publishers can expose resources (like files, data sources) that can be read. Use this to discover what resources an MCP publisher provides.",
@@ -5946,48 +6205,72 @@ Examples:
         Parameters(params): Parameters<ListMcpResourcesParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
+        let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
+        let http_client = self.build_http_client_with_timeout(
+            &self.bearer_token(&extensions)?,
+            &agent_metadata,
+            API_TIMEOUT,
+        )?;
 
-        // Call Seren API to list resources (this enables billing/metering)
-        let request = seren::ListMcpResourcesRequest {
-            publisher: Some(params.publisher.clone()),
-            publisher_id: None,
-        };
+        let path = format!("/publishers/{}/mcp/resources", params.publisher);
+        let url = format!(
+            "{}/{}",
+            self.api_base_url.trim_end_matches('/'),
+            path.trim_start_matches('/')
+        );
 
-        let result = api_client
-            .list_mcp_resources(&request)
+        let response = http_client
+            .get(&url)
+            .send()
             .await
-            .map_err(|e| {
-                if e.status() == Some(reqwest::StatusCode::NOT_FOUND) {
-                    McpError::internal_error(
-                        format!(
-                            "Publisher '{}' not found or does not have MCP capabilities. Use list_agent_publishers to see available publishers.",
-                            params.publisher
-                        ),
-                        None,
-                    )
-                } else if e.status() == Some(reqwest::StatusCode::BAD_REQUEST) {
-                    McpError::invalid_params(
-                        format!(
-                            "Publisher '{}' does not have an MCP endpoint configured.",
-                            params.publisher
-                        ),
-                        None,
-                    )
-                } else {
-                    McpError::internal_error(e.to_string(), None)
-                }
-            })?
-            .into_inner();
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let response = serde_json::json!({
-            "publisher": params.publisher,
-            "resources": result.resources,
-            "resource_count": result.resources.len(),
-            "execution_time_ms": result.execution_time_ms,
-        });
+        if response.status().is_success() {
+            let result: seren::McpResourcesResponse = response
+                .json()
+                .await
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+            let response = serde_json::json!({
+                "publisher": params.publisher,
+                "resources": result.resources,
+                "resource_count": result.resources.len(),
+                "execution_time_ms": result.execution_time_ms,
+            });
+
+            return Ok(CallToolResult::success(vec![json_content(&response)?]));
+        }
+
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Err(McpError::internal_error(
+                format!(
+                    "Publisher '{}' not found or does not have MCP capabilities. Use list_agent_publishers to see available publishers.",
+                    params.publisher
+                ),
+                None,
+            ));
+        }
+        if status == reqwest::StatusCode::BAD_REQUEST {
+            return Err(McpError::invalid_params(
+                format!(
+                    "Publisher '{}' does not have an MCP endpoint configured.",
+                    params.publisher
+                ),
+                None,
+            ));
+        }
+
+        Err(McpError::internal_error(
+            format!(
+                "List MCP resources failed ({}): {}",
+                status,
+                truncate_for_client(&body_text, 1200)
+            ),
+            None,
+        ))
     }
 }
 
