@@ -1041,7 +1041,7 @@ pub fn print_connection_string(
 }
 
 pub fn print_project_connection_uri(
-    response: &seren::ProjectConnectionUriResponse,
+    response: &seren::ProjectConnectionUri,
     ssl: Option<&str>,
     format: OutputFormat,
 ) -> anyhow::Result<()> {

@@ -116,7 +116,7 @@ pub async fn create(
                 println!();
                 println!("{}", "Connecting via psql...".cyan());
                 let status = std::process::Command::new("psql")
-                    .arg(&uri_data.uri)
+                    .arg(&uri_data.data.uri)
                     .status();
                 match status {
                     Ok(exit_status) if !exit_status.success() => {
@@ -307,7 +307,7 @@ pub async fn connection_uri(
         .map_err(|e| anyhow::anyhow!("Failed to fetch connection URI: {}", e))?;
 
     let uri_data = response.into_inner();
-    output::print_project_connection_uri(&uri_data, ssl, ctx.format)?;
+    output::print_project_connection_uri(&uri_data.data, ssl, ctx.format)?;
 
     Ok(())
 }
