@@ -1689,6 +1689,18 @@ struct AgentMetadata {
     software_version: Option<String>,
 }
 
+struct CallPublisherErrorContext<'a, T: Serialize> {
+    publisher: &'a str,
+    publisher_type: &'a str,
+    confirm: bool,
+    request_id: Option<Uuid>,
+    method: &'a reqwest::Method,
+    publisher_path: &'a str,
+    body: Option<&'a T>,
+    agent_metadata: &'a AgentMetadata,
+    return_text: bool,
+}
+
 fn extract_agent_metadata_from_extensions(extensions: &Extensions) -> AgentMetadata {
     let parts = match extensions.get::<axum::http::request::Parts>() {
         Some(p) => p,
@@ -3988,6 +4000,8 @@ impl SerenMcpServer {
         Parameters(params): Parameters<CreatePrepaidDepositParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
         let api_client = self.api_client(&extensions)?;
         let amount_cents = (params.amount_usd * 100.0).round() as i64;
         if amount_cents < 500 {
@@ -4049,6 +4063,8 @@ Examples:
         Parameters(params): Parameters<CallPublisherParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
         let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
         let return_text = params.response_format.as_deref() == Some("text");
 
@@ -4212,15 +4228,17 @@ Examples:
                     return self
                         .handle_call_publisher_error(
                             e,
-                            &params.publisher,
-                            "database",
-                            params.confirm,
-                            params.request_id,
-                            &reqwest::Method::POST,
-                            &publisher_path,
-                            Some(&body),
-                            agent_metadata,
-                            return_text,
+                            CallPublisherErrorContext {
+                                publisher: &params.publisher,
+                                publisher_type: "database",
+                                confirm: params.confirm,
+                                request_id: params.request_id,
+                                method: &reqwest::Method::POST,
+                                publisher_path: &publisher_path,
+                                body: Some(&body),
+                                agent_metadata,
+                                return_text,
+                            },
                         )
                         .await;
                 }
@@ -4382,15 +4400,17 @@ Examples:
                     return self
                         .handle_call_publisher_error(
                             e,
-                            &params.publisher,
-                            "api",
-                            params.confirm,
-                            params.request_id,
-                            &method,
-                            &publisher_path,
-                            body,
-                            agent_metadata,
-                            return_text,
+                            CallPublisherErrorContext {
+                                publisher: &params.publisher,
+                                publisher_type: "api",
+                                confirm: params.confirm,
+                                request_id: params.request_id,
+                                method: &method,
+                                publisher_path: &publisher_path,
+                                body,
+                                agent_metadata,
+                                return_text,
+                            },
                         )
                         .await;
                 }
@@ -4541,15 +4561,17 @@ Examples:
                             return self
                                 .handle_call_publisher_error(
                                     e,
-                                    &params.publisher,
-                                    "mcp tool",
-                                    params.confirm,
-                                    params.request_id,
-                                    &reqwest::Method::POST,
-                                    &publisher_path,
-                                    Some(&body),
-                                    agent_metadata,
-                                    return_text,
+                                    CallPublisherErrorContext {
+                                        publisher: &params.publisher,
+                                        publisher_type: "mcp tool",
+                                        confirm: params.confirm,
+                                        request_id: params.request_id,
+                                        method: &reqwest::Method::POST,
+                                        publisher_path: &publisher_path,
+                                        body: Some(&body),
+                                        agent_metadata,
+                                        return_text,
+                                    },
                                 )
                                 .await;
                         }
@@ -4707,15 +4729,17 @@ Examples:
                             return self
                                 .handle_call_publisher_error::<serde_json::Value>(
                                     e,
-                                    &params.publisher,
-                                    "mcp resource",
-                                    params.confirm,
-                                    params.request_id,
-                                    &method,
-                                    &publisher_path,
-                                    None,
-                                    agent_metadata,
-                                    return_text,
+                                    CallPublisherErrorContext {
+                                        publisher: &params.publisher,
+                                        publisher_type: "mcp resource",
+                                        confirm: params.confirm,
+                                        request_id: params.request_id,
+                                        method: &method,
+                                        publisher_path: &publisher_path,
+                                        body: None,
+                                        agent_metadata,
+                                        return_text,
+                                    },
                                 )
                                 .await;
                         }
@@ -4738,15 +4762,7 @@ Examples:
     async fn handle_call_publisher_error<T: Serialize>(
         &self,
         error: seren::Error<()>,
-        publisher: &str,
-        publisher_type: &str,
-        confirm: bool,
-        request_id: Option<Uuid>,
-        method: &reqwest::Method,
-        publisher_path: &str,
-        body: Option<&T>,
-        agent_metadata: &AgentMetadata,
-        return_text: bool,
+        ctx: CallPublisherErrorContext<'_, T>,
     ) -> Result<CallToolResult, McpError> {
         match error {
             seren::Error::UnexpectedResponse(response) => {
@@ -4762,27 +4778,27 @@ Examples:
                         || payment_required_has_non_prepaid_option(&body_text);
 
                     if self.wallet.is_some() && has_x402_option {
-                        if return_text {
+                        if ctx.return_text {
                             let text = self
                                 .execute_x402_roundtrip_text(
-                                    method,
-                                    publisher_path,
-                                    body,
-                                    request_id,
-                                    confirm,
-                                    agent_metadata,
+                                    ctx.method,
+                                    ctx.publisher_path,
+                                    ctx.body,
+                                    ctx.request_id,
+                                    ctx.confirm,
+                                    ctx.agent_metadata,
                                 )
                                 .await?;
                             return Ok(CallToolResult::success(vec![Content::text(text)]));
                         } else {
                             let result = self
                                 .execute_x402_roundtrip_json(
-                                    method,
-                                    publisher_path,
-                                    body,
-                                    request_id,
-                                    confirm,
-                                    agent_metadata,
+                                    ctx.method,
+                                    ctx.publisher_path,
+                                    ctx.body,
+                                    ctx.request_id,
+                                    ctx.confirm,
+                                    ctx.agent_metadata,
                                 )
                                 .await?;
                             return Ok(CallToolResult::success(vec![json_content(&result)?]));
@@ -4814,7 +4830,7 @@ Examples:
                     return Err(McpError::internal_error(
                         format!(
                             "Publisher '{}' {} endpoint returned 404. Use get_agent_publisher to check the publisher's category.",
-                            publisher, publisher_type
+                            ctx.publisher, ctx.publisher_type
                         ),
                         None,
                     ));
@@ -4826,7 +4842,7 @@ Examples:
                         return Err(McpError::invalid_request(
                             format!(
                                 "Publisher '{}' is not a database publisher. Remove the 'query' parameter and use 'method'/'path' for API calls instead.",
-                                publisher
+                                ctx.publisher
                             ),
                             None,
                         ));
@@ -4835,7 +4851,7 @@ Examples:
                         return Err(McpError::invalid_request(
                             format!(
                                 "Publisher '{}' is a database publisher. Use the 'query' parameter instead of 'method'/'path'.",
-                                publisher
+                                ctx.publisher
                             ),
                             None,
                         ));
@@ -4843,7 +4859,7 @@ Examples:
                     return Err(McpError::internal_error(
                         format!(
                             "{} call failed ({}): {}",
-                            publisher_type,
+                            ctx.publisher_type,
                             status,
                             truncate_for_client(&body_text, 1200)
                         ),
@@ -4854,7 +4870,7 @@ Examples:
                 Err(McpError::internal_error(
                     format!(
                         "{} call failed ({}): {}",
-                        publisher_type,
+                        ctx.publisher_type,
                         status,
                         truncate_for_client(&body, 1200)
                     ),
@@ -5768,6 +5784,8 @@ Examples:
         Parameters(params): Parameters<UpdateProjectParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
         let api_client = self.api_client(&extensions)?;
 
         let request = seren::UpdateProjectRequest {
@@ -5803,6 +5821,8 @@ Examples:
         Parameters(params): Parameters<RenameBranchParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
         let api_client = self.api_client(&extensions)?;
 
         let request = seren::RenameBranchRequest { name: params.name };
@@ -5824,6 +5844,8 @@ Examples:
         Parameters(params): Parameters<SetDefaultBranchParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
         let api_client = self.api_client(&extensions)?;
 
         api_client
@@ -5843,6 +5865,8 @@ Examples:
         Parameters(params): Parameters<ResetBranchParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
         let api_client = self.api_client(&extensions)?;
 
         let request = seren::ResetBranchRequest { parent: true };
@@ -5864,6 +5888,8 @@ Examples:
         Parameters(params): Parameters<SetBranchExpirationParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
         let api_client = self.api_client(&extensions)?;
 
         // Parse the optional timestamp string to a Timestamp
@@ -5895,6 +5921,8 @@ Examples:
         Parameters(params): Parameters<CreateRoleParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
         let api_client = self.api_client(&extensions)?;
 
         let request = seren::CreateRoleRequest {
@@ -5920,6 +5948,8 @@ Examples:
         Parameters(params): Parameters<DeleteRoleParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
         let api_client = self.api_client(&extensions)?;
 
         api_client
@@ -5940,6 +5970,8 @@ Examples:
         Parameters(params): Parameters<ResetRolePasswordParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
         let api_client = self.api_client(&extensions)?;
 
         let request = seren::ResetRolePasswordRequest {
@@ -5991,6 +6023,8 @@ Examples:
         Parameters(params): Parameters<UpdateEndpointParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
         let api_client = self.api_client(&extensions)?;
 
         let request = seren::UpdateEndpointRequest {
@@ -6065,6 +6099,8 @@ Examples:
         Parameters(params): Parameters<DeleteDatabaseParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
         let api_client = self.api_client(&extensions)?;
 
         api_client

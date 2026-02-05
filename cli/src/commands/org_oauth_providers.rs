@@ -160,6 +160,7 @@ pub async fn create(
         client_id: client_id.to_string(),
         client_secret: client_secret.to_string(),
         scopes: scopes.to_vec(),
+        custom_auth_params: None,
         pkce_required: Some(pkce_required),
         token_endpoint_auth_method: token_endpoint_auth_method.map(String::from),
     };
@@ -222,6 +223,7 @@ pub async fn update(
         client_id: client_id.map(String::from),
         client_secret: client_secret.map(String::from),
         scopes: scopes.map(|s| s.to_vec()),
+        custom_auth_params: None,
         pkce_required,
         token_endpoint_auth_method: token_endpoint_auth_method.map(String::from),
         is_active,

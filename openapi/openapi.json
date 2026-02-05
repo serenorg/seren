@@ -10934,7 +10934,6 @@
         "type": "object",
         "description": "Admin grant request\n\nEither `user_id` or `agent_wallet` must be provided:\n- `user_id`: Grant to user's virtual wallet (recommended for admin UI)\n- `agent_wallet`: Grant to specific wallet address (for advanced use cases)",
         "required": [
-          "asset_id",
           "amount_atomic"
         ],
         "properties": {
@@ -10950,7 +10949,9 @@
           },
           "asset_id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "Asset ID for the grant. If not provided, resolved from agent_marketplace_settings.",
+            "nullable": true
           },
           "description": {
             "type": "string",
@@ -13286,6 +13287,9 @@
           "client_secret": {
             "type": "string",
             "description": "Client secret (will be encrypted)"
+          },
+          "custom_auth_params": {
+            "description": "Custom provider-specific authorization URL parameters (e.g., {\"access_type\": \"offline\"} for Google)"
           },
           "description": {
             "type": "string",
@@ -21003,6 +21007,9 @@
             "type": "string",
             "format": "date-time"
           },
+          "custom_auth_params": {
+            "description": "Custom provider-specific authorization URL parameters"
+          },
           "description": {
             "type": "string",
             "nullable": true
@@ -23636,6 +23643,10 @@
           "client_secret": {
             "type": "string",
             "description": "Optional new client secret (will be re-encrypted). If omitted, keep existing.",
+            "nullable": true
+          },
+          "custom_auth_params": {
+            "description": "Custom provider-specific authorization URL parameters. If omitted, leave unchanged.",
             "nullable": true
           },
           "description": {
