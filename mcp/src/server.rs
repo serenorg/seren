@@ -1696,6 +1696,7 @@ struct CallPublisherErrorContext<'a, T: Serialize> {
     request_id: Option<Uuid>,
     method: &'a reqwest::Method,
     publisher_path: &'a str,
+    query_string: Option<&'a str>,
     body: Option<&'a T>,
     agent_metadata: &'a AgentMetadata,
     return_text: bool,
@@ -2159,6 +2160,7 @@ impl SerenMcpServer {
         ))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_publisher_proxy_raw<T: Serialize>(
         &self,
         extensions: &Extensions,
@@ -2169,6 +2171,7 @@ impl SerenMcpServer {
         body: Option<&T>,
         headers: Option<&HashMap<String, String>>,
         request_id: Option<Uuid>,
+        query_string: Option<&str>,
     ) -> Result<reqwest::Response, seren::Error<()>> {
         let token = self
             .bearer_token(extensions)
@@ -2181,11 +2184,15 @@ impl SerenMcpServer {
                 request_id,
             )
             .map_err(|e| seren::Error::InvalidRequest(e.to_string()))?;
-        let request_url = format!(
+        let mut request_url = format!(
             "{}/{}",
             self.api_base_url.trim_end_matches('/'),
             publisher_path.trim_start_matches('/')
         );
+        if let Some(qs) = query_string {
+            request_url.push('?');
+            request_url.push_str(qs);
+        }
 
         let mut request_builder = http_client.request(method.clone(), &request_url);
         if let Some(headers) = headers {
@@ -2207,6 +2214,7 @@ impl SerenMcpServer {
             .map_err(seren::Error::CommunicationError)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_x402_roundtrip<T: Serialize>(
         &self,
         method: &reqwest::Method,
@@ -2215,6 +2223,7 @@ impl SerenMcpServer {
         request_id: Option<Uuid>,
         confirm: bool,
         agent_metadata: &AgentMetadata,
+        query_string: Option<&str>,
     ) -> Result<reqwest::Response, McpError> {
         let wallet = self.wallet.as_ref().ok_or_else(|| {
             McpError::invalid_request(
@@ -2226,11 +2235,15 @@ impl SerenMcpServer {
 
         let wallet_address = wallet.address().to_string();
         let http_client = self.build_public_http_client(agent_metadata)?;
-        let url = format!(
+        let mut url = format!(
             "{}/{}",
             self.api_base_url.trim_end_matches('/'),
             path.trim_start_matches('/')
         );
+        if let Some(qs) = query_string {
+            url.push('?');
+            url.push_str(qs);
+        }
 
         // First request: trigger 402 (PAYMENT-REQUIRED)
         let mut request_builder = http_client
@@ -2387,6 +2400,7 @@ impl SerenMcpServer {
         Ok(paid)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_x402_roundtrip_json<T: Serialize>(
         &self,
         method: &reqwest::Method,
@@ -2395,9 +2409,18 @@ impl SerenMcpServer {
         request_id: Option<Uuid>,
         confirm: bool,
         agent_metadata: &AgentMetadata,
+        query_string: Option<&str>,
     ) -> Result<serde_json::Value, McpError> {
         let response = self
-            .execute_x402_roundtrip(method, path, body, request_id, confirm, agent_metadata)
+            .execute_x402_roundtrip(
+                method,
+                path,
+                body,
+                request_id,
+                confirm,
+                agent_metadata,
+                query_string,
+            )
             .await?;
         let json: serde_json::Value = response
             .json()
@@ -2406,6 +2429,7 @@ impl SerenMcpServer {
         Ok(json)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_x402_roundtrip_text<T: Serialize>(
         &self,
         method: &reqwest::Method,
@@ -2414,9 +2438,18 @@ impl SerenMcpServer {
         request_id: Option<Uuid>,
         confirm: bool,
         agent_metadata: &AgentMetadata,
+        query_string: Option<&str>,
     ) -> Result<String, McpError> {
         let response = self
-            .execute_x402_roundtrip(method, path, body, request_id, confirm, agent_metadata)
+            .execute_x402_roundtrip(
+                method,
+                path,
+                body,
+                request_id,
+                confirm,
+                agent_metadata,
+                query_string,
+            )
             .await?;
         let bytes = response
             .bytes()
@@ -2427,6 +2460,7 @@ impl SerenMcpServer {
 
     /// Execute a request with a pre-signed x402 payment (payment proxy mode).
     /// The client has already signed the payment and we just forward it.
+    #[allow(clippy::too_many_arguments)]
     async fn execute_with_proxy_payment<T: Serialize>(
         &self,
         method: &reqwest::Method,
@@ -2435,13 +2469,18 @@ impl SerenMcpServer {
         request_id: Option<Uuid>,
         x402_payment: &str,
         agent_metadata: &AgentMetadata,
+        query_string: Option<&str>,
     ) -> Result<reqwest::Response, McpError> {
         let http_client = self.build_public_http_client(agent_metadata)?;
-        let url = format!(
+        let mut url = format!(
             "{}/{}",
             self.api_base_url.trim_end_matches('/'),
             path.trim_start_matches('/')
         );
+        if let Some(qs) = query_string {
+            url.push('?');
+            url.push_str(qs);
+        }
 
         let payment_header = x402_proxy_payment_header_name(x402_payment)?;
 
@@ -2491,6 +2530,7 @@ impl SerenMcpServer {
     }
 
     /// Execute a request with a pre-signed x402 payment and return JSON result.
+    #[allow(clippy::too_many_arguments)]
     async fn execute_with_proxy_payment_json<T: Serialize>(
         &self,
         method: &reqwest::Method,
@@ -2499,6 +2539,7 @@ impl SerenMcpServer {
         request_id: Option<Uuid>,
         x402_payment: &str,
         agent_metadata: &AgentMetadata,
+        query_string: Option<&str>,
     ) -> Result<serde_json::Value, McpError> {
         let response = self
             .execute_with_proxy_payment(
@@ -2508,6 +2549,7 @@ impl SerenMcpServer {
                 request_id,
                 x402_payment,
                 agent_metadata,
+                query_string,
             )
             .await?;
         let json: serde_json::Value = response
@@ -2518,6 +2560,7 @@ impl SerenMcpServer {
     }
 
     /// Execute a request with a pre-signed x402 payment and return text result.
+    #[allow(clippy::too_many_arguments)]
     async fn execute_with_proxy_payment_text<T: Serialize>(
         &self,
         method: &reqwest::Method,
@@ -2526,6 +2569,7 @@ impl SerenMcpServer {
         request_id: Option<Uuid>,
         x402_payment: &str,
         agent_metadata: &AgentMetadata,
+        query_string: Option<&str>,
     ) -> Result<String, McpError> {
         let response = self
             .execute_with_proxy_payment(
@@ -2535,6 +2579,7 @@ impl SerenMcpServer {
                 request_id,
                 x402_payment,
                 agent_metadata,
+                query_string,
             )
             .await?;
         let bytes = response
@@ -4237,6 +4282,7 @@ Examples:
                         params.request_id,
                         x402_payment,
                         agent_metadata,
+                        None,
                     )
                     .await?;
                 return Ok(CallToolResult::success(vec![Content::text(text)]));
@@ -4249,6 +4295,7 @@ Examples:
                         params.request_id,
                         x402_payment,
                         agent_metadata,
+                        None,
                     )
                     .await?;
                 return Ok(CallToolResult::success(vec![json_content(&result)?]));
@@ -4276,6 +4323,7 @@ Examples:
                         Some(&body),
                         None,
                         params.request_id,
+                        None,
                     )
                     .await;
 
@@ -4329,6 +4377,7 @@ Examples:
                                 request_id: params.request_id,
                                 method: &reqwest::Method::POST,
                                 publisher_path: &publisher_path,
+                                query_string: None,
                                 body: Some(&body),
                                 agent_metadata,
                                 return_text,
@@ -4395,6 +4444,7 @@ Examples:
                         params.request_id,
                         x402_payment,
                         agent_metadata,
+                        None,
                     )
                     .await?;
                 return Ok(CallToolResult::success(vec![Content::text(text)]));
@@ -4407,6 +4457,7 @@ Examples:
                         params.request_id,
                         x402_payment,
                         agent_metadata,
+                        None,
                     )
                     .await?;
                 return Ok(CallToolResult::success(vec![json_content(&result)?]));
@@ -4431,6 +4482,7 @@ Examples:
                     body,
                     params.headers.as_ref(),
                     params.request_id,
+                    None,
                 )
                 .await;
 
@@ -4486,6 +4538,7 @@ Examples:
                                 request_id: params.request_id,
                                 method: &method,
                                 publisher_path: &publisher_path,
+                                query_string: None,
                                 body,
                                 agent_metadata,
                                 return_text,
@@ -4527,7 +4580,7 @@ Examples:
         }
 
         let body = serde_json::Value::Object(params.tool_args.clone().unwrap_or_default());
-        let publisher_path = format!("/publishers/{}/{}", params.publisher, tool_path);
+        let publisher_path = format!("/publishers/{}/_mcp/tools/{}", params.publisher, tool_path);
 
         // Payment proxy mode
         if let Some(ref x402_payment) = params.x402_payment {
@@ -4540,6 +4593,7 @@ Examples:
                         params.request_id,
                         x402_payment,
                         agent_metadata,
+                        None,
                     )
                     .await?;
                 return Ok(CallToolResult::success(vec![Content::text(text)]));
@@ -4552,6 +4606,7 @@ Examples:
                         params.request_id,
                         x402_payment,
                         agent_metadata,
+                        None,
                     )
                     .await?;
                 return Ok(CallToolResult::success(vec![json_content(&result)?]));
@@ -4576,6 +4631,7 @@ Examples:
                     Some(&body),
                     None,
                     params.request_id,
+                    None,
                 )
                 .await;
 
@@ -4643,6 +4699,7 @@ Examples:
                                         request_id: params.request_id,
                                         method: &reqwest::Method::POST,
                                         publisher_path: &publisher_path,
+                                        query_string: None,
                                         body: Some(&body),
                                         agent_metadata,
                                         return_text,
@@ -4687,7 +4744,8 @@ Examples:
         }
 
         let encoded_uri = urlencoding::encode(uri);
-        let publisher_path = format!("/publishers/{}/{}", params.publisher, encoded_uri);
+        let publisher_path = format!("/publishers/{}/_mcp/resources", params.publisher);
+        let query_string = format!("uri={}", encoded_uri);
         let method = reqwest::Method::GET;
 
         // Payment proxy mode
@@ -4701,6 +4759,7 @@ Examples:
                         params.request_id,
                         x402_payment,
                         agent_metadata,
+                        Some(&query_string),
                     )
                     .await?;
                 return Ok(CallToolResult::success(vec![Content::text(text)]));
@@ -4713,6 +4772,7 @@ Examples:
                         params.request_id,
                         x402_payment,
                         agent_metadata,
+                        Some(&query_string),
                     )
                     .await?;
                 return Ok(CallToolResult::success(vec![json_content(&result)?]));
@@ -4737,6 +4797,7 @@ Examples:
                     None,
                     None,
                     params.request_id,
+                    Some(&query_string),
                 )
                 .await;
 
@@ -4804,6 +4865,7 @@ Examples:
                                         request_id: params.request_id,
                                         method: &method,
                                         publisher_path: &publisher_path,
+                                        query_string: Some(&query_string),
                                         body: None,
                                         agent_metadata,
                                         return_text,
@@ -4855,6 +4917,7 @@ Examples:
                                     ctx.request_id,
                                     ctx.confirm,
                                     ctx.agent_metadata,
+                                    ctx.query_string,
                                 )
                                 .await?;
                             return Ok(CallToolResult::success(vec![Content::text(text)]));
@@ -4867,6 +4930,7 @@ Examples:
                                     ctx.request_id,
                                     ctx.confirm,
                                     ctx.agent_metadata,
+                                    ctx.query_string,
                                 )
                                 .await?;
                             return Ok(CallToolResult::success(vec![json_content(&result)?]));
@@ -6308,6 +6372,7 @@ Examples:
                     None,
                     params.confirm,
                     &agent_metadata,
+                    None,
                 )
                 .await?;
             return Ok(CallToolResult::success(vec![json_content(&result)?]));
@@ -6356,7 +6421,7 @@ Examples:
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
         let result_json = match api_client
-            .proxy_to_publisher_get(&params.publisher, "_tools", Vec::<u8>::new())
+            .proxy_to_publisher_get(&params.publisher, "_mcp/tools", Vec::<u8>::new())
             .await
         {
             Ok(response) => response.into_inner(),
@@ -6422,7 +6487,7 @@ Examples:
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
         let result_json = match api_client
-            .proxy_to_publisher_get(&params.publisher, "_resources", Vec::<u8>::new())
+            .proxy_to_publisher_get(&params.publisher, "_mcp/resources", Vec::<u8>::new())
             .await
         {
             Ok(response) => response.into_inner(),
@@ -6907,11 +6972,128 @@ mod tests {
                 })),
                 Some(&passthrough_headers),
                 Some(request_id),
+                None,
             )
             .await
             .unwrap();
 
         assert_eq!(response.status(), reqwest::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn execute_with_proxy_payment_json_forwards_query_string() {
+        use wiremock::matchers::{header, method, path, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let resource_uri = "file:///data.json";
+        let query_string = format!("uri={}", urlencoding::encode(resource_uri));
+        let x402_payload = base64::engine::general_purpose::STANDARD
+            .encode(serde_json::json!({ "x402Version": 2 }).to_string());
+
+        Mock::given(method("GET"))
+            .and(path("/publishers/test-publisher/_mcp/resources"))
+            .and(query_param("uri", resource_uri))
+            .and(header("PAYMENT-SIGNATURE", x402_payload.as_str()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ok": true,
+            })))
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let result = server
+            .execute_with_proxy_payment_json::<serde_json::Value>(
+                &reqwest::Method::GET,
+                "/publishers/test-publisher/_mcp/resources",
+                None,
+                None,
+                &x402_payload,
+                &AgentMetadata::default(),
+                Some(&query_string),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result, serde_json::json!({ "ok": true }));
+    }
+
+    #[tokio::test]
+    async fn execute_x402_roundtrip_json_preserves_query_string() {
+        use wiremock::matchers::{header_exists, method, path, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let resource_uri = "file:///data.json";
+        let query_string = format!("uri={}", urlencoding::encode(resource_uri));
+        let payment_required = serde_json::json!({
+            "x402Version": 2,
+            "resource": {
+                "url": "/publishers/test-publisher/_mcp/resources",
+                "description": "MCP resource",
+                "mimeType": "application/json"
+            },
+            "accepts": [{
+                "scheme": "exact",
+                "network": "eip155:8453",
+                "amount": "1000",
+                "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "payTo": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+                "maxTimeoutSeconds": 300,
+                "extra": {
+                    "name": "USD Coin",
+                    "version": "2",
+                    "paymentRequestId": "req-1"
+                }
+            }]
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/publishers/test-publisher/_mcp/resources"))
+            .and(query_param("uri", resource_uri))
+            .and(header_exists("X-AGENT-WALLET"))
+            .respond_with(ResponseTemplate::new(402).set_body_json(payment_required))
+            .with_priority(2)
+            .up_to_n_times(1)
+            .mount(&proxy)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/publishers/test-publisher/_mcp/resources"))
+            .and(query_param("uri", resource_uri))
+            .and(header_exists("X-AGENT-WALLET"))
+            .and(header_exists("PAYMENT-SIGNATURE"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ok": true,
+            })))
+            .with_priority(1)
+            .mount(&proxy)
+            .await;
+
+        let mut server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        server.wallet = Some(Arc::new(
+            PrivateKeyWallet::from_env_or_key(Some(
+                "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80".into(),
+            ))
+            .unwrap()
+            .unwrap(),
+        ));
+        server.signer_config.auto_approve_limit = 1.0;
+
+        let result = server
+            .execute_x402_roundtrip_json::<serde_json::Value>(
+                &reqwest::Method::GET,
+                "/publishers/test-publisher/_mcp/resources",
+                None,
+                None,
+                false,
+                &AgentMetadata::default(),
+                Some(&query_string),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result, serde_json::json!({ "ok": true }));
     }
 
     #[tokio::test]
