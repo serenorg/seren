@@ -2066,12 +2066,32 @@ impl SerenMcpServer {
         agent_metadata: &AgentMetadata,
         timeout: std::time::Duration,
     ) -> Result<reqwest::Client, McpError> {
+        self.build_http_client_with_timeout_and_request_id(token, agent_metadata, timeout, None)
+    }
+
+    fn build_http_client_with_timeout_and_request_id(
+        &self,
+        token: &str,
+        agent_metadata: &AgentMetadata,
+        timeout: std::time::Duration,
+        request_id: Option<Uuid>,
+    ) -> Result<reqwest::Client, McpError> {
         let mut headers = reqwest::header::HeaderMap::new();
         let auth_value = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token))
             .map_err(|e| McpError::internal_error(format!("Invalid token: {}", e), None))?;
         headers.insert(reqwest::header::AUTHORIZATION, auth_value);
 
         Self::insert_agent_metadata_headers(&mut headers, agent_metadata);
+        if let Some(request_id) = request_id {
+            let value =
+                reqwest::header::HeaderValue::from_str(&request_id.to_string()).map_err(|e| {
+                    McpError::internal_error(format!("Invalid request id: {}", e), None)
+                })?;
+            headers.insert(
+                reqwest::header::HeaderName::from_static("x-request-id"),
+                value,
+            );
+        }
 
         reqwest::Client::builder()
             .default_headers(headers)
@@ -2116,13 +2136,75 @@ impl SerenMcpServer {
         extensions: &Extensions,
         timeout: std::time::Duration,
     ) -> Result<seren::Client, McpError> {
+        self.api_client_with_timeout_request_id(extensions, timeout, None)
+    }
+
+    fn api_client_with_timeout_request_id(
+        &self,
+        extensions: &Extensions,
+        timeout: std::time::Duration,
+        request_id: Option<Uuid>,
+    ) -> Result<seren::Client, McpError> {
         let token = self.bearer_token(extensions)?;
         let agent_metadata = extract_agent_metadata_from_extensions(extensions);
-        let http_client = self.build_http_client_with_timeout(&token, &agent_metadata, timeout)?;
+        let http_client = self.build_http_client_with_timeout_and_request_id(
+            &token,
+            &agent_metadata,
+            timeout,
+            request_id,
+        )?;
         Ok(seren::Client::new_with_client(
             &self.api_base_url,
             http_client,
         ))
+    }
+
+    async fn execute_publisher_proxy_raw<T: Serialize>(
+        &self,
+        extensions: &Extensions,
+        agent_metadata: &AgentMetadata,
+        timeout: std::time::Duration,
+        method: &reqwest::Method,
+        publisher_path: &str,
+        body: Option<&T>,
+        headers: Option<&HashMap<String, String>>,
+        request_id: Option<Uuid>,
+    ) -> Result<reqwest::Response, seren::Error<()>> {
+        let token = self
+            .bearer_token(extensions)
+            .map_err(|e| seren::Error::InvalidRequest(e.to_string()))?;
+        let http_client = self
+            .build_http_client_with_timeout_and_request_id(
+                &token,
+                agent_metadata,
+                timeout,
+                request_id,
+            )
+            .map_err(|e| seren::Error::InvalidRequest(e.to_string()))?;
+        let request_url = format!(
+            "{}/{}",
+            self.api_base_url.trim_end_matches('/'),
+            publisher_path.trim_start_matches('/')
+        );
+
+        let mut request_builder = http_client.request(method.clone(), &request_url);
+        if let Some(headers) = headers {
+            for (key, value) in headers {
+                if let Ok(header_name) = reqwest::header::HeaderName::from_bytes(key.as_bytes())
+                    && let Ok(header_value) = reqwest::header::HeaderValue::from_str(value)
+                {
+                    request_builder = request_builder.header(header_name, header_value);
+                }
+            }
+        }
+        if let Some(body) = body {
+            request_builder = request_builder.json(body);
+        }
+
+        request_builder
+            .send()
+            .await
+            .map_err(seren::Error::CommunicationError)
     }
 
     async fn execute_x402_roundtrip<T: Serialize>(
@@ -4130,7 +4212,6 @@ Examples:
         agent_metadata: &AgentMetadata,
         return_text: bool,
     ) -> Result<CallToolResult, McpError> {
-        let _api_client = self.api_client_with_timeout(extensions, QUERY_TIMEOUT)?;
         let query = params.query.as_ref().ok_or_else(|| {
             McpError::invalid_params(
                 "query is required for database operations".to_string(),
@@ -4174,6 +4255,8 @@ Examples:
             }
         }
 
+        let root_body: seren::PublisherRootRequest = body.clone().into();
+
         // Retry loop with exponential backoff
         let mut last_error = None;
         for attempt in 0..=MAX_RETRIES {
@@ -4182,40 +4265,51 @@ Examples:
                 tokio::time::sleep(delay).await;
             }
 
-            let http_client = self.build_http_client_with_timeout(
-                &self.bearer_token(extensions)?,
-                agent_metadata,
-                QUERY_TIMEOUT,
-            )?;
-            let query_url = format!(
-                "{}/{}",
-                self.api_base_url.trim_end_matches('/'),
-                publisher_path.trim_start_matches('/')
-            );
-            let mut request_builder = http_client.post(&query_url);
-            if let Some(request_id) = params.request_id {
-                request_builder = request_builder.header("x-request-id", request_id.to_string());
-            }
-            let query_response = request_builder.json(&body).send().await;
+            let query_result: Result<(), seren::Error<()>> = if return_text {
+                let query_response = self
+                    .execute_publisher_proxy_raw(
+                        extensions,
+                        agent_metadata,
+                        QUERY_TIMEOUT,
+                        &reqwest::Method::POST,
+                        &publisher_path,
+                        Some(&body),
+                        None,
+                        params.request_id,
+                    )
+                    .await;
 
-            let query_result: Result<(), seren::Error<()>> = match query_response {
-                Ok(resp) if resp.status().is_success() => {
-                    if return_text {
+                match query_response {
+                    Ok(resp) if resp.status().is_success() => {
                         let text = resp
                             .text()
                             .await
                             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
                         return Ok(CallToolResult::success(vec![Content::text(text)]));
-                    } else {
-                        let result: serde_json::Value = resp
-                            .json()
-                            .await
-                            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-                        return Ok(CallToolResult::success(vec![json_content(&result)?]));
                     }
+                    Ok(resp) => Err(seren::Error::UnexpectedResponse(resp)),
+                    Err(e) => Err(e),
                 }
-                Ok(resp) => Err(seren::Error::UnexpectedResponse(resp)),
-                Err(e) => Err(seren::Error::CommunicationError(e)),
+            } else {
+                match self.api_client_with_timeout_request_id(
+                    extensions,
+                    QUERY_TIMEOUT,
+                    params.request_id,
+                ) {
+                    Ok(api_client) => {
+                        match api_client
+                            .publisher_root_handler(&params.publisher, &root_body)
+                            .await
+                        {
+                            Ok(response) => {
+                                let result = response.into_inner();
+                                return Ok(CallToolResult::success(vec![json_content(&result)?]));
+                            }
+                            Err(e) => Err(e),
+                        }
+                    }
+                    Err(e) => Err(seren::Error::InvalidRequest(e.to_string())),
+                }
             };
 
             match query_result {
@@ -4263,8 +4357,10 @@ Examples:
         agent_metadata: &AgentMetadata,
         return_text: bool,
     ) -> Result<CallToolResult, McpError> {
-        let _api_client = self.api_client_with_timeout(extensions, QUERY_TIMEOUT)?;
         let body = params.body.as_ref();
+        // Keep wildcard proxy calls manual for now:
+        // we need dynamic HTTP methods, request-scoped passthrough headers, and
+        // per-call x-request-id support that generated OpenAPI methods do not expose.
         let publisher_path = match &params.path {
             Some(p) if !p.is_empty() => format!(
                 "/publishers/{}/{}",
@@ -4325,35 +4421,18 @@ Examples:
                 tokio::time::sleep(delay).await;
             }
 
-            let http_client = self.build_http_client_with_timeout(
-                &self.bearer_token(extensions)?,
-                agent_metadata,
-                QUERY_TIMEOUT,
-            )?;
-            let api_url = format!(
-                "{}/{}",
-                self.api_base_url.trim_end_matches('/'),
-                publisher_path.trim_start_matches('/')
-            );
-
-            let mut request_builder = http_client.request(method.clone(), &api_url);
-            if let Some(ref headers) = params.headers {
-                for (key, value) in headers {
-                    if let Ok(header_name) = reqwest::header::HeaderName::from_bytes(key.as_bytes())
-                        && let Ok(header_value) = reqwest::header::HeaderValue::from_str(value)
-                    {
-                        request_builder = request_builder.header(header_name, header_value);
-                    }
-                }
-            }
-            if let Some(request_id) = params.request_id {
-                request_builder = request_builder.header("x-request-id", request_id.to_string());
-            }
-
-            if let Some(body) = body {
-                request_builder = request_builder.json(body);
-            }
-            let api_response = request_builder.send().await;
+            let api_response = self
+                .execute_publisher_proxy_raw(
+                    extensions,
+                    agent_metadata,
+                    QUERY_TIMEOUT,
+                    &method,
+                    &publisher_path,
+                    body,
+                    params.headers.as_ref(),
+                    params.request_id,
+                )
+                .await;
 
             let api_result: Result<(), seren::Error<()>> = match api_response {
                 Ok(resp) if resp.status().is_success() => {
@@ -4387,7 +4466,7 @@ Examples:
                     }
                 }
                 Ok(resp) => Err(seren::Error::UnexpectedResponse(resp)),
-                Err(e) => Err(seren::Error::CommunicationError(e)),
+                Err(e) => Err(e),
             };
 
             match api_result {
@@ -4435,7 +4514,6 @@ Examples:
         agent_metadata: &AgentMetadata,
         return_text: bool,
     ) -> Result<CallToolResult, McpError> {
-        let _api_client = self.api_client_with_timeout(extensions, API_TIMEOUT)?;
         let tool_name = params.tool.as_ref().ok_or_else(|| {
             McpError::invalid_params("tool is required for MCP tool operations".to_string(), None)
         })?;
@@ -4488,21 +4566,18 @@ Examples:
                 tokio::time::sleep(delay).await;
             }
 
-            let http_client = self.build_http_client_with_timeout(
-                &self.bearer_token(extensions)?,
-                agent_metadata,
-                API_TIMEOUT,
-            )?;
-            let tool_url = format!(
-                "{}/{}",
-                self.api_base_url.trim_end_matches('/'),
-                publisher_path.trim_start_matches('/')
-            );
-            let mut request_builder = http_client.post(&tool_url);
-            if let Some(request_id) = params.request_id {
-                request_builder = request_builder.header("x-request-id", request_id.to_string());
-            }
-            let tool_response = request_builder.json(&body).send().await;
+            let tool_response = self
+                .execute_publisher_proxy_raw(
+                    extensions,
+                    agent_metadata,
+                    API_TIMEOUT,
+                    &reqwest::Method::POST,
+                    &publisher_path,
+                    Some(&body),
+                    None,
+                    params.request_id,
+                )
+                .await;
 
             let tool_result: Result<(), seren::Error<()>> = match tool_response {
                 Ok(resp) if resp.status().is_success() => {
@@ -4521,7 +4596,7 @@ Examples:
                     }
                 }
                 Ok(resp) => Err(seren::Error::UnexpectedResponse(resp)),
-                Err(e) => Err(seren::Error::CommunicationError(e)),
+                Err(e) => Err(e),
             };
 
             match tool_result {
@@ -4598,7 +4673,6 @@ Examples:
         agent_metadata: &AgentMetadata,
         return_text: bool,
     ) -> Result<CallToolResult, McpError> {
-        let _api_client = self.api_client_with_timeout(extensions, API_TIMEOUT)?;
         let uri = params.resource_uri.as_ref().ok_or_else(|| {
             McpError::invalid_params(
                 "resource_uri is required for MCP resource operations".to_string(),
@@ -4613,10 +4687,7 @@ Examples:
         }
 
         let encoded_uri = urlencoding::encode(uri);
-        let publisher_path = format!(
-            "/publishers/{}/mcp/resources?uri={}",
-            params.publisher, encoded_uri
-        );
+        let publisher_path = format!("/publishers/{}/{}", params.publisher, encoded_uri);
         let method = reqwest::Method::GET;
 
         // Payment proxy mode
@@ -4656,21 +4727,18 @@ Examples:
                 tokio::time::sleep(delay).await;
             }
 
-            let http_client = self.build_http_client_with_timeout(
-                &self.bearer_token(extensions)?,
-                agent_metadata,
-                API_TIMEOUT,
-            )?;
-            let resource_url = format!(
-                "{}/{}",
-                self.api_base_url.trim_end_matches('/'),
-                publisher_path.trim_start_matches('/')
-            );
-            let mut request_builder = http_client.get(&resource_url);
-            if let Some(request_id) = params.request_id {
-                request_builder = request_builder.header("x-request-id", request_id.to_string());
-            }
-            let resource_response = request_builder.send().await;
+            let resource_response = self
+                .execute_publisher_proxy_raw::<serde_json::Value>(
+                    extensions,
+                    agent_metadata,
+                    API_TIMEOUT,
+                    &method,
+                    &publisher_path,
+                    None,
+                    None,
+                    params.request_id,
+                )
+                .await;
 
             let resource_result: Result<(), seren::Error<()>> = match resource_response {
                 Ok(resp) if resp.status().is_success() => {
@@ -4689,7 +4757,7 @@ Examples:
                     }
                 }
                 Ok(resp) => Err(seren::Error::UnexpectedResponse(resp)),
-                Err(e) => Err(seren::Error::CommunicationError(e)),
+                Err(e) => Err(e),
             };
 
             match resource_result {
@@ -6286,71 +6354,62 @@ Examples:
         Parameters(params): Parameters<ListMcpToolsParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
-        let http_client = self.build_http_client_with_timeout(
-            &self.bearer_token(&extensions)?,
-            &agent_metadata,
-            API_TIMEOUT,
-        )?;
-
-        let path = format!("/publishers/{}/mcp/tools", params.publisher);
-        let url = format!(
-            "{}/{}",
-            self.api_base_url.trim_end_matches('/'),
-            path.trim_start_matches('/')
-        );
-
-        let response = http_client
-            .get(&url)
-            .send()
+        let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
+        let result_json = match api_client
+            .proxy_to_publisher_get(&params.publisher, "_tools", Vec::<u8>::new())
             .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(seren::Error::ErrorResponse(err_response)) => {
+                let status = err_response.status();
+                if status == reqwest::StatusCode::NOT_FOUND {
+                    return Err(McpError::internal_error(
+                        format!(
+                            "Publisher '{}' not found or does not have MCP capabilities. Use list_agent_publishers to see available publishers.",
+                            params.publisher
+                        ),
+                        None,
+                    ));
+                }
+                if status == reqwest::StatusCode::BAD_REQUEST {
+                    return Err(McpError::invalid_params(
+                        format!(
+                            "Publisher '{}' does not have an MCP endpoint configured.",
+                            params.publisher
+                        ),
+                        None,
+                    ));
+                }
+                return Err(McpError::internal_error(
+                    format!("List MCP tools failed ({})", status),
+                    None,
+                ));
+            }
+            Err(seren::Error::UnexpectedResponse(response)) => {
+                let status = response.status();
+                let body_text = response.text().await.unwrap_or_default();
+                return Err(McpError::internal_error(
+                    format!(
+                        "List MCP tools failed ({}): {}",
+                        status,
+                        truncate_for_client(&body_text, 1200)
+                    ),
+                    None,
+                ));
+            }
+            Err(e) => return Err(McpError::internal_error(e.to_string(), None)),
+        };
+
+        let result: seren::ListMcpToolsResponse = serde_json::from_value(result_json)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        if response.status().is_success() {
-            let result: seren::ListMcpToolsResponse = response
-                .json()
-                .await
-                .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let response = serde_json::json!({
+            "publisher": params.publisher,
+            "tools": result.tools,
+            "tool_count": result.tools.len(),
+        });
 
-            let response = serde_json::json!({
-                "publisher": params.publisher,
-                "tools": result.tools,
-                "tool_count": result.tools.len(),
-            });
-
-            return Ok(CallToolResult::success(vec![json_content(&response)?]));
-        }
-
-        let status = response.status();
-        let body_text = response.text().await.unwrap_or_default();
-
-        if status == reqwest::StatusCode::NOT_FOUND {
-            return Err(McpError::internal_error(
-                format!(
-                    "Publisher '{}' not found or does not have MCP capabilities. Use list_agent_publishers to see available publishers.",
-                    params.publisher
-                ),
-                None,
-            ));
-        }
-        if status == reqwest::StatusCode::BAD_REQUEST {
-            return Err(McpError::invalid_params(
-                format!(
-                    "Publisher '{}' does not have an MCP endpoint configured.",
-                    params.publisher
-                ),
-                None,
-            ));
-        }
-
-        Err(McpError::internal_error(
-            format!(
-                "List MCP tools failed ({}): {}",
-                status,
-                truncate_for_client(&body_text, 1200)
-            ),
-            None,
-        ))
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
     #[tool(
         description = "List resources available on an MCP publisher. MCP publishers can expose resources (like files, data sources) that can be read. Use this to discover what resources an MCP publisher provides.",
@@ -6361,71 +6420,62 @@ Examples:
         Parameters(params): Parameters<ListMcpResourcesParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
-        let http_client = self.build_http_client_with_timeout(
-            &self.bearer_token(&extensions)?,
-            &agent_metadata,
-            API_TIMEOUT,
-        )?;
-
-        let path = format!("/publishers/{}/mcp/resources", params.publisher);
-        let url = format!(
-            "{}/{}",
-            self.api_base_url.trim_end_matches('/'),
-            path.trim_start_matches('/')
-        );
-
-        let response = http_client
-            .get(&url)
-            .send()
+        let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
+        let result_json = match api_client
+            .proxy_to_publisher_get(&params.publisher, "_resources", Vec::<u8>::new())
             .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(seren::Error::ErrorResponse(err_response)) => {
+                let status = err_response.status();
+                if status == reqwest::StatusCode::NOT_FOUND {
+                    return Err(McpError::internal_error(
+                        format!(
+                            "Publisher '{}' not found or does not have MCP capabilities. Use list_agent_publishers to see available publishers.",
+                            params.publisher
+                        ),
+                        None,
+                    ));
+                }
+                if status == reqwest::StatusCode::BAD_REQUEST {
+                    return Err(McpError::invalid_params(
+                        format!(
+                            "Publisher '{}' does not have an MCP endpoint configured.",
+                            params.publisher
+                        ),
+                        None,
+                    ));
+                }
+                return Err(McpError::internal_error(
+                    format!("List MCP resources failed ({})", status),
+                    None,
+                ));
+            }
+            Err(seren::Error::UnexpectedResponse(response)) => {
+                let status = response.status();
+                let body_text = response.text().await.unwrap_or_default();
+                return Err(McpError::internal_error(
+                    format!(
+                        "List MCP resources failed ({}): {}",
+                        status,
+                        truncate_for_client(&body_text, 1200)
+                    ),
+                    None,
+                ));
+            }
+            Err(e) => return Err(McpError::internal_error(e.to_string(), None)),
+        };
+
+        let result: seren::ListMcpResourcesResponse = serde_json::from_value(result_json)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        if response.status().is_success() {
-            let result: seren::ListMcpResourcesResponse = response
-                .json()
-                .await
-                .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let response = serde_json::json!({
+            "publisher": params.publisher,
+            "resources": result.resources,
+            "resource_count": result.resources.len(),
+        });
 
-            let response = serde_json::json!({
-                "publisher": params.publisher,
-                "resources": result.resources,
-                "resource_count": result.resources.len(),
-            });
-
-            return Ok(CallToolResult::success(vec![json_content(&response)?]));
-        }
-
-        let status = response.status();
-        let body_text = response.text().await.unwrap_or_default();
-
-        if status == reqwest::StatusCode::NOT_FOUND {
-            return Err(McpError::internal_error(
-                format!(
-                    "Publisher '{}' not found or does not have MCP capabilities. Use list_agent_publishers to see available publishers.",
-                    params.publisher
-                ),
-                None,
-            ));
-        }
-        if status == reqwest::StatusCode::BAD_REQUEST {
-            return Err(McpError::invalid_params(
-                format!(
-                    "Publisher '{}' does not have an MCP endpoint configured.",
-                    params.publisher
-                ),
-                None,
-            ));
-        }
-
-        Err(McpError::internal_error(
-            format!(
-                "List MCP resources failed ({}): {}",
-                status,
-                truncate_for_client(&body_text, 1200)
-            ),
-            None,
-        ))
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 }
 
@@ -6818,6 +6868,89 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result, serde_json::json!({ "ok": true }));
+    }
+
+    #[tokio::test]
+    async fn execute_publisher_proxy_raw_forwards_headers_and_request_id() {
+        use wiremock::matchers::{body_json, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let request_id = Uuid::new_v4();
+        let request_id_value = request_id.to_string();
+        let mut passthrough_headers = HashMap::new();
+        passthrough_headers.insert("x-custom-header".to_string(), "custom-value".to_string());
+
+        Mock::given(method("POST"))
+            .and(path("/publishers/test-publisher/echo"))
+            .and(header("Authorization", "Bearer test-key"))
+            .and(header("x-request-id", request_id_value.as_str()))
+            .and(header("x-custom-header", "custom-value"))
+            .and(body_json(serde_json::json!({
+                "hello": "world",
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_string("ok"))
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let extensions = extensions_with_headers(&[]);
+        let response = server
+            .execute_publisher_proxy_raw(
+                &extensions,
+                &AgentMetadata::default(),
+                QUERY_TIMEOUT,
+                &reqwest::Method::POST,
+                "/publishers/test-publisher/echo",
+                Some(&serde_json::json!({
+                    "hello": "world",
+                })),
+                Some(&passthrough_headers),
+                Some(request_id),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn api_client_with_timeout_request_id_forwards_header_on_generated_call() {
+        use wiremock::matchers::{body_string_contains, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let publisher_slug = "db-publisher";
+        let request_id = Uuid::new_v4();
+        let request_id_value = request_id.to_string();
+
+        Mock::given(method("POST"))
+            .and(path(format!("/publishers/{publisher_slug}")))
+            .and(header("Authorization", "Bearer test-key"))
+            .and(header("x-request-id", request_id_value.as_str()))
+            .and(body_string_contains("select 1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ok": true,
+            })))
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let extensions = extensions_with_headers(&[]);
+        let api_client = server
+            .api_client_with_timeout_request_id(&extensions, QUERY_TIMEOUT, Some(request_id))
+            .unwrap();
+        let body: seren::PublisherRootRequest = seren::DatabaseQueryRequest {
+            query: "select 1".to_string(),
+            database: None,
+            params: vec![],
+        }
+        .into();
+
+        api_client
+            .publisher_root_handler(publisher_slug, &body)
+            .await
+            .unwrap();
     }
 
     #[test]
