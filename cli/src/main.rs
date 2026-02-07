@@ -5,9 +5,11 @@ mod command_context;
 mod commands;
 pub mod config;
 pub mod defaults;
+mod money;
 pub mod output;
 
 pub use command_context::CommandContext;
+use money::UsdCents;
 
 #[derive(Debug, Clone, Copy)]
 pub enum OutputFormat {
@@ -355,7 +357,7 @@ enum AgentAction {
     CreatePrepaidDeposit {
         /// Amount in USD to deposit (e.g., 10.00)
         #[arg(long)]
-        amount: f64,
+        amount: UsdCents,
     },
     /// Estimate the cost of a query against a publisher
     EstimateQueryCost {
@@ -2380,7 +2382,7 @@ async fn main() -> anyhow::Result<()> {
             }
             AgentAction::GetPrepaidBalance => commands::agent::get_prepaid_balance(&ctx).await?,
             AgentAction::CreatePrepaidDeposit { amount } => {
-                commands::agent::create_prepaid_deposit(amount, &ctx).await?
+                commands::agent::create_prepaid_deposit(amount.0, &ctx).await?
             }
             AgentAction::EstimateQueryCost { publisher, query } => {
                 commands::agent::estimate_query_cost(&publisher, &query, &ctx).await?

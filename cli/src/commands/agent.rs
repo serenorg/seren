@@ -562,14 +562,13 @@ pub async fn get_prepaid_balance(ctx: &CommandContext) -> Result<()> {
 }
 
 /// Create a prepaid deposit (fiat)
-pub async fn create_prepaid_deposit(amount: f64, ctx: &CommandContext) -> Result<()> {
+pub async fn create_prepaid_deposit(amount_cents: i64, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
 
-    if amount <= 0.0 {
+    if amount_cents <= 0 {
         return Err(anyhow::anyhow!("Amount must be positive"));
     }
 
-    let amount_cents = (amount * 100.0).round() as i64;
     if amount_cents < 500 {
         return Err(anyhow::anyhow!("Minimum deposit is $5.00"));
     }
