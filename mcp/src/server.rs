@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use uuid::Uuid;
 
+use crate::money::{parse_usd_to_cents, usd_f64_to_cents};
 use crate::wallet::{
     PaymentRequirements, PrivateKeyWallet, SignerConfig, build_x402_payment_payload,
 };
@@ -454,8 +455,20 @@ pub struct GetUserPrepaidBalanceParams {}
 /// Parameters for creating a prepaid deposit for the authenticated user
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CreatePrepaidDepositParams {
-    /// Amount in USD (e.g., 25.00). Minimum $5.00.
-    pub amount_usd: f64,
+    /// Amount in USD (e.g., "25.00"). Minimum $5.00.
+    ///
+    /// Prefer passing a string to avoid floating-point rounding.
+    pub amount_usd: UsdAmount,
+}
+
+/// A USD amount passed by a client/tool call.
+///
+/// We accept either a string (preferred) or a number (best-effort) for backwards compatibility.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(untagged)]
+pub enum UsdAmount {
+    String(String),
+    Number(f64),
 }
 
 /// Operation type for unified call_publisher routing
@@ -4130,7 +4143,19 @@ impl SerenMcpServer {
         ensure_writes_allowed(&extensions)?;
 
         let api_client = self.api_client(&extensions)?;
-        let amount_cents = (params.amount_usd * 100.0).round() as i64;
+        let amount_cents = match &params.amount_usd {
+            UsdAmount::String(s) => parse_usd_to_cents(s)
+                .map_err(|e| McpError::invalid_request(format!("Invalid amount_usd: {e}"), None))?,
+            UsdAmount::Number(n) => usd_f64_to_cents(*n)
+                .map_err(|e| McpError::invalid_request(format!("Invalid amount_usd: {e}"), None))?,
+        };
+
+        if amount_cents <= 0 {
+            return Err(McpError::invalid_request(
+                "Amount must be positive.".to_string(),
+                None,
+            ));
+        }
         if amount_cents < 500 {
             return Err(McpError::invalid_request(
                 "Minimum deposit is $5.00.".to_string(),

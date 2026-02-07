@@ -2,6 +2,7 @@ mod config;
 mod docs;
 mod error;
 mod middleware;
+mod money;
 mod oauth;
 mod server;
 mod telemetry;
