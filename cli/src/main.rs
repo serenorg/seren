@@ -323,9 +323,13 @@ enum AgentAction {
         /// Upstream API key (encrypted). Required for MongoDB Atlas Data API publishers.
         #[arg(long)]
         upstream_api_key: Option<String>,
-        /// Upstream auth mode: "static", "jwt", or "oauth2_cc" (default: static)
+        /// Upstream auth mode: "static", "jwt", "oauth2_cc", or "passthrough" (default: static)
         #[arg(long)]
         auth_type: Option<String>,
+        /// Whitelist of agent-provided headers allowed to pass through to upstream.
+        /// Only relevant for auth_type="passthrough".
+        #[arg(long = "allowed-passthrough-header", value_delimiter = ',')]
+        allowed_passthrough_headers: Vec<String>,
         /// OAuth2 token endpoint URL for Client Credentials flow (required when auth_type=oauth2_cc)
         #[arg(long)]
         oauth2_token_url: Option<String>,
@@ -2338,6 +2342,7 @@ async fn main() -> anyhow::Result<()> {
                 connection_string,
                 upstream_api_key,
                 auth_type,
+                allowed_passthrough_headers,
                 oauth2_token_url,
                 oauth2_client_id,
                 oauth2_client_secret,
@@ -2364,6 +2369,7 @@ async fn main() -> anyhow::Result<()> {
                     connection_string.as_deref(),
                     upstream_api_key.as_deref(),
                     auth_type.as_deref(),
+                    allowed_passthrough_headers,
                     oauth2_token_url.as_deref(),
                     oauth2_client_id.as_deref(),
                     oauth2_client_secret.as_deref(),

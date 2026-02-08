@@ -258,6 +258,7 @@ pub async fn create_publisher(
     connection_string: Option<&str>,
     upstream_api_key: Option<&str>,
     auth_type: Option<&str>,
+    allowed_passthrough_headers: Vec<String>,
     oauth2_token_url: Option<&str>,
     oauth2_client_id: Option<&str>,
     oauth2_client_secret: Option<&str>,
@@ -341,16 +342,29 @@ pub async fn create_publisher(
                 return Err(anyhow::anyhow!("auth_type must not be empty"));
             }
             match normalized.as_str() {
-                "static" | "jwt" | "oauth2_cc" => Some(normalized),
+                "static" | "jwt" | "oauth2_cc" | "passthrough" => Some(normalized),
                 other => {
                     return Err(anyhow::anyhow!(
-                        "Invalid auth_type '{}'. Expected one of: static, jwt, oauth2_cc",
+                        "Invalid auth_type '{}'. Expected one of: static, jwt, oauth2_cc, passthrough",
                         other
                     ));
                 }
             }
         }
     };
+
+    let mut allowed_passthrough_headers_normalized =
+        Vec::with_capacity(allowed_passthrough_headers.len());
+    for (i, header) in allowed_passthrough_headers.into_iter().enumerate() {
+        let trimmed = header.trim();
+        if trimmed.is_empty() {
+            return Err(anyhow::anyhow!(
+                "allowed_passthrough_headers[{}] must not be empty",
+                i
+            ));
+        }
+        allowed_passthrough_headers_normalized.push(trimmed.to_string());
+    }
 
     // MongoDB Atlas Data API publishers require api_url + upstream_api_key.
     if publisher_category_enum == seren::PublisherCategory::Database
@@ -438,7 +452,7 @@ pub async fn create_publisher(
         use_cases: vec![],
         logo_url: None,
         accepted_asset_ids: None,
-        allowed_passthrough_headers: vec![],
+        allowed_passthrough_headers: allowed_passthrough_headers_normalized,
         api_headers: None,
         api_key_header: None,
         api_key_query_param: None,
