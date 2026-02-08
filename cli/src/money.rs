@@ -10,6 +10,13 @@ impl std::str::FromStr for UsdCents {
     }
 }
 
+pub fn format_usd_micros_4(amount_micros: i64) -> String {
+    // Convert micro-USD (1e-6) to 4dp USD (1e-4) with half-up rounding.
+    // 1e-4 USD = 100 micros.
+    let rounded_1e4 = round_div_i64(amount_micros, 100);
+    format_scaled_i64(rounded_1e4, 4)
+}
+
 fn parse_decimal_to_scaled_i64(input: &str, scale: u32) -> Result<i64, String> {
     let mut s = input.trim();
     if let Some(rest) = s.strip_prefix('$') {
@@ -90,4 +97,29 @@ fn parse_fraction_to_scale(frac: &str, scale: u32) -> Result<i64, String> {
     }
 
     Ok(value)
+}
+
+fn round_div_i64(value: i64, divisor: i64) -> i64 {
+    debug_assert!(divisor > 0);
+    if value >= 0 {
+        (value + (divisor / 2)) / divisor
+    } else {
+        // Not expected for USD amounts, but behave sensibly.
+        (value - (divisor / 2)) / divisor
+    }
+}
+
+fn format_scaled_i64(amount: i64, scale: u32) -> String {
+    let scale_factor = 10_i64.checked_pow(scale).unwrap_or(1).max(1); // scale=0 case
+
+    let sign = if amount < 0 { "-" } else { "" };
+    let abs = amount.abs();
+    let whole = abs / scale_factor;
+    let frac = abs % scale_factor;
+
+    if scale == 0 {
+        return format!("{sign}{whole}");
+    }
+
+    format!("{sign}{whole}.{frac:0width$}", width = scale as usize)
 }

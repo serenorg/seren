@@ -2,6 +2,7 @@ use anyhow::Result;
 use colored::Colorize;
 use uuid::Uuid;
 
+use crate::money::format_usd_micros_4;
 use crate::{CommandContext, OutputFormat, defaults, output};
 
 /// List all active publishers in the store
@@ -723,9 +724,9 @@ pub async fn list_templates(
             } else {
                 for t in &templates.data {
                     let verified = if t.is_verified { "✓" } else { " " };
-                    let price_usd = t.price_atomic as f64 / 1_000_000.0;
+                    let price_usd = format_usd_micros_4(t.price_atomic);
                     println!(
-                        "{} {} ({:?}) - ${:.4} per invocation",
+                        "{} {} ({:?}) - ${} per invocation",
                         verified, t.slug, t.language, price_usd
                     );
                     if let Some(desc) = &t.description {
@@ -755,12 +756,12 @@ pub async fn get_template(slug: &str, ctx: &CommandContext) -> Result<()> {
             let t = &template.data;
             println!("{}", t.name.bold());
             println!();
-            let price_usd = t.price_atomic as f64 / 1_000_000.0;
+            let price_usd = format_usd_micros_4(t.price_atomic);
             let rows = [
                 ("ID", t.id.to_string()),
                 ("Slug", t.slug.clone()),
                 ("Language", format!("{:?}", t.language)),
-                ("Price", format!("${:.4} per invocation", price_usd)),
+                ("Price", format!("${} per invocation", price_usd)),
                 (
                     "Verified",
                     if t.is_verified { "Yes" } else { "No" }.to_string(),
@@ -829,13 +830,13 @@ pub async fn publish_template(
             println!("{}", "Template published successfully!".green().bold());
             println!();
             let t = &result.data;
-            let price_usd = t.price_atomic as f64 / 1_000_000.0;
+            let price_usd = format_usd_micros_4(t.price_atomic);
             let rows = [
                 ("ID", t.id.to_string()),
                 ("Slug", t.slug.clone()),
                 ("Name", t.name.clone()),
                 ("Language", format!("{:?}", t.language)),
-                ("Price", format!("${:.4} per invocation", price_usd)),
+                ("Price", format!("${} per invocation", price_usd)),
             ];
             output::print_key_value_table(None, &rows);
         }
