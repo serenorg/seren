@@ -806,11 +806,19 @@ pub async fn publish_template(
             .collect::<Vec<_>>()
     });
 
+    let language_norm = language.trim().to_ascii_lowercase();
+    let language: seren::TemplateLanguage = language_norm.parse().map_err(|_| {
+        anyhow::anyhow!(
+            "Invalid language '{}'. Expected one of: python, typescript, javascript.",
+            language
+        )
+    })?;
+
     let body = seren::CreateTemplateRequest {
         name: name.to_string(),
         slug: slug.to_string(),
         code: code_content,
-        language: language.to_string(),
+        language,
         price: price.to_string(),
         description: description.map(|s| s.to_string()),
         dependencies: deps,

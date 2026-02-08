@@ -1025,7 +1025,7 @@ pub struct UploadPublisherLogoParams {
 /// Parameters for listing agent templates
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ListAgentTemplatesParams {
-    /// Filter by programming language (python, typescript)
+    /// Filter by programming language (python, typescript, javascript)
     #[serde(default)]
     pub language: Option<String>,
     /// Filter to verified templates only

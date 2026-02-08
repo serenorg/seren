@@ -401,6 +401,12 @@ pub fn print_usage_summaries_table(summaries: &[seren::UsageSummary]) {
     ]);
 
     let mut grand_total = 0.0f64;
+    let mut grand_total_parse_failed = false;
+
+    let fmt_money_2dp = |raw: &str| match raw.parse::<f64>() {
+        Ok(v) => format!("{v:.2}"),
+        Err(_) => raw.to_string(),
+    };
 
     for summary in summaries {
         let compute_hours_total = summary.compute_hours_small
@@ -408,7 +414,10 @@ pub fn print_usage_summaries_table(summaries: &[seren::UsageSummary]) {
             + summary.compute_hours_large
             + summary.compute_hours_xlarge;
 
-        grand_total += summary.total_cost_usd;
+        match summary.total_cost_usd.parse::<f64>() {
+            Ok(v) => grand_total += v,
+            Err(_) => grand_total_parse_failed = true,
+        }
 
         let project_label = if !summary.project_name.is_empty() {
             summary.project_name.clone()
@@ -429,18 +438,27 @@ pub fn print_usage_summaries_table(summaries: &[seren::UsageSummary]) {
             Cell::new(format!("{:.2}", compute_hours_total)),
             Cell::new(format!("{:.2}", summary.storage_gb_avg)),
             Cell::new(format!("{:.2}", summary.pitr_gb_avg)),
-            Cell::new(format!("{:.2}", summary.compute_cost_usd)),
-            Cell::new(format!("{:.2}", summary.storage_cost_usd)),
-            Cell::new(format!("{:.2}", summary.total_cost_usd)),
+            Cell::new(fmt_money_2dp(&summary.compute_cost_usd)),
+            Cell::new(fmt_money_2dp(&summary.storage_cost_usd)),
+            Cell::new(fmt_money_2dp(&summary.total_cost_usd)),
         ]);
     }
 
     println!("{}", "Usage Summary".bold());
     println!("{table}");
-    println!(
-        "\n{}",
-        format!("Total Cost: ${:.2}", grand_total).green().bold()
-    );
+    if grand_total_parse_failed {
+        println!(
+            "\n{}",
+            format!("Total Cost (approx): ${:.2}", grand_total)
+                .green()
+                .bold()
+        );
+    } else {
+        println!(
+            "\n{}",
+            format!("Total Cost: ${:.2}", grand_total).green().bold()
+        );
+    }
 }
 
 // Billing: payment methods

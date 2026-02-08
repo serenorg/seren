@@ -162,7 +162,7 @@ pub async fn create(
         scopes: scopes.to_vec(),
         custom_auth_params: None,
         pkce_required: Some(pkce_required),
-        token_endpoint_auth_method: token_endpoint_auth_method.map(String::from),
+        token_endpoint_auth_method: token_endpoint_auth_method.map(|s| s.to_string().into()),
     };
 
     let response = client
@@ -225,7 +225,7 @@ pub async fn update(
         scopes: scopes.map(|s| s.to_vec()),
         custom_auth_params: None,
         pkce_required,
-        token_endpoint_auth_method: token_endpoint_auth_method.map(String::from),
+        token_endpoint_auth_method: token_endpoint_auth_method.map(|s| s.to_string().into()),
         is_active,
         organization_id: None,
     };
