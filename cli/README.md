@@ -1,22 +1,10 @@
 # Seren CLI
 
-Command-line interface for managing SerenDB databases, projects, branches, and more.
+Command-line interface for managing SerenAI's SerenDB databases, projects, branches, and agent commerce.
 
 ## Installation
 
-### Homebrew (macOS/Linux)
-
-```bash
-brew install serenorg/tap/seren
-```
-
-### Cargo
-
-```bash
-cargo install seren-cli
-```
-
-### From Source
+### From Source (Recommended)
 
 ```bash
 git clone https://github.com/serenorg/seren.git
@@ -24,20 +12,20 @@ cd seren
 cargo install --path cli
 ```
 
+### From Git (No Clone)
+
+```bash
+cargo install --git https://github.com/serenorg/seren.git --package seren-cli
+```
+
 ### Pre-built Binaries
 
-Download from [GitHub Releases](https://github.com/serenorg/seren/releases):
-
-- `seren-darwin-arm64` - macOS Apple Silicon
-- `seren-darwin-x86_64` - macOS Intel
-- `seren-linux-x86_64` - Linux x86_64
-- `seren-linux-arm64` - Linux ARM64
-- `seren-windows-x86_64.exe` - Windows
+Pre-built binaries are not yet available. Install from source for now.
 
 ## Quick Start
 
 ```bash
-# Authenticate with SerenDB
+# Authenticate with SerenAI
 seren auth login
 
 # List your projects
@@ -83,253 +71,255 @@ seren me
 ### Projects
 
 ```bash
-# List all projects
 seren projects list
-
-# Get project details
 seren projects get <project-id>
-
-# Create a project
 seren projects create --name my-project --region aws-us-east-1
-
-# Create and connect via psql
-seren projects create --name my-project --region aws-us-east-1 --psql
-
-# Update a project
+seren projects create --name my-project --region aws-us-east-1 --psql  # connect via psql after creation
 seren projects update <project-id> --name new-name
-
-# Get connection URI
 seren projects connection-uri <project-id>
-
-# Delete a project
+seren projects connection-uri <project-id> --pooled --branch-id <id>
 seren projects delete <project-id>
-seren projects delete <project-id> --yes  # Skip confirmation
+seren projects delete <project-id> --yes
 ```
 
 ### Branches
 
 ```bash
-# List branches
 seren branches --project-id <id> list
-
-# Create a branch
+seren branches --project-id <id> get <branch-id>
 seren branches --project-id <id> create --name feature-branch
-
-# Create from parent with point-in-time recovery
 seren branches --project-id <id> create --name restore-branch \
   --parent <parent-id> --parent-timestamp "2025-01-15T10:00:00Z"
-
-# Create with auto-expiration
 seren branches --project-id <id> create --name temp-branch --expires-in 7d
-
-# Create schema-only branch (no data)
 seren branches --project-id <id> create --name schema-branch --schema-only
-
-# Get connection string
 seren branches --project-id <id> connection-string <branch-id>
 seren branches --project-id <id> connection-string <branch-id> --pooled
-
-# Compare schemas between branches
+seren branches --project-id <id> rename <branch-id> --name new-name
+seren branches --project-id <id> set-default <branch-id>
+seren branches --project-id <id> set-expiration <branch-id> --expires-at "2025-12-31T23:59:59Z"
 seren branches --project-id <id> schema-diff \
   --base-branch-id <id> --compare-branch-id <id>
-
-# Reset branch to parent
 seren branches --project-id <id> reset <branch-id>
-
-# Restore branch (point-in-time recovery)
 seren branches --project-id <id> restore <branch-id> \
   --source ^self --preserve-under-name backup \
   --timestamp "2025-01-15T10:00:00Z"
-
-# Delete a branch
 seren branches --project-id <id> delete <branch-id>
-```
-
-### Endpoints
-
-```bash
-# List endpoints
-seren endpoints --project-id <id> --branch-id <id> list
-
-# Create an endpoint
-seren endpoints --project-id <id> --branch-id <id> create \
-  --name my-endpoint --compute-unit medium
-
-# Create with autoscaling
-seren endpoints --project-id <id> --branch-id <id> create \
-  --name my-endpoint --autoscaling-min 1 --autoscaling-max 4
-
-# Suspend/start endpoint
-seren endpoints --project-id <id> --branch-id <id> suspend <endpoint-id>
-seren endpoints --project-id <id> --branch-id <id> start <endpoint-id>
-
-# Check health and metrics
-seren endpoints --project-id <id> --branch-id <id> health <endpoint-id>
-seren endpoints --project-id <id> --branch-id <id> metrics <endpoint-id>
 ```
 
 ### Databases & Roles
 
 ```bash
-# List databases
+# Databases
 seren databases --project-id <id> --branch-id <id> list
-
-# Create a database
 seren databases --project-id <id> --branch-id <id> create --name mydb
+seren databases --project-id <id> --branch-id <id> delete <db-id>
 
-# List roles
+# List all databases across projects
+seren list-all-databases
+seren list-all-databases --project-id <id>
+
+# Roles
 seren roles --project-id <id> --branch-id <id> list
-
-# Create a role
 seren roles --project-id <id> --branch-id <id> create --name myrole
+seren roles --project-id <id> --branch-id <id> reset-password --id <role-id> --password newpass
+seren roles --project-id <id> --branch-id <id> reveal-password --name <role-name>
+seren roles --project-id <id> --branch-id <id> delete <role-id>
+```
 
-# Reset role password
-seren roles --project-id <id> --branch-id <id> reset-password \
-  --id <role-id> --password newpassword
+### Endpoints
+
+```bash
+seren endpoints --project-id <id> --branch-id <id> list
+seren endpoints --project-id <id> --branch-id <id> create \
+  --name my-endpoint --compute-unit medium
+seren endpoints --project-id <id> --branch-id <id> create \
+  --name my-endpoint --autoscaling-min 1 --autoscaling-max 4
+seren endpoints --project-id <id> --branch-id <id> update <endpoint-id> \
+  --autoscaling-min 2 --autoscaling-max 8
+seren endpoints --project-id <id> --branch-id <id> suspend <endpoint-id>
+seren endpoints --project-id <id> --branch-id <id> start <endpoint-id>
+seren endpoints --project-id <id> --branch-id <id> restart <endpoint-id>
+seren endpoints --project-id <id> --branch-id <id> health <endpoint-id>
+seren endpoints --project-id <id> --branch-id <id> metrics <endpoint-id>
+seren endpoints --project-id <id> --branch-id <id> delete <endpoint-id>
 ```
 
 ### Environment Files
 
 ```bash
-# Initialize .env with connection string
 seren env init --project-id <id>
-
-# Specify branch and key name
-seren env init --project-id <id> --branch-id <id> \
-  --key DATABASE_URL --pooled
+seren env init --project-id <id> --branch-id <id> --key DATABASE_URL --pooled
 ```
 
 ### Organizations
 
 ```bash
-# List organizations
-seren organizations
-
-# List members
-seren orgs members --org-id <id>
-
-# Invite a member
+seren organizations                              # list organizations
+seren orgs members --org-id <id>                  # list members
+seren orgs invites --org-id <id>                  # list invites
 seren orgs invite --org-id <id> --email user@example.com --role member
+```
+
+### Agent Commerce
+
+```bash
+# Publishers
+seren agent list-publishers
+seren agent get-publisher <slug-or-id>
+seren agent create-publisher --name "My API" --slug my-api \
+  --organization-id <uuid> --wallet-address 0x... --wallet-network-id base-mainnet \
+  --publisher-category integration --integration-type api --api-url https://...
+
+# Prepaid balance (SerenBucks)
+seren agent get-prepaid-balance
+seren agent create-prepaid-deposit --amount 10.00
+seren agent get-transaction-history
+
+# Execute paid queries
+seren agent execute-query --publisher <slug> --query "SELECT * FROM data LIMIT 10"
+seren agent estimate-query-cost --publisher <slug> --query "SELECT * FROM data"
+
+# x402 crypto deposits
+seren agent get-deposit-requirements <publisher> <amount> <wallet-address>
+seren agent get-supported
+
+# Agent templates
+# Supported template languages: python, typescript, javascript
+seren agent list-templates
+seren agent get-template <slug>
+seren agent publish-template --name "My Agent" --slug my-agent \
+  --code agent.py --language python --price "0.05"
+seren agent invoke-template --slug my-agent --input '{"query": "..."}'
+```
+
+### OAuth Connections (BYOC)
+
+```bash
+seren oauth providers                         # list available OAuth providers
+seren oauth connections                       # list your connections
+seren oauth connect <provider-slug>           # connect to a provider
+seren oauth disconnect <provider-slug>        # disconnect
+
+# Organization OAuth provider management
+seren orgs oauth --org-id <id> list
+seren orgs oauth --org-id <id> create --slug attio --name Attio \
+  --authorization-url https://... --token-url https://... \
+  --client-id <id> --client-secret <secret> --scope "read,write"
+seren orgs oauth --org-id <id> update <provider-id> --name "New Name"
+seren orgs oauth --org-id <id> delete <provider-id>
 ```
 
 ### IP Allow List
 
 ```bash
-# List allowed IPs
 seren ip-allow-list --project-id <id> list
-
-# Add an IP
 seren ip-allow-list --project-id <id> add \
   --ip-address 192.168.1.0/24 --description "Office network"
-
-# Remove an IP
 seren ip-allow-list --project-id <id> remove <entry-id>
-
-# Reset (replace all)
 seren ip-allow-list --project-id <id> reset 10.0.0.0/8 172.16.0.0/12
 ```
 
 ### VPC Endpoints
 
 ```bash
-# List organization VPC endpoints
 seren vpc endpoint --org-id <id> list
-
-# Register a VPC endpoint
 seren vpc endpoint --org-id <id> add \
   --region aws-us-east-1 --endpoint-id vpce-xxx --label production
-
-# Assign to project
+seren vpc endpoint --org-id <id> get <endpoint-id>
+seren vpc endpoint --org-id <id> remove <endpoint-id>
+seren vpc project --project-id <id> list
 seren vpc project --project-id <id> assign --vpc-endpoint-id <id>
+seren vpc project --project-id <id> remove <assignment-id>
 ```
 
 ### Branch Protection
 
 ```bash
-# List protection rules
 seren branch-protection --project-id <id> list
-
-# Protect a branch
+seren branch-protection --project-id <id> get <branch-id>
 seren branch-protection --project-id <id> create <branch-id> \
   --prevent-deletion --prevent-reset --require-approval
+seren branch-protection --project-id <id> update <branch-id> \
+  --require-approval true
+seren branch-protection --project-id <id> delete <branch-id>
 ```
 
 ### Logical Replication
 
 ```bash
-# Enable logical replication
+seren replication --project-id <id> settings
 seren replication --project-id <id> enable
-
-# List publications
 seren replication --project-id <id> list-publications --branch-id <id>
-
-# Create a publication
 seren replication --project-id <id> create-publication \
   --branch-id <id> --name my_pub --table users --table orders
-
-# Create replication slot
-seren replication --project-id <id> create-slot \
-  --branch-id <id> --name my_slot
+seren replication --project-id <id> create-slot --branch-id <id> --name my_slot
+seren replication --project-id <id> list-slots --branch-id <id>
 ```
 
 ### Webhooks
 
 ```bash
-# List webhooks
 seren webhooks --org-id <id> list
-
-# Create a webhook
-seren webhooks --org-id <id> create \
+seren webhooks --org-id <id> create --name alerts \
   --url https://example.com/webhook \
   --event project.created --event branch.created
-
-# Rotate secret
+seren webhooks --org-id <id> get <webhook-id>
+seren webhooks --org-id <id> update <webhook-id> --enabled false
 seren webhooks --org-id <id> rotate-secret <webhook-id>
+seren webhooks --org-id <id> deliveries <webhook-id>
+seren webhooks --org-id <id> event-types
+seren webhooks --org-id <id> delete <webhook-id>
 ```
 
 ### Audit Logs
 
 ```bash
-# View audit logs
 seren audit-logs --org-id <id> list --limit 100
+seren audit-logs --org-id <id> get <log-id>
 ```
 
 ### RBAC
 
 ```bash
-# List roles
 seren rbac --org-id <id> list-roles
-
-# Create a custom role
+seren rbac --org-id <id> get-role <role-id>
 seren rbac --org-id <id> create-role \
   --name developer --permission project.read --permission branch.create
-
-# Assign role to member
+seren rbac --org-id <id> update-role <role-id> --name "Senior Dev"
+seren rbac --org-id <id> delete-role <role-id>
 seren rbac --org-id <id> assign-role --member-id <id> --role-id <id>
+seren rbac --org-id <id> list-permissions
+seren rbac --org-id <id> my-permissions
 ```
 
 ### Sessions
 
 ```bash
-# List active sessions
 seren sessions list
-
-# Revoke a session
 seren sessions revoke <session-id>
-
-# Revoke all other sessions
 seren sessions revoke-others <current-session-id>
+seren sessions revoke-all
 ```
 
 ### Billing
 
 ```bash
-# List payment methods
 seren billing list-payment-methods
-
-# Get usage summary
+seren billing add-payment-method <stripe-pm-id>
+seren billing remove-payment-method <id>
 seren billing get-usage --organization-id <id> \
   --start-date 2025-01-01 --end-date 2025-01-31
+seren billing generate-invoices --year 2025 --month 1
+seren billing get-invoice <invoice-id>
+seren billing issue-invoice <invoice-id>
+seren billing health
+```
+
+### Operations
+
+```bash
+seren operations --project-id <id> list
+seren operations --project-id <id> get <operation-id>
 ```
 
 ## Context Management
@@ -337,25 +327,17 @@ seren billing get-usage --organization-id <id> \
 Set default project and organization to avoid passing `--project-id` repeatedly:
 
 ```bash
-# Set defaults
 seren set-context set --project-id <id> --org-id <id>
-
-# Show current context
 seren set-context show
-
-# Clear context
 seren set-context clear
 ```
 
 ## Output Formats
 
 ```bash
-# Table output (default)
-seren projects list
-
-# JSON output
-seren projects list --format json
-seren -o json projects list
+seren projects list                # table output (default)
+seren projects list --format json  # JSON output
+seren -o json projects list        # short form
 ```
 
 ## Environment Variables
@@ -371,6 +353,12 @@ Config files are stored in:
 - macOS: `~/Library/Application Support/seren/`
 - Linux: `~/.config/seren/`
 - Windows: `%APPDATA%\seren\`
+
+## Support
+
+- Documentation: https://docs.serendb.com
+- Issues: https://github.com/serenorg/seren/issues
+- Discord: https://discord.gg/jseg7q4KS7
 
 ## License
 

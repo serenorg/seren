@@ -1,18 +1,12 @@
 # seren
 
-Rust SDK for the Seren API, providing programmatic access to Seren database management.
-
-## Overview
-
-`seren` is the official Rust SDK for managing Seren databases, projects, and resources. It provides a type-safe, ergonomic interface to the Seren API.
+Rust SDK for the [SerenAI](https://serendb.com) API. Type-safe client generated from the OpenAPI spec via [progenitor](https://github.com/oxidecomputer/progenitor).
 
 ## Installation
 
-Add this to your `Cargo.toml`:
-
 ```toml
 [dependencies]
-seren = "0.1"
+seren = "0.3"
 ```
 
 ## Quick Start
@@ -22,25 +16,13 @@ use seren::{Client, ClientConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create a client with your API key
     let config = ClientConfig::new("seren_your_api_key_here");
-    let client = Client::new(config)?;
-    
+    let client = Client::from_config(&config)?;
+
     // List all projects
-    let projects = client.projects().list().await?;
-    println!("Found {} projects", projects.len());
-    
-    // Get a specific project
-    let project = client.projects().get("project-id").await?;
-    println!("Project: {}", project.name);
-    
-    // Create a new project
-    use seren::CreateProjectRequest;
-    let new_project = client.projects().create(CreateProjectRequest {
-        name: "My New Project".to_string(),
-        organization_id: "org-id".to_string(),
-    }).await?;
-    
+    let projects = client.list_projects(None, None, None).await?;
+    println!("Found {} projects", projects.into_inner().data.len());
+
     Ok(())
 }
 ```
@@ -49,13 +31,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### API Key
 
-Get your API key from the Seren Console at: https://console.serendb.com/settings/api-keys
+Get your API key from the SerenAI Console at: https://console.serendb.com/settings/api-keys
 
 ### Custom API Host
 
 ```rust
 let config = ClientConfig::new("seren_your_api_key")
-    .with_base_url("https://api.serendb.com/v1");
+    .with_base_url("https://api.serendb.com");
 ```
 
 ### Custom Timeout
@@ -65,94 +47,44 @@ let config = ClientConfig::new("seren_your_api_key")
     .with_timeout(120); // 120 seconds
 ```
 
-## API Reference
+## API
 
-### Projects
+The client is auto-generated from `openapi/openapi.json` at build time. All API methods are available directly on the `Client` struct (e.g., `client.list_projects()`, `client.get_project()`, `client.create_project()`).
 
-```rust
-// List all projects
-let projects = client.projects().list().await?;
+Return values are wrapped in `ResponseValue<T>` - call `.into_inner()` to get the response body.
 
-// Get a project by ID
-let project = client.projects().get("project-id").await?;
+### Error Handling
 
-// Create a project
-let project = client.projects().create(CreateProjectRequest {
-    name: "Project Name".to_string(),
-    organization_id: "org-id".to_string(),
-}).await?;
-
-// Delete a project
-client.projects().delete("project-id").await?;
-```
-
-## Error Handling
-
-The SDK uses a custom `Result` type with detailed error variants:
+The SDK uses `progenitor_client::Error` for all errors:
 
 ```rust
-use seren::{Client, Error};
+use seren::{Client, ClientConfig, Error};
 
-match client.projects().get("invalid-id").await {
-    Ok(project) => println!("Found: {}", project.name),
-    Err(Error::NotFound(msg)) => println!("Not found: {}", msg),
-    Err(Error::Auth(msg)) => println!("Auth error: {}", msg),
-    Err(Error::Api { status, message }) => println!("API error {}: {}", status, message),
+let config = ClientConfig::new("seren_your_api_key");
+let client = Client::from_config(&config)?;
+
+match client.get_project("project-id").await {
+    Ok(response) => println!("Found: {:?}", response.into_inner()),
+    Err(Error::InvalidRequest(msg)) => println!("Bad request: {}", msg),
+    Err(Error::ErrorResponse(resp)) => {
+        println!("API error {}: {:?}", resp.status(), resp.into_inner());
+    }
     Err(e) => println!("Error: {}", e),
 }
 ```
 
 ## Features
 
-- **Type-safe API**: Leverage Rust's type system for compile-time safety
-- **Async/await**: Built on tokio for efficient async operations
-- **Comprehensive error handling**: Detailed error types for better debugging
-- **Configurable**: Customize API host, timeout, and other settings
-- **Lightweight**: Minimal dependencies, small binary footprint
-
-## Examples
-
-See the [examples](examples/) directory for more usage examples:
-
-- `basic.rs` - Basic project management
-- `error_handling.rs` - Error handling patterns
-- `custom_config.rs` - Advanced configuration
-
-## Development
-
-### Build
-
-```bash
-cargo build
-```
-
-### Run Tests
-
-```bash
-cargo test
-```
-
-### Generate Docs
-
-```bash
-cargo doc --open
-```
-
-## Used By
-
-- [serenctl](https://github.com/serenorg/serenctl) - Official CLI tool
-- Your project here! Open a PR to add your project
-
-## Contributing
-
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details.
-
-## License
-
-MIT License - see [LICENSE](LICENSE) for details.
+- **Type-safe**: Generated from OpenAPI spec with compile-time type checking
+- **Async**: Built on tokio and reqwest
+- **Complete**: Covers all SerenAI API endpoints including agent commerce and x402 payments
 
 ## Support
 
 - Documentation: https://docs.serendb.com
 - Issues: https://github.com/serenorg/seren/issues
-- Community: https://discord.gg/serendb
+- Discord: https://discord.gg/jseg7q4KS7
+
+## License
+
+MIT License - see [LICENSE](../LICENSE) for details.

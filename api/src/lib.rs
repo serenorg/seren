@@ -10,10 +10,10 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let config = ClientConfig::new("seren_your_api_key_here");
-//!     let client = Client::new(&config)?;
+//!     let client = Client::from_config(&config)?;
 //!
-//!     let projects = client.list_projects(None, None).await?;
-//!     println!("Found {} projects", projects.data.len());
+//!     let projects = client.list_projects(None, None, None).await?;
+//!     println!("Found {} projects", projects.into_inner().data.len());
 //!
 //!     Ok(())
 //! }

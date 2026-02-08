@@ -1,28 +1,46 @@
 # Seren
 
-Official Rust SDK, CLI, and MCP server for [SerenDB](https://serendb.com) - the serverless Postgres platform for AI agents.
+Official Rust SDK, CLI, and MCP server for SerenAI - the team behind [SerenDB](https://serendb.com), a serverless Postgres platform with built-in agent commerce and micropayments.
 
 ## Packages
 
-| Package | Description | Crate |
-|---------|-------------|-------|
-| [seren](./api/) | Rust SDK for the SerenDB API | [![crates.io](https://img.shields.io/crates/v/seren.svg)](https://crates.io/crates/seren) |
-| [seren-cli](./cli/) | Command-line interface | [![crates.io](https://img.shields.io/crates/v/seren-cli.svg)](https://crates.io/crates/seren-cli) |
-| [seren-mcp](./mcp/) | MCP server for AI assistants | [![crates.io](https://img.shields.io/crates/v/seren-mcp.svg)](https://crates.io/crates/seren-mcp) |
+| Package | Description | Status |
+|---------|-------------|--------|
+| [seren](./api/) | Rust SDK for the SerenAI API (SerenDB) | [![crates.io](https://img.shields.io/crates/v/seren.svg)](https://crates.io/crates/seren) |
+| [seren-cli](./cli/) | Command-line interface | Not published on crates.io yet |
+| [seren-mcp](./mcp/) | MCP server for AI assistants | Not published on crates.io yet |
 
 ## Quick Start
 
-### Skills
-https://api.serendb.com/skill.md
+### MCP Server (AI Integration)
+
+Connect Claude or other AI assistants to SerenAI:
+
+```bash
+# Claude Code (recommended - no local install needed)
+claude mcp add --scope user --transport http seren https://mcp.serendb.com/mcp
+```
+
+Or configure manually for Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "seren": {
+      "url": "https://mcp.serendb.com/mcp",
+      "transport": "streamable-http"
+    }
+  }
+}
+```
+
+See [mcp/README.md](./mcp/README.md) for local server setup and all configuration options.
 
 ### CLI
 
 ```bash
-# Install
-cargo install seren-cli
-
-# Or via Homebrew
-brew install serenorg/tap/seren
+# Install from source (see Installation below)
+cargo install --path cli
 
 # Login and start managing databases
 seren auth login
@@ -34,7 +52,7 @@ seren projects create --name my-project --region aws-us-east-1
 
 ```toml
 [dependencies]
-seren = "0.1"
+seren = "0.3"
 ```
 
 ```rust
@@ -42,43 +60,17 @@ use seren::{Client, ClientConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Client::new(ClientConfig::new("seren_your_api_key"))?;
+    let config = ClientConfig::new("seren_your_api_key");
+    let client = Client::from_config(&config)?;
 
-    let projects = client.projects().list().await?;
-    println!("Found {} projects", projects.len());
+    let projects = client.list_projects(None, None, None).await?;
+    println!("Found {} projects", projects.into_inner().data.len());
 
     Ok(())
 }
 ```
 
-### MCP Server (AI Integration)
-
-Enable Claude and other AI assistants to manage your SerenDB databases:
-
-```json
-{
-  "mcpServers": {
-    "seren": {
-      "command": "npx",
-      "args": ["-y", "seren-mcp@latest", "start:oauth"]
-    }
-  }
-}
-```
-
-See [mcp/README.md](./mcp/README.md) for detailed setup instructions.
-
 ## Installation
-
-### Claude Code (Recommended)
-
-```bash
-# Add hosted Seren MCP server globally (recommended - available in all conversations)
-claude mcp add --scope user --transport http seren https://mcp.serendb.com/mcp
-
-# Or add to current project only
-claude mcp add --scope local --transport http seren https://mcp.serendb.com/mcp
-```
 
 ### From Source
 
@@ -98,20 +90,44 @@ cargo install --path mcp
 
 ### Pre-built Binaries
 
-Download from [GitHub Releases](https://github.com/serenorg/seren/releases).
+Pre-built binaries are not yet available. Install from source for now.
 
-### Package Managers
+## Development
+
+### Prerequisites
+
+- Rust 1.85+ (edition 2024)
+- PostgreSQL (for MCP OAuth mode and integration tests)
+
+### Building
 
 ```bash
-# Homebrew (macOS/Linux)
-brew install serenorg/tap/seren
+# Build all packages
+cargo build --workspace
 
-# Cargo
-cargo install seren-cli
-cargo install seren-mcp
+# Run tests
+cargo test --workspace
 
-# npm (MCP server only)
-npx seren-mcp start:oauth
+# Lint
+cargo clippy --all-targets -- -D warnings
+
+# Format
+cargo fmt --all
+```
+
+### Project Structure
+
+```
+seren/
+├── api/            # Rust SDK - OpenAPI-generated type-safe client
+├── cli/            # CLI tool - clap-based database management
+├── mcp/            # MCP server - stdio, HTTP, and OAuth modes
+│   ├── oauth/      #   OAuth 2.1 + PKCE implementation
+│   ├── wallet/     #   x402 crypto payment support
+│   └── migrations/ #   Embedded SQL migrations
+├── openapi/        # OpenAPI spec (source for SDK codegen)
+├── docker/         # Dockerfiles
+└── Cargo.toml      # Workspace configuration
 ```
 
 ## Documentation
@@ -121,50 +137,6 @@ npx seren-mcp start:oauth
 - **MCP Server**: [mcp/README.md](./mcp/README.md)
 - **API Documentation**: [docs.serendb.com](https://docs.serendb.com)
 
-## Development
-
-### Prerequisites
-
-- Rust 1.75+
-- PostgreSQL (for integration tests)
-
-### Building
-
-```bash
-# Build all packages
-cargo build
-
-# Run tests
-cargo test
-
-# Run clippy
-cargo clippy --all-targets
-
-# Format code
-cargo fmt
-```
-
-### Project Structure
-
-```
-seren/
-├── api/          # Rust SDK (seren crate)
-├── cli/          # CLI tool (seren-cli crate)
-├── mcp/          # MCP server (seren-mcp crate)
-├── docker/         # Dockerfiles for containerized deployments
-└── Cargo.toml    # Workspace configuration
-```
-
-## Contributing
-
-Contributions are welcome! Please read our contributing guidelines before submitting a PR.
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
@@ -173,4 +145,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 - Documentation: https://docs.serendb.com
 - Issues: https://github.com/serenorg/seren/issues
-- Discord: https://discord.gg/serendb
+- Discord: https://discord.gg/jseg7q4KS7

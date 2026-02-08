@@ -1,6 +1,6 @@
 # Seren MCP Server
 
-Model Context Protocol (MCP) server for SerenDB, enabling AI assistants like Claude to manage your Seren databases through natural language.
+Model Context Protocol (MCP) server for SerenAI, enabling AI agents like Claude to manage your SerenDB databases through natural language.
 
 ## Features
 
@@ -26,13 +26,13 @@ Run the MCP server locally if you need full control or are developing:
 #### Cargo (Rust)
 
 ```bash
-# Install from crates.io
-cargo install seren-mcp
-
-# Or build from source
+# Build/install from source
 git clone https://github.com/serenorg/seren.git
 cd seren
 cargo install --path mcp
+
+# Or install directly from Git (no clone)
+cargo install --git https://github.com/serenorg/seren.git --package seren-mcp
 ```
 
 #### Docker
@@ -50,20 +50,7 @@ docker run -p 8080:8080 \
 
 #### GitHub Releases
 
-Download pre-built binaries from [GitHub Releases](https://github.com/serenorg/seren/releases):
-
-- `seren-mcp-darwin-arm64` - macOS Apple Silicon
-- `seren-mcp-darwin-x86_64` - macOS Intel
-- `seren-mcp-linux-x86_64` - Linux x86_64
-- `seren-mcp-linux-arm64` - Linux ARM64
-- `seren-mcp-windows-x86_64.exe` - Windows x86_64
-
-```bash
-# Download and install (macOS/Linux)
-curl -L https://github.com/serenorg/seren/releases/latest/download/seren-mcp-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m) -o seren-mcp
-chmod +x seren-mcp
-sudo mv seren-mcp /usr/local/bin/
-```
+Pre-built binaries are not yet available. Install from source for now.
 
 ## Configuration
 
@@ -71,8 +58,8 @@ sudo mv seren-mcp /usr/local/bin/
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `API_URL` | Seren API base URL | `https://api.serendb.com` |
-| `API_KEY` | Seren API key (for `start`/`start:http`) | Required |
+| `API_URL` | SerenAI API base URL | `https://api.serendb.com` |
+| `API_KEY` | SerenAI API key (for `start`/`start:http`) | Required |
 | `AUTH_TOKEN` | Auth token for `start:http` (bearer) | Required for `start:http` |
 | `DATABASE_URL` | Postgres URL for OAuth token storage | Required for `start:oauth` |
 | `PUBLIC_URL` | Public base URL of this server | Required for `start:oauth` |
@@ -118,7 +105,7 @@ claude mcp add --scope local --transport http seren https://mcp.serendb.com/mcp
 }
 ```
 
-When you first use the MCP server, you'll be prompted to authorize Claude to access your SerenDB account via OAuth 2.1.
+When you first use the MCP server, you'll be prompted to authorize Claude to access your SerenAI account via OAuth 2.1.
 
 #### Method 2: Using the Local Server
 
@@ -167,10 +154,10 @@ Once configured, you can ask Claude to:
 
 Use prepaid balance (fiat/Stripe) for store access:
 
-- `get_prepaid_balance` — Check your prepaid balance summary (virtual wallet)
-- `create_prepaid_deposit` — Create a prepaid deposit (returns provider client data)
-- `execute_paid_query` — Run a prepaid SQL query against a publisher database
-- `execute_paid_api` — Run a prepaid HTTP request against a publisher API
+- `get_prepaid_balance` - Check your prepaid balance summary (virtual wallet)
+- `create_prepaid_deposit` - Create a prepaid deposit (returns provider client data)
+- `execute_paid_query` - Run a prepaid SQL query against a publisher database
+- `execute_paid_api` - Run a prepaid HTTP request against a publisher API
 
 Both tools accept an optional `request_id` (UUID) for idempotency.
 
@@ -424,7 +411,7 @@ cargo build --release --package seren-mcp --features telemetry
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Claude/AI      │────▶│  Seren MCP      │────▶│  SerenDB API    │
+│  Claude/AI      │────▶│  Seren MCP      │────▶│  SerenAI API    │
 │  Assistant      │◀────│  Server         │◀────│  (api.serendb)  │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
         │                       │
@@ -445,7 +432,7 @@ cargo build --release --package seren-mcp --features telemetry
 
 ## Security
 
-- OAuth 2.0 with PKCE for secure authentication
+- OAuth 2.1 with PKCE for secure authentication
 - Tokens are stored securely and refreshed automatically
 - All API communication uses TLS encryption
 - No credentials are stored in plain text
@@ -457,7 +444,7 @@ cargo build --release --package seren-mcp --features telemetry
 Ensure the MCP server is running and accessible:
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:3000/health
 ```
 
 ### OAuth authentication fails
@@ -476,7 +463,7 @@ curl http://localhost:8080/health
 
 - Documentation: https://docs.serendb.com/mcp
 - Issues: https://github.com/serenorg/seren/issues
-- Discord: https://discord.gg/serendb
+- Discord: https://discord.gg/jseg7q4KS7
 
 ## License
 
