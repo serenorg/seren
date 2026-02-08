@@ -775,6 +775,13 @@ pub struct CreatePublisherParams {
     /// Unlike api_key_headers, these values are NOT encrypted
     #[serde(default)]
     pub upstream_headers: Option<HashMap<String, String>>,
+    /// Whitelist of agent-provided headers allowed to pass through to upstream.
+    ///
+    /// Common use cases:
+    /// - Upstream auth_type="passthrough" (forward HMAC-signed headers)
+    /// - Allow forwarding request-scoped correlation IDs
+    #[serde(default)]
+    pub allowed_passthrough_headers: Option<Vec<String>>,
     /// Structured endpoint definitions for LLM discoverability and access control
     /// Each endpoint can specify method, path, description, and protection status
     #[serde(default)]
@@ -809,7 +816,7 @@ pub struct CreatePublisherParams {
     /// Query parameter name to inject upstream_api_key into (e.g., "api_key")
     #[serde(default)]
     pub api_key_query_param: Option<String>,
-    /// Upstream auth mode: "static", "jwt", or "oauth2_cc" (default: static)
+    /// Upstream auth mode: "static", "jwt", "oauth2_cc", or "passthrough" (default: static)
     ///
     /// For OAuth2 Client Credentials flow, set auth_type="oauth2_cc" and provide oauth2_* fields.
     #[serde(default)]
@@ -933,7 +940,10 @@ pub struct UpdatePublisherParams {
     /// Query parameter name to inject upstream_api_key into (e.g., "api_key")
     #[serde(default)]
     pub api_key_query_param: Option<String>,
-    /// Upstream auth mode: "static", "jwt", or "oauth2_cc"
+    /// Whitelist of agent-provided headers allowed to pass through to upstream
+    #[serde(default)]
+    pub allowed_passthrough_headers: Option<Vec<String>>,
+    /// Upstream auth mode: "static", "jwt", "oauth2_cc", or "passthrough"
     #[serde(default)]
     pub auth_type: Option<String>,
     /// OAuth2 token endpoint URL for Client Credentials flow
@@ -1968,6 +1978,28 @@ fn normalize_token_exchange_mode(value: Option<String>) -> Result<Option<String>
     Ok(Some(normalized))
 }
 
+fn normalize_string_vec(
+    value: Option<Vec<String>>,
+    field_name: &'static str,
+) -> Result<Option<Vec<String>>, McpError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+
+    let mut out = Vec::with_capacity(value.len());
+    for (i, item) in value.into_iter().enumerate() {
+        let trimmed = item.trim();
+        if trimmed.is_empty() {
+            return Err(McpError::invalid_params(
+                format!("{field_name}[{i}] must not be empty"),
+                None,
+            ));
+        }
+        out.push(trimmed.to_string());
+    }
+    Ok(Some(out))
+}
+
 fn normalize_auth_type(value: Option<String>) -> Result<Option<String>, McpError> {
     let Some(value) = value else {
         return Ok(None);
@@ -1980,10 +2012,10 @@ fn normalize_auth_type(value: Option<String>) -> Result<Option<String>, McpError
         ));
     }
     match normalized.as_str() {
-        "static" | "jwt" | "oauth2_cc" => Ok(Some(normalized)),
+        "static" | "jwt" | "oauth2_cc" | "passthrough" => Ok(Some(normalized)),
         other => Err(McpError::invalid_params(
             format!(
-                "Invalid auth_type '{}'. Expected one of: static, jwt, oauth2_cc",
+                "Invalid auth_type '{}'. Expected one of: static, jwt, oauth2_cc, passthrough",
                 other
             ),
             None,
@@ -5217,6 +5249,7 @@ Examples:
             logo_url,
             request_content_type,
             upstream_headers,
+            allowed_passthrough_headers,
             endpoints,
             undocumented_endpoint_policy,
             token_exchange_url,
@@ -5430,6 +5463,10 @@ Examples:
             ),
         };
 
+        let allowed_passthrough_headers =
+            normalize_string_vec(allowed_passthrough_headers, "allowed_passthrough_headers")?
+                .unwrap_or_default();
+
         let body = seren::CreatePublisherRequest {
             name,
             slug,
@@ -5454,7 +5491,7 @@ Examples:
             logo_url,
             // Set defaults for other fields
             accepted_asset_ids: None,
-            allowed_passthrough_headers: vec![],
+            allowed_passthrough_headers,
             api_headers: None,
             api_key_header,
             api_key_query_param,
@@ -5551,6 +5588,7 @@ Examples:
             upstream_api_key,
             api_key_header,
             api_key_query_param,
+            allowed_passthrough_headers,
             auth_type,
             oauth2_token_url,
             oauth2_client_id,
@@ -5612,6 +5650,9 @@ Examples:
         let token_cache_ttl_seconds = validate_token_cache_ttl_seconds(token_cache_ttl_seconds)?;
         let token_response_field =
             normalize_nonempty_optional_string(token_response_field, "token_response_field")?;
+
+        let allowed_passthrough_headers =
+            normalize_string_vec(allowed_passthrough_headers, "allowed_passthrough_headers")?;
 
         let auth_type = normalize_auth_type(auth_type)?;
         let oauth2_token_url =
@@ -5712,7 +5753,7 @@ Examples:
             jwt_secret_key: None,
             jwt_expiration_seconds: None,
             jwt_algorithm: None,
-            allowed_passthrough_headers: None,
+            allowed_passthrough_headers,
             request_content_type: None,
             upstream_headers: None,
             gateway_fee_percent: None,
