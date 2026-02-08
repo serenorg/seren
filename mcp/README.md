@@ -50,7 +50,7 @@ docker run -p 8080:8080 \
 
 #### GitHub Releases
 
-Pre-built binaries are not yet available. Install from source for now.
+Download pre-built binaries from GitHub Releases (tagged versions): https://github.com/serenorg/seren/releases
 
 ## Configuration
 
