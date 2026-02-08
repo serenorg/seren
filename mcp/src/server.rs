@@ -1025,7 +1025,7 @@ pub struct UploadPublisherLogoParams {
 /// Parameters for listing agent templates
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ListAgentTemplatesParams {
-    /// Filter by programming language (python, typescript, rust)
+    /// Filter by programming language (python, typescript)
     #[serde(default)]
     pub language: Option<String>,
     /// Filter to verified templates only
@@ -6300,7 +6300,7 @@ Examples:
     // ========================================================================
 
     #[tool(
-        description = "List available agent templates in the catalog. Templates are executable code (Python, TypeScript, Rust) that can be invoked via micropayments.",
+        description = "List available agent templates in the catalog. Templates are executable code (Python, TypeScript, JavaScript) that can be invoked via micropayments.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_agent_templates(

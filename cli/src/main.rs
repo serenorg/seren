@@ -383,7 +383,7 @@ enum AgentAction {
     // =========================================================================
     /// List available agent templates in the catalog
     ListTemplates {
-        /// Filter by programming language (python, typescript, rust)
+        /// Filter by programming language (python, typescript)
         #[arg(long)]
         language: Option<String>,
         /// Filter to verified templates only
@@ -412,7 +412,7 @@ enum AgentAction {
         /// Path to the code file
         #[arg(long)]
         code: String,
-        /// Programming language (python, typescript, rust)
+        /// Programming language (python, typescript)
         #[arg(long)]
         language: String,
         /// Price per invocation in USD (e.g., "0.05")
