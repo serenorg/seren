@@ -22,8 +22,20 @@ pub fn parse_usd_to_cents(input: &str) -> Result<i64, MoneyParseError> {
     parse_decimal_to_scaled_i64(input, 2, "10.00")
 }
 
+pub fn parse_usd_to_micros(input: &str) -> Result<i64, MoneyParseError> {
+    parse_decimal_to_scaled_i64(input, 6, "0.10")
+}
+
 pub fn usd_f64_to_cents(amount: f64) -> Result<i64, MoneyParseError> {
     f64_to_scaled_i64(amount, 2)
+}
+
+pub fn usd_f64_to_micros(amount: f64) -> Result<i64, MoneyParseError> {
+    f64_to_scaled_i64(amount, 6)
+}
+
+pub fn format_usd_micros(micros: i64) -> String {
+    format_scaled_i64(micros, 6)
 }
 
 fn parse_decimal_to_scaled_i64(
@@ -112,4 +124,21 @@ fn f64_to_scaled_i64(amount: f64, scale: u32) -> Result<i64, MoneyParseError> {
         return Err(MoneyParseError::TooLarge);
     }
     Ok(scaled.round() as i64)
+}
+
+fn format_scaled_i64(amount: i64, scale: u32) -> String {
+    let scale_factor: i64 = 10_i64.pow(scale);
+    let amount_i128 = i128::from(amount);
+    let scale_i128 = i128::from(scale_factor);
+
+    let sign = if amount_i128 < 0 { "-" } else { "" };
+    let abs = amount_i128.abs();
+    let whole = abs / scale_i128;
+    let frac = abs % scale_i128;
+
+    if scale == 0 {
+        return format!("{sign}{whole}");
+    }
+
+    format!("{sign}{whole}.{frac:0width$}", width = scale as usize)
 }

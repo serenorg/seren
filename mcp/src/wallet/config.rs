@@ -10,10 +10,12 @@
 #![allow(dead_code)]
 
 use etcetera::base_strategy::{BaseStrategy, Xdg, choose_native_strategy};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
+
+use crate::money::{parse_usd_to_micros, usd_f64_to_micros};
 
 /// Signer configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,18 +23,86 @@ pub struct SignerConfig {
     /// Auto-approve payments under this amount (in USD)
     /// Payments above this threshold will prompt for confirmation
     /// Set to 0 to always prompt for confirmation
-    #[serde(default = "default_auto_approve_limit")]
-    pub auto_approve_limit: f64,
+    #[serde(
+        default = "default_auto_approve_limit_micros",
+        rename = "auto_approve_limit",
+        deserialize_with = "deserialize_auto_approve_limit_usd_to_micros"
+    )]
+    pub auto_approve_limit_micros: i64,
 }
 
-fn default_auto_approve_limit() -> f64 {
-    0.10
+fn default_auto_approve_limit_micros() -> i64 {
+    // $0.10 expressed as micro-USD (x402 atomic units).
+    100_000
+}
+
+fn deserialize_auto_approve_limit_usd_to_micros<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    struct V;
+
+    impl<'de> de::Visitor<'de> for V {
+        type Value = i64;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(
+                f,
+                "a USD amount as string (e.g. \"0.10\") or number (e.g. 0.10)"
+            )
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            parse_usd_to_micros(v).map_err(de::Error::custom)
+        }
+
+        fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_str(&v)
+        }
+
+        fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            usd_f64_to_micros(v).map_err(de::Error::custom)
+        }
+
+        fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            if v < 0 {
+                return Err(de::Error::custom("Amount must be non-negative"));
+            }
+            v.checked_mul(1_000_000)
+                .ok_or_else(|| de::Error::custom("Amount is too large"))
+        }
+
+        fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            let v: i64 = v
+                .try_into()
+                .map_err(|_| de::Error::custom("Amount is too large"))?;
+            v.checked_mul(1_000_000)
+                .ok_or_else(|| de::Error::custom("Amount is too large"))
+        }
+    }
+
+    deserializer.deserialize_any(V)
 }
 
 impl Default for SignerConfig {
     fn default() -> Self {
         Self {
-            auto_approve_limit: default_auto_approve_limit(),
+            auto_approve_limit_micros: default_auto_approve_limit_micros(),
         }
     }
 }
@@ -129,7 +199,7 @@ impl SignerConfig {
 # Auto-approve payments under this amount (in USD)
 # Payments above this threshold will prompt for confirmation
 # Set to 0 to always prompt for confirmation
-auto_approve_limit = 0.10
+auto_approve_limit = "0.10"
 "#;
 
         fs::write(path, default_content).map_err(|e| ConfigError::WriteFailed(e.to_string()))?;
@@ -148,16 +218,19 @@ auto_approve_limit = 0.10
     /// Check if a payment amount should be auto-approved
     ///
     /// # Arguments
-    /// * `amount_usd` - Payment amount in USD
+    /// * `amount_micros` - Payment amount in micro-USD (x402 atomic units; 1 USD = 1_000_000)
     ///
     /// # Returns
     /// `true` if amount is at or below the auto-approve limit
-    pub fn should_auto_approve(&self, amount_usd: f64) -> bool {
+    pub fn should_auto_approve(&self, amount_micros: i64) -> bool {
         // If limit is 0, never auto-approve (always prompt)
-        if self.auto_approve_limit == 0.0 {
+        if self.auto_approve_limit_micros == 0 {
             return false;
         }
-        amount_usd <= self.auto_approve_limit
+        if amount_micros < 0 {
+            return false;
+        }
+        amount_micros <= self.auto_approve_limit_micros
     }
 }
 
@@ -183,7 +256,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = SignerConfig::default();
-        assert!((config.auto_approve_limit - 0.10).abs() < f64::EPSILON);
+        assert_eq!(config.auto_approve_limit_micros, 100_000);
     }
 
     #[test]
@@ -192,28 +265,37 @@ mod tests {
         writeln!(file, "auto_approve_limit = 0.50").unwrap();
 
         let config = SignerConfig::load_from_path(file.path()).unwrap();
-        assert!((config.auto_approve_limit - 0.50).abs() < f64::EPSILON);
+        assert_eq!(config.auto_approve_limit_micros, 500_000);
+    }
+
+    #[test]
+    fn test_load_config_from_file_accepts_string_amount() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "auto_approve_limit = \"0.125\"").unwrap();
+
+        let config = SignerConfig::load_from_path(file.path()).unwrap();
+        assert_eq!(config.auto_approve_limit_micros, 125_000);
     }
 
     #[test]
     fn test_config_auto_approve_check() {
         let config = SignerConfig {
-            auto_approve_limit: 0.10,
+            auto_approve_limit_micros: 100_000,
         };
 
-        assert!(config.should_auto_approve(0.05)); // Under limit
-        assert!(config.should_auto_approve(0.10)); // At limit
-        assert!(!config.should_auto_approve(0.11)); // Over limit
-        assert!(!config.should_auto_approve(1.00)); // Way over
+        assert!(config.should_auto_approve(50_000)); // Under limit
+        assert!(config.should_auto_approve(100_000)); // At limit
+        assert!(!config.should_auto_approve(110_000)); // Over limit
+        assert!(!config.should_auto_approve(1_000_000)); // Way over
     }
 
     #[test]
     fn test_config_zero_limit_always_prompts() {
         let config = SignerConfig {
-            auto_approve_limit: 0.0,
+            auto_approve_limit_micros: 0,
         };
 
-        assert!(!config.should_auto_approve(0.001)); // Even tiny amounts need approval
-        assert!(!config.should_auto_approve(0.0)); // Even zero needs approval (edge case)
+        assert!(!config.should_auto_approve(1)); // Even tiny amounts need approval
+        assert!(!config.should_auto_approve(0)); // Even zero needs approval (edge case)
     }
 }

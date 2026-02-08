@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use uuid::Uuid;
 
-use crate::money::{parse_usd_to_cents, usd_f64_to_cents};
+use crate::money::{format_usd_micros, parse_usd_to_cents, usd_f64_to_cents};
 use crate::wallet::{
     PaymentRequirements, PrivateKeyWallet, SignerConfig, build_x402_payment_payload,
 };
@@ -2318,13 +2318,14 @@ impl SerenMcpServer {
             .amount
             .parse()
             .map_err(|_| McpError::internal_error("Invalid x402 amount".to_string(), None))?;
-        let amount_usd = amount_atomic as f64 / 1_000_000.0;
 
-        if !confirm && !self.signer_config.should_auto_approve(amount_usd) {
+        if !confirm && !self.signer_config.should_auto_approve(amount_atomic) {
+            let amount_usd = format_usd_micros(amount_atomic);
+            let limit_usd = format_usd_micros(self.signer_config.auto_approve_limit_micros);
             return Err(McpError::invalid_request(
                 format!(
-                    "Payment requires confirmation (${:.6} > ${:.6}). Re-run with confirm=true or raise auto_approve_limit in your signer config.",
-                    amount_usd, self.signer_config.auto_approve_limit
+                    "Payment requires confirmation (${} > ${}). Re-run with confirm=true or raise auto_approve_limit in your signer config.",
+                    amount_usd, limit_usd
                 ),
                 None,
             ));
@@ -2806,7 +2807,7 @@ impl SerenMcpServer {
         if let Some(ref w) = wallet {
             tracing::info!(
                 wallet_address = %w.address(),
-                auto_approve_limit = %signer_config.auto_approve_limit,
+                auto_approve_limit_usd = %format_usd_micros(signer_config.auto_approve_limit_micros),
                 "X402 signing enabled"
             );
         } else {
@@ -2874,17 +2875,19 @@ impl SerenMcpServer {
     #[allow(dead_code)]
     fn confirmation_required(
         &self,
-        amount_usd: f64,
+        amount_micros: i64,
         amount_raw: &str,
         recipient: &str,
         network: &str,
     ) -> CallToolResult {
+        let amount_usd = format_usd_micros(amount_micros);
+        let limit_usd = format_usd_micros(self.signer_config.auto_approve_limit_micros);
         let content = serde_json::json!({
             "status": "confirmation_required",
             "message": format!(
-                "Payment of ${:.4} requires approval (above ${:.2} auto-approve limit)",
+                "Payment of ${} requires approval (above ${} auto-approve limit)",
                 amount_usd,
-                self.signer_config.auto_approve_limit
+                limit_usd
             ),
             "payment": {
                 "amount_usd": amount_usd,
@@ -2898,13 +2901,13 @@ impl SerenMcpServer {
         CallToolResult::success(vec![Content::text(content.to_string())])
     }
 
-    /// Convert raw USDC amount (6 decimals) to USD.
+    /// Convert raw USDC amount (6 decimals) to micro-USD.
     #[allow(dead_code)]
-    fn raw_to_usd(amount_raw: &str) -> Option<f64> {
+    fn raw_to_micros(amount_raw: &str) -> Option<i64> {
         amount_raw
             .parse::<u64>()
             .ok()
-            .map(|raw| raw as f64 / 1_000_000.0)
+            .and_then(|raw| i64::try_from(raw).ok())
     }
 
     #[tool(
@@ -7103,7 +7106,7 @@ mod tests {
             .unwrap()
             .unwrap(),
         ));
-        server.signer_config.auto_approve_limit = 1.0;
+        server.signer_config.auto_approve_limit_micros = 1_000_000;
 
         let result = server
             .execute_x402_roundtrip_json::<serde_json::Value>(
