@@ -758,9 +758,15 @@ pub struct CreatePublisherParams {
     /// Price per DELETE request (decimal string)
     #[serde(default)]
     pub price_per_delete: Option<String>,
-    /// Billing model (x402_per_request, prepaid_credits, x402_passthrough)
+    /// Billing model (x402_per_request, prepaid_credits, x402_passthrough, pay_per_use)
+    /// pay_per_use requires: publisher_category="integration", integration_type="api",
+    /// auth_type != "passthrough", and upstream_cost_response_path must be set
     #[serde(default)]
     pub billing_model: Option<String>,
+    /// Dot-separated path to upstream cost in response body (required for pay_per_use billing).
+    /// Example: "usage.cost" extracts the cost from {"usage": {"cost": 0.0023}}
+    #[serde(default)]
+    pub upstream_cost_response_path: Option<String>,
     /// Publisher categories (e.g., ["blockchain", "defi"])
     #[serde(default)]
     pub categories: Option<Vec<String>>,
@@ -903,9 +909,15 @@ pub struct UpdatePublisherParams {
     /// Leave blank to keep existing, provide new value to update
     #[serde(default)]
     pub connection_string: Option<String>,
-    /// Billing model (x402_per_request, prepaid_credits, x402_passthrough)
+    /// Billing model (x402_per_request, prepaid_credits, x402_passthrough, pay_per_use)
+    /// pay_per_use requires: publisher_category="integration", integration_type="api",
+    /// auth_type != "passthrough", and upstream_cost_response_path must be set
     #[serde(default)]
     pub billing_model: Option<String>,
+    /// Dot-separated path to upstream cost in response body (required for pay_per_use billing).
+    /// Example: "usage.cost" extracts the cost from {"usage": {"cost": 0.0023}}
+    #[serde(default)]
+    pub upstream_cost_response_path: Option<String>,
     /// Contact email for notifications and support
     #[serde(default)]
     pub email: Option<String>,
@@ -5269,6 +5281,7 @@ Examples:
             resource_description,
             oauth_provider_slug,
             requires_user_oauth,
+            upstream_cost_response_path,
         } = params;
 
         ensure_writes_allowed(&extensions)?;
@@ -5525,7 +5538,7 @@ Examples:
             resource_description,
             resource_id_response_path: None,
             resource_id_url_pattern: None,
-            upstream_cost_response_path: None,
+            upstream_cost_response_path,
             resource_name,
             upstream_api_key,
             usage_examples: None,
@@ -5598,6 +5611,7 @@ Examples:
             resource_description,
             oauth_provider_id,
             requires_user_oauth,
+            upstream_cost_response_path,
         } = params;
 
         ensure_writes_allowed(&extensions)?;
@@ -5760,7 +5774,7 @@ Examples:
             ownership_tracking_enabled: None,
             resource_id_response_path: None,
             resource_id_url_pattern: None,
-            upstream_cost_response_path: None,
+            upstream_cost_response_path,
             protected_operations: None,
             add_asset_ids: None,
             remove_asset_ids: None,

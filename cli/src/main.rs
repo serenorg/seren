@@ -314,9 +314,13 @@ enum AgentAction {
         /// Base price per 1000 rows (e.g., "0.001")
         #[arg(long)]
         base_price_per_1000_rows: Option<String>,
-        /// Billing model (e.g., "per_row", "per_call", "hourly")
+        /// Billing model (x402_per_request, prepaid_credits, x402_passthrough, pay_per_use)
         #[arg(long)]
         billing_model: Option<String>,
+        /// Dot-separated path to upstream cost in response body (required for pay_per_use billing).
+        /// Example: "usage.cost" extracts the cost from {"usage": {"cost": 0.0023}}
+        #[arg(long)]
+        upstream_cost_response_path: Option<String>,
         /// Database connection string (e.g., "postgresql://user:pass@host/db") - for external SQL databases (Neon/Supabase)
         #[arg(long)]
         connection_string: Option<String>,
@@ -2339,6 +2343,7 @@ async fn main() -> anyhow::Result<()> {
                 database_name,
                 base_price_per_1000_rows,
                 billing_model,
+                upstream_cost_response_path,
                 connection_string,
                 upstream_api_key,
                 auth_type,
@@ -2366,6 +2371,7 @@ async fn main() -> anyhow::Result<()> {
                     database_name.as_deref(),
                     base_price_per_1000_rows.as_deref(),
                     billing_model.as_deref(),
+                    upstream_cost_response_path.as_deref(),
                     connection_string.as_deref(),
                     upstream_api_key.as_deref(),
                     auth_type.as_deref(),
