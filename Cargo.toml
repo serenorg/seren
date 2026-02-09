@@ -54,12 +54,7 @@ tower = "0.5"
 tower_governor = "0.8"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 tracing = "0.1"
-tracing-opentelemetry = "0.28"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-opentelemetry = "0.27"
-opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.27", features = ["http-proto", "reqwest-client"] }
-opentelemetry-semantic-conventions = "0.27"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1", features = ["serde", "v4"] }
 urlencoding = "2.1"
 

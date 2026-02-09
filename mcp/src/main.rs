@@ -1,6 +1,8 @@
 mod config;
 mod docs;
 mod error;
+#[cfg(feature = "telemetry")]
+mod metrics;
 mod middleware;
 mod money;
 mod oauth;
@@ -1526,7 +1528,10 @@ async fn run_http(config: Config) -> Result<()> {
     let app = axum::Router::new()
         .merge(health_router)
         .merge(mcp_router)
-        .merge(docs_router)
+        .merge(docs_router);
+    #[cfg(feature = "telemetry")]
+    let app = app.route("/metrics", axum::routing::get(metrics::metrics_handler));
+    let app = app
         .layer(cors)
         .layer(axum::middleware::from_fn(middleware::request_id_middleware));
 
@@ -1791,7 +1796,10 @@ async fn run_oauth(config: Config) -> Result<()> {
         .merge(health_router)
         .merge(oauth_router(oauth_state))
         .merge(mcp_router)
-        .merge(docs_router)
+        .merge(docs_router);
+    #[cfg(feature = "telemetry")]
+    let app = app.route("/metrics", axum::routing::get(metrics::metrics_handler));
+    let app = app
         .layer(cors)
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn(middleware::request_id_middleware));

@@ -106,11 +106,17 @@ pub use otel::TelemetryGuard;
 #[cfg(not(feature = "telemetry"))]
 pub struct TelemetryGuard;
 
+/// Use JSON log format when running in Kubernetes (auto-detected via injected env vars)
+fn use_json() -> bool {
+    std::env::var("KUBERNETES_SERVICE_HOST").is_ok() || std::env::var("KUBERNETES_PORT").is_ok()
+}
+
 /// Initialize the tracing subscriber
 ///
 /// With `telemetry` feature:
 /// - Console logging (stderr for stdio mode, stdout for HTTP mode)
 /// - OpenTelemetry OTLP export (if not disabled via OTEL_SDK_DISABLED)
+/// - JSON structured output when running in Kubernetes (auto-detected)
 ///
 /// Without `telemetry` feature:
 /// - Console logging only (lean binary for local use)
@@ -131,18 +137,27 @@ pub fn init_subscriber(to_stderr: bool) -> Option<TelemetryGuard> {
         None => (None, None),
     };
 
-    if to_stderr {
-        tracing_subscriber::registry()
+    match (to_stderr, use_json()) {
+        (true, true) => tracing_subscriber::registry()
+            .with(env_filter)
+            .with(otel_layer)
+            .with(fmt::layer().json().with_writer(std::io::stderr))
+            .init(),
+        (true, false) => tracing_subscriber::registry()
             .with(env_filter)
             .with(otel_layer)
             .with(fmt::layer().with_writer(std::io::stderr))
-            .init();
-    } else {
-        tracing_subscriber::registry()
+            .init(),
+        (false, true) => tracing_subscriber::registry()
+            .with(env_filter)
+            .with(otel_layer)
+            .with(fmt::layer().json())
+            .init(),
+        (false, false) => tracing_subscriber::registry()
             .with(env_filter)
             .with(otel_layer)
             .with(fmt::layer())
-            .init();
+            .init(),
     }
 
     guard
@@ -151,6 +166,7 @@ pub fn init_subscriber(to_stderr: bool) -> Option<TelemetryGuard> {
 /// Initialize the tracing subscriber (without telemetry feature)
 ///
 /// Simple console logging only - lean binary for local/self-hosted use.
+/// JSON structured output when running in Kubernetes (auto-detected).
 #[cfg(not(feature = "telemetry"))]
 pub fn init_subscriber(to_stderr: bool) -> Option<TelemetryGuard> {
     use tracing_subscriber::EnvFilter;
@@ -162,16 +178,23 @@ pub fn init_subscriber(to_stderr: bool) -> Option<TelemetryGuard> {
         .with_default_directive(tracing::Level::INFO.into())
         .from_env_lossy();
 
-    if to_stderr {
-        tracing_subscriber::registry()
+    match (to_stderr, use_json()) {
+        (true, true) => tracing_subscriber::registry()
+            .with(env_filter)
+            .with(fmt::layer().json().with_writer(std::io::stderr))
+            .init(),
+        (true, false) => tracing_subscriber::registry()
             .with(env_filter)
             .with(fmt::layer().with_writer(std::io::stderr))
-            .init();
-    } else {
-        tracing_subscriber::registry()
+            .init(),
+        (false, true) => tracing_subscriber::registry()
+            .with(env_filter)
+            .with(fmt::layer().json())
+            .init(),
+        (false, false) => tracing_subscriber::registry()
             .with(env_filter)
             .with(fmt::layer())
-            .init();
+            .init(),
     }
 
     Some(TelemetryGuard)

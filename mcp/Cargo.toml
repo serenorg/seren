@@ -14,13 +14,14 @@ path = "src/main.rs"
 
 [features]
 default = []
-# Enable OpenTelemetry for production/hosted deployments
+# Enable production observability (OpenTelemetry tracing + Prometheus /metrics endpoint)
 telemetry = [
     "dep:tracing-opentelemetry",
     "dep:opentelemetry",
     "dep:opentelemetry_sdk",
     "dep:opentelemetry-otlp",
     "dep:opentelemetry-semantic-conventions",
+    "dep:prometheus",
 ]
 
 [dependencies]
@@ -68,11 +69,14 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 # OpenTelemetry (optional - for hosted/production deployments)
-tracing-opentelemetry = { workspace = true, optional = true }
-opentelemetry = { workspace = true, optional = true }
-opentelemetry_sdk = { workspace = true, optional = true }
-opentelemetry-otlp = { workspace = true, optional = true }
-opentelemetry-semantic-conventions = { workspace = true, optional = true }
+tracing-opentelemetry = { version = "0.28", optional = true }
+opentelemetry = { version = "0.27", optional = true }
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"], optional = true }
+opentelemetry-otlp = { version = "0.27", features = ["http-proto", "reqwest-client"], optional = true }
+opentelemetry-semantic-conventions = { version = "0.27", optional = true }
+
+# Metrics (optional - for production deployments)
+prometheus = { version = "0.13", default-features = false, optional = true }
 
 # Ethereum wallet
 alloy = { workspace = true }
