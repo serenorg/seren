@@ -1012,13 +1012,16 @@ async fn token(
                     "Token refresh completed (MCP token issued, refresh token preserved)"
                 );
 
-                // Return the same refresh token - client continues using their existing token.
-                // This is safe because we're not rotating; the token remains valid.
                 Ok(no_store_json(TokenResponse {
                     access_token: new_mcp_access_token,
                     token_type: "Bearer".into(),
                     expires_in: mcp_expires_in,
-                    refresh_token: None, // Client keeps using their existing refresh token
+                    // Echo the existing refresh token for compatibility with clients that expect the
+                    // field to be present on refresh responses.
+                    //
+                    // NOTE: We intentionally do not rotate the refresh token to avoid cross-session
+                    // invalidation when multiple transport sessions share the same MCP refresh token.
+                    refresh_token: Some(refresh_token_str.clone()),
                     scope: refresh_token.scope,
                 }))
             })
@@ -1807,6 +1810,13 @@ pub fn oauth_router(state: Arc<OAuthState>) -> Router {
             "/.well-known/oauth-protected-resource",
             get(protected_resource_metadata),
         )
+        // Some clients probe the RFC 9728 "path inserted" form first:
+        // `/.well-known/oauth-protected-resource/<mcp-endpoint-path>`.
+        // We serve the same metadata for any suffix to maximize interoperability.
+        .route(
+            "/.well-known/oauth-protected-resource/{*path}",
+            get(protected_resource_metadata),
+        )
         .route("/.well-known/oauth-authorization-server", get(metadata))
         .route("/authorize", get(authorize))
         .route("/callback", get(callback))
@@ -2238,93 +2248,73 @@ mod tests {
 
     #[test]
     fn test_get_allowed_redirect_domains_defaults() {
-        // Clear any env var that might be set
-        // SAFETY: This is a unit test running in isolation
-        unsafe { std::env::remove_var("OAUTH_ALLOWED_REDIRECT_DOMAINS") };
-
-        let domains = get_allowed_redirect_domains();
-        assert!(domains.contains(&".chromiumapp.org".to_string()));
-        assert!(domains.contains(&".extensions.allizom.org".to_string()));
+        temp_env::with_var_unset("OAUTH_ALLOWED_REDIRECT_DOMAINS", || {
+            let domains = get_allowed_redirect_domains();
+            assert!(domains.contains(&".chromiumapp.org".to_string()));
+            assert!(domains.contains(&".extensions.allizom.org".to_string()));
+        });
     }
 
     #[test]
     fn test_get_allowed_redirect_domains_with_env() {
-        // SAFETY: This is a unit test running in isolation
-        unsafe {
-            std::env::set_var("OAUTH_ALLOWED_REDIRECT_DOMAINS", "example.com, .custom.org");
-        }
-
-        let domains = get_allowed_redirect_domains();
-        assert!(domains.contains(&".chromiumapp.org".to_string()));
-        assert!(domains.contains(&".extensions.allizom.org".to_string()));
-        assert!(domains.contains(&".example.com".to_string())); // auto-prefixed with dot
-        assert!(domains.contains(&".custom.org".to_string()));
-
-        // Clean up
-        // SAFETY: This is a unit test running in isolation
-        unsafe { std::env::remove_var("OAUTH_ALLOWED_REDIRECT_DOMAINS") };
+        temp_env::with_var(
+            "OAUTH_ALLOWED_REDIRECT_DOMAINS",
+            Some("example.com, .custom.org"),
+            || {
+                let domains = get_allowed_redirect_domains();
+                assert!(domains.contains(&".chromiumapp.org".to_string()));
+                assert!(domains.contains(&".extensions.allizom.org".to_string()));
+                assert!(domains.contains(&".example.com".to_string())); // auto-prefixed with dot
+                assert!(domains.contains(&".custom.org".to_string()));
+            },
+        );
     }
 
     #[test]
     fn test_get_allowed_redirect_schemes_defaults() {
-        // Clear any env var that might be set
-        // SAFETY: This is a unit test running in isolation
-        unsafe { std::env::remove_var("OAUTH_ALLOWED_REDIRECT_SCHEMES") };
-
-        let schemes = get_allowed_redirect_schemes();
-        assert!(schemes.contains(&"mcp".to_string()));
-        assert!(schemes.contains(&"cursor".to_string()));
-        assert!(schemes.contains(&"vscode".to_string()));
+        temp_env::with_var_unset("OAUTH_ALLOWED_REDIRECT_SCHEMES", || {
+            let schemes = get_allowed_redirect_schemes();
+            assert!(schemes.contains(&"mcp".to_string()));
+            assert!(schemes.contains(&"cursor".to_string()));
+            assert!(schemes.contains(&"vscode".to_string()));
+        });
     }
 
     #[test]
     fn test_get_allowed_redirect_schemes_with_env() {
-        // SAFETY: This is a unit test running in isolation
-        unsafe {
-            std::env::set_var("OAUTH_ALLOWED_REDIRECT_SCHEMES", "myapp, otherapp");
-        }
-
-        let schemes = get_allowed_redirect_schemes();
-        assert!(schemes.contains(&"mcp".to_string()));
-        assert!(schemes.contains(&"cursor".to_string()));
-        assert!(schemes.contains(&"vscode".to_string()));
-        assert!(schemes.contains(&"myapp".to_string()));
-        assert!(schemes.contains(&"otherapp".to_string()));
-
-        // Clean up
-        // SAFETY: This is a unit test running in isolation
-        unsafe { std::env::remove_var("OAUTH_ALLOWED_REDIRECT_SCHEMES") };
+        temp_env::with_var(
+            "OAUTH_ALLOWED_REDIRECT_SCHEMES",
+            Some("myapp, otherapp"),
+            || {
+                let schemes = get_allowed_redirect_schemes();
+                assert!(schemes.contains(&"mcp".to_string()));
+                assert!(schemes.contains(&"cursor".to_string()));
+                assert!(schemes.contains(&"vscode".to_string()));
+                assert!(schemes.contains(&"myapp".to_string()));
+                assert!(schemes.contains(&"otherapp".to_string()));
+            },
+        );
     }
 
     #[test]
     fn test_is_valid_redirect_uri_with_custom_domain() {
-        // SAFETY: This is a unit test running in isolation
-        unsafe {
-            std::env::set_var("OAUTH_ALLOWED_REDIRECT_DOMAINS", "mycompany.com");
-        }
-
-        assert!(is_valid_redirect_uri(
-            "https://oauth.mycompany.com/callback"
-        ));
-        assert!(is_valid_redirect_uri("https://app.mycompany.com/auth"));
-
-        // Clean up
-        // SAFETY: This is a unit test running in isolation
-        unsafe { std::env::remove_var("OAUTH_ALLOWED_REDIRECT_DOMAINS") };
+        temp_env::with_var(
+            "OAUTH_ALLOWED_REDIRECT_DOMAINS",
+            Some("mycompany.com"),
+            || {
+                assert!(is_valid_redirect_uri(
+                    "https://oauth.mycompany.com/callback"
+                ));
+                assert!(is_valid_redirect_uri("https://app.mycompany.com/auth"));
+            },
+        );
     }
 
     #[test]
     fn test_is_valid_redirect_uri_with_custom_scheme() {
-        // SAFETY: This is a unit test running in isolation
-        unsafe {
-            std::env::set_var("OAUTH_ALLOWED_REDIRECT_SCHEMES", "myapp");
-        }
-
-        assert!(is_valid_redirect_uri("myapp://oauth/callback"));
-        assert!(is_valid_redirect_uri("myapp://auth"));
-
-        // Clean up
-        // SAFETY: This is a unit test running in isolation
-        unsafe { std::env::remove_var("OAUTH_ALLOWED_REDIRECT_SCHEMES") };
+        temp_env::with_var("OAUTH_ALLOWED_REDIRECT_SCHEMES", Some("myapp"), || {
+            assert!(is_valid_redirect_uri("myapp://oauth/callback"));
+            assert!(is_valid_redirect_uri("myapp://auth"));
+        });
     }
 }

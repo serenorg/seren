@@ -72,13 +72,6 @@ struct SimpleAuthState {
 #[derive(Clone)]
 struct OAuthAuthState {
     store: TokenStore,
-    /// Per-session bearer token cache keyed by `Mcp-Session-Id` (bounded LRU).
-    ///
-    /// Some Streamable HTTP clients only send the `Authorization` header on the initial
-    /// session-creating request. Subsequent requests carry only `Mcp-Session-Id`.
-    /// We cache the validated token so later requests can be authorized and the token
-    /// can be re-injected for downstream API calls.
-    session_tokens: Arc<Mutex<LruCache<String, String>>>,
     /// API key validation cache with TTL (reduces backend calls for repeated API key auth).
     ///
     /// When users authenticate with API keys instead of OAuth, we cache the validated
@@ -321,64 +314,11 @@ async fn require_oauth_auth(
         "Session ID from request"
     );
 
-    // Prefer an explicit Authorization header.
-    let mut token = extract_bearer_token(&req).map(|t| t.to_string());
-    let mut token_from_session_cache = false;
-
-    // If missing, try to recover the token from the session cache.
-    // First check the in-memory LRU cache (fast path), then fall back to database (survives restarts).
-    if token.is_none()
-        && let Some(ref sid) = session_id
-    {
-        // Try LRU cache first
-        token = state.session_tokens.lock().await.get(sid).cloned();
-        if token.is_some() {
-            token_from_session_cache = true;
-            tracing::debug!(
-                event = "oauth_auth_token_from_lru_cache",
-                session_id = %sid,
-                "Retrieved token from LRU cache"
-            );
-        } else {
-            // Fall back to database lookup
-            match state.store.get_session_token(sid).await {
-                Ok(Some(session)) => {
-                    // get_session_token filters for access_token IS NOT NULL
-                    if let Some(ref access_token) = session.access_token {
-                        token = Some(access_token.clone());
-                        token_from_session_cache = true;
-                        // Populate the LRU cache for future requests
-                        state
-                            .session_tokens
-                            .lock()
-                            .await
-                            .put(sid.clone(), access_token.clone());
-                        tracing::debug!(
-                            event = "oauth_auth_token_from_database",
-                            session_id = %sid,
-                            user_id = ?session.user_id,
-                            "Retrieved token from database and populated LRU cache"
-                        );
-                    }
-                }
-                Ok(None) => {
-                    tracing::debug!(
-                        event = "oauth_auth_session_not_in_db",
-                        session_id = %sid,
-                        "Session token not found in database"
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        event = "oauth_auth_session_db_error",
-                        session_id = %sid,
-                        error = %e,
-                        "Failed to lookup session token from database"
-                    );
-                }
-            }
-        }
-    }
+    // MCP security guidance: servers that implement authorization MUST verify all inbound
+    // requests and MUST NOT use transport sessions for authentication.
+    //
+    // Require an explicit Authorization header on every request.
+    let token = extract_bearer_token(&req).map(|t| t.to_string());
 
     let Some(token) = token else {
         tracing::warn!(
@@ -386,7 +326,7 @@ async fn require_oauth_auth(
             method = %method,
             uri = %uri,
             session_id = ?session_id,
-            "No bearer token found in request or session cache"
+            "No bearer token found in request"
         );
         return state.unauthorized_response("unauthorized", "Bearer token required");
     };
@@ -442,30 +382,6 @@ async fn require_oauth_auth(
 
                 let response = next.run(req).await;
 
-                // Allow Streamable HTTP clients that only send Authorization on the initial request
-                // to continue using `Mcp-Session-Id` for subsequent requests.
-                //
-                // Unlike OAuth sessions, we do NOT persist API keys to the database.
-                if let Some(ref sid) = session_id {
-                    state
-                        .session_tokens
-                        .lock()
-                        .await
-                        .put(sid.clone(), token.clone());
-                }
-
-                if let Some(sid) = response
-                    .headers()
-                    .get(axum::http::header::HeaderName::from_static(
-                        "mcp-session-id",
-                    ))
-                    .and_then(|v| v.to_str().ok())
-                    .map(|v| v.trim().to_string())
-                    .filter(|v| !v.is_empty())
-                {
-                    state.session_tokens.lock().await.put(sid, token.clone());
-                }
-
                 let response_status = response.status();
                 if response_status.is_server_error() {
                     tracing::error!(
@@ -518,7 +434,6 @@ async fn require_oauth_auth(
     }
 
     // Token looks like a JWT - validate MCP-issued JWT (signed by this server with HS256)
-    let mut token = token; // Make mutable for potential re-issue
     tracing::debug!(
         event = "oauth_auth_validating_mcp_jwt",
         "Validating MCP-issued JWT"
@@ -541,218 +456,7 @@ async fn require_oauth_auth(
                 error = %e,
                 "MCP JWT validation failed"
             );
-
-            // Streamable HTTP clients may omit Authorization after the initial request.
-            // If the token came from the session cache, re-issue a fresh MCP access token
-            // server-side and continue.
-            if token_from_session_cache && let Some(ref sid) = session_id {
-                tracing::debug!(
-                    event = "oauth_auth_jwt_invalid_attempt_session_reissue",
-                    session_id = %sid,
-                    token_from_session_cache = token_from_session_cache,
-                    "Attempting to re-issue MCP access token from session"
-                );
-
-                let session = match state.store.get_session_token(sid).await {
-                    Ok(Some(session)) => session,
-                    Ok(None) => {
-                        return state.unauthorized_response(
-                            "invalid_token",
-                            "Session not found or expired (re-authentication required)",
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            event = "oauth_auth_session_db_error",
-                            session_id = %sid,
-                            error = %e,
-                            "Failed to lookup session token for re-issue"
-                        );
-                        return (
-                            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                            axum::Json(serde_json::json!({
-                                "error": "server_error",
-                                "error_description": "Session lookup failed",
-                            })),
-                        )
-                            .into_response();
-                    }
-                };
-
-                let Some(session_client_id) = session.client_id else {
-                    return state.unauthorized_response(
-                        "invalid_token",
-                        "Session missing client id (re-authentication required)",
-                    );
-                };
-
-                let Some(session_user_id) = session.user_id else {
-                    return state.unauthorized_response(
-                        "invalid_token",
-                        "Session missing user id (re-authentication required)",
-                    );
-                };
-
-                // Look up upstream tokens using the session's linked refresh_token_hash.
-                // This ensures each session maintains its own independent upstream token lifecycle,
-                // supporting multiple concurrent sessions (e.g., Claude Code + Cursor) without conflicts.
-                let refresh_token = match &session.refresh_token_hash {
-                    Some(token_hash) => {
-                        match state.store.get_refresh_token_by_hash(token_hash).await {
-                            Ok(Some(refresh_token)) => refresh_token,
-                            Ok(None) => {
-                                tracing::warn!(
-                                    event = "oauth_auth_refresh_token_hash_not_found",
-                                    session_id = %sid,
-                                    token_hash = %token_hash,
-                                    "Linked refresh token not found or expired"
-                                );
-                                return state.unauthorized_response(
-                                    "invalid_token",
-                                    "Session's linked token expired (re-authentication required)",
-                                );
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    event = "oauth_auth_refresh_token_db_error",
-                                    session_id = %sid,
-                                    token_hash = %token_hash,
-                                    error = %e,
-                                    "Failed to lookup refresh token by hash"
-                                );
-                                return (
-                                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                                    axum::Json(serde_json::json!({
-                                        "error": "server_error",
-                                        "error_description": "Token lookup failed",
-                                    })),
-                                )
-                                    .into_response();
-                            }
-                        }
-                    }
-                    None => {
-                        // Legacy session without refresh_token_hash link - fall back to user/client lookup.
-                        // This maintains backward compatibility during migration.
-                        match state
-                            .store
-                            .get_refresh_token_by_user_client(session_user_id, &session_client_id)
-                            .await
-                        {
-                            Ok(Some(refresh_token)) => refresh_token,
-                            Ok(None) => {
-                                return state.unauthorized_response(
-                                    "invalid_token",
-                                    "No active session found for this user/client (re-authentication required)",
-                                );
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    event = "oauth_auth_refresh_token_db_error",
-                                    session_id = %sid,
-                                    user_id = %session_user_id,
-                                    client_id = %session_client_id,
-                                    error = %e,
-                                    "Failed to lookup refresh token for session re-issue"
-                                );
-                                return (
-                                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                                    axum::Json(serde_json::json!({
-                                        "error": "server_error",
-                                        "error_description": "Token lookup failed",
-                                    })),
-                                )
-                                    .into_response();
-                            }
-                        }
-                    }
-                };
-
-                let (new_token, _) = match state.oauth_state.jwt_signer.sign_access_token(
-                    session_user_id,
-                    &session_client_id,
-                    &refresh_token.scope,
-                    None,
-                    None,
-                    Some(&refresh_token.token_hash),
-                ) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::error!(
-                            event = "oauth_auth_session_reissue_failed",
-                            session_id = %sid,
-                            error = %e,
-                            "Failed to sign new MCP access token"
-                        );
-                        return (
-                            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                            axum::Json(serde_json::json!({
-                                "error": "server_error",
-                                "error_description": "Token signing failed",
-                            })),
-                        )
-                            .into_response();
-                    }
-                };
-
-                token = new_token;
-
-                // Update the session cache with the new token so subsequent requests don't need
-                // to re-issue on every call once the cached token expires.
-                state
-                    .session_tokens
-                    .lock()
-                    .await
-                    .put(sid.clone(), token.clone());
-
-                // Best-effort: persist the re-issued session token so restarts don't regress
-                // to an expired cached token.
-                let session_expires_at = time::OffsetDateTime::now_utc()
-                    + time::Duration::hours(oauth::store::REFRESH_TOKEN_TTL_HOURS);
-                if let Err(e) = state
-                    .store
-                    .save_session_token(
-                        sid,
-                        &token,
-                        Some(session_client_id.as_str()),
-                        session_user_id,
-                        session_expires_at,
-                        Some(refresh_token.token_hash.as_str()),
-                    )
-                    .await
-                {
-                    tracing::warn!(
-                        event = "session_token_persist_error",
-                        session_id = %sid,
-                        error = %e,
-                        "Failed to persist re-issued session token to database"
-                    );
-                }
-
-                tracing::info!(
-                    event = "oauth_session_token_reissued",
-                    session_id = %sid,
-                    user_id = %session_user_id,
-                    client_id = %session_client_id,
-                    "Re-issued MCP access token for persisted session"
-                );
-
-                match state.oauth_state.jwt_signer.validate_access_token(&token) {
-                    Ok(claims) => claims,
-                    Err(e) => {
-                        tracing::warn!(
-                            event = "oauth_auth_session_reissue_validation_failed",
-                            session_id = %sid,
-                            error = %e,
-                            "Re-issued MCP token failed validation"
-                        );
-                        return state
-                            .unauthorized_response("invalid_token", "Token is invalid or expired");
-                    }
-                }
-            } else {
-                return state.unauthorized_response("invalid_token", "Token is invalid or expired");
-            }
+            return state.unauthorized_response("invalid_token", "Token is invalid or expired");
         }
     };
 
@@ -1240,16 +944,6 @@ async fn require_oauth_auth(
         }
     }
 
-    // If the request includes a session id, remember/update the token for that session.
-    // Save to the LRU cache (fast path). Database TTL is extended in the background.
-    if let Some(ref sid) = session_id {
-        state
-            .session_tokens
-            .lock()
-            .await
-            .put(sid.clone(), token.clone());
-    }
-
     let req_method = req.method().clone();
     let req_uri = req.uri().clone();
     tracing::debug!(
@@ -1283,71 +977,10 @@ async fn require_oauth_auth(
         );
     }
 
-    // For the initial session-creating initialize request, rmcp returns `Mcp-Session-Id`
-    // in the response headers. Cache the token under that session id so clients can
-    // omit Authorization on subsequent requests.
-    // Save to both LRU cache (fast path) and database (persistence across restarts).
-    if let Some(sid) = response
-        .headers()
-        .get(axum::http::header::HeaderName::from_static(
-            "mcp-session-id",
-        ))
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-    {
-        state
-            .session_tokens
-            .lock()
-            .await
-            .put(sid.clone(), token.clone());
-
-        // Persist to database synchronously (best-effort).
-        //
-        // This is critical for clients like Claude Code that may only send Authorization on the
-        // session-creating request. If the process restarts before the token is persisted, the
-        // client may be forced to re-authenticate. Keeping this write on the request path makes
-        // restarts significantly more reliable.
-        //
-        // Use refresh token TTL for session expiry to allow session persistence.
-        // Link to the specific refresh_token_hash to support multiple concurrent sessions.
-        let session_expires_at = time::OffsetDateTime::now_utc()
-            + time::Duration::hours(oauth::store::REFRESH_TOKEN_TTL_HOURS);
-        if let Err(e) = state
-            .store
-            .save_session_token(
-                &sid,
-                &token,
-                client_id.as_deref(),
-                user_id,
-                session_expires_at,
-                Some(&refresh_token.token_hash),
-            )
-            .await
-        {
-            tracing::warn!(
-                event = "session_token_persist_error",
-                session_id = %sid,
-                error = %e,
-                "Failed to persist new session token to database"
-            );
-        } else {
-            tracing::debug!(
-                event = "session_token_persisted",
-                session_id = %sid,
-                refresh_token_hash = %refresh_token.token_hash,
-                "New session token persisted to database with refresh token link"
-            );
-        }
-    }
-
-    // Best-effort cleanup: when a session is explicitly closed, drop the cached token.
-    // Remove from both LRU cache and database.
+    // Best-effort cleanup: when a session is explicitly closed, delete it from the database.
     if req_method == axum::http::Method::DELETE
         && let Some(sid) = session_id
     {
-        state.session_tokens.lock().await.pop(&sid);
-
         // Remove from database asynchronously (fire-and-forget)
         let store = state.store.clone();
         let sid_clone = sid;
@@ -1579,6 +1212,12 @@ async fn run_oauth(config: Config) -> Result<()> {
     let store = TokenStore::connect(&database_url).await?;
     tracing::info!("Connected to OAuth database");
 
+    // Hosted OAuth mode stores upstream OAuth tokens in Postgres.
+    // Require encryption at rest for start:oauth mode.
+    if !store.token_encryption_enabled() {
+        anyhow::bail!("OAUTH_TOKEN_ENCRYPTION_KEYS is required for start:oauth mode.");
+    }
+
     // Run database migrations (embedded at compile time)
     tracing::info!("Running database migrations");
     sqlx::migrate!("./migrations").run(store.pool()).await?;
@@ -1751,11 +1390,6 @@ async fn run_oauth(config: Config) -> Result<()> {
     let health_store = Arc::new(store.clone());
 
     // MCP endpoint with OAuth token validation
-    const SESSION_TOKEN_CACHE_SIZE: usize = 10_000;
-    let session_tokens = Arc::new(Mutex::new(LruCache::new(
-        NonZeroUsize::new(SESSION_TOKEN_CACHE_SIZE).expect("SESSION_TOKEN_CACHE_SIZE must be > 0"),
-    )));
-
     // API key validation cache (5-minute TTL to reduce backend calls)
     let api_key_cache = Arc::new(Mutex::new(LruCache::new(
         NonZeroUsize::new(API_KEY_CACHE_SIZE).expect("API_KEY_CACHE_SIZE must be > 0"),
@@ -1773,7 +1407,6 @@ async fn run_oauth(config: Config) -> Result<()> {
         .layer(axum::middleware::from_fn_with_state(
             OAuthAuthState {
                 store,
-                session_tokens,
                 api_key_cache,
                 oauth_state: oauth_state.clone(),
             },

@@ -261,6 +261,11 @@ impl TokenStore {
         &self.pool
     }
 
+    /// Whether upstream OAuth tokens will be encrypted at rest when stored in Postgres.
+    pub fn token_encryption_enabled(&self) -> bool {
+        self.token_cipher.is_some()
+    }
+
     #[allow(clippy::result_large_err)]
     fn encrypt_upstream_token(&self, token: &str) -> Result<String> {
         match self.token_cipher.as_ref() {
@@ -913,49 +918,6 @@ impl TokenStore {
         Ok(())
     }
 
-    /// Save auth binding (access token) for an MCP session.
-    /// Called after OAuth completes to bind the token to the session.
-    ///
-    /// The `refresh_token_hash` links this session to its specific upstream token vault,
-    /// enabling multiple concurrent sessions per user without token conflicts.
-    pub async fn save_session_token(
-        &self,
-        session_id: &str,
-        access_token: &str,
-        client_id: Option<&str>,
-        user_id: Uuid,
-        expires_at: OffsetDateTime,
-        refresh_token_hash: Option<&str>,
-    ) -> Result<()> {
-        sqlx::query(
-            r#"
-            INSERT INTO mcp_oauth.mcp_sessions
-                (session_id, access_token, client_id, user_id, expires_at, refresh_token_hash,
-                created_at, updated_at, last_activity)
-            VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW(), NOW())
-            ON CONFLICT (session_id) DO UPDATE SET
-                access_token = EXCLUDED.access_token,
-                client_id = COALESCE(EXCLUDED.client_id, mcp_oauth.mcp_sessions.client_id),
-                user_id = EXCLUDED.user_id,
-                expires_at = EXCLUDED.expires_at,
-                refresh_token_hash = COALESCE(EXCLUDED.refresh_token_hash, mcp_oauth.mcp_sessions.refresh_token_hash),
-                updated_at = NOW(),
-                last_activity = NOW()
-            "#,
-        )
-        .bind(session_id)
-        .bind(access_token)
-        .bind(client_id)
-        .bind(user_id)
-        .bind(expires_at)
-        .bind(refresh_token_hash)
-        .execute(&self.pool)
-        .await
-        .map_err(McpError::Database)?;
-
-        Ok(())
-    }
-
     /// Save protocol state (init request/response) for session restoration.
     /// Called after initialize_session() to persist the MCP handshake.
     pub async fn save_session_state(
@@ -965,15 +927,20 @@ impl TokenStore {
         init_response: &serde_json::Value,
         protocol_version: Option<&str>,
     ) -> Result<()> {
+        // Use an upsert to avoid a silent no-op if the session row wasn't created.
+        // (e.g. transient DB error during create_session tracking).
         sqlx::query(
             r#"
-            UPDATE mcp_oauth.mcp_sessions SET
-                initialize_request = $2,
-                initialize_response = $3,
-                protocol_version = $4,
+            INSERT INTO mcp_oauth.mcp_sessions
+                (session_id, initialize_request, initialize_response, protocol_version,
+                created_at, updated_at, last_activity)
+            VALUES ($1, $2, $3, $4, NOW(), NOW(), NOW())
+            ON CONFLICT (session_id) DO UPDATE SET
+                initialize_request = EXCLUDED.initialize_request,
+                initialize_response = EXCLUDED.initialize_response,
+                protocol_version = EXCLUDED.protocol_version,
                 updated_at = NOW(),
                 last_activity = NOW()
-            WHERE session_id = $1
             "#,
         )
         .bind(session_id)
@@ -985,49 +952,6 @@ impl TokenStore {
         .map_err(McpError::Database)?;
 
         Ok(())
-    }
-
-    /// Get full MCP session.
-    /// Returns None if session doesn't exist.
-    #[allow(dead_code)]
-    pub async fn get_session(&self, session_id: &str) -> Result<Option<McpSession>> {
-        let session = sqlx::query_as::<_, McpSession>(
-            r#"
-            SELECT session_id, access_token, client_id, user_id, expires_at,
-                refresh_token_hash, initialize_request, initialize_response, protocol_version,
-                created_at, updated_at, last_activity
-            FROM mcp_oauth.mcp_sessions
-            WHERE session_id = $1
-            "#,
-        )
-        .bind(session_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(McpError::Database)?;
-
-        Ok(session)
-    }
-
-    /// Get MCP session with valid token (for API calls).
-    /// Returns None if the session doesn't exist or token is expired.
-    pub async fn get_session_token(&self, session_id: &str) -> Result<Option<McpSession>> {
-        let session = sqlx::query_as::<_, McpSession>(
-            r#"
-            SELECT session_id, access_token, client_id, user_id, expires_at,
-                refresh_token_hash, initialize_request, initialize_response, protocol_version,
-                created_at, updated_at, last_activity
-            FROM mcp_oauth.mcp_sessions
-            WHERE session_id = $1
-                AND access_token IS NOT NULL
-                AND (expires_at IS NULL OR expires_at > NOW())
-            "#,
-        )
-        .bind(session_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(McpError::Database)?;
-
-        Ok(session)
     }
 
     /// Get MCP session state for restoration.

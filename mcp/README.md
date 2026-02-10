@@ -65,7 +65,7 @@ Download pre-built binaries from GitHub Releases (tagged versions): https://gith
 | `PUBLIC_URL` | Public base URL of this server | Required for `start:oauth` |
 | `JWT_SECRET` | HS256 secret for signing MCP access tokens (min 32 bytes) | Required unless `JWT_SECRETS` is set |
 | `JWT_SECRETS` | Comma-separated HS256 secrets (first signs; all validate for rotation) | Optional |
-| `OAUTH_TOKEN_ENCRYPTION_KEYS` | Comma-separated keys for encrypting upstream OAuth tokens at rest (first is primary; others allow rotation) | Optional |
+| `OAUTH_TOKEN_ENCRYPTION_KEYS` | Comma-separated keys for encrypting upstream OAuth tokens at rest (first is primary; others allow rotation). Use a single value for one key. | Required for `start:oauth` |
 | `OAUTH_REDIRECT_URL` | Public URL for OAuth browser redirects | Defaults to `API_URL` |
 | `UPSTREAM_TIMEOUT_SECS` | Timeout for upstream API requests | `15` |
 | `UPSTREAM_CONNECT_TIMEOUT_SECS` | Connect timeout for upstream API | `5` |
@@ -433,9 +433,10 @@ cargo build --release --package seren-mcp --features telemetry
 ## Security
 
 - OAuth 2.1 with PKCE for secure authentication
-- Tokens are stored securely and refreshed automatically
+- Upstream OAuth tokens are encrypted at rest in Postgres (set `OAUTH_TOKEN_ENCRYPTION_KEYS`)
+- Tokens are refreshed automatically
 - All API communication uses TLS encryption
-- No credentials are stored in plain text
+- Refresh tokens are never stored in plaintext (SHA-256 hashes only)
 
 ## Troubleshooting
 

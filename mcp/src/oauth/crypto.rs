@@ -17,7 +17,6 @@ impl TokenCipher {
     ///
     /// Supports:
     /// - `OAUTH_TOKEN_ENCRYPTION_KEYS`: comma-separated keys (first is primary)
-    /// - `OAUTH_TOKEN_ENCRYPTION_KEY`: single key (primary)
     ///
     /// Keys can be:
     /// - 64-char hex (32 bytes)
@@ -25,9 +24,7 @@ impl TokenCipher {
     /// - a raw string of at least 32 bytes (exactly 32 used directly; longer is SHA-256 hashed)
     #[allow(clippy::result_large_err)]
     pub(crate) fn from_env() -> Result<Option<Self>> {
-        let raw = std::env::var("OAUTH_TOKEN_ENCRYPTION_KEYS")
-            .ok()
-            .or_else(|| std::env::var("OAUTH_TOKEN_ENCRYPTION_KEY").ok());
+        let raw = std::env::var("OAUTH_TOKEN_ENCRYPTION_KEYS").ok();
 
         let Some(raw) = raw else {
             return Ok(None);
