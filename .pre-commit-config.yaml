@@ -70,7 +70,7 @@ repos:
     hooks:
       - id: clippy-staged
         name: clippy (workspace)
-        entry: cargo clippy --fix --allow-staged -- -D warnings
+        entry: cargo clippy -- -D warnings
         language: system
         types: [rust]
         pass_filenames: false
