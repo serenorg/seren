@@ -216,7 +216,7 @@ enum Commands {
     /// Agent commerce and x402 payment commands
     Agent {
         #[command(subcommand)]
-        action: AgentAction,
+        action: Box<AgentAction>,
     },
     /// Manage OAuth connections for BYOC publishers
     Oauth {
@@ -490,7 +490,7 @@ enum OrgAction {
         org_id: String,
 
         #[command(subcommand)]
-        action: OrgOauthAction,
+        action: Box<OrgOauthAction>,
     },
 }
 
@@ -1608,7 +1608,7 @@ async fn main() -> anyhow::Result<()> {
                 email,
                 role,
             } => commands::organizations::create_invite(&org_id, &email, &role, &ctx).await?,
-            OrgAction::Oauth { org_id, action } => match action {
+            OrgAction::Oauth { org_id, action } => match *action {
                 OrgOauthAction::List => commands::org_oauth_providers::list(&org_id, &ctx).await?,
                 OrgOauthAction::Get { provider_id } => {
                     commands::org_oauth_providers::get(&org_id, &provider_id, &ctx).await?
@@ -2311,7 +2311,7 @@ async fn main() -> anyhow::Result<()> {
                 commands::replication::delete_slot(&project_id, &branch_id, &slot_id, &ctx).await?
             }
         },
-        Commands::Agent { action } => match action {
+        Commands::Agent { action } => match *action {
             AgentAction::ListPublishers => commands::agent::list_publishers(&ctx).await?,
             AgentAction::GetPublisher { publisher } => {
                 commands::agent::get_publisher(&publisher, &ctx).await?
