@@ -54,3 +54,36 @@ pub async fn request_id_middleware(request: Request, next: Next) -> Response {
 
     response
 }
+
+#[cfg(feature = "telemetry")]
+fn metrics_path_label(uri: &axum::http::Uri) -> &'static str {
+    let path = uri.path();
+    if path.starts_with("/mcp") {
+        "/mcp"
+    } else if path == "/health" {
+        "/health"
+    } else if path == "/metrics" {
+        "/metrics"
+    } else {
+        "docs"
+    }
+}
+
+/// Prometheus HTTP request metrics middleware.
+///
+/// This intentionally buckets paths into a small set to avoid high-cardinality
+/// labels (e.g. docs fallback paths).
+#[cfg(feature = "telemetry")]
+pub async fn metrics_middleware(request: Request, next: Next) -> Response {
+    let method = request.method().clone();
+    let path = metrics_path_label(request.uri());
+
+    let response = next.run(request).await;
+    let status = response.status().as_u16().to_string();
+
+    crate::metrics::HTTP_REQUESTS
+        .with_label_values(&[method.as_str(), path, status.as_str()])
+        .inc();
+
+    response
+}

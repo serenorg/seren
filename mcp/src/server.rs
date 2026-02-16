@@ -16,9 +16,13 @@ use std::sync::Arc;
 use base64::Engine;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
-    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{CallToolResult, Content, Extensions, ServerCapabilities, ServerInfo},
-    tool, tool_handler, tool_router,
+    handler::server::{router::tool::ToolRouter, tool::ToolCallContext, wrapper::Parameters},
+    model::{
+        CallToolRequestParam, CallToolResult, Content, Extensions, ListToolsResult,
+        PaginatedRequestParam, ServerCapabilities, ServerInfo,
+    },
+    service::{RequestContext, RoleServer},
+    tool, tool_router,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -5286,23 +5290,25 @@ Examples:
                                 .get("publisher")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or(ctx.publisher);
-                            let region = geo_error
+                            let region_raw = geo_error
                                 .get("proxy_region")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("EU");
+                            let region = region_raw.to_ascii_uppercase();
                             let endpoint = geo_error
                                 .get("opt_in_endpoint")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("PUT /user/routing/{publisher}");
 
-                            tracing::warn!(
+                            tracing::info!(
                                 publisher = %publisher,
                                 region = %region,
+                                endpoint = %endpoint,
                                 "Geo-restricted: user has not opted in"
                             );
                             #[cfg(feature = "telemetry")]
                             crate::metrics::GEO_RESTRICTED
-                                .with_label_values(&[publisher, region])
+                                .with_label_values(&[publisher, region.as_str()])
                                 .inc();
 
                             return Err(McpError::invalid_request(
@@ -6963,8 +6969,49 @@ fn atomic_to_decimal(atomic: &str, decimals: usize) -> String {
 // Server Handler Implementation
 // ============================================================================
 
-#[tool_handler]
 impl ServerHandler for SerenMcpServer {
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParam,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        #[cfg(feature = "telemetry")]
+        let tool_name = request.name.clone().into_owned();
+        #[cfg(feature = "telemetry")]
+        let start = std::time::Instant::now();
+
+        let tcc = ToolCallContext::new(self, request, context);
+        let result = self.tool_router.call(tcc).await;
+
+        #[cfg(feature = "telemetry")]
+        {
+            let duration = start.elapsed();
+            let outcome = match &result {
+                Ok(res) if res.is_error.unwrap_or(false) => "error",
+                Ok(_) => "ok",
+                Err(_) => "error",
+            };
+
+            crate::metrics::TOOL_CALLS
+                .with_label_values(&[tool_name.as_str(), outcome])
+                .inc();
+            crate::metrics::TOOL_DURATION
+                .with_label_values(&[tool_name.as_str()])
+                .observe(duration.as_secs_f64());
+        }
+
+        result
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParam>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, McpError> {
+        let items = self.tool_router.list_all();
+        Ok(ListToolsResult::with_all_items(items))
+    }
+
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             protocol_version: Default::default(),

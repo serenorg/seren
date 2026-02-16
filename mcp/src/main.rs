@@ -1163,7 +1163,9 @@ async fn run_http(config: Config) -> Result<()> {
         .merge(mcp_router)
         .merge(docs_router);
     #[cfg(feature = "telemetry")]
-    let app = app.route("/metrics", axum::routing::get(metrics::metrics_handler));
+    let app = app
+        .route("/metrics", axum::routing::get(metrics::metrics_handler))
+        .layer(axum::middleware::from_fn(middleware::metrics_middleware));
     let app = app
         .layer(cors)
         .layer(axum::middleware::from_fn(middleware::request_id_middleware));
@@ -1431,7 +1433,9 @@ async fn run_oauth(config: Config) -> Result<()> {
         .merge(mcp_router)
         .merge(docs_router);
     #[cfg(feature = "telemetry")]
-    let app = app.route("/metrics", axum::routing::get(metrics::metrics_handler));
+    let app = app
+        .route("/metrics", axum::routing::get(metrics::metrics_handler))
+        .layer(axum::middleware::from_fn(middleware::metrics_middleware));
     let app = app
         .layer(cors)
         .layer(tower_http::trace::TraceLayer::new_for_http())
