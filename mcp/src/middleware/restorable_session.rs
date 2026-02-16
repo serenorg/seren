@@ -239,7 +239,12 @@ impl RestorableSessionManager {
         }
 
         // Add the restored session to in-memory map
-        self.sessions.write().await.insert(id.clone(), handle);
+        {
+            let mut sessions = self.sessions.write().await;
+            sessions.insert(id.clone(), handle);
+            #[cfg(feature = "telemetry")]
+            crate::metrics::ACTIVE_SESSIONS.set(sessions.len() as i64);
+        }
 
         // Update last activity timestamp
         let _ = self.store.touch_session(id.as_ref()).await;
@@ -273,7 +278,12 @@ impl RestorableSessionManager {
         &self,
         id: &SessionId,
     ) -> Result<LocalSessionHandle, RestorableSessionError> {
-        self.sessions.write().await.remove(id);
+        {
+            let mut sessions = self.sessions.write().await;
+            sessions.remove(id);
+            #[cfg(feature = "telemetry")]
+            crate::metrics::ACTIVE_SESSIONS.set(sessions.len() as i64);
+        }
         self.restore_session(id).await?;
         self.sessions
             .read()
@@ -296,7 +306,12 @@ impl SessionManager for RestorableSessionManager {
         let (handle, worker) = create_local_session(id.clone(), self.session_config.clone());
 
         // Store handle in memory
-        self.sessions.write().await.insert(id.clone(), handle);
+        {
+            let mut sessions = self.sessions.write().await;
+            sessions.insert(id.clone(), handle);
+            #[cfg(feature = "telemetry")]
+            crate::metrics::ACTIVE_SESSIONS.set(sessions.len() as i64);
+        }
 
         // Track in database (initialization state saved later during initialize_session)
         if let Err(e) = self.store.create_mcp_session(id.as_ref()).await {
@@ -438,7 +453,14 @@ impl SessionManager for RestorableSessionManager {
 
     async fn close_session(&self, id: &SessionId) -> Result<(), Self::Error> {
         // Remove from memory
-        if let Some(handle) = self.sessions.write().await.remove(id) {
+        let handle = {
+            let mut sessions = self.sessions.write().await;
+            let handle = sessions.remove(id);
+            #[cfg(feature = "telemetry")]
+            crate::metrics::ACTIVE_SESSIONS.set(sessions.len() as i64);
+            handle
+        };
+        if let Some(handle) = handle {
             let _ = handle.close().await;
         }
 
