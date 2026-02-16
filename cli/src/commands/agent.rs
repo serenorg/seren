@@ -501,6 +501,7 @@ pub async fn create_publisher(
         token_response_field: None,
         oauth_provider_slug: None,
         requires_user_oauth: Some(false),
+        routing: None,
     };
 
     let response = client

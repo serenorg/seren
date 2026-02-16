@@ -26,22 +26,27 @@ fn collect_refs(value: &serde_json::Value, acc: &mut HashSet<String>) {
     }
 }
 
-/// Strip content bodies from 402 responses for progenitor code generation.
-/// Progenitor can only handle one typed response per operation, so we remove
-/// the 402 content schema. The 402 is still documented in the original OpenAPI spec.
-fn strip_402_content(value: &mut serde_json::Value) {
+/// Strip content bodies from error responses that would otherwise create multiple typed
+/// responses per operation during progenitor code generation.
+///
+/// Progenitor can only handle one typed response per operation, so we remove the
+/// error content schemas while keeping them documented in the source OpenAPI spec.
+fn strip_error_response_content(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(map) => {
             if let Some(serde_json::Value::Object(resp_obj)) = map.get_mut("402") {
                 resp_obj.remove("content");
             }
+            if let Some(serde_json::Value::Object(resp_obj)) = map.get_mut("403") {
+                resp_obj.remove("content");
+            }
             for v in map.values_mut() {
-                strip_402_content(v);
+                strip_error_response_content(v);
             }
         }
         serde_json::Value::Array(arr) => {
             for v in arr {
-                strip_402_content(v);
+                strip_error_response_content(v);
             }
         }
         _ => {}
@@ -68,13 +73,13 @@ fn main() -> anyhow::Result<()> {
     let spec_str = fs::read_to_string("../openapi/openapi.json")?;
     let mut raw_json: serde_json::Value = serde_json::from_str(&spec_str)?;
 
-    // Strip 402 response content bodies for progenitor code generation.
+    // Strip 402/403 response content bodies for progenitor code generation.
     // Progenitor panics with "response_types.len() <= 1" if an operation has
     // multiple typed responses (e.g., 200 success + 402 payment required).
-    // We still document 402 in the OpenAPI spec - this only affects codegen.
-    // The generated code will use UnexpectedResponse for 402, preserving the
-    // raw response so callers can deserialize the payment requirements manually.
-    strip_402_content(&mut raw_json);
+    // We still document error bodies in the source OpenAPI spec - this only affects codegen.
+    // The generated code will use UnexpectedResponse for these statuses, preserving the raw
+    // response so callers can deserialize the error body manually when needed.
+    strip_error_response_content(&mut raw_json);
 
     let mut refs = HashSet::new();
     collect_refs(&raw_json, &mut refs);
@@ -158,6 +163,10 @@ fn main() -> anyhow::Result<()> {
     let formatted = formatted.replace(
         "402u16 => Err(Error::ErrorResponse(ResponseValue::empty(response)))",
         "402u16 => Err(Error::UnexpectedResponse(response))",
+    );
+    let formatted = formatted.replace(
+        "403u16 => Err(Error::ErrorResponse(ResponseValue::empty(response)))",
+        "403u16 => Err(Error::UnexpectedResponse(response))",
     );
 
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);

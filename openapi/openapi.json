@@ -1011,6 +1011,77 @@
         ]
       }
     },
+    "/eval/matrix": {
+      "get": {
+        "tags": [
+          "Eval"
+        ],
+        "summary": "Get the global eval routing matrix.",
+        "operationId": "get_matrix",
+        "responses": {
+          "200": {
+            "description": "Eval matrix",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvalMatrixResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/eval/signals": {
+      "post": {
+        "tags": [
+          "Eval"
+        ],
+        "summary": "Ingest eval signals from Seren Desktop clients.",
+        "operationId": "post_signals",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvalSignalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Signals accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvalSignalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/federation": {
       "get": {
         "tags": [
@@ -9869,6 +9940,16 @@
           "402": {
             "description": "Payment required"
           },
+          "403": {
+            "description": "Publisher is geo-restricted and routing is not enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeoRestrictedError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Publisher or endpoint not found"
           },
@@ -9925,6 +10006,16 @@
           },
           "402": {
             "description": "Payment required"
+          },
+          "403": {
+            "description": "Publisher is geo-restricted and routing is not enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeoRestrictedError"
+                }
+              }
+            }
           },
           "404": {
             "description": "Publisher or endpoint not found"
@@ -10346,6 +10437,174 @@
             "description": "Sandbox execution failed"
           }
         }
+      }
+    },
+    "/user/routing": {
+      "get": {
+        "tags": [
+          "User"
+        ],
+        "summary": "GET /user/routing",
+        "description": "List all geographic routing opt-ins for the authenticated user",
+        "operationId": "list_user_routing",
+        "responses": {
+          "200": {
+            "description": "List of routing opt-ins",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRoutingOptInsDataResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/user/routing/{publisher_slug}": {
+      "get": {
+        "tags": [
+          "User"
+        ],
+        "summary": "GET /user/routing/:publisher_slug",
+        "description": "Check geo-routing opt-in status for a specific publisher",
+        "operationId": "get_user_routing",
+        "parameters": [
+          {
+            "name": "publisher_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Routing opt-in details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRoutingOptInDataResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No routing opt-in found for this publisher"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "User"
+        ],
+        "summary": "PUT /user/routing/:publisher_slug",
+        "description": "Enable geographic routing for a publisher. The user acknowledges that requests will be routed through the specified proxy region and may incur additional charges.",
+        "operationId": "enable_user_routing",
+        "parameters": [
+          {
+            "name": "publisher_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnableGeoRoutingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Routing enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRoutingOptInDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Publisher does not support routing or invalid region"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "User"
+        ],
+        "summary": "DELETE /user/routing/:publisher_slug",
+        "description": "Disable geographic routing for a publisher",
+        "operationId": "disable_user_routing",
+        "parameters": [
+          {
+            "name": "publisher_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Routing disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRoutingDisableDataResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Publisher not found or no opt-in to remove"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
     "/wallet/balance": {
@@ -13843,6 +14102,15 @@
             "type": "string",
             "nullable": true
           },
+          "routing": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/GeoRoutingConfig"
+              }
+            ],
+            "nullable": true,
+            "description": "Geographic routing configuration for geo-restricted upstream APIs"
+          },
           "slug": {
             "type": "string"
           },
@@ -14969,6 +15237,13 @@
           }
         }
       },
+      "DelegationType": {
+        "type": "string",
+        "enum": [
+          "in_loop",
+          "full_handoff"
+        ]
+      },
       "DepositDataResponse": {
         "type": "object",
         "description": "Wrapped deposit response for OpenAPI",
@@ -15195,6 +15470,19 @@
               }
             ],
             "nullable": true
+          }
+        }
+      },
+      "EnableGeoRoutingRequest": {
+        "type": "object",
+        "description": "Request to enable geographic routing for a publisher",
+        "required": [
+          "region"
+        ],
+        "properties": {
+          "region": {
+            "type": "string",
+            "description": "Proxy region to enable (e.g. \"EU\")"
           }
         }
       },
@@ -15742,6 +16030,129 @@
           }
         }
       },
+      "EvalMatrixEntry": {
+        "type": "object",
+        "required": [
+          "score",
+          "signal_count"
+        ],
+        "properties": {
+          "score": {
+            "type": "number",
+            "format": "double"
+          },
+          "signal_count": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "EvalMatrixResponse": {
+        "type": "object",
+        "required": [
+          "matrix",
+          "generated_at",
+          "total_signals"
+        ],
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "matrix": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/components/schemas/EvalMatrixEntry"
+              }
+            }
+          },
+          "total_signals": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "EvalSignalItem": {
+        "type": "object",
+        "required": [
+          "task_type",
+          "model_id",
+          "satisfaction"
+        ],
+        "properties": {
+          "delegation_type": {
+            "$ref": "#/components/schemas/DelegationType"
+          },
+          "had_tool_errors": {
+            "type": "boolean"
+          },
+          "latency_ms": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LatencyMs"
+              }
+            ],
+            "nullable": true
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "satisfaction": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "task_type": {
+            "$ref": "#/components/schemas/TaskType"
+          },
+          "token_count": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TokenCount"
+              }
+            ],
+            "nullable": true
+          },
+          "tool_ids_used": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "EvalSignalRequest": {
+        "type": "object",
+        "required": [
+          "signals"
+        ],
+        "properties": {
+          "signals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EvalSignalItem"
+            }
+          }
+        }
+      },
+      "EvalSignalResponse": {
+        "type": "object",
+        "required": [
+          "accepted",
+          "rejected"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "rejected": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "FederatedResource": {
         "type": "object",
         "description": "A federated resource entry in the discovery index",
@@ -16250,6 +16661,54 @@
           "year": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "GeoRestrictedError": {
+        "type": "object",
+        "required": [
+          "error",
+          "message",
+          "publisher",
+          "proxy_region",
+          "opt_in_endpoint"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "publisher": {
+            "type": "string"
+          },
+          "proxy_region": {
+            "type": "string"
+          },
+          "opt_in_endpoint": {
+            "type": "string"
+          }
+        }
+      },
+      "GeoRoutingConfig": {
+        "type": "object",
+        "required": [
+          "proxy_region"
+        ],
+        "properties": {
+          "proxy_region": {
+            "type": "string",
+            "description": "Proxy region to route through (e.g., \"EU\")"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Routing mode: \"always\" (all requests proxied) or \"opt_in\" (user chooses)",
+            "default": "always",
+            "enum": [
+              "always",
+              "opt_in"
+            ]
           }
         }
       },
@@ -16952,6 +17411,21 @@
                 "$ref": "#/components/schemas/PaginationMeta"
               }
             ],
+            "nullable": true
+          }
+        }
+      },
+      "LatencyMs": {
+        "type": "object",
+        "properties": {
+          "first": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32",
             "nullable": true
           }
         }
@@ -21487,6 +21961,15 @@
           "wallet_network_id": {
             "type": "string",
             "description": "Network for the wallet address"
+          },
+          "routing": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/GeoRoutingConfig"
+              }
+            ],
+            "nullable": true,
+            "description": "Geographic routing configuration for geo-restricted upstream APIs"
           }
         }
       },
@@ -23111,6 +23594,16 @@
           }
         }
       },
+      "TaskType": {
+        "type": "string",
+        "enum": [
+          "code_generation",
+          "file_operations",
+          "research",
+          "document_generation",
+          "general_chat"
+        ]
+      },
       "TemplateAnalytics": {
         "type": "object",
         "description": "Analytics data for a single template",
@@ -23278,6 +23771,28 @@
             "nullable": true
           }
         }
+      },
+      "TokenCount": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "output": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          }
+        }
+      },
+      "TokenEndpointAuthMethod": {
+        "type": "string",
+        "enum": [
+          "client_secret_post",
+          "client_secret_basic"
+        ]
       },
       "TopAgent": {
         "type": "object",
@@ -24248,6 +24763,15 @@
             "type": "string",
             "nullable": true
           },
+          "routing": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/GeoRoutingConfig"
+              }
+            ],
+            "nullable": true,
+            "description": "Geographic routing configuration for geo-restricted upstream APIs"
+          },
           "token_cache_ttl_seconds": {
             "type": "integer",
             "format": "int32",
@@ -24737,6 +25261,110 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "UserRoutingOptIn": {
+        "type": "object",
+        "description": "Geographic routing opt-in for a specific publisher",
+        "required": [
+          "publisher_slug",
+          "publisher_name",
+          "enabled_region",
+          "created_at"
+        ],
+        "properties": {
+          "publisher_slug": {
+            "type": "string",
+            "description": "Publisher slug"
+          },
+          "publisher_name": {
+            "type": "string",
+            "description": "Publisher display name"
+          },
+          "enabled_region": {
+            "type": "string",
+            "description": "Proxy region the user opted in to (e.g. \"EU\")"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the opt-in was created"
+          }
+        }
+      },
+      "UserRoutingOptInDataResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UserRoutingOptIn"
+          },
+          "pagination": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "UserRoutingOptInsDataResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserRoutingOptIn"
+            }
+          },
+          "pagination": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "UserRoutingDisableResponse": {
+        "type": "object",
+        "description": "Response returned when geographic routing is disabled for a publisher",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "UserRoutingDisableDataResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UserRoutingDisableResponse"
+          },
+          "pagination": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ],
+            "nullable": true
           }
         }
       },
@@ -25427,6 +26055,10 @@
     {
       "name": "skill",
       "description": "Endpoints included in skill.md for AI agent discovery"
+    },
+    {
+      "name": "Eval",
+      "description": "Eval signal ingestion and routing matrix"
     },
     {
       "name": "federation",

@@ -461,6 +461,33 @@ pub struct CreatePrepaidDepositParams {
     pub amount_usd: UsdAmount,
 }
 
+/// Parameters for checking geographic routing opt-in status for a publisher.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct UserRoutingPublisherParams {
+    /// Publisher slug (e.g. "firecrawl")
+    pub publisher: String,
+}
+
+/// Parameters for enabling geographic routing (geo proxy opt-in) for a publisher.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct EnableUserRoutingParams {
+    /// Publisher slug (e.g. "firecrawl")
+    pub publisher: String,
+    /// Proxy region to enable (e.g. "EU")
+    pub region: String,
+    /// Set to true to acknowledge that requests may be proxied through the selected
+    /// region and may incur additional charges.
+    #[serde(default)]
+    pub confirm: bool,
+}
+
+/// Parameters for disabling geographic routing (geo proxy opt-in) for a publisher.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct DisableUserRoutingParams {
+    /// Publisher slug (e.g. "firecrawl")
+    pub publisher: String,
+}
+
 /// A USD amount passed by a client/tool call.
 ///
 /// We accept either a string (preferred) or a number (best-effort) for backwards compatibility.
@@ -2215,6 +2242,49 @@ impl SerenMcpServer {
             &self.api_base_url,
             http_client,
         ))
+    }
+
+    /// Execute a direct JSON request to the Seren API using the server's configured auth
+    /// and agent-metadata headers.
+    ///
+    /// This intentionally does NOT add the SDK-generated `api-version` header.
+    async fn execute_api_json<T: Serialize>(
+        &self,
+        extensions: &Extensions,
+        method: reqwest::Method,
+        url: String,
+        body: Option<&T>,
+    ) -> Result<serde_json::Value, McpError> {
+        let token = self.bearer_token(extensions)?;
+        let agent_metadata = extract_agent_metadata_from_extensions(extensions);
+        let http_client = self.build_http_client(&token, &agent_metadata)?;
+
+        let mut req = http_client.request(method, &url).header(
+            reqwest::header::ACCEPT,
+            reqwest::header::HeaderValue::from_static("application/json"),
+        );
+
+        if let Some(body) = body {
+            req = req.json(body);
+        }
+
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(McpError::internal_error(
+                format!("Seren API request failed: {} - {}", status, body),
+                None,
+            ));
+        }
+
+        resp.json::<serde_json::Value>()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -4235,6 +4305,143 @@ impl SerenMcpServer {
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
+    // ========================================================================
+    // User Geographic Routing Tools
+    // ========================================================================
+
+    #[tool(
+        description = "List all geographic routing opt-ins for the authenticated user. These opt-ins allow certain geo-restricted publishers to proxy requests through a region (e.g. EU).",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_user_routing(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let result = match api_client.list_user_routing().await {
+            Ok(resp) => resp.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Get geographic routing opt-in status for a specific publisher. Returns enabled=false if you have not opted in.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_user_routing(
+        &self,
+        Parameters(params): Parameters<UserRoutingPublisherParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let publisher = params.publisher.trim().to_string();
+        validate_slug(&publisher, "Publisher slug")?;
+
+        let api_client = self.api_client(&extensions)?;
+        match api_client.get_user_routing(&publisher).await {
+            Ok(resp) => {
+                let opt_in = resp.into_inner().data;
+                let response = serde_json::json!({
+                    "enabled": true,
+                    "publisher": publisher,
+                    "opt_in": opt_in,
+                });
+                Ok(CallToolResult::success(vec![json_content(&response)?]))
+            }
+            Err(e) if e.status() == Some(reqwest::StatusCode::NOT_FOUND) => {
+                let response = serde_json::json!({
+                    "enabled": false,
+                    "publisher": publisher,
+                });
+                Ok(CallToolResult::success(vec![json_content(&response)?]))
+            }
+            Err(e) => Err(seren_error_to_mcp_error(e).await),
+        }
+    }
+
+    #[tool(
+        description = "Enable geographic routing (geo proxy opt-in) for a publisher. This may route requests through the specified proxy region and may incur additional charges. Requires confirm=true.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn enable_user_routing(
+        &self,
+        Parameters(params): Parameters<EnableUserRoutingParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let publisher = params.publisher.trim().to_string();
+        validate_slug(&publisher, "Publisher slug")?;
+
+        let region = params.region.trim().to_ascii_uppercase();
+        if region.is_empty() {
+            return Err(McpError::invalid_params(
+                "region must not be empty".to_string(),
+                None,
+            ));
+        }
+
+        if !params.confirm {
+            return Err(McpError::invalid_request(
+                format!(
+                    "Enabling geographic routing may route requests through {} and may incur additional charges. Re-run with confirm=true to proceed.",
+                    region
+                ),
+                None,
+            ));
+        }
+
+        let api_client = self.api_client(&extensions)?;
+        let body = seren::EnableGeoRoutingRequest { region };
+
+        match api_client.enable_user_routing(&publisher, &body).await {
+            Ok(resp) => Ok(CallToolResult::success(vec![json_content(
+                &resp.into_inner(),
+            )?])),
+            Err(seren::Error::UnexpectedResponse(response))
+                if response.status() == reqwest::StatusCode::BAD_REQUEST =>
+            {
+                let body_text = response.text().await.unwrap_or_default();
+                Err(McpError::invalid_params(
+                    format!(
+                        "Failed to enable routing: {}",
+                        truncate_for_client(&body_text, 1200)
+                    ),
+                    None,
+                ))
+            }
+            Err(e) => Err(seren_error_to_mcp_error(e).await),
+        }
+    }
+
+    #[tool(
+        description = "Disable geographic routing (geo proxy opt-in) for a publisher. This is idempotent: if you were not opted in, it returns enabled=false.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn disable_user_routing(
+        &self,
+        Parameters(params): Parameters<DisableUserRoutingParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let publisher = params.publisher.trim().to_string();
+        validate_slug(&publisher, "Publisher slug")?;
+
+        let api_client = self.api_client(&extensions)?;
+        match api_client.disable_user_routing(&publisher).await {
+            Ok(resp) => Ok(CallToolResult::success(vec![json_content(
+                &resp.into_inner(),
+            )?])),
+            Err(e) if e.status() == Some(reqwest::StatusCode::NOT_FOUND) => {
+                let response = serde_json::json!({
+                    "enabled": false,
+                    "publisher": publisher,
+                    "message": "No routing opt-in found (already disabled) or publisher not found.",
+                });
+                Ok(CallToolResult::success(vec![json_content(&response)?]))
+            }
+            Err(e) => Err(seren_error_to_mcp_error(e).await),
+        }
+    }
+
     // =========================================================================
     // Unified Publisher Tool
     // =========================================================================
@@ -5070,6 +5277,52 @@ Examples:
                         None,
                     ));
                 }
+                if status == reqwest::StatusCode::FORBIDDEN {
+                    let body_text = response.text().await.unwrap_or_default();
+                    if body_text.contains("geo_restricted") {
+                        if let Ok(geo_error) = serde_json::from_str::<serde_json::Value>(&body_text)
+                        {
+                            let publisher = geo_error
+                                .get("publisher")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(ctx.publisher);
+                            let region = geo_error
+                                .get("proxy_region")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("EU");
+                            let endpoint = geo_error
+                                .get("opt_in_endpoint")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("PUT /user/routing/{publisher}");
+
+                            return Err(McpError::invalid_request(
+                                format!(
+                                    "Publisher '{publisher}' requires geographic routing via region {region}, but you have not opted in.\n\
+To opt in (MCP): enable_user_routing(publisher: \"{publisher}\", region: \"{region}\", confirm: true)\n\
+API endpoint: {endpoint}",
+                                ),
+                                None,
+                            ));
+                        }
+                        return Err(McpError::invalid_request(
+                            format!(
+                                "Publisher '{}' requires geographic routing opt-in. \
+                                Check the error details for the opt-in endpoint.",
+                                ctx.publisher
+                            ),
+                            None,
+                        ));
+                    }
+                    return Err(McpError::internal_error(
+                        format!(
+                            "{} call failed ({}): {}",
+                            ctx.publisher_type,
+                            status,
+                            truncate_for_client(&body_text, 1200)
+                        ),
+                        None,
+                    ));
+                }
                 let body = response.text().await.unwrap_or_default();
                 Err(McpError::internal_error(
                     format!(
@@ -5300,7 +5553,6 @@ Examples:
             ));
         }
 
-        let api_client = self.api_client(&extensions)?;
         let name = name.trim().to_string();
         let slug = slug.trim().to_string();
         let wallet_address = wallet_address.trim().to_string();
@@ -5553,12 +5805,19 @@ Examples:
             token_response_field,
             oauth_provider_slug,
             requires_user_oauth,
+            routing: None,
         };
 
-        let result = match api_client.create_publisher(&organization_id, &body).await {
-            Ok(resp) => resp.into_inner(),
-            Err(e) => return Err(seren_error_to_mcp_error(e).await),
-        };
+        let api_base_url = self.api_base_url.trim_end_matches('/');
+        let url = format!(
+            "{}/organizations/{}/publishers",
+            api_base_url, organization_id
+        );
+
+        let result = self
+            .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body))
+            .await?;
+
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
 
@@ -5628,8 +5887,6 @@ Examples:
                 None,
             ));
         }
-
-        let api_client = self.api_client(&extensions)?;
 
         let endpoints = match endpoints {
             None => None,
@@ -5804,15 +6061,19 @@ Examples:
             // BYOC OAuth fields
             oauth_provider_id,
             requires_user_oauth,
+            routing: None,
         };
 
-        let result = match api_client
-            .update_publisher(&organization_id, &publisher_id, &body)
-            .await
-        {
-            Ok(resp) => resp.into_inner(),
-            Err(e) => return Err(seren_error_to_mcp_error(e).await),
-        };
+        let api_base_url = self.api_base_url.trim_end_matches('/');
+        let url = format!(
+            "{}/organizations/{}/publishers/{}",
+            api_base_url, organization_id, publisher_id
+        );
+
+        let result = self
+            .execute_api_json(&extensions, reqwest::Method::PUT, url, Some(&body))
+            .await?;
+
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
 
