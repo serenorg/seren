@@ -53,6 +53,20 @@ pub static HTTP_REQUESTS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     counter
 });
 
+/// Geo-restricted 403 errors received from Seren Core.
+pub static GEO_RESTRICTED: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let counter = IntCounterVec::new(
+        Opts::new(
+            "seren_mcp_geo_restricted_total",
+            "Total geo-restricted 403 errors by publisher and region",
+        ),
+        &["publisher", "region"],
+    )
+    .expect("metric creation");
+    REGISTRY.register(Box::new(counter.clone())).ok();
+    counter
+});
+
 /// Handler for GET /metrics — returns Prometheus text format.
 pub async fn metrics_handler() -> impl IntoResponse {
     let encoder = TextEncoder::new();
