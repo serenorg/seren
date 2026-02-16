@@ -5295,6 +5295,16 @@ Examples:
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("PUT /user/routing/{publisher}");
 
+                            tracing::warn!(
+                                publisher = %publisher,
+                                region = %region,
+                                "Geo-restricted: user has not opted in"
+                            );
+                            #[cfg(feature = "telemetry")]
+                            crate::metrics::GEO_RESTRICTED
+                                .with_label_values(&[publisher, region])
+                                .inc();
+
                             return Err(McpError::invalid_request(
                                 format!(
                                     "Publisher '{publisher}' requires geographic routing via region {region}, but you have not opted in.\n\
