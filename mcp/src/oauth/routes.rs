@@ -755,9 +755,11 @@ async fn token(
                 return Err(OAuthError::InvalidGrant("PKCE verification failed".into()));
             }
 
-            // Generate MCP refresh token hash first (needed for JWT claim)
-            let mcp_refresh_token = TokenStore::generate_token();
-            let refresh_token_hash = TokenStore::hash_refresh_token(&mcp_refresh_token);
+            // Generate a random token and hash it for the server-side upstream token vault key.
+            // The raw token is NOT returned to the client — only the hash is stored (as the
+            // DB primary key) and embedded in the JWT's `rth` claim for middleware lookup.
+            let vault_key = TokenStore::generate_token();
+            let refresh_token_hash = TokenStore::hash_refresh_token(&vault_key);
 
             // Mint MCP access token (JWT signed by this server)
             // Include refresh_token_hash to link this JWT to its specific upstream token vault
@@ -797,6 +799,7 @@ async fn token(
                 grant_type = "authorization_code",
                 client_id = %auth_code.client_id,
                 user_id = %auth_code.user_id,
+                expires_in = mcp_expires_in,
                 "Token exchange completed (MCP token issued)"
             );
 
@@ -804,7 +807,10 @@ async fn token(
                 access_token: mcp_access_token,
                 token_type: "Bearer".into(),
                 expires_in: mcp_expires_in,
-                refresh_token: Some(mcp_refresh_token),
+                // No refresh_token issued — the access token is long-lived (10 years)
+                // so clients never need to refresh. This eliminates the two-token flow
+                // that MCP clients (Claude Code, Cursor) struggle with.
+                refresh_token: None,
                 scope: auth_code.scope,
             }))
         }
@@ -1009,6 +1015,7 @@ async fn token(
                     grant_type = "refresh_token",
                     client_id = %refresh_token.client_id,
                     user_id = %refresh_token.user_id,
+                    expires_in = mcp_expires_in,
                     "Token refresh completed (MCP token issued, refresh token preserved)"
                 );
 
@@ -2116,12 +2123,13 @@ mod tests {
             .get("access_token")
             .and_then(|v| v.as_str())
             .expect("token response should contain access_token");
-        let mcp_refresh_token = token_res
-            .get("refresh_token")
-            .and_then(|v| v.as_str())
-            .expect("token response should contain refresh_token");
         assert!(!mcp_access_token.is_empty());
-        assert!(!mcp_refresh_token.is_empty());
+        // No refresh_token issued — long-lived access token eliminates the two-token flow
+        assert!(
+            token_res.get("refresh_token").is_none()
+                || token_res.get("refresh_token").unwrap().is_null(),
+            "token response should NOT contain refresh_token"
+        );
         assert_eq!(
             token_res.get("token_type").and_then(|v| v.as_str()),
             Some("Bearer")
@@ -2134,58 +2142,16 @@ mod tests {
         assert_eq!(claims.client_id, client_id);
         assert_eq!(claims.scope, "api");
 
-        let refresh_token_hash = TokenStore::hash_refresh_token(mcp_refresh_token);
-        assert_eq!(claims.rth.as_deref(), Some(refresh_token_hash.as_str()));
+        // The rth claim should still be set (links to server-side upstream token vault)
+        let refresh_token_hash = claims.rth.as_deref().expect("JWT should contain rth claim");
 
-        // 6) Refresh token (downstream) -> should call upstream refresh and return new MCP access token
-        let refresh_body = format!(
-            "grant_type=refresh_token&refresh_token={}&client_id={}",
-            mcp_refresh_token, client_id
-        );
-        let res = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/token")
-                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-                    .body(Body::from(refresh_body))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
-        let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
-        let refresh_res: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let new_mcp_access_token = refresh_res
-            .get("access_token")
-            .and_then(|v| v.as_str())
-            .expect("refresh response should contain access_token");
-        assert!(!new_mcp_access_token.is_empty());
-        assert!(refresh_res.get("refresh_token").is_none());
-        assert_eq!(
-            refresh_res.get("token_type").and_then(|v| v.as_str()),
-            Some("Bearer")
-        );
-
-        let new_claims = state
-            .jwt_signer
-            .validate_access_token(new_mcp_access_token)
-            .expect("refreshed MCP access token should be a valid JWT");
-        assert_eq!(new_claims.client_id, client_id);
-        assert_eq!(new_claims.scope, "api");
-        assert_eq!(new_claims.rth.as_deref(), Some(refresh_token_hash.as_str()));
-
-        // Verify upstream tokens were refreshed and persisted.
+        // Verify the upstream token vault was persisted (even though client doesn't get the refresh token)
         let stored = store
-            .get_refresh_token_by_hash(&refresh_token_hash)
+            .get_refresh_token_by_hash(refresh_token_hash)
             .await
             .unwrap()
-            .expect("refresh token row should exist");
-        assert_eq!(stored.upstream_access_token, "up_access_2");
-        assert_eq!(
-            stored.upstream_refresh_token.as_deref(),
-            Some("up_refresh_2")
-        );
+            .expect("refresh token row should exist for rth lookup");
+        assert_eq!(stored.upstream_access_token, "up_access_1");
     }
 
     #[test]

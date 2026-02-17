@@ -45,9 +45,9 @@ impl std::str::FromStr for PkceMethod {
 }
 
 // Token TTL constants
-// NOTE: These should match the upstream API's values to keep session lifetimes
-// consistent across the stack.
-pub const REFRESH_TOKEN_TTL_HOURS: i64 = 365 * 24; // 365 days (1 year)
+// NOTE: Keep this aligned with MCP's long-lived access token strategy so clients are not
+// invalidated due to token-vault expiry while their bearer token is still valid.
+pub const REFRESH_TOKEN_TTL_HOURS: i64 = 10 * 365 * 24; // 10 years
 /// Minimum interval between sliding-expiry renewals (write throttling).
 pub const SLIDING_EXPIRY_RENEWAL_INTERVAL_HOURS: i64 = 24;
 

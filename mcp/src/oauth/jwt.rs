@@ -11,8 +11,19 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-/// MCP access token TTL (15 minutes)
-pub const MCP_ACCESS_TOKEN_TTL_SECS: i64 = 15 * 60;
+/// MCP access token TTL (10 years — effectively permanent).
+///
+/// MCP clients (Claude Code, Cursor, etc.) struggle with the two-token flow:
+/// OAuth completes but sessions don't persist because the client fails to store
+/// or refresh tokens correctly.  By issuing a near-permanent JWT we eliminate
+/// the refresh dance entirely — the client gets one bearer token and uses it
+/// forever.
+///
+/// Security is maintained because each request still validates the JWT signature,
+/// upstream tokens are refreshed server-side transparently, and the JWT's `rth`
+/// claim links to a server-side token vault that can be revoked at any time
+/// (deleting the `refresh_tokens` row causes the middleware `rth` lookup to 401).
+pub const ACCESS_TOKEN_TTL_SECS: i64 = 10 * 365 * 24 * 60 * 60;
 
 /// JWT claims for MCP-issued access tokens
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -136,7 +147,7 @@ impl McpJwtSigner {
         refresh_token_hash: Option<&str>,
     ) -> Result<(String, i64), JwtError> {
         let now = OffsetDateTime::now_utc();
-        let exp = now.unix_timestamp() + MCP_ACCESS_TOKEN_TTL_SECS;
+        let exp = now.unix_timestamp() + ACCESS_TOKEN_TTL_SECS;
 
         let claims = McpClaims {
             sub: user_id.to_string(),
@@ -155,7 +166,7 @@ impl McpJwtSigner {
         let header = Header::new(Algorithm::HS256);
         let token = encode(&header, &claims, &self.encoding_key)?;
 
-        Ok((token, MCP_ACCESS_TOKEN_TTL_SECS))
+        Ok((token, ACCESS_TOKEN_TTL_SECS))
     }
 
     /// Validate an MCP access token and return its claims
@@ -213,7 +224,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(expires_in, MCP_ACCESS_TOKEN_TTL_SECS);
+        assert_eq!(expires_in, ACCESS_TOKEN_TTL_SECS);
 
         let claims = signer.validate_access_token(&token).unwrap();
         assert_eq!(claims.sub, "550e8400-e29b-41d4-a716-446655440000");
