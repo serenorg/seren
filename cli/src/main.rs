@@ -346,6 +346,9 @@ enum AgentAction {
         /// OAuth2 scopes for Client Credentials flow (comma-separated)
         #[arg(long = "oauth2-scope", value_delimiter = ',')]
         oauth2_scopes: Option<Vec<String>>,
+        /// Human-readable use cases for this publisher (comma-separated)
+        #[arg(long = "use-case", value_delimiter = ',')]
+        use_cases: Option<Vec<String>>,
     },
     /// Execute a paid database query using your SerenBucks balance
     ExecuteQuery {
@@ -2352,6 +2355,7 @@ async fn main() -> anyhow::Result<()> {
                 oauth2_client_id,
                 oauth2_client_secret,
                 oauth2_scopes,
+                use_cases,
             } => {
                 commands::agent::create_publisher(
                     &organization_id,
@@ -2380,6 +2384,7 @@ async fn main() -> anyhow::Result<()> {
                     oauth2_client_id.as_deref(),
                     oauth2_client_secret.as_deref(),
                     oauth2_scopes.unwrap_or_default(),
+                    use_cases,
                     &ctx,
                 )
                 .await?

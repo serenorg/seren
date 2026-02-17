@@ -745,6 +745,9 @@ pub struct CreatePublisherParams {
     /// Publisher description
     #[serde(default)]
     pub description: Option<String>,
+    /// Human-readable use case descriptions (e.g., ["Scrape dynamic JavaScript websites"])
+    #[serde(default)]
+    pub use_cases: Option<Vec<String>>,
     /// External API URL (required for integration_type: api)
     #[serde(default)]
     pub api_url: Option<String>,
@@ -5546,6 +5549,7 @@ API endpoint: {endpoint}",
             oauth2_client_id,
             oauth2_client_secret,
             oauth2_scopes,
+            use_cases,
             resource_name,
             resource_description,
             oauth_provider_slug,
@@ -5747,6 +5751,7 @@ API endpoint: {endpoint}",
         let allowed_passthrough_headers =
             normalize_string_vec(allowed_passthrough_headers, "allowed_passthrough_headers")?
                 .unwrap_or_default();
+        let use_cases = normalize_string_vec(use_cases, "use_cases")?.unwrap_or_default();
 
         let body = seren::CreatePublisherRequest {
             name,
@@ -5768,7 +5773,7 @@ API endpoint: {endpoint}",
             billing_model,
             categories: categories.unwrap_or_default(),
             capabilities: vec![],
-            use_cases: vec![],
+            use_cases,
             logo_url,
             // Set defaults for other fields
             accepted_asset_ids: None,

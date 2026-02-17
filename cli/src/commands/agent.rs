@@ -264,6 +264,7 @@ pub async fn create_publisher(
     oauth2_client_id: Option<&str>,
     oauth2_client_secret: Option<&str>,
     oauth2_scopes: Vec<String>,
+    use_cases: Option<Vec<String>>,
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
@@ -409,6 +410,16 @@ pub async fn create_publisher(
         normalized_scopes.push(trimmed.to_string());
     }
 
+    let mut normalized_use_cases =
+        Vec::with_capacity(use_cases.as_ref().map_or(0, |cases| cases.len()));
+    for (i, use_case) in use_cases.unwrap_or_default().into_iter().enumerate() {
+        let trimmed = use_case.trim();
+        if trimmed.is_empty() {
+            return Err(anyhow::anyhow!("use_cases[{}] must not be empty", i));
+        }
+        normalized_use_cases.push(trimmed.to_string());
+    }
+
     if auth_type.as_deref() == Some("oauth2_cc")
         && (oauth2_token_url.is_none()
             || oauth2_client_id.is_none()
@@ -450,7 +461,7 @@ pub async fn create_publisher(
         billing_model: billing_model.map(|s| s.to_string()),
         categories: vec![],
         capabilities: vec![],
-        use_cases: vec![],
+        use_cases: normalized_use_cases,
         logo_url: None,
         accepted_asset_ids: None,
         allowed_passthrough_headers: allowed_passthrough_headers_normalized,
