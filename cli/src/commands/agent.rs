@@ -258,6 +258,7 @@ pub async fn create_publisher(
     upstream_cost_response_path: Option<&str>,
     connection_string: Option<&str>,
     upstream_api_key: Option<&str>,
+    database_config_json: Option<&str>,
     auth_type: Option<&str>,
     allowed_passthrough_headers: Vec<String>,
     oauth2_token_url: Option<&str>,
@@ -325,12 +326,38 @@ pub async fn create_publisher(
         }
     };
 
-    // Build database_config JSON if connection_string is provided
-    let database_config = connection_string.map(|cs| {
-        serde_json::json!({
-            "connection_string": cs
-        })
-    });
+    let database_config_from_json = match database_config_json {
+        None => None,
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return Err(anyhow::anyhow!("database_config_json must not be empty"));
+            }
+
+            let parsed: serde_json::Value = serde_json::from_str(trimmed)
+                .map_err(|e| anyhow::anyhow!("Invalid database_config_json: {}", e))?;
+
+            if !parsed.is_object() {
+                return Err(anyhow::anyhow!(
+                    "database_config_json must decode to a JSON object"
+                ));
+            }
+
+            Some(parsed)
+        }
+    };
+
+    if connection_string.is_some() && database_config_from_json.is_some() {
+        return Err(anyhow::anyhow!(
+            "connection_string cannot be combined with database_config_json"
+        ));
+    }
+
+    let database_config = if let Some(cs) = connection_string {
+        Some(serde_json::json!({ "connection_string": cs }))
+    } else {
+        database_config_from_json
+    };
 
     let upstream_api_key = upstream_api_key
         .map(|s| s.trim().to_string())
@@ -380,6 +407,11 @@ pub async fn create_publisher(
         if upstream_api_key.is_none() {
             return Err(anyhow::anyhow!(
                 "upstream_api_key is required for database_type=mongodb (Atlas Data API key)"
+            ));
+        }
+        if connection_string.is_some() {
+            return Err(anyhow::anyhow!(
+                "connection_string is not valid for database_type=mongodb; use api_url + upstream_api_key and optional database_config_json"
             ));
         }
     }

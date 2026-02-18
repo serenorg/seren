@@ -445,7 +445,7 @@ fn default_suggest_type() -> Option<String> {
 pub struct EstimateQueryCostParams {
     /// Publisher slug or UUID
     pub publisher: String,
-    /// SQL query to estimate cost for
+    /// Query payload to estimate cost for (SQL string for SQL publishers, JSON string for MongoDB publishers)
     pub query: String,
     /// Optional asset ID for cost estimate (defaults to publisher's default asset)
     #[serde(default)]
@@ -523,7 +523,7 @@ pub struct CallPublisherParams {
     pub publisher: String,
 
     // === Database publisher parameters ===
-    /// SQL query to execute (for database publishers)
+    /// Query payload to execute (SQL string for SQL publishers, JSON string for MongoDB publishers)
     #[serde(default)]
     pub query: Option<String>,
     /// Database name (optional, defaults to publisher's default database)
@@ -763,10 +763,14 @@ pub struct CreatePublisherParams {
     /// Database name within the SerenDB project (default: serendb)
     #[serde(default)]
     pub database_name: Option<String>,
-    /// Database connection string (required for database_type: neon or supabase)
-    /// Format: postgresql://user:password@host:port/database
+    /// Database connection string shorthand (for database_type: neon or supabase).
+    /// This is converted to database_config = {"connection_string": "..."}.
     #[serde(default)]
     pub connection_string: Option<String>,
+    /// Generic provider-specific configuration object passed through as database_config.
+    /// Example: {"connection_string":"postgresql://..."} or {"read_only":false}.
+    #[serde(default)]
+    pub database_config: Option<serde_json::Value>,
     /// Base price per 1000 rows (decimal string, e.g., "0.001")
     #[serde(default)]
     pub base_price_per_1000_rows: Option<String>,
@@ -938,11 +942,14 @@ pub struct UpdatePublisherParams {
     /// Database name within the SerenDB project
     #[serde(default)]
     pub database_name: Option<String>,
-    /// Database connection string (for database_type: neon or supabase)
-    /// Format: postgresql://user:password@host:port/database
-    /// Leave blank to keep existing, provide new value to update
+    /// Database connection string shorthand (for database_type: neon or supabase).
+    /// Converted to database_config = {"connection_string": "..."}.
+    /// Leave blank to keep existing, provide new value to update.
     #[serde(default)]
     pub connection_string: Option<String>,
+    /// Generic provider-specific configuration object passed through as database_config.
+    #[serde(default)]
+    pub database_config: Option<serde_json::Value>,
     /// Billing model (x402_per_request, prepaid_credits, x402_passthrough, pay_per_use)
     /// pay_per_use requires: publisher_category="integration", integration_type="api",
     /// auth_type != "passthrough", and upstream_cost_response_path must be set
@@ -3337,7 +3344,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Execute a SQL query against a database",
+        description = "Execute a query against a database (SQL for SQL publishers)",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -4158,7 +4165,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Estimate the cost of a SQL query against a publisher's database without executing it",
+        description = "Estimate the cost of a publisher query payload without executing it",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn estimate_query_cost(
@@ -5520,6 +5527,7 @@ API endpoint: {endpoint}",
             branch_id,
             database_name,
             connection_string,
+            database_config,
             base_price_per_1000_rows,
             price_per_call,
             price_per_execution,
@@ -5753,6 +5761,28 @@ API endpoint: {endpoint}",
                 .unwrap_or_default();
         let use_cases = normalize_string_vec(use_cases, "use_cases")?.unwrap_or_default();
 
+        if connection_string.is_some() && database_config.is_some() {
+            return Err(McpError::invalid_params(
+                "connection_string cannot be combined with database_config",
+                None,
+            ));
+        }
+
+        if let Some(ref cfg) = database_config
+            && !cfg.is_object()
+        {
+            return Err(McpError::invalid_params(
+                "database_config must be a JSON object",
+                None,
+            ));
+        }
+
+        let database_config = if let Some(cs) = connection_string {
+            Some(serde_json::json!({ "connection_string": cs }))
+        } else {
+            database_config
+        };
+
         let body = seren::CreatePublisherRequest {
             name,
             slug,
@@ -5786,8 +5816,7 @@ API endpoint: {endpoint}",
             oauth2_client_id,
             oauth2_client_secret,
             oauth2_scopes,
-            database_config: connection_string
-                .map(|cs| serde_json::json!({ "connection_string": cs })),
+            database_config,
             gateway_fee_percent: None,
             grace_period_minutes: None,
             hourly_rate: None,
@@ -5869,6 +5898,7 @@ API endpoint: {endpoint}",
             branch_id,
             database_name,
             connection_string,
+            database_config,
             billing_model,
             email,
             endpoints,
@@ -6003,6 +6033,28 @@ API endpoint: {endpoint}",
             ));
         }
 
+        if connection_string.is_some() && database_config.is_some() {
+            return Err(McpError::invalid_params(
+                "connection_string cannot be combined with database_config",
+                None,
+            ));
+        }
+
+        if let Some(ref cfg) = database_config
+            && !cfg.is_object()
+        {
+            return Err(McpError::invalid_params(
+                "database_config must be a JSON object",
+                None,
+            ));
+        }
+
+        let database_config = if let Some(cs) = connection_string {
+            Some(serde_json::json!({ "connection_string": cs }))
+        } else {
+            database_config
+        };
+
         let body = seren::UpdatePublisherRequest {
             name,
             description,
@@ -6057,8 +6109,7 @@ API endpoint: {endpoint}",
             add_asset_ids: None,
             remove_asset_ids: None,
             // Database config fields
-            database_config: connection_string
-                .map(|cs| serde_json::json!({ "connection_string": cs })),
+            database_config,
             // Pricing fields (not exposed in this tool - use update_publisher_pricing instead)
             base_price_per_1000_rows: None,
             markup_multiplier: None,

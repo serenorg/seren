@@ -327,6 +327,9 @@ enum AgentAction {
         /// Upstream API key (encrypted). Required for MongoDB Atlas Data API publishers.
         #[arg(long)]
         upstream_api_key: Option<String>,
+        /// Generic database provider config JSON (advanced). Example: '{"read_only":false,"max_limit":200}'
+        #[arg(long)]
+        database_config_json: Option<String>,
         /// Upstream auth mode: "static", "jwt", "oauth2_cc", or "passthrough" (default: static)
         #[arg(long)]
         auth_type: Option<String>,
@@ -355,7 +358,7 @@ enum AgentAction {
         /// Publisher ID (UUID) or slug
         #[arg(long)]
         publisher: String,
-        /// SQL query to execute
+        /// Query payload to execute (SQL string for SQL publishers, JSON string for MongoDB publishers)
         #[arg(long)]
         query: String,
         /// Database name (optional, uses publisher default)
@@ -375,7 +378,7 @@ enum AgentAction {
         /// Publisher ID (UUID) or slug
         #[arg(long)]
         publisher: String,
-        /// SQL query to estimate
+        /// Query payload to estimate (SQL string for SQL publishers, JSON string for MongoDB publishers)
         #[arg(long)]
         query: String,
     },
@@ -2349,6 +2352,7 @@ async fn main() -> anyhow::Result<()> {
                 upstream_cost_response_path,
                 connection_string,
                 upstream_api_key,
+                database_config_json,
                 auth_type,
                 allowed_passthrough_headers,
                 oauth2_token_url,
@@ -2378,6 +2382,7 @@ async fn main() -> anyhow::Result<()> {
                     upstream_cost_response_path.as_deref(),
                     connection_string.as_deref(),
                     upstream_api_key.as_deref(),
+                    database_config_json.as_deref(),
                     auth_type.as_deref(),
                     allowed_passthrough_headers,
                     oauth2_token_url.as_deref(),
