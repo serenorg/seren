@@ -327,7 +327,9 @@ enum AgentAction {
         /// Upstream API key (encrypted). Required for MongoDB Atlas Data API publishers.
         #[arg(long)]
         upstream_api_key: Option<String>,
-        /// Generic database provider config JSON (advanced). Example: '{"read_only":false,"max_limit":200}'
+        /// Generic database provider config JSON (advanced).
+        /// Neon/Supabase example: '{"connection_string":"postgresql://..."}'
+        /// MongoDB Atlas example: '{"default_data_source":"MyCluster","max_limit":200,"read_only":true}'
         #[arg(long)]
         database_config_json: Option<String>,
         /// Upstream auth mode: "static", "jwt", "oauth2_cc", or "passthrough" (default: static)
