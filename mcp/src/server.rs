@@ -768,7 +768,8 @@ pub struct CreatePublisherParams {
     #[serde(default)]
     pub connection_string: Option<String>,
     /// Generic provider-specific configuration object passed through as database_config.
-    /// Example: {"connection_string":"postgresql://..."} or {"read_only":false}.
+    /// Neon/Supabase: {"connection_string":"postgresql://..."}
+    /// MongoDB Atlas: {"default_data_source":"MyCluster","max_limit":200,"read_only":true}
     #[serde(default)]
     pub database_config: Option<serde_json::Value>,
     /// Base price per 1000 rows (decimal string, e.g., "0.001")
