@@ -1331,6 +1331,47 @@ pub struct GetTransactionHistoryParams {
     pub offset: Option<i64>,
 }
 
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct RunAgentCloudParams {
+    /// The organization ID (UUID)
+    pub organization_id: Uuid,
+    /// Publisher slug of the A2A agent to invoke
+    pub publisher_slug: String,
+    /// Input message (text string or JSON object)
+    pub message: serde_json::Value,
+    /// Maximum cost cap in atomic units (optional budget limit)
+    #[serde(default)]
+    pub cost_cap_atomic: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ListAgentTasksParams {
+    /// The organization ID (UUID)
+    pub organization_id: Uuid,
+    /// Maximum number of tasks to return (default: 20, max: 100)
+    #[serde(default)]
+    pub limit: Option<i64>,
+    /// Offset for pagination
+    #[serde(default)]
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetAgentTaskParams {
+    /// The organization ID (UUID)
+    pub organization_id: Uuid,
+    /// Task ID (UUID)
+    pub task_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CancelAgentTaskParams {
+    /// The organization ID (UUID)
+    pub organization_id: Uuid,
+    /// Task ID (UUID)
+    pub task_id: Uuid,
+}
+
 // ============================================================================
 // SQL Response Types
 // ============================================================================
@@ -6819,6 +6860,101 @@ API endpoint: {endpoint}",
             })?
             .into_inner();
 
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    // ========================================================================
+    // Agent Task Tools
+    // ========================================================================
+
+    #[tool(
+        description = "Create and run an agent task in the cloud. Dispatches work to a remote A2A agent publisher and returns the created task with its ID. Use get_agent_task to poll for completion or check status.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn run_agent_cloud(
+        &self,
+        Parameters(params): Parameters<RunAgentCloudParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/organizations/{}/agents/tasks",
+            self.api_base_url, params.organization_id
+        );
+        let body = serde_json::json!({
+            "publisher_slug": params.publisher_slug,
+            "message": params.message,
+            "cost_cap_atomic": params.cost_cap_atomic,
+        });
+        let result = self
+            .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body))
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "List agent tasks for an organization. Returns tasks ordered by creation time (newest first) with pagination support.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_agent_tasks(
+        &self,
+        Parameters(params): Parameters<ListAgentTasksParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = params.limit.unwrap_or(20);
+        let offset = params.offset.unwrap_or(0);
+        let url = format!(
+            "{}/organizations/{}/agents/tasks?limit={}&offset={}",
+            self.api_base_url, params.organization_id, limit, offset
+        );
+        let result = self
+            .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Get details of a specific agent task including status, output, cost breakdown, and A2A protocol metadata.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_agent_task(
+        &self,
+        Parameters(params): Parameters<GetAgentTaskParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/organizations/{}/agents/tasks/{}",
+            self.api_base_url, params.organization_id, params.task_id
+        );
+        let result = self
+            .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Cancel a running agent task. Releases any billing reservation and stops execution. Only works on tasks that are not yet in a terminal state (completed, failed, or already cancelled).",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn cancel_agent_task(
+        &self,
+        Parameters(params): Parameters<CancelAgentTaskParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/organizations/{}/agents/tasks/{}/cancel",
+            self.api_base_url, params.organization_id, params.task_id
+        );
+        let result = self
+            .execute_api_json::<()>(&extensions, reqwest::Method::POST, url, None)
+            .await?;
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
 

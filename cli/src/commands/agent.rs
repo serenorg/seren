@@ -966,3 +966,141 @@ pub async fn invoke_template(slug: &str, input: &str, ctx: &CommandContext) -> R
 
     Ok(())
 }
+
+/// Run an agent task in the cloud.
+pub async fn run_cloud(
+    publisher: &str,
+    message: &str,
+    org_id: &str,
+    cost_cap: Option<i64>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = format!("{}/organizations/{}/agents/tasks", ctx.api_base(), org_id);
+
+    // Try to parse message as JSON, fall back to text wrapper
+    let message_value: serde_json::Value =
+        serde_json::from_str(message).unwrap_or_else(|_| serde_json::json!({"text": message}));
+
+    let body = serde_json::json!({
+        "publisher_slug": publisher,
+        "message": message_value,
+        "cost_cap_atomic": cost_cap,
+    });
+
+    let response = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to create task: {} - {}",
+            status,
+            body
+        ));
+    }
+
+    let result: serde_json::Value = response.json().await?;
+    output::print_json(&result)?;
+    Ok(())
+}
+
+/// List agent tasks for an organization.
+pub async fn list_agent_tasks(
+    org_id: &str,
+    limit: i64,
+    offset: i64,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = format!(
+        "{}/organizations/{}/agents/tasks?limit={}&offset={}",
+        ctx.api_base(),
+        org_id,
+        limit,
+        offset
+    );
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to list tasks: {} - {}",
+            status,
+            body
+        ));
+    }
+
+    let result: serde_json::Value = response.json().await?;
+    output::print_json(&result)?;
+    Ok(())
+}
+
+/// Get details of a specific agent task.
+pub async fn get_agent_task(org_id: &str, task_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = format!(
+        "{}/organizations/{}/agents/tasks/{}",
+        ctx.api_base(),
+        org_id,
+        task_id
+    );
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Failed to get task: {} - {}", status, body));
+    }
+
+    let result: serde_json::Value = response.json().await?;
+    output::print_json(&result)?;
+    Ok(())
+}
+
+/// Cancel a running agent task.
+pub async fn cancel_agent_task(org_id: &str, task_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = format!(
+        "{}/organizations/{}/agents/tasks/{}/cancel",
+        ctx.api_base(),
+        org_id,
+        task_id
+    );
+
+    let response = client
+        .post(&url)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to cancel task: {} - {}",
+            status,
+            body
+        ));
+    }
+
+    let result: serde_json::Value = response.json().await?;
+    output::print_json(&result)?;
+    Ok(())
+}

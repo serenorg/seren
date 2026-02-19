@@ -453,6 +453,49 @@ enum AgentAction {
         #[arg(long)]
         input: String,
     },
+    /// Run an agent task in the cloud via A2A protocol
+    RunCloud {
+        /// Publisher slug of the agent to invoke
+        #[arg(long)]
+        publisher: String,
+        /// Input message (text or JSON)
+        #[arg(long)]
+        message: String,
+        /// Organization ID
+        #[arg(long)]
+        org_id: String,
+        /// Maximum cost cap in atomic units
+        #[arg(long)]
+        cost_cap: Option<i64>,
+    },
+    /// List agent tasks for an organization
+    TasksList {
+        /// Organization ID
+        #[arg(long)]
+        org_id: String,
+        /// Maximum tasks to return
+        #[arg(long, default_value = "20")]
+        limit: i64,
+        /// Offset for pagination
+        #[arg(long, default_value = "0")]
+        offset: i64,
+    },
+    /// Get details of a specific agent task
+    TasksGet {
+        /// Organization ID
+        #[arg(long)]
+        org_id: String,
+        /// Task ID (UUID)
+        task_id: String,
+    },
+    /// Cancel a running agent task
+    TasksCancel {
+        /// Organization ID
+        #[arg(long)]
+        org_id: String,
+        /// Task ID (UUID)
+        task_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2456,6 +2499,23 @@ async fn main() -> anyhow::Result<()> {
             }
             AgentAction::InvokeTemplate { slug, input } => {
                 commands::agent::invoke_template(&slug, &input, &ctx).await?
+            }
+            AgentAction::RunCloud {
+                publisher,
+                message,
+                org_id,
+                cost_cap,
+            } => commands::agent::run_cloud(&publisher, &message, &org_id, cost_cap, &ctx).await?,
+            AgentAction::TasksList {
+                org_id,
+                limit,
+                offset,
+            } => commands::agent::list_agent_tasks(&org_id, limit, offset, &ctx).await?,
+            AgentAction::TasksGet { org_id, task_id } => {
+                commands::agent::get_agent_task(&org_id, &task_id, &ctx).await?
+            }
+            AgentAction::TasksCancel { org_id, task_id } => {
+                commands::agent::cancel_agent_task(&org_id, &task_id, &ctx).await?
             }
         },
         Commands::Oauth { action } => match action {
