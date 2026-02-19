@@ -1368,6 +1368,40 @@ pub struct CancelAgentTaskParams {
 }
 
 // ============================================================================
+// Cloud Deployment Parameter Types
+// ============================================================================
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct DeployCloudAgentParams {
+    /// Skill slug identifier (e.g., "coinbase-grid-trader")
+    pub skill_slug: String,
+    /// Display name for the deployment
+    pub name: String,
+    /// Deployment mode: "always_on" or "cron"
+    pub mode: String,
+    /// Cron schedule expression (required if mode is "cron")
+    #[serde(default)]
+    pub cron_schedule: Option<String>,
+    /// Base64-encoded tar.gz of the scripts/ directory
+    pub code_bundle_base64: String,
+    /// pip requirements.txt content
+    #[serde(default)]
+    pub requirements_txt: Option<String>,
+    /// JSON config object
+    #[serde(default)]
+    pub config: Option<serde_json::Value>,
+    /// JSON secrets object (key-value pairs for .env)
+    #[serde(default)]
+    pub secrets: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudDeploymentIdParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+}
+
+// ============================================================================
 // SQL Response Types
 // ============================================================================
 
@@ -7086,6 +7120,215 @@ API endpoint: {endpoint}",
         });
 
         Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    // ========================================================================
+    // Cloud Deployment Tools
+    // ========================================================================
+
+    #[tool(
+        description = "Deploy a skill to Seren Cloud for managed hosting. Supports always_on (persistent) and cron (scheduled) modes. Requires a base64-encoded tar.gz code bundle containing scripts/agent.py.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn deploy_cloud_agent(
+        &self,
+        Parameters(params): Parameters<DeployCloudAgentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!("{}/publishers/seren-cloud/deploy", self.api_base_url);
+        let body = serde_json::json!({
+            "name": params.name,
+            "skill_slug": params.skill_slug,
+            "mode": params.mode,
+            "code_bundle_base64": params.code_bundle_base64,
+            "cron_schedule": params.cron_schedule,
+            "requirements_txt": params.requirements_txt,
+            "config": params.config,
+            "secrets": params.secrets,
+        });
+        let result = self
+            .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body))
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "List cloud agent deployments in the current organization.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_cloud_agents(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
+        let url = format!("{}/publishers/seren-cloud/agents", self.api_base_url);
+        let result = self
+            .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Get status and details of a cloud agent deployment.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn cloud_agent_status(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-cloud/agents/{}",
+            self.api_base_url, params.deployment_id
+        );
+        let result = self
+            .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Start a stopped always-on cloud agent.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn start_cloud_agent(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-cloud/agents/{}/start",
+            self.api_base_url, params.deployment_id
+        );
+        let result = self
+            .execute_api_json::<()>(&extensions, reqwest::Method::POST, url, None)
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Stop a running always-on cloud agent.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn stop_cloud_agent(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-cloud/agents/{}/stop",
+            self.api_base_url, params.deployment_id
+        );
+        let result = self
+            .execute_api_json::<()>(&extensions, reqwest::Method::POST, url, None)
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Trigger a one-shot execution of a cloud agent. Creates a K8s Job that runs the agent once.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn run_cloud_agent(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-cloud/agents/{}/run",
+            self.api_base_url, params.deployment_id
+        );
+        let result = self
+            .execute_api_json::<()>(&extensions, reqwest::Method::POST, url, None)
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Get logs from a running cloud agent's pods.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn cloud_agent_logs(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-cloud/agents/{}/logs",
+            self.api_base_url, params.deployment_id
+        );
+        let token = self.bearer_token(&extensions)?;
+        let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
+        let http_client = self.build_http_client(&token, &agent_metadata)?;
+
+        let resp = http_client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(McpError::internal_error(
+                format!("Failed to get logs: {} - {}", status, body),
+                None,
+            ));
+        }
+
+        let logs = resp
+            .text()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![Content::text(logs)]))
+    }
+
+    #[tool(
+        description = "Destroy a cloud agent deployment and clean up all K8s resources. This is irreversible.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn destroy_cloud_agent(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-cloud/agents/{}",
+            self.api_base_url, params.deployment_id
+        );
+        let token = self.bearer_token(&extensions)?;
+        let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
+        let http_client = self.build_http_client(&token, &agent_metadata)?;
+
+        let resp = http_client
+            .delete(&url)
+            .send()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        if resp.status().as_u16() == 204 {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Deployment {} destroyed successfully.",
+                params.deployment_id
+            ))]))
+        } else if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            Err(McpError::internal_error(
+                format!("Failed to destroy deployment: {} - {}", status, body),
+                None,
+            ))
+        } else {
+            let result: serde_json::Value = resp
+                .json()
+                .await
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            Ok(CallToolResult::success(vec![json_content(&result)?]))
+        }
     }
 }
 
