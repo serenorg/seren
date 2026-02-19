@@ -1,4 +1,7 @@
+use std::path::Path;
+
 use anyhow::Result;
+use base64::Engine;
 use colored::Colorize;
 use uuid::Uuid;
 
@@ -1518,4 +1521,334 @@ pub async fn cancel_agent_task(org_id: &str, task_id: &str, ctx: &CommandContext
     let result: serde_json::Value = response.json().await?;
     output::print_json(&result)?;
     Ok(())
+}
+
+// =============================================================================
+// Cloud Deployment Commands
+// =============================================================================
+
+const SEREN_CLOUD_SLUG: &str = "seren-cloud";
+
+/// Deploy a skill directory to Seren Cloud.
+pub async fn cloud_deploy(
+    path: &str,
+    name: Option<&str>,
+    mode: &str,
+    cron_schedule: Option<&str>,
+    config_path: Option<&str>,
+    env_path: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let skill_dir = Path::new(path);
+    if !skill_dir.is_dir() {
+        return Err(anyhow::anyhow!("'{}' is not a directory", path));
+    }
+
+    let scripts_dir = skill_dir.join("scripts");
+    if !scripts_dir.join("agent.py").exists() {
+        return Err(anyhow::anyhow!("No scripts/agent.py found in '{}'", path));
+    }
+
+    // Derive skill slug from directory name
+    let skill_slug = skill_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unnamed")
+        .to_lowercase()
+        .replace(' ', "-");
+
+    let deploy_name = name.unwrap_or(&skill_slug);
+
+    // Bundle scripts/ as tar.gz
+    let code_bundle = bundle_directory(&scripts_dir)?;
+    let code_bundle_base64 = base64::engine::general_purpose::STANDARD.encode(&code_bundle);
+
+    // Read optional files
+    let requirements_txt = {
+        let req_path = scripts_dir.join("requirements.txt");
+        if req_path.exists() {
+            Some(std::fs::read_to_string(&req_path)?)
+        } else {
+            None
+        }
+    };
+
+    let config: Option<serde_json::Value> = if let Some(p) = config_path {
+        let content = std::fs::read_to_string(p)?;
+        Some(serde_json::from_str(&content)?)
+    } else {
+        let default_config = skill_dir.join("config.json");
+        if default_config.exists() {
+            let content = std::fs::read_to_string(&default_config)?;
+            Some(serde_json::from_str(&content)?)
+        } else {
+            None
+        }
+    };
+
+    let secrets: Option<serde_json::Value> = if let Some(p) = env_path {
+        Some(parse_env_file(p)?)
+    } else {
+        let default_env = skill_dir.join(".env");
+        if default_env.exists() {
+            Some(parse_env_file(default_env.to_str().unwrap())?)
+        } else {
+            None
+        }
+    };
+
+    let api_mode = match mode {
+        "always-on" | "always_on" => "always_on",
+        "cron" => "cron",
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Invalid mode '{}'. Use 'always-on' or 'cron'.",
+                mode
+            ));
+        }
+    };
+
+    let mut body = serde_json::json!({
+        "name": deploy_name,
+        "skill_slug": skill_slug,
+        "mode": api_mode,
+        "code_bundle_base64": code_bundle_base64,
+    });
+
+    if let Some(schedule) = cron_schedule {
+        body["cron_schedule"] = serde_json::json!(schedule);
+    }
+    if let Some(req) = requirements_txt {
+        body["requirements_txt"] = serde_json::json!(req);
+    }
+    if let Some(cfg) = config {
+        body["config"] = cfg;
+    }
+    if let Some(sec) = secrets {
+        body["secrets"] = sec;
+    }
+
+    let client = ctx.http_client().await?;
+    let url = format!("{}/publishers/{}/deploy", ctx.api_base(), SEREN_CLOUD_SLUG);
+
+    println!(
+        "{} Deploying {} ({} mode)...",
+        "→".blue(),
+        skill_slug.bold(),
+        mode
+    );
+
+    let response = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
+
+    let status = response.status();
+    if !status.is_success() && status.as_u16() != 202 {
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Deploy failed: {} - {}", status, body));
+    }
+
+    let result: serde_json::Value = response.json().await?;
+    if let Some(data) = result.get("data") {
+        let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+        let deploy_status = data.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+        println!(
+            "{} Deployment created: {} (status: {})",
+            "✓".green(),
+            id.bold(),
+            deploy_status
+        );
+    } else {
+        output::print_json(&result)?;
+    }
+
+    Ok(())
+}
+
+/// List cloud agent deployments.
+pub async fn cloud_list(ctx: &CommandContext) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = format!("{}/publishers/{}/agents", ctx.api_base(), SEREN_CLOUD_SLUG);
+
+    let response = client.get(&url).send().await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Failed: {} - {}", status, body));
+    }
+
+    let result: serde_json::Value = response.json().await?;
+    if let Some(data) = result.get("data").and_then(|d| d.as_array()) {
+        if data.is_empty() {
+            println!("No cloud deployments found.");
+            return Ok(());
+        }
+        println!(
+            "{:<38} {:<24} {:<12} {:<10}",
+            "ID", "SKILL", "MODE", "STATUS"
+        );
+        for d in data {
+            println!(
+                "{:<38} {:<24} {:<12} {:<10}",
+                d.get("id").and_then(|v| v.as_str()).unwrap_or("-"),
+                d.get("skill_slug").and_then(|v| v.as_str()).unwrap_or("-"),
+                d.get("mode").and_then(|v| v.as_str()).unwrap_or("-"),
+                d.get("status").and_then(|v| v.as_str()).unwrap_or("-"),
+            );
+        }
+    } else {
+        output::print_json(&result)?;
+    }
+
+    Ok(())
+}
+
+/// Get status of a cloud agent deployment.
+pub async fn cloud_status(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/{}/agents/{}",
+        ctx.api_base(),
+        SEREN_CLOUD_SLUG,
+        deployment_id
+    );
+
+    let response = client.get(&url).send().await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Failed: {} - {}", status, body));
+    }
+
+    let result: serde_json::Value = response.json().await?;
+    output::print_json(&result)?;
+    Ok(())
+}
+
+/// Start a stopped always-on cloud agent.
+pub async fn cloud_start(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    cloud_action(deployment_id, "start", ctx).await
+}
+
+/// Stop a running always-on cloud agent.
+pub async fn cloud_stop(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    cloud_action(deployment_id, "stop", ctx).await
+}
+
+/// Trigger a one-shot run of a cloud agent.
+pub async fn cloud_run(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    cloud_action(deployment_id, "run", ctx).await
+}
+
+/// Destroy a cloud agent deployment.
+pub async fn cloud_destroy(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/{}/agents/{}",
+        ctx.api_base(),
+        SEREN_CLOUD_SLUG,
+        deployment_id
+    );
+
+    let response = client.delete(&url).send().await?;
+    let status = response.status();
+    if status.as_u16() == 204 {
+        println!("{} Deployment {} destroyed.", "✓".green(), deployment_id);
+    } else if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Failed: {} - {}", status, body));
+    }
+    Ok(())
+}
+
+/// Get logs from a running cloud agent.
+pub async fn cloud_logs(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/{}/agents/{}/logs",
+        ctx.api_base(),
+        SEREN_CLOUD_SLUG,
+        deployment_id
+    );
+
+    let response = client.get(&url).send().await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Failed: {} - {}", status, body));
+    }
+
+    let logs = response.text().await?;
+    println!("{}", logs);
+    Ok(())
+}
+
+async fn cloud_action(deployment_id: Uuid, action: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/{}/agents/{}/{}",
+        ctx.api_base(),
+        SEREN_CLOUD_SLUG,
+        deployment_id,
+        action
+    );
+
+    let response = client.post(&url).send().await?;
+    let status = response.status();
+    if !status.is_success() && status.as_u16() != 202 {
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Failed: {} - {}", status, body));
+    }
+
+    let result: serde_json::Value = response.json().await?;
+    output::print_json(&result)?;
+    Ok(())
+}
+
+/// Bundle a directory into a tar.gz archive in memory.
+fn bundle_directory(dir: &Path) -> Result<Vec<u8>> {
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
+    use tar::Builder;
+
+    let buf = Vec::new();
+    let enc = GzEncoder::new(buf, Compression::default());
+    let mut tar = Builder::new(enc);
+
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let name = path.file_name().unwrap().to_str().unwrap();
+        if path.is_file() {
+            tar.append_path_with_name(&path, name)?;
+        } else if path.is_dir() {
+            tar.append_dir_all(name, &path)?;
+        }
+    }
+
+    let enc = tar.into_inner()?;
+    Ok(enc.finish()?)
+}
+
+/// Parse a .env file into a JSON object of key-value pairs.
+fn parse_env_file(path: &str) -> Result<serde_json::Value> {
+    let content = std::fs::read_to_string(path)?;
+    let mut map = serde_json::Map::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            let value = value.trim_matches('"').trim_matches('\'');
+            map.insert(
+                key.trim().to_string(),
+                serde_json::Value::String(value.to_string()),
+            );
+        }
+    }
+    Ok(serde_json::Value::Object(map))
 }
