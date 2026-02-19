@@ -1333,15 +1333,10 @@ pub struct GetTransactionHistoryParams {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RunAgentCloudParams {
-    /// The organization ID (UUID)
-    pub organization_id: Uuid,
     /// Publisher slug of the A2A agent to invoke
     pub publisher_slug: String,
     /// Input message (text string or JSON object)
     pub message: serde_json::Value,
-    /// Maximum cost cap in atomic units (optional budget limit)
-    #[serde(default)]
-    pub cost_cap_atomic: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -6868,7 +6863,7 @@ API endpoint: {endpoint}",
     // ========================================================================
 
     #[tool(
-        description = "Create and run an agent task in the cloud. Dispatches work to a remote A2A agent publisher and returns the created task with its ID. Use get_agent_task to poll for completion or check status.",
+        description = "Run an agent task via the unified publisher proxy. Sends a message to a remote A2A agent publisher and returns 202 with the created task. Use get_agent_task to poll for completion.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -6880,17 +6875,14 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<RunAgentCloudParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!(
-            "{}/organizations/{}/agents/tasks",
-            self.api_base_url, params.organization_id
-        );
-        let body = serde_json::json!({
-            "publisher_slug": params.publisher_slug,
-            "message": params.message,
-            "cost_cap_atomic": params.cost_cap_atomic,
-        });
+        let url = format!("{}/publishers/{}", self.api_base_url, params.publisher_slug);
         let result = self
-            .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body))
+            .execute_api_json(
+                &extensions,
+                reqwest::Method::POST,
+                url,
+                Some(&params.message),
+            )
             .await?;
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
