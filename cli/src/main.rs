@@ -479,7 +479,7 @@ enum AgentAction {
     // =========================================================================
     /// Deploy a skill to Seren Cloud
     Deploy {
-        /// Path to the skill directory (containing scripts/agent.py)
+        /// Path to the skill directory (containing scripts/ for the selected runtime)
         path: String,
         /// Deployment name
         #[arg(long)]
@@ -490,6 +490,12 @@ enum AgentAction {
         /// Cron schedule expression (required if mode is "cron")
         #[arg(long)]
         cron_schedule: Option<String>,
+        /// Compute backend target (aws_container or cloudflare_worker)
+        #[arg(long)]
+        compute_backend: Option<String>,
+        /// Runtime kind (python, javascript, rust_wasm_adk)
+        #[arg(long)]
+        runtime_kind: Option<String>,
         /// Path to config.json
         #[arg(long)]
         config: Option<String>,
@@ -2581,16 +2587,22 @@ async fn main() -> anyhow::Result<()> {
                 name,
                 mode,
                 cron_schedule,
+                compute_backend,
+                runtime_kind,
                 config,
                 env_file,
             } => {
                 commands::agent::cloud_deploy(
                     &path,
-                    name.as_deref(),
-                    &mode,
-                    cron_schedule.as_deref(),
-                    config.as_deref(),
-                    env_file.as_deref(),
+                    commands::agent::CloudDeployOptions {
+                        name: name.as_deref(),
+                        mode: &mode,
+                        cron_schedule: cron_schedule.as_deref(),
+                        compute_backend: compute_backend.as_deref(),
+                        runtime_kind: runtime_kind.as_deref(),
+                        config_path: config.as_deref(),
+                        env_path: env_file.as_deref(),
+                    },
                     &ctx,
                 )
                 .await?
