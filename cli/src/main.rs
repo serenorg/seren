@@ -474,6 +474,65 @@ enum AgentAction {
         #[arg(long, short = 's')]
         stream: bool,
     },
+    // =========================================================================
+    // Cloud Deployment Commands
+    // =========================================================================
+    /// Deploy a skill to Seren Cloud
+    Deploy {
+        /// Path to the skill directory (containing scripts/agent.py)
+        path: String,
+        /// Deployment name
+        #[arg(long)]
+        name: Option<String>,
+        /// Deployment mode: "always-on" or "cron"
+        #[arg(long, default_value = "always-on")]
+        mode: String,
+        /// Cron schedule expression (required if mode is "cron")
+        #[arg(long)]
+        cron_schedule: Option<String>,
+        /// Path to config.json
+        #[arg(long)]
+        config: Option<String>,
+        /// Path to .env secrets file
+        #[arg(long, name = "env")]
+        env_file: Option<String>,
+    },
+    /// List cloud agent deployments
+    CloudList,
+    /// Get status of a cloud agent deployment
+    CloudStatus {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+    /// Start a stopped always-on cloud agent
+    CloudStart {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+    /// Stop a running always-on cloud agent
+    CloudStop {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+    /// Trigger a one-shot run of a cloud agent
+    CloudRun {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+    /// Get logs from a running cloud agent
+    CloudLogs {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+    /// Destroy a cloud agent deployment
+    CloudDestroy {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+
+    // =========================================================================
+    // Agent Task Commands
+    // =========================================================================
     /// List agent tasks for an organization
     TasksList {
         /// Organization ID
@@ -2517,6 +2576,44 @@ async fn main() -> anyhow::Result<()> {
                 message,
                 stream,
             } => commands::agent::run_local(&endpoint, &message, stream, &ctx).await?,
+            AgentAction::Deploy {
+                path,
+                name,
+                mode,
+                cron_schedule,
+                config,
+                env_file,
+            } => {
+                commands::agent::cloud_deploy(
+                    &path,
+                    name.as_deref(),
+                    &mode,
+                    cron_schedule.as_deref(),
+                    config.as_deref(),
+                    env_file.as_deref(),
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::CloudList => commands::agent::cloud_list(&ctx).await?,
+            AgentAction::CloudStatus { deployment_id } => {
+                commands::agent::cloud_status(deployment_id, &ctx).await?
+            }
+            AgentAction::CloudStart { deployment_id } => {
+                commands::agent::cloud_start(deployment_id, &ctx).await?
+            }
+            AgentAction::CloudStop { deployment_id } => {
+                commands::agent::cloud_stop(deployment_id, &ctx).await?
+            }
+            AgentAction::CloudRun { deployment_id } => {
+                commands::agent::cloud_run(deployment_id, &ctx).await?
+            }
+            AgentAction::CloudLogs { deployment_id } => {
+                commands::agent::cloud_logs(deployment_id, &ctx).await?
+            }
+            AgentAction::CloudDestroy { deployment_id } => {
+                commands::agent::cloud_destroy(deployment_id, &ctx).await?
+            }
             AgentAction::TasksList {
                 org_id,
                 limit,
