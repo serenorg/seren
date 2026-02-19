@@ -1382,6 +1382,12 @@ pub struct DeployCloudAgentParams {
     /// Cron schedule expression (required if mode is "cron")
     #[serde(default)]
     pub cron_schedule: Option<String>,
+    /// Compute backend target ("aws_container" or "cloudflare_worker")
+    #[serde(default)]
+    pub compute_backend: Option<String>,
+    /// Runtime kind ("python", "javascript", or "rust_wasm_adk")
+    #[serde(default)]
+    pub runtime_kind: Option<String>,
     /// Base64-encoded tar.gz of the scripts/ directory
     pub code_bundle_base64: String,
     /// pip requirements.txt content
@@ -7127,7 +7133,7 @@ API endpoint: {endpoint}",
     // ========================================================================
 
     #[tool(
-        description = "Deploy a skill to Seren Cloud for managed hosting. Supports always_on (persistent) and cron (scheduled) modes. Requires a base64-encoded tar.gz code bundle containing scripts/agent.py.",
+        description = "Deploy a skill to Seren Cloud for managed hosting. Supports always_on (persistent) and cron (scheduled) modes. Optionally set compute_backend (aws_container/cloudflare_worker) and runtime_kind (python/javascript/rust_wasm_adk). Requires a base64-encoded tar.gz code bundle of scripts/.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -7144,6 +7150,8 @@ API endpoint: {endpoint}",
             "name": params.name,
             "skill_slug": params.skill_slug,
             "mode": params.mode,
+            "compute_backend": params.compute_backend,
+            "runtime_kind": params.runtime_kind,
             "code_bundle_base64": params.code_bundle_base64,
             "cron_schedule": params.cron_schedule,
             "requirements_txt": params.requirements_txt,

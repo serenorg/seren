@@ -1528,27 +1528,46 @@ pub async fn cancel_agent_task(org_id: &str, task_id: &str, ctx: &CommandContext
 // =============================================================================
 
 const SEREN_CLOUD_SLUG: &str = "seren-cloud";
+
+pub struct CloudDeployOptions<'a> {
+    pub name: Option<&'a str>,
+    pub mode: &'a str,
+    pub cron_schedule: Option<&'a str>,
+    pub compute_backend: Option<&'a str>,
+    pub runtime_kind: Option<&'a str>,
+    pub config_path: Option<&'a str>,
+    pub env_path: Option<&'a str>,
+}
+
 const MAX_CLOUD_CODE_BUNDLE_BYTES: usize = 1_000_000;
 
 /// Deploy a skill directory to Seren Cloud.
 pub async fn cloud_deploy(
     path: &str,
-    name: Option<&str>,
-    mode: &str,
-    cron_schedule: Option<&str>,
-    config_path: Option<&str>,
-    env_path: Option<&str>,
+    options: CloudDeployOptions<'_>,
     ctx: &CommandContext,
 ) -> Result<()> {
+    let CloudDeployOptions {
+        name,
+        mode,
+        cron_schedule,
+        compute_backend,
+        runtime_kind,
+        config_path,
+        env_path,
+    } = options;
     let skill_dir = Path::new(path);
     if !skill_dir.is_dir() {
         return Err(anyhow::anyhow!("'{}' is not a directory", path));
     }
 
     let scripts_dir = skill_dir.join("scripts");
-    if !scripts_dir.join("agent.py").exists() {
-        return Err(anyhow::anyhow!("No scripts/agent.py found in '{}'", path));
+    if !scripts_dir.is_dir() {
+        return Err(anyhow::anyhow!("No scripts/ directory found in {}", path));
     }
+
+    let runtime_target = resolve_cloud_runtime_target(compute_backend, runtime_kind)?;
+    ensure_runtime_entrypoint(&scripts_dir, runtime_target.runtime_kind)?;
 
     // Derive skill slug from directory name
     let skill_slug = skill_dir
@@ -1626,6 +1645,11 @@ pub async fn cloud_deploy(
         "code_bundle_base64": code_bundle_base64,
     });
 
+    if runtime_target.include_request_fields {
+        body["compute_backend"] = serde_json::json!(runtime_target.compute_backend);
+        body["runtime_kind"] = serde_json::json!(runtime_target.runtime_kind);
+    }
+
     if let Some(schedule) = cron_schedule {
         body["cron_schedule"] = serde_json::json!(schedule);
     }
@@ -1643,10 +1667,12 @@ pub async fn cloud_deploy(
     let url = format!("{}/publishers/{}/deploy", ctx.api_base(), SEREN_CLOUD_SLUG);
 
     println!(
-        "{} Deploying {} ({} mode)...",
+        "{} Deploying {} ({} mode, backend={}, runtime={})...",
         "→".blue(),
         skill_slug.bold(),
-        mode
+        mode,
+        runtime_target.compute_backend,
+        runtime_target.runtime_kind
     );
 
     let response = client
@@ -1698,14 +1724,20 @@ pub async fn cloud_list(ctx: &CommandContext) -> Result<()> {
             return Ok(());
         }
         println!(
-            "{:<38} {:<24} {:<12} {:<10}",
-            "ID", "SKILL", "MODE", "STATUS"
+            "{:<38} {:<24} {:<18} {:<14} {:<12} {:<10}",
+            "ID", "SKILL", "BACKEND", "RUNTIME", "MODE", "STATUS"
         );
         for d in data {
             println!(
-                "{:<38} {:<24} {:<12} {:<10}",
+                "{:<38} {:<24} {:<18} {:<14} {:<12} {:<10}",
                 d.get("id").and_then(|v| v.as_str()).unwrap_or("-"),
                 d.get("skill_slug").and_then(|v| v.as_str()).unwrap_or("-"),
+                d.get("compute_backend")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("-"),
+                d.get("runtime_kind")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("-"),
                 d.get("mode").and_then(|v| v.as_str()).unwrap_or("-"),
                 d.get("status").and_then(|v| v.as_str()).unwrap_or("-"),
             );
@@ -1817,6 +1849,151 @@ async fn cloud_action(deployment_id: Uuid, action: &str, ctx: &CommandContext) -
     let result: serde_json::Value = response.json().await?;
     output::print_json(&result)?;
     Ok(())
+}
+
+struct CloudRuntimeTarget {
+    compute_backend: &'static str,
+    runtime_kind: &'static str,
+    include_request_fields: bool,
+}
+
+fn resolve_cloud_runtime_target(
+    compute_backend: Option<&str>,
+    runtime_kind: Option<&str>,
+) -> Result<CloudRuntimeTarget> {
+    let normalize_backend = |value: &str| -> Result<&'static str> {
+        match value {
+            "aws_container" => Ok("aws_container"),
+            "cloudflare_worker" => Ok("cloudflare_worker"),
+            other => Err(anyhow::anyhow!(
+                "Invalid compute_backend '{}'. Use 'aws_container' or 'cloudflare_worker'.",
+                other
+            )),
+        }
+    };
+
+    let normalize_runtime = |value: &str| -> Result<&'static str> {
+        match value {
+            "python" => Ok("python"),
+            "javascript" => Ok("javascript"),
+            "rust_wasm_adk" => Ok("rust_wasm_adk"),
+            other => Err(anyhow::anyhow!(
+                "Invalid runtime_kind '{}'. Use 'python', 'javascript', or 'rust_wasm_adk'.",
+                other
+            )),
+        }
+    };
+
+    let backend = compute_backend.map(normalize_backend).transpose()?;
+    let runtime = runtime_kind.map(normalize_runtime).transpose()?;
+    let include_request_fields = backend.is_some() || runtime.is_some();
+
+    let (compute_backend, runtime_kind) = match (backend, runtime) {
+        (None, None) => ("aws_container", "python"),
+        (Some(cb), Some(rk)) => (cb, rk),
+        (Some("aws_container"), None) => ("aws_container", "python"),
+        (Some("cloudflare_worker"), None) => ("cloudflare_worker", "javascript"),
+        (None, Some("python")) => ("aws_container", "python"),
+        (None, Some("javascript")) => ("cloudflare_worker", "javascript"),
+        (None, Some("rust_wasm_adk")) => ("cloudflare_worker", "rust_wasm_adk"),
+        _ => unreachable!(),
+    };
+
+    validate_runtime_target(compute_backend, runtime_kind)?;
+
+    Ok(CloudRuntimeTarget {
+        compute_backend,
+        runtime_kind,
+        include_request_fields,
+    })
+}
+
+fn validate_runtime_target(compute_backend: &str, runtime_kind: &str) -> Result<()> {
+    match (compute_backend, runtime_kind) {
+        ("aws_container", "python") => Ok(()),
+        ("cloudflare_worker", "javascript") => Ok(()),
+        ("cloudflare_worker", "rust_wasm_adk") => Ok(()),
+        _ => Err(anyhow::anyhow!(
+            "Invalid backend/runtime combination: {}/{}. Valid pairs are aws_container+python, cloudflare_worker+javascript, cloudflare_worker+rust_wasm_adk.",
+            compute_backend,
+            runtime_kind
+        )),
+    }
+}
+
+fn ensure_runtime_entrypoint(scripts_dir: &Path, runtime_kind: &str) -> Result<()> {
+    match runtime_kind {
+        "python" => {
+            if scripts_dir.join("agent.py").is_file() {
+                return Ok(());
+            }
+            Err(anyhow::anyhow!(
+                "No scripts/agent.py found in '{}'.",
+                scripts_dir.display()
+            ))
+        }
+        "javascript" | "rust_wasm_adk" => {
+            if find_worker_entrypoint(scripts_dir, runtime_kind).is_some()
+                || contains_worker_source_file(scripts_dir)
+            {
+                return Ok(());
+            }
+
+            Err(anyhow::anyhow!(
+                "No JS/TS worker entrypoint found in '{}'. Expected files like worker.js, worker.ts, index.js, index.ts, or dist/worker.js.",
+                scripts_dir.display()
+            ))
+        }
+        other => Err(anyhow::anyhow!("Unsupported runtime_kind '{}'.", other)),
+    }
+}
+
+fn find_worker_entrypoint(scripts_dir: &Path, runtime_kind: &str) -> Option<&'static str> {
+    let candidates: &[&str] = match runtime_kind {
+        "javascript" => &[
+            "worker.ts",
+            "worker.js",
+            "index.ts",
+            "index.js",
+            "main.ts",
+            "main.js",
+        ],
+        "rust_wasm_adk" => &[
+            "worker.js",
+            "index.js",
+            "dist/worker.js",
+            "dist/index.js",
+            "worker.ts",
+        ],
+        _ => &[],
+    };
+
+    candidates
+        .iter()
+        .copied()
+        .find(|candidate| scripts_dir.join(candidate).is_file())
+}
+
+fn contains_worker_source_file(dir: &Path) -> bool {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return false,
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(ext) = path.extension().and_then(|e| e.to_str())
+                && matches!(ext, "js" | "ts" | "mjs" | "cjs")
+            {
+                return true;
+            }
+        } else if path.is_dir() && contains_worker_source_file(&path) {
+            return true;
+        }
+    }
+
+    false
 }
 
 /// Bundle a directory into a tar.gz archive in memory.
