@@ -1113,7 +1113,10 @@ async fn follow_agent_task(
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| anyhow::anyhow!("Stream read error: {}", e))?;
-        buffer.push_str(&String::from_utf8_lossy(&chunk));
+        let normalized = String::from_utf8_lossy(&chunk)
+            .replace("\r\n", "\n")
+            .replace('\r', "\n");
+        buffer.push_str(&normalized);
 
         while let Some(end) = buffer.find("\n\n") {
             let event_block = buffer[..end].to_string();
@@ -1141,13 +1144,20 @@ async fn follow_agent_task(
             );
 
             if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&data) {
+                let is_terminal_status = payload
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .map(|status| {
+                        matches!(status, "completed" | "failed" | "canceled" | "cancelled")
+                    })
+                    .unwrap_or(false);
                 let display = if event_type.is_empty() {
                     "event"
                 } else {
                     event_type.as_str()
                 };
 
-                if is_terminal_event {
+                if is_terminal_event || is_terminal_status {
                     let status = payload
                         .get("status")
                         .and_then(|v| v.as_str())
@@ -1355,7 +1365,10 @@ pub async fn run_local(
 
         while let Some(chunk_result) = bytes_stream.next().await {
             let chunk = chunk_result.map_err(|e| anyhow::anyhow!("Stream read error: {e}"))?;
-            buffer.push_str(&String::from_utf8_lossy(&chunk));
+            let normalized = String::from_utf8_lossy(&chunk)
+                .replace("\r\n", "\n")
+                .replace('\r', "\n");
+            buffer.push_str(&normalized);
 
             while let Some(event_end) = buffer.find("\n\n") {
                 let event_block = buffer[..event_end].to_string();
