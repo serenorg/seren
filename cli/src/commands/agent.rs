@@ -1035,9 +1035,19 @@ pub async fn list_agent_tasks(
     Ok(())
 }
 
-/// Get details of a specific agent task.
-pub async fn get_agent_task(org_id: &str, task_id: &str, ctx: &CommandContext) -> Result<()> {
+/// Get details of a specific agent task. With --follow, streams SSE events.
+pub async fn get_agent_task(
+    org_id: &str,
+    task_id: &str,
+    follow: bool,
+    ctx: &CommandContext,
+) -> Result<()> {
     let client = ctx.http_client().await?;
+
+    if follow {
+        return follow_agent_task(&client, ctx.api_base(), org_id, task_id).await;
+    }
+
     let url = format!(
         "{}/organizations/{}/agents/tasks/{}",
         ctx.api_base(),
@@ -1059,6 +1069,206 @@ pub async fn get_agent_task(org_id: &str, task_id: &str, ctx: &CommandContext) -
 
     let result: serde_json::Value = response.json().await?;
     output::print_json(&result)?;
+    Ok(())
+}
+
+/// Follow an agent task via SSE streaming, printing events as they arrive.
+async fn follow_agent_task(
+    client: &reqwest::Client,
+    api_base: String,
+    org_id: &str,
+    task_id: &str,
+) -> Result<()> {
+    use futures_util::StreamExt;
+
+    let url = format!(
+        "{}/organizations/{}/agents/tasks/{}/stream",
+        api_base, org_id, task_id
+    );
+
+    eprintln!(
+        "{}",
+        format!("Following task {task_id}... (Ctrl+C to stop)").dimmed()
+    );
+
+    let response = client
+        .get(&url)
+        .header("Accept", "text/event-stream")
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("SSE connection failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to stream task: {} - {}",
+            status,
+            body
+        ));
+    }
+
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| anyhow::anyhow!("Stream read error: {}", e))?;
+        buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+        while let Some(end) = buffer.find("\n\n") {
+            let event_block = buffer[..end].to_string();
+            buffer = buffer[end + 2..].to_string();
+
+            let mut event_type = String::new();
+            let mut data = String::new();
+
+            for line in event_block.lines() {
+                if let Some(et) = line.strip_prefix("event:") {
+                    event_type = et.trim().to_string();
+                } else if let Some(d) = line.strip_prefix("data:") {
+                    data = d.trim().to_string();
+                }
+            }
+
+            if data.is_empty() {
+                continue;
+            }
+
+            match event_type.as_str() {
+                "task.completed" => {
+                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&data) {
+                        let status = payload
+                            .get("status")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        eprintln!("{}", format!("Task {status}").green().bold());
+                        if let Some(output) = payload.get("output") {
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(output).unwrap_or_default()
+                            );
+                        }
+                        if let Some(err) = payload.get("error_message").and_then(|v| v.as_str()) {
+                            eprintln!("{}: {}", "Error".red().bold(), err);
+                        }
+                        if let Some(cost) =
+                            payload.get("cost_total_atomic").and_then(|v| v.as_i64())
+                        {
+                            let cost_usd = format_usd_micros_4(cost);
+                            eprintln!("{}", format!("Cost: ${cost_usd}").dimmed());
+                        }
+                    }
+                    return Ok(());
+                }
+                _ => {
+                    // Print other events as they arrive
+                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&data) {
+                        let display = if event_type.is_empty() {
+                            "event".to_string()
+                        } else {
+                            event_type.clone()
+                        };
+                        eprintln!(
+                            "{} {}",
+                            format!("[{display}]").cyan(),
+                            serde_json::to_string(&payload).unwrap_or(data)
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    eprintln!("{}", "Stream ended.".dimmed());
+    Ok(())
+}
+
+/// Run an agent locally via A2A protocol (direct connection, no billing).
+pub async fn run_local(
+    endpoint: &str,
+    message: &str,
+    stream: bool,
+    _ctx: &CommandContext,
+) -> Result<()> {
+    use seren_agent::a2a_client::{A2aClientConfig, SerenA2aClient, text_message};
+
+    eprintln!(
+        "{}",
+        format!("Resolving agent card from {endpoint}...").dimmed()
+    );
+
+    let config = A2aClientConfig::default();
+    let client = SerenA2aClient::from_url(endpoint, config)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to agent: {e}"))?;
+
+    let card = client.agent_card();
+    eprintln!(
+        "{}",
+        format!("Connected to {} ({})", card.name, card.description).dimmed()
+    );
+
+    // Build the message — try JSON first, fall back to text
+    let msg = if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(message) {
+        // If it's a JSON object with A2A message structure, use it directly
+        if json_val.get("parts").is_some() || json_val.get("role").is_some() {
+            serde_json::from_value(json_val)
+                .map_err(|e| anyhow::anyhow!("Invalid A2A message format: {e}"))?
+        } else {
+            // Wrap as text
+            text_message(message)
+        }
+    } else {
+        text_message(message)
+    };
+
+    if stream {
+        use futures_util::StreamExt;
+        use seren_agent::a2a_client::a2a::UpdateEvent;
+
+        eprintln!("{}", "Streaming...".dimmed());
+
+        let mut event_stream = client
+            .send_streaming_message(msg)
+            .await
+            .map_err(|e| anyhow::anyhow!("Stream failed: {e}"))?;
+
+        while let Some(event) = event_stream.next().await {
+            match event {
+                Ok(UpdateEvent::TaskStatusUpdate(status)) => {
+                    let state = &status.status.state;
+                    eprintln!("{}", format!("[status] {state:?}").cyan());
+                    if let Some(msg) = &status.status.message {
+                        println!("{msg}");
+                    }
+                }
+                Ok(UpdateEvent::TaskArtifactUpdate(artifact)) => {
+                    eprintln!("{}", "[artifact]".cyan());
+                    for part in &artifact.artifact.parts {
+                        if let seren_agent::a2a_client::a2a::Part::Text { text, .. } = part {
+                            println!("{text}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("{}: {e}", "Stream error".red().bold());
+                    break;
+                }
+            }
+        }
+    } else {
+        eprintln!("{}", "Sending message...".dimmed());
+
+        let task = client
+            .send_message(msg)
+            .await
+            .map_err(|e| anyhow::anyhow!("Agent call failed: {e}"))?;
+
+        // Print task output
+        let output = serde_json::to_value(&task)?;
+        output::print_json(&output)?;
+    }
+
     Ok(())
 }
 
