@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 seren = { path = "../api" }
+seren-agent = { path = "../../seren-core/seren-agent" }
 tokio = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
@@ -21,10 +22,11 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 comfy-table = { workspace = true }
 colored = { workspace = true }
+futures-util = "0.3"
 jiff = { workspace = true }
 uuid = { workspace = true }
 rpassword = "7.3"
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["stream"] }
 oauth2 = { workspace = true }
 url = "2.5"
 open = "5.0"

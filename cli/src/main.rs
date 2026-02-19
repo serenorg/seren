@@ -462,6 +462,18 @@ enum AgentAction {
         #[arg(long)]
         message: String,
     },
+    /// Run an agent locally via A2A protocol (direct connection, no billing)
+    RunLocal {
+        /// A2A agent endpoint URL (e.g., http://localhost:8000)
+        #[arg(long)]
+        endpoint: String,
+        /// Input message (text or JSON)
+        #[arg(long)]
+        message: String,
+        /// Use streaming mode (SSE) instead of blocking
+        #[arg(long, short = 's')]
+        stream: bool,
+    },
     /// List agent tasks for an organization
     TasksList {
         /// Organization ID
@@ -481,6 +493,9 @@ enum AgentAction {
         org_id: String,
         /// Task ID (UUID)
         task_id: String,
+        /// Follow task progress via SSE stream (like tail -f)
+        #[arg(long, short = 'f')]
+        follow: bool,
     },
     /// Cancel a running agent task
     TasksCancel {
@@ -2497,14 +2512,21 @@ async fn main() -> anyhow::Result<()> {
             AgentAction::RunCloud { publisher, message } => {
                 commands::agent::run_cloud(&publisher, &message, &ctx).await?
             }
+            AgentAction::RunLocal {
+                endpoint,
+                message,
+                stream,
+            } => commands::agent::run_local(&endpoint, &message, stream, &ctx).await?,
             AgentAction::TasksList {
                 org_id,
                 limit,
                 offset,
             } => commands::agent::list_agent_tasks(&org_id, limit, offset, &ctx).await?,
-            AgentAction::TasksGet { org_id, task_id } => {
-                commands::agent::get_agent_task(&org_id, &task_id, &ctx).await?
-            }
+            AgentAction::TasksGet {
+                org_id,
+                task_id,
+                follow,
+            } => commands::agent::get_agent_task(&org_id, &task_id, follow, &ctx).await?,
             AgentAction::TasksCancel { org_id, task_id } => {
                 commands::agent::cancel_agent_task(&org_id, &task_id, &ctx).await?
             }
