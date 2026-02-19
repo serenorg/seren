@@ -968,38 +968,26 @@ pub async fn invoke_template(slug: &str, input: &str, ctx: &CommandContext) -> R
 }
 
 /// Run an agent task in the cloud.
-pub async fn run_cloud(
-    publisher: &str,
-    message: &str,
-    org_id: &str,
-    cost_cap: Option<i64>,
-    ctx: &CommandContext,
-) -> Result<()> {
+pub async fn run_cloud(publisher: &str, message: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.http_client().await?;
-    let url = format!("{}/organizations/{}/agents/tasks", ctx.api_base(), org_id);
+    let url = format!("{}/publishers/{}", ctx.api_base(), publisher);
 
     // Try to parse message as JSON, fall back to text wrapper
     let message_value: serde_json::Value =
         serde_json::from_str(message).unwrap_or_else(|_| serde_json::json!({"text": message}));
 
-    let body = serde_json::json!({
-        "publisher_slug": publisher,
-        "message": message_value,
-        "cost_cap_atomic": cost_cap,
-    });
-
     let response = client
         .post(&url)
-        .json(&body)
+        .json(&message_value)
         .send()
         .await
         .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
 
-    if !response.status().is_success() {
+    if !response.status().is_success() && response.status().as_u16() != 202 {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         return Err(anyhow::anyhow!(
-            "Failed to create task: {} - {}",
+            "Failed to run agent: {} - {}",
             status,
             body
         ));

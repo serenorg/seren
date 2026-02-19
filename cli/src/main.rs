@@ -453,7 +453,7 @@ enum AgentAction {
         #[arg(long)]
         input: String,
     },
-    /// Run an agent task in the cloud via A2A protocol
+    /// Run an agent task via the unified publisher proxy
     RunCloud {
         /// Publisher slug of the agent to invoke
         #[arg(long)]
@@ -461,12 +461,6 @@ enum AgentAction {
         /// Input message (text or JSON)
         #[arg(long)]
         message: String,
-        /// Organization ID
-        #[arg(long)]
-        org_id: String,
-        /// Maximum cost cap in atomic units
-        #[arg(long)]
-        cost_cap: Option<i64>,
     },
     /// List agent tasks for an organization
     TasksList {
@@ -2500,12 +2494,9 @@ async fn main() -> anyhow::Result<()> {
             AgentAction::InvokeTemplate { slug, input } => {
                 commands::agent::invoke_template(&slug, &input, &ctx).await?
             }
-            AgentAction::RunCloud {
-                publisher,
-                message,
-                org_id,
-                cost_cap,
-            } => commands::agent::run_cloud(&publisher, &message, &org_id, cost_cap, &ctx).await?,
+            AgentAction::RunCloud { publisher, message } => {
+                commands::agent::run_cloud(&publisher, &message, &ctx).await?
+            }
             AgentAction::TasksList {
                 org_id,
                 limit,
