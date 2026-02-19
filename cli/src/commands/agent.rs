@@ -1528,6 +1528,7 @@ pub async fn cancel_agent_task(org_id: &str, task_id: &str, ctx: &CommandContext
 // =============================================================================
 
 const SEREN_CLOUD_SLUG: &str = "seren-cloud";
+const MAX_CLOUD_CODE_BUNDLE_BYTES: usize = 1_000_000;
 
 /// Deploy a skill directory to Seren Cloud.
 pub async fn cloud_deploy(
@@ -1561,13 +1562,23 @@ pub async fn cloud_deploy(
 
     // Bundle scripts/ as tar.gz
     let code_bundle = bundle_directory(&scripts_dir)?;
+    if code_bundle.len() > MAX_CLOUD_CODE_BUNDLE_BYTES {
+        return Err(anyhow::anyhow!(
+            "Skill bundle is {} bytes, exceeds current cloud limit of {} bytes.",
+            code_bundle.len(),
+            MAX_CLOUD_CODE_BUNDLE_BYTES
+        ));
+    }
     let code_bundle_base64 = base64::engine::general_purpose::STANDARD.encode(&code_bundle);
 
     // Read optional files
     let requirements_txt = {
-        let req_path = scripts_dir.join("requirements.txt");
-        if req_path.exists() {
-            Some(std::fs::read_to_string(&req_path)?)
+        let root_req_path = skill_dir.join("requirements.txt");
+        let scripts_req_path = scripts_dir.join("requirements.txt");
+        if root_req_path.exists() {
+            Some(std::fs::read_to_string(&root_req_path)?)
+        } else if scripts_req_path.exists() {
+            Some(std::fs::read_to_string(&scripts_req_path)?)
         } else {
             None
         }
