@@ -1883,9 +1883,10 @@ fn resolve_cloud_runtime_target(
         match value {
             "python" => Ok("python"),
             "javascript" => Ok("javascript"),
+            "typescript" => Ok("typescript"),
             "rust_wasm_adk" => Ok("rust_wasm_adk"),
             other => Err(anyhow::anyhow!(
-                "Invalid runtime_kind '{}'. Use 'python', 'javascript', or 'rust_wasm_adk'.",
+                "Invalid runtime_kind '{}'. Use 'python', 'javascript', 'typescript', or 'rust_wasm_adk'.",
                 other
             )),
         }
@@ -1902,7 +1903,8 @@ fn resolve_cloud_runtime_target(
         (Some("cloudflare_worker"), None) => ("cloudflare_worker", "javascript"),
         (Some("daytona"), None) => ("daytona", "python"),
         (None, Some("python")) => ("aws_container", "python"),
-        (None, Some("javascript")) => ("cloudflare_worker", "javascript"),
+        (None, Some("javascript")) => ("aws_container", "javascript"),
+        (None, Some("typescript")) => ("aws_container", "typescript"),
         (None, Some("rust_wasm_adk")) => ("cloudflare_worker", "rust_wasm_adk"),
         _ => unreachable!(),
     };
@@ -1919,11 +1921,16 @@ fn resolve_cloud_runtime_target(
 fn validate_runtime_target(compute_backend: &str, runtime_kind: &str) -> Result<()> {
     match (compute_backend, runtime_kind) {
         ("aws_container", "python") => Ok(()),
+        ("aws_container", "javascript") => Ok(()),
+        ("aws_container", "typescript") => Ok(()),
         ("cloudflare_worker", "javascript") => Ok(()),
+        ("cloudflare_worker", "typescript") => Ok(()),
         ("cloudflare_worker", "rust_wasm_adk") => Ok(()),
         ("daytona", "python") => Ok(()),
+        ("daytona", "javascript") => Ok(()),
+        ("daytona", "typescript") => Ok(()),
         _ => Err(anyhow::anyhow!(
-            "Invalid backend/runtime combination: {}/{}. Valid pairs are aws_container+python, cloudflare_worker+javascript, cloudflare_worker+rust_wasm_adk, daytona+python.",
+            "Invalid backend/runtime combination: {}/{}. Valid pairs are aws_container+(python|javascript|typescript), cloudflare_worker+(javascript|typescript|rust_wasm_adk), daytona+(python|javascript|typescript).",
             compute_backend,
             runtime_kind
         )),
@@ -1931,35 +1938,32 @@ fn validate_runtime_target(compute_backend: &str, runtime_kind: &str) -> Result<
 }
 
 fn ensure_runtime_entrypoint(scripts_dir: &Path, runtime_kind: &str) -> Result<()> {
-    match runtime_kind {
-        "python" => {
-            if scripts_dir.join("agent.py").is_file() {
-                return Ok(());
-            }
-            Err(anyhow::anyhow!(
-                "No scripts/agent.py found in '{}'.",
-                scripts_dir.display()
-            ))
-        }
-        "javascript" | "rust_wasm_adk" => {
-            if find_worker_entrypoint(scripts_dir, runtime_kind).is_some()
-                || contains_worker_source_file(scripts_dir)
-            {
-                return Ok(());
-            }
-
-            Err(anyhow::anyhow!(
-                "No JS/TS worker entrypoint found in '{}'. Expected files like worker.js, worker.ts, index.js, index.ts, or dist/worker.js.",
-                scripts_dir.display()
-            ))
-        }
-        other => Err(anyhow::anyhow!("Unsupported runtime_kind '{}'.", other)),
+    if find_runtime_entrypoint(scripts_dir, runtime_kind).is_some() {
+        return Ok(());
     }
+
+    let expected = match runtime_kind {
+        "python" => "agent.py/main.py/index.py (or any .py file)",
+        "javascript" => "agent.js/main.js/index.js/worker.js (or any .js/.mjs/.cjs file)",
+        "typescript" => "agent.ts/main.ts/index.ts/worker.ts (or any .ts file)",
+        "rust_wasm_adk" => "worker.js/index.js/dist/worker.js (or any JS/TS source file)",
+        other => return Err(anyhow::anyhow!("Unsupported runtime_kind '{}'.", other)),
+    };
+
+    Err(anyhow::anyhow!(
+        "No entrypoint found in '{}'. Expected one of: {}.",
+        scripts_dir.display(),
+        expected
+    ))
 }
 
-fn find_worker_entrypoint(scripts_dir: &Path, runtime_kind: &str) -> Option<&'static str> {
+fn find_runtime_entrypoint(scripts_dir: &Path, runtime_kind: &str) -> Option<String> {
     let candidates: &[&str] = match runtime_kind {
+        "python" => &["agent.py", "main.py", "index.py", "run.py"],
         "javascript" => &[
+            "agent.js",
+            "main.js",
+            "index.js",
             "worker.ts",
             "worker.js",
             "index.ts",
@@ -1967,6 +1971,7 @@ fn find_worker_entrypoint(scripts_dir: &Path, runtime_kind: &str) -> Option<&'st
             "main.ts",
             "main.js",
         ],
+        "typescript" => &["agent.ts", "main.ts", "index.ts", "worker.ts"],
         "rust_wasm_adk" => &[
             "worker.js",
             "index.js",
@@ -1977,32 +1982,48 @@ fn find_worker_entrypoint(scripts_dir: &Path, runtime_kind: &str) -> Option<&'st
         _ => &[],
     };
 
-    candidates
-        .iter()
-        .copied()
-        .find(|candidate| scripts_dir.join(candidate).is_file())
+    for candidate in candidates {
+        if scripts_dir.join(candidate).is_file() {
+            return Some((*candidate).to_string());
+        }
+    }
+
+    let fallback_exts: &[&str] = match runtime_kind {
+        "python" => &["py"],
+        "javascript" => &["js", "mjs", "cjs"],
+        "typescript" => &["ts"],
+        "rust_wasm_adk" => &["js", "ts", "mjs", "cjs"],
+        _ => return None,
+    };
+    find_file_with_extensions(scripts_dir, fallback_exts)
 }
 
-fn contains_worker_source_file(dir: &Path) -> bool {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(_) => return false,
-    };
+fn find_file_with_extensions(dir: &Path, extensions: &[&str]) -> Option<String> {
+    let entries = std::fs::read_dir(dir).ok()?;
 
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_file() {
             if let Some(ext) = path.extension().and_then(|e| e.to_str())
-                && matches!(ext, "js" | "ts" | "mjs" | "cjs")
+                && extensions
+                    .iter()
+                    .any(|expected| ext.eq_ignore_ascii_case(expected))
             {
-                return true;
+                return path
+                    .strip_prefix(dir)
+                    .ok()
+                    .and_then(|p| p.to_str())
+                    .map(|p| p.to_string());
             }
-        } else if path.is_dir() && contains_worker_source_file(&path) {
-            return true;
+        } else if path.is_dir()
+            && let Some(found) = find_file_with_extensions(&path, extensions)
+        {
+            let dir_name = path.file_name()?.to_str()?;
+            return Some(format!("{}/{}", dir_name, found));
         }
     }
 
-    false
+    None
 }
 
 /// Bundle a directory into a tar.gz archive in memory.
