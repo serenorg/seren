@@ -493,7 +493,7 @@ enum AgentAction {
         /// Compute backend target (aws_container, cloudflare_worker, or daytona)
         #[arg(long)]
         compute_backend: Option<String>,
-        /// Runtime kind (python, javascript, typescript, rust_wasm_adk)
+        /// Runtime kind (python, javascript, typescript, rust, rust_wasm_adk)
         #[arg(long)]
         runtime_kind: Option<String>,
         /// Path to config.json
