@@ -1385,7 +1385,7 @@ pub struct DeployCloudAgentParams {
     /// Compute backend target ("aws_container", "cloudflare_worker", or "daytona")
     #[serde(default)]
     pub compute_backend: Option<String>,
-    /// Runtime kind ("python", "javascript", or "rust_wasm_adk")
+    /// Runtime kind ("python", "javascript", "typescript", or "rust_wasm_adk")
     #[serde(default)]
     pub runtime_kind: Option<String>,
     /// Base64-encoded tar.gz of the scripts/ directory
@@ -7133,7 +7133,7 @@ API endpoint: {endpoint}",
     // ========================================================================
 
     #[tool(
-        description = "Deploy a skill to Seren Cloud for managed hosting. Supports always_on (persistent) and cron (scheduled) modes. Optionally set compute_backend (aws_container/cloudflare_worker/daytona) and runtime_kind (python/javascript/rust_wasm_adk). daytona currently supports python with cron mode. Requires a base64-encoded tar.gz code bundle of scripts/.",
+        description = "Deploy a skill to Seren Cloud for managed hosting. Supports always_on (persistent) and cron (scheduled) modes. Optionally set compute_backend (aws_container/cloudflare_worker/daytona) and runtime_kind (python/javascript/typescript/rust_wasm_adk). Backend/runtime support: aws_container (python/javascript/typescript), cloudflare_worker (javascript/typescript/rust_wasm_adk), daytona (python/javascript/typescript) with cron mode. Requires a base64-encoded tar.gz code bundle of scripts/.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
