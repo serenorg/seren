@@ -18,5 +18,6 @@ pub mod rbac;
 pub mod replication;
 pub mod roles;
 pub mod sessions;
+pub mod skills;
 pub mod vpc;
 pub mod webhooks;
