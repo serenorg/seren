@@ -1377,6 +1377,9 @@ pub struct DeployCloudAgentParams {
     pub skill_slug: String,
     /// Display name for the deployment
     pub name: String,
+    /// Optional deployment publisher ("seren-cloud" default, or "seren-agent" for orchestration)
+    #[serde(default)]
+    pub publisher: Option<String>,
     /// Deployment mode: "always_on" or "cron"
     pub mode: String,
     /// Cron schedule expression (required if mode is "cron")
@@ -7145,7 +7148,19 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<DeployCloudAgentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!("{}/publishers/seren-cloud/deploy", self.api_base_url);
+        let publisher = match params.publisher.as_deref().unwrap_or("seren-cloud") {
+            "seren-cloud" | "seren-agent" => params.publisher.as_deref().unwrap_or("seren-cloud"),
+            other => {
+                return Err(McpError::invalid_params(
+                    format!(
+                        "Invalid publisher '{}'. Use 'seren-cloud' or 'seren-agent'.",
+                        other
+                    ),
+                    None,
+                ));
+            }
+        };
+        let url = format!("{}/publishers/{}/deploy", self.api_base_url, publisher);
         let body = serde_json::json!({
             "name": params.name,
             "skill_slug": params.skill_slug,
