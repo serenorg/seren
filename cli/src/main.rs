@@ -218,10 +218,69 @@ enum Commands {
         #[command(subcommand)]
         action: Box<AgentAction>,
     },
+    /// Discover, install, and manage AI agent skills
+    Skills {
+        #[command(subcommand)]
+        action: SkillsAction,
+    },
     /// Manage OAuth connections for BYOC publishers
     Oauth {
         #[command(subcommand)]
         action: OAuthAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum SkillsAction {
+    /// List all available skills
+    List {
+        /// Force refresh from GitHub (ignore cache)
+        #[arg(long)]
+        refresh: bool,
+    },
+    /// Search skills by name or description
+    Search {
+        /// Search query
+        query: String,
+    },
+    /// Show details about a specific skill
+    Show {
+        /// Skill slug (e.g., coinbase-grid-trader)
+        slug: String,
+    },
+    /// Install a skill (or all skills with --all)
+    Add {
+        /// Skill slug to install
+        slug: Option<String>,
+        /// Install all available skills
+        #[arg(long)]
+        all: bool,
+        /// Auto-confirm agent directory installation
+        #[arg(long, short)]
+        yes: bool,
+    },
+    /// List locally installed skills
+    Installed,
+    /// Remove an installed skill
+    Remove {
+        /// Skill slug to remove
+        slug: String,
+    },
+    /// Update installed skill(s) to latest version
+    Update {
+        /// Skill slug to update (omit to update all)
+        slug: Option<String>,
+        /// Auto-confirm agent directory installation
+        #[arg(long, short)]
+        yes: bool,
+    },
+    /// Initialize a new skill template
+    Init {
+        /// Skill name (creates directory)
+        name: Option<String>,
+        /// Directory to create skill in
+        #[arg(long)]
+        path: Option<String>,
     },
 }
 
@@ -2643,6 +2702,22 @@ async fn main() -> anyhow::Result<()> {
             } => commands::agent::get_agent_task(&org_id, &task_id, follow, &ctx).await?,
             AgentAction::TasksCancel { org_id, task_id } => {
                 commands::agent::cancel_agent_task(&org_id, &task_id, &ctx).await?
+            }
+        },
+        Commands::Skills { action } => match action {
+            SkillsAction::List { refresh } => commands::skills::list(refresh, &ctx).await?,
+            SkillsAction::Search { query } => commands::skills::search(&query, &ctx).await?,
+            SkillsAction::Show { slug } => commands::skills::show(&slug, &ctx).await?,
+            SkillsAction::Add { slug, all, yes } => {
+                commands::skills::add(slug.as_deref(), all, yes).await?
+            }
+            SkillsAction::Installed => commands::skills::installed(&ctx).await?,
+            SkillsAction::Remove { slug } => commands::skills::remove(&slug).await?,
+            SkillsAction::Update { slug, yes } => {
+                commands::skills::update(slug.as_deref(), yes).await?
+            }
+            SkillsAction::Init { name, path } => {
+                commands::skills::init(name.as_deref(), path.as_deref())?
             }
         },
         Commands::Oauth { action } => match action {
