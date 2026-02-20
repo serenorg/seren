@@ -490,7 +490,7 @@ enum AgentAction {
         /// Cron schedule expression (required if mode is "cron")
         #[arg(long)]
         cron_schedule: Option<String>,
-        /// Compute backend target (aws_container or cloudflare_worker)
+        /// Compute backend target (aws_container, cloudflare_worker, or daytona)
         #[arg(long)]
         compute_backend: Option<String>,
         /// Runtime kind (python, javascript, rust_wasm_adk)

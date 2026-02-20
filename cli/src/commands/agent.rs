@@ -1638,6 +1638,12 @@ pub async fn cloud_deploy(
         }
     };
 
+    if runtime_target.compute_backend == "daytona" && api_mode != "cron" {
+        return Err(anyhow::anyhow!(
+            "compute_backend 'daytona' currently requires mode 'cron'."
+        ));
+    }
+
     let mut body = serde_json::json!({
         "name": deploy_name,
         "skill_slug": skill_slug,
@@ -1865,8 +1871,9 @@ fn resolve_cloud_runtime_target(
         match value {
             "aws_container" => Ok("aws_container"),
             "cloudflare_worker" => Ok("cloudflare_worker"),
+            "daytona" => Ok("daytona"),
             other => Err(anyhow::anyhow!(
-                "Invalid compute_backend '{}'. Use 'aws_container' or 'cloudflare_worker'.",
+                "Invalid compute_backend '{}'. Use 'aws_container', 'cloudflare_worker', or 'daytona'.",
                 other
             )),
         }
@@ -1893,6 +1900,7 @@ fn resolve_cloud_runtime_target(
         (Some(cb), Some(rk)) => (cb, rk),
         (Some("aws_container"), None) => ("aws_container", "python"),
         (Some("cloudflare_worker"), None) => ("cloudflare_worker", "javascript"),
+        (Some("daytona"), None) => ("daytona", "python"),
         (None, Some("python")) => ("aws_container", "python"),
         (None, Some("javascript")) => ("cloudflare_worker", "javascript"),
         (None, Some("rust_wasm_adk")) => ("cloudflare_worker", "rust_wasm_adk"),
@@ -1913,8 +1921,9 @@ fn validate_runtime_target(compute_backend: &str, runtime_kind: &str) -> Result<
         ("aws_container", "python") => Ok(()),
         ("cloudflare_worker", "javascript") => Ok(()),
         ("cloudflare_worker", "rust_wasm_adk") => Ok(()),
+        ("daytona", "python") => Ok(()),
         _ => Err(anyhow::anyhow!(
-            "Invalid backend/runtime combination: {}/{}. Valid pairs are aws_container+python, cloudflare_worker+javascript, cloudflare_worker+rust_wasm_adk.",
+            "Invalid backend/runtime combination: {}/{}. Valid pairs are aws_container+python, cloudflare_worker+javascript, cloudflare_worker+rust_wasm_adk, daytona+python.",
             compute_backend,
             runtime_kind
         )),
