@@ -481,6 +481,9 @@ enum AgentAction {
     Deploy {
         /// Path to the skill directory (containing scripts/ for the selected runtime)
         path: String,
+        /// Deployment publisher slug (`seren-cloud` for direct runtime deploys, `seren-agent` for orchestrated app deploys)
+        #[arg(long, default_value = "seren-cloud")]
+        publisher: String,
         /// Deployment name
         #[arg(long)]
         name: Option<String>,
@@ -2584,6 +2587,7 @@ async fn main() -> anyhow::Result<()> {
             } => commands::agent::run_local(&endpoint, &message, stream, &ctx).await?,
             AgentAction::Deploy {
                 path,
+                publisher,
                 name,
                 mode,
                 cron_schedule,
@@ -2595,6 +2599,7 @@ async fn main() -> anyhow::Result<()> {
                 commands::agent::cloud_deploy(
                     &path,
                     commands::agent::CloudDeployOptions {
+                        publisher_slug: Some(&publisher),
                         name: name.as_deref(),
                         mode: &mode,
                         cron_schedule: cron_schedule.as_deref(),

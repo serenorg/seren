@@ -1528,8 +1528,10 @@ pub async fn cancel_agent_task(org_id: &str, task_id: &str, ctx: &CommandContext
 // =============================================================================
 
 const SEREN_CLOUD_SLUG: &str = "seren-cloud";
+const SEREN_AGENT_SLUG: &str = "seren-agent";
 
 pub struct CloudDeployOptions<'a> {
+    pub publisher_slug: Option<&'a str>,
     pub name: Option<&'a str>,
     pub mode: &'a str,
     pub cron_schedule: Option<&'a str>,
@@ -1541,6 +1543,17 @@ pub struct CloudDeployOptions<'a> {
 
 const MAX_CLOUD_CODE_BUNDLE_BYTES: usize = 1_000_000;
 
+fn normalize_deploy_publisher_slug(publisher_slug: Option<&str>) -> Result<&'static str> {
+    match publisher_slug.unwrap_or(SEREN_CLOUD_SLUG) {
+        SEREN_CLOUD_SLUG => Ok(SEREN_CLOUD_SLUG),
+        SEREN_AGENT_SLUG => Ok(SEREN_AGENT_SLUG),
+        other => Err(anyhow::anyhow!(
+            "Invalid deploy publisher '{}'. Use 'seren-cloud' or 'seren-agent'.",
+            other
+        )),
+    }
+}
+
 /// Deploy a skill directory to Seren Cloud.
 pub async fn cloud_deploy(
     path: &str,
@@ -1548,6 +1561,7 @@ pub async fn cloud_deploy(
     ctx: &CommandContext,
 ) -> Result<()> {
     let CloudDeployOptions {
+        publisher_slug,
         name,
         mode,
         cron_schedule,
@@ -1556,6 +1570,8 @@ pub async fn cloud_deploy(
         config_path,
         env_path,
     } = options;
+    let deploy_publisher = normalize_deploy_publisher_slug(publisher_slug)?;
+
     let skill_dir = Path::new(path);
     if !skill_dir.is_dir() {
         return Err(anyhow::anyhow!("'{}' is not a directory", path));
@@ -1670,12 +1686,13 @@ pub async fn cloud_deploy(
     }
 
     let client = ctx.http_client().await?;
-    let url = format!("{}/publishers/{}/deploy", ctx.api_base(), SEREN_CLOUD_SLUG);
+    let url = format!("{}/publishers/{}/deploy", ctx.api_base(), deploy_publisher);
 
     println!(
-        "{} Deploying {} ({} mode, backend={}, runtime={})...",
+        "{} Deploying {} via {} ({} mode, backend={}, runtime={})...",
         "→".blue(),
         skill_slug.bold(),
+        deploy_publisher,
         mode,
         runtime_target.compute_backend,
         runtime_target.runtime_kind
