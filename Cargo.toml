@@ -23,7 +23,7 @@ axum = "0.8"
 base62 = "2"
 base64 = "0.22"
 time = { version = "0.3", features = ["serde", "serde-well-known", "macros"] }
-jiff = { version = "0.2.15", features = ["serde"] }
+jiff = { version = "0.2.20", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 comfy-table = "7"
 colored = "2"
