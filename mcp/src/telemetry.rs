@@ -12,26 +12,25 @@
 
 #[cfg(feature = "telemetry")]
 mod otel {
-    use opentelemetry::KeyValue;
     use opentelemetry::trace::TracerProvider as _;
     use opentelemetry_otlp::{SpanExporter, WithExportConfig};
     use opentelemetry_sdk::Resource;
-    use opentelemetry_sdk::trace::TracerProvider;
+    use opentelemetry_sdk::trace::SdkTracerProvider;
     use tracing::Subscriber;
     use tracing_subscriber::Layer;
     use tracing_subscriber::registry::LookupSpan;
 
     /// OpenTelemetry provider guard - shuts down on drop
     pub struct TelemetryGuard {
-        provider: Option<TracerProvider>,
+        provider: Option<SdkTracerProvider>,
     }
 
     impl Drop for TelemetryGuard {
         fn drop(&mut self) {
-            if let Some(provider) = self.provider.take()
-                && let Err(e) = provider.shutdown()
-            {
-                eprintln!("Error shutting down OpenTelemetry provider: {:?}", e);
+            if let Some(provider) = self.provider.take() {
+                if let Err(e) = provider.shutdown() {
+                    eprintln!("Error shutting down OpenTelemetry provider: {:?}", e);
+                }
             }
         }
     }
@@ -39,7 +38,7 @@ mod otel {
     /// Initialize OpenTelemetry tracing
     ///
     /// Returns `None` if `OTEL_SDK_DISABLED=true` or if initialization fails.
-    pub fn init_tracing() -> Option<(TracerProvider, TelemetryGuard)> {
+    pub fn init_tracing() -> Option<(SdkTracerProvider, TelemetryGuard)> {
         // Check if disabled
         if std::env::var("OTEL_SDK_DISABLED")
             .map(|v| v.to_lowercase() == "true")
@@ -72,14 +71,11 @@ mod otel {
         );
 
         // Build resource with service name
-        let resource = Resource::new(vec![KeyValue::new(
-            opentelemetry_semantic_conventions::resource::SERVICE_NAME,
-            service_name,
-        )]);
+        let resource = Resource::builder().with_service_name(service_name).build();
 
         // Build provider
-        let provider = TracerProvider::builder()
-            .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+        let provider = SdkTracerProvider::builder()
+            .with_batch_exporter(exporter)
             .with_resource(resource)
             .build();
 
@@ -91,7 +87,7 @@ mod otel {
     }
 
     /// Create a tracing layer from a provider
-    pub fn otel_layer<S>(provider: &TracerProvider) -> impl Layer<S>
+    pub fn otel_layer<S>(provider: &SdkTracerProvider) -> impl Layer<S>
     where
         S: Subscriber + for<'span> LookupSpan<'span>,
     {
