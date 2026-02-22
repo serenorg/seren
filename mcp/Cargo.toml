@@ -98,7 +98,7 @@ futures = { workspace = true }
 time = { workspace = true }
 html-escape = { workspace = true }
 tower_governor = { workspace = true }
-lru = "0.16.2"
+lru = "0.16.3"
 tokio-stream = "0.1.18"
 
 [dev-dependencies]
