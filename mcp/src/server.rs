@@ -18,8 +18,8 @@ use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::{router::tool::ToolRouter, tool::ToolCallContext, wrapper::Parameters},
     model::{
-        CallToolRequestParam, CallToolResult, Content, Extensions, ListToolsResult,
-        PaginatedRequestParam, ServerCapabilities, ServerInfo,
+        CallToolRequestParams, CallToolResult, Content, Extensions, ListToolsResult,
+        PaginatedRequestParams, ServerCapabilities, ServerInfo,
     },
     service::{RequestContext, RoleServer},
     tool, tool_router,
@@ -7423,7 +7423,7 @@ fn atomic_to_decimal(atomic: &str, decimals: usize) -> String {
 impl ServerHandler for SerenMcpServer {
     async fn call_tool(
         &self,
-        request: CallToolRequestParam,
+        request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(feature = "telemetry")]
@@ -7456,7 +7456,7 @@ impl ServerHandler for SerenMcpServer {
 
     async fn list_tools(
         &self,
-        _request: Option<PaginatedRequestParam>,
+        _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
         let items = self.tool_router.list_all();
@@ -7471,6 +7471,9 @@ impl ServerHandler for SerenMcpServer {
                 name: crate::MCP_SERVER_NAME.into(),
                 title: Some("Seren MCP Server".into()),
                 version: env!("CARGO_PKG_VERSION").into(),
+                description: Some(
+                    "MCP server for SerenDB — serverless Postgres platform".into(),
+                ),
                 icons: None,
                 website_url: Some("https://serendb.com".into()),
             },

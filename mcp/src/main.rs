@@ -1106,6 +1106,7 @@ async fn run_http(config: Config) -> Result<()> {
     // Create streamable HTTP service config
     let http_config = StreamableHttpServerConfig {
         sse_keep_alive: Some(std::time::Duration::from_secs(15)),
+        sse_retry: Some(std::time::Duration::from_secs(3)),
         stateful_mode: true,
         cancellation_token: ct.clone(),
     };
@@ -1298,6 +1299,7 @@ async fn run_oauth(config: Config) -> Result<()> {
     // Create streamable HTTP service config
     let http_config = StreamableHttpServerConfig {
         sse_keep_alive: Some(std::time::Duration::from_secs(15)),
+        sse_retry: Some(std::time::Duration::from_secs(3)),
         stateful_mode: true,
         cancellation_token: ct.clone(),
     };
