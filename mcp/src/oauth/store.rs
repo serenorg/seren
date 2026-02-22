@@ -1098,7 +1098,7 @@ impl TokenStore {
 
     /// Generate a secure random token
     pub fn generate_token() -> String {
-        use rand::Rng;
+        use rand::RngExt;
         let bytes: [u8; 32] = rand::rng().random();
         base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, bytes)
     }
@@ -1120,7 +1120,7 @@ impl TokenStore {
 
     /// Generate a secure random authorization code
     pub fn generate_code() -> String {
-        use rand::Rng;
+        use rand::RngExt;
         let bytes: [u8; 32] = rand::rng().random();
         base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, bytes)
     }

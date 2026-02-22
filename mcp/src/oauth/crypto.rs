@@ -1,6 +1,6 @@
 use aes_gcm::Aes256Gcm;
 use aes_gcm::aead::{Aead, KeyInit};
-use rand::RngCore;
+use rand::Rng;
 
 use crate::error::{McpError, Result};
 
