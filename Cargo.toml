@@ -47,7 +47,7 @@ sha2 = "0.10"
 subtle = "2"
 sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "time", "migrate", "tls-rustls"] }
 syn = { version = "2", default-features = false, features = ["full"] }
-thiserror = "1"
+thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 toml = "0.8"
 tower = "0.5"
