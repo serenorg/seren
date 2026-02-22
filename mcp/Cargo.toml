@@ -76,7 +76,7 @@ opentelemetry-otlp = { version = "0.27", features = ["http-proto", "reqwest-clie
 opentelemetry-semantic-conventions = { version = "0.27", optional = true }
 
 # Metrics (optional - for production deployments)
-prometheus = { version = "0.13", default-features = false, optional = true }
+prometheus = { version = "0.14", default-features = false, optional = true }
 
 # Ethereum wallet
 alloy = { workspace = true }
@@ -104,6 +104,6 @@ tokio-stream = "0.1.18"
 [dev-dependencies]
 temp-env = { version = "0.3", features = ["async_closure"] }
 tempfile = "3"
-testcontainers = "0.23"
-testcontainers-modules = { version = "0.11", features = ["postgres"] }
+testcontainers = "0.27"
+testcontainers-modules = { version = "0.15", features = ["postgres"] }
 wiremock = "0.6"
