@@ -128,7 +128,7 @@ impl McpJwtSigner {
 
     /// Generate a unique token ID
     fn generate_jti() -> String {
-        use rand::Rng;
+        use rand::RngExt;
         let bytes: [u8; 16] = rand::rng().random();
         base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, bytes)
     }

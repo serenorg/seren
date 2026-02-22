@@ -10,7 +10,7 @@ use alloy::primitives::{Address, FixedBytes, U256};
 use alloy::signers::Signer;
 use alloy::sol;
 use alloy::sol_types::SolStruct;
-use rand::Rng;
+use rand::RngExt;
 
 use super::{PrivateKeyWallet, WalletError};
 
