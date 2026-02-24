@@ -1806,7 +1806,7 @@ pub async fn cloud_stop(deployment_id: Uuid, ctx: &CommandContext) -> Result<()>
 
 /// Trigger a one-shot run of a cloud agent.
 pub async fn cloud_run(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
-    cloud_action(deployment_id, "run", ctx).await
+    cloud_action(deployment_id, "runs", ctx).await
 }
 
 /// Destroy a cloud agent deployment.
@@ -1849,6 +1849,223 @@ pub async fn cloud_logs(deployment_id: Uuid, ctx: &CommandContext) -> Result<()>
 
     let logs = response.text().await?;
     println!("{}", logs);
+    Ok(())
+}
+
+/// List run history for a cloud agent deployment.
+pub async fn cloud_runs(
+    deployment_id: Uuid,
+    limit: i64,
+    offset: i64,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/{}/agents/{}/runs?limit={}&offset={}",
+        ctx.api_base(),
+        SEREN_CLOUD_SLUG,
+        deployment_id,
+        limit,
+        offset
+    );
+
+    let response = client.get(&url).send().await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Failed: {} - {}", status, body));
+    }
+
+    let result: serde_json::Value = response.json().await?;
+    if let Some(data) = result.get("data").and_then(|d| d.as_array()) {
+        if data.is_empty() {
+            println!("No runs found for deployment {}.", deployment_id);
+            return Ok(());
+        }
+        println!(
+            "{:<38} {:<14} {:<10} {:<10} {:<24}",
+            "RUN ID", "STATUS", "TIME(ms)", "COST", "STARTED"
+        );
+        for execution in data {
+            println!(
+                "{:<38} {:<14} {:<10} {:<10} {:<24}",
+                execution.get("id").and_then(|v| v.as_str()).unwrap_or("-"),
+                execution
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("-"),
+                execution
+                    .get("execution_time_ms")
+                    .and_then(|v| v.as_i64())
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                execution
+                    .get("compute_cost_usd")
+                    .and_then(|v| v.as_str())
+                    .map(|v| format!("${v}"))
+                    .unwrap_or_else(|| "-".to_string()),
+                execution
+                    .get("started_at")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("-"),
+            );
+        }
+    } else {
+        output::print_json(&result)?;
+    }
+
+    Ok(())
+}
+
+/// Get details of a specific run event.
+pub async fn cloud_run_get(deployment_id: Uuid, run_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/{}/agents/{}/runs/{}",
+        ctx.api_base(),
+        SEREN_CLOUD_SLUG,
+        deployment_id,
+        run_id
+    );
+
+    let response = client.get(&url).send().await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Failed: {} - {}", status, body));
+    }
+
+    let result: serde_json::Value = response.json().await?;
+    output::print_json(&result)?;
+    Ok(())
+}
+
+/// List all runs across all cloud agent deployments.
+pub async fn cloud_all_runs(limit: i64, offset: i64, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/{}/runs?limit={}&offset={}",
+        ctx.api_base(),
+        SEREN_CLOUD_SLUG,
+        limit,
+        offset
+    );
+
+    let response = client.get(&url).send().await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Failed: {} - {}", status, body));
+    }
+
+    let result: serde_json::Value = response.json().await?;
+    if let Some(data) = result.get("data").and_then(|d| d.as_array()) {
+        if data.is_empty() {
+            println!("No runs found.");
+            return Ok(());
+        }
+        println!(
+            "{:<38} {:<38} {:<14} {:<10} {:<10} {:<24}",
+            "RUN ID", "DEPLOYMENT ID", "STATUS", "TIME(ms)", "COST", "STARTED"
+        );
+        for execution in data {
+            println!(
+                "{:<38} {:<38} {:<14} {:<10} {:<10} {:<24}",
+                execution.get("id").and_then(|v| v.as_str()).unwrap_or("-"),
+                execution
+                    .get("deployment_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("-"),
+                execution
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("-"),
+                execution
+                    .get("execution_time_ms")
+                    .and_then(|v| v.as_i64())
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                execution
+                    .get("compute_cost_usd")
+                    .and_then(|v| v.as_str())
+                    .map(|v| format!("${v}"))
+                    .unwrap_or_else(|| "-".to_string()),
+                execution
+                    .get("started_at")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("-"),
+            );
+        }
+    } else {
+        output::print_json(&result)?;
+    }
+
+    Ok(())
+}
+
+/// Update config and/or secrets for a cloud agent without redeploying.
+pub async fn cloud_update_config(
+    deployment_id: Uuid,
+    config_path: Option<&str>,
+    env_path: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    if config_path.is_none() && env_path.is_none() {
+        return Err(anyhow::anyhow!(
+            "At least one of --config or --env must be provided."
+        ));
+    }
+
+    let config: Option<serde_json::Value> = if let Some(p) = config_path {
+        let content = std::fs::read_to_string(p)
+            .map_err(|e| anyhow::anyhow!("Failed to read config file '{}': {}", p, e))?;
+        Some(serde_json::from_str(&content)?)
+    } else {
+        None
+    };
+
+    let secrets: Option<serde_json::Value> = if let Some(p) = env_path {
+        Some(parse_env_file(p)?)
+    } else {
+        None
+    };
+
+    let mut body = serde_json::Map::new();
+    if let Some(cfg) = config {
+        body.insert("config".to_string(), cfg);
+    }
+    if let Some(sec) = secrets {
+        body.insert("secrets".to_string(), sec);
+    }
+
+    let client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/{}/agents/{}",
+        ctx.api_base(),
+        SEREN_CLOUD_SLUG,
+        deployment_id
+    );
+
+    let response = client
+        .patch(&url)
+        .json(&serde_json::Value::Object(body))
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Failed: {} - {}", status, body));
+    }
+
+    let result: serde_json::Value = response.json().await?;
+    println!(
+        "{} Config updated for deployment {}.",
+        "✓".green(),
+        deployment_id
+    );
+    output::print_json(&result)?;
     Ok(())
 }
 

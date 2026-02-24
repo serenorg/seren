@@ -1410,6 +1410,40 @@ pub struct CloudDeploymentIdParams {
     pub deployment_id: Uuid,
 }
 
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudDeploymentRunParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Run event UUID
+    pub run_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudAllRunsParams {
+    /// Maximum runs to return (default 50)
+    #[serde(default = "default_cloud_runs_limit")]
+    pub limit: i64,
+    /// Offset for pagination (default 0)
+    #[serde(default)]
+    pub offset: i64,
+}
+
+fn default_cloud_runs_limit() -> i64 {
+    50
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudUpdateConfigParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// JSON config object to update
+    #[serde(default)]
+    pub config: Option<serde_json::Value>,
+    /// JSON secrets object (key-value pairs) to update
+    #[serde(default)]
+    pub secrets: Option<serde_json::Value>,
+}
+
 // ============================================================================
 // SQL Response Types
 // ============================================================================
@@ -7249,7 +7283,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Trigger a one-shot execution of a cloud agent. Creates a K8s Job that runs the agent once.",
+        description = "Trigger a one-shot run of a cloud agent. Creates a K8s Job that runs the agent once.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn run_cloud_agent(
@@ -7258,7 +7292,7 @@ API endpoint: {endpoint}",
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let url = format!(
-            "{}/publishers/seren-cloud/agents/{}/run",
+            "{}/publishers/seren-cloud/agents/{}/runs",
             self.api_base_url, params.deployment_id
         );
         let result = self
@@ -7352,6 +7386,104 @@ API endpoint: {endpoint}",
                 .map_err(|e| McpError::internal_error(e.to_string(), None))?;
             Ok(CallToolResult::success(vec![json_content(&result)?]))
         }
+    }
+
+    #[tool(
+        description = "List run history for a cloud agent deployment. Returns run events with status, duration, cost, and timestamps.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_cloud_agent_runs(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-cloud/agents/{}/runs",
+            self.api_base_url, params.deployment_id
+        );
+        let result = self
+            .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Get details of a specific run event for a cloud agent deployment, including output and structured events.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_cloud_agent_run(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentRunParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-cloud/agents/{}/runs/{}",
+            self.api_base_url, params.deployment_id, params.run_id
+        );
+        let result = self
+            .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "List all runs across all cloud agent deployments in the organization.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_all_cloud_runs(
+        &self,
+        Parameters(params): Parameters<CloudAllRunsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-cloud/runs?limit={}&offset={}",
+            self.api_base_url, params.limit, params.offset
+        );
+        let result = self
+            .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Update config and/or secrets for a cloud agent deployment without redeploying code. Provide config (JSON object) and/or secrets (JSON key-value pairs).",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn update_cloud_agent_config(
+        &self,
+        Parameters(params): Parameters<CloudUpdateConfigParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        if params.config.is_none() && params.secrets.is_none() {
+            return Err(McpError::invalid_params(
+                "At least one of config or secrets must be provided.",
+                None,
+            ));
+        }
+        let url = format!(
+            "{}/publishers/seren-cloud/agents/{}",
+            self.api_base_url, params.deployment_id
+        );
+        let mut body = serde_json::Map::new();
+        if let Some(config) = params.config {
+            body.insert("config".to_string(), config);
+        }
+        if let Some(secrets) = params.secrets {
+            body.insert("secrets".to_string(), secrets);
+        }
+        let result = self
+            .execute_api_json(
+                &extensions,
+                reqwest::Method::PATCH,
+                url,
+                Some(&serde_json::Value::Object(body)),
+            )
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
 }
 
