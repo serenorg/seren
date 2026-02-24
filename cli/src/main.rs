@@ -597,6 +597,44 @@ enum AgentAction {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
     },
+    /// List run history for a cloud agent deployment
+    CloudRuns {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Maximum runs to return
+        #[arg(long, default_value = "50")]
+        limit: i64,
+        /// Offset for pagination
+        #[arg(long, default_value = "0")]
+        offset: i64,
+    },
+    /// Get details of a specific run event
+    CloudRunGet {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Run event ID (UUID)
+        run_id: Uuid,
+    },
+    /// List all runs across all cloud agent deployments
+    CloudAllRuns {
+        /// Maximum runs to return
+        #[arg(long, default_value = "50")]
+        limit: i64,
+        /// Offset for pagination
+        #[arg(long, default_value = "0")]
+        offset: i64,
+    },
+    /// Update config and/or secrets for a cloud agent without redeploying
+    CloudUpdateConfig {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Path to config.json
+        #[arg(long)]
+        config: Option<String>,
+        /// Path to .env secrets file
+        #[arg(long, name = "env")]
+        env_file: Option<String>,
+    },
 
     // =========================================================================
     // Agent Task Commands
@@ -2689,6 +2727,31 @@ async fn main() -> anyhow::Result<()> {
             }
             AgentAction::CloudDestroy { deployment_id } => {
                 commands::agent::cloud_destroy(deployment_id, &ctx).await?
+            }
+            AgentAction::CloudRuns {
+                deployment_id,
+                limit,
+                offset,
+            } => commands::agent::cloud_runs(deployment_id, limit, offset, &ctx).await?,
+            AgentAction::CloudRunGet {
+                deployment_id,
+                run_id,
+            } => commands::agent::cloud_run_get(deployment_id, run_id, &ctx).await?,
+            AgentAction::CloudAllRuns { limit, offset } => {
+                commands::agent::cloud_all_runs(limit, offset, &ctx).await?
+            }
+            AgentAction::CloudUpdateConfig {
+                deployment_id,
+                config,
+                env_file,
+            } => {
+                commands::agent::cloud_update_config(
+                    deployment_id,
+                    config.as_deref(),
+                    env_file.as_deref(),
+                    &ctx,
+                )
+                .await?
             }
             AgentAction::TasksList {
                 org_id,
