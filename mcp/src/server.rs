@@ -1434,6 +1434,12 @@ pub struct CloudAgentRunsParams {
     /// Filter by compute backend
     #[serde(default)]
     pub compute_backend: Option<String>,
+    /// Filter by run source (api, cli, scheduler, ui, system, unknown)
+    #[serde(default)]
+    pub source: Option<String>,
+    /// Filter by artifact existence
+    #[serde(default)]
+    pub has_artifacts: Option<bool>,
     /// Filter runs with started_at >= RFC3339 timestamp
     #[serde(default)]
     pub started_after: Option<String>,
@@ -1459,6 +1465,12 @@ pub struct CloudAllRunsParams {
     /// Filter by compute backend
     #[serde(default)]
     pub compute_backend: Option<String>,
+    /// Filter by run source (api, cli, scheduler, ui, system, unknown)
+    #[serde(default)]
+    pub source: Option<String>,
+    /// Filter by artifact existence
+    #[serde(default)]
+    pub has_artifacts: Option<bool>,
     /// Filter runs with started_at >= RFC3339 timestamp
     #[serde(default)]
     pub started_after: Option<String>,
@@ -1474,11 +1486,14 @@ fn default_cloud_runs_limit() -> i64 {
     50
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_cloud_runs_query(
     limit: i64,
     offset: i64,
     status: &[String],
     compute_backend: Option<&str>,
+    source: Option<&str>,
+    has_artifacts: Option<bool>,
     started_after: Option<&str>,
     started_before: Option<&str>,
     q: Option<&str>,
@@ -1495,6 +1510,15 @@ fn build_cloud_runs_query(
         params.push(format!(
             "compute_backend={}",
             urlencoding::encode(compute_backend)
+        ));
+    }
+    if let Some(source) = source.map(str::trim).filter(|v| !v.is_empty()) {
+        params.push(format!("source={}", urlencoding::encode(source)));
+    }
+    if let Some(has_artifacts) = has_artifacts {
+        params.push(format!(
+            "has_artifacts={}",
+            if has_artifacts { "true" } else { "false" }
         ));
     }
     if let Some(started_after) = started_after.map(str::trim).filter(|v| !v.is_empty()) {
@@ -7473,7 +7497,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "List run history for a cloud agent deployment. Supports filters: status, compute_backend, started_after, started_before, and q.",
+        description = "List run history for a cloud agent deployment. Supports filters: status, compute_backend, source, has_artifacts, started_after, started_before, and q.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_cloud_agent_runs(
@@ -7486,6 +7510,8 @@ API endpoint: {endpoint}",
             params.offset,
             &params.status,
             params.compute_backend.as_deref(),
+            params.source.as_deref(),
+            params.has_artifacts,
             params.started_after.as_deref(),
             params.started_before.as_deref(),
             params.q.as_deref(),
@@ -7539,7 +7565,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "List all runs across all cloud agent deployments in the organization. Supports filters: status, compute_backend, started_after, started_before, and q.",
+        description = "List all runs across all cloud agent deployments in the organization. Supports filters: status, compute_backend, source, has_artifacts, started_after, started_before, and q.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_all_cloud_runs(
@@ -7552,6 +7578,8 @@ API endpoint: {endpoint}",
             params.offset,
             &params.status,
             params.compute_backend.as_deref(),
+            params.source.as_deref(),
+            params.has_artifacts,
             params.started_after.as_deref(),
             params.started_before.as_deref(),
             params.q.as_deref(),
