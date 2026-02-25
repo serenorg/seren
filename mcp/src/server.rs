@@ -1419,6 +1419,33 @@ pub struct CloudDeploymentRunParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudAgentRunsParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Maximum runs to return (default 50)
+    #[serde(default = "default_cloud_runs_limit")]
+    pub limit: i64,
+    /// Offset for pagination (default 0)
+    #[serde(default)]
+    pub offset: i64,
+    /// Filter by status (repeat or comma-separate values)
+    #[serde(default)]
+    pub status: Vec<String>,
+    /// Filter by compute backend
+    #[serde(default)]
+    pub compute_backend: Option<String>,
+    /// Filter runs with started_at >= RFC3339 timestamp
+    #[serde(default)]
+    pub started_after: Option<String>,
+    /// Filter runs with started_at <= RFC3339 timestamp
+    #[serde(default)]
+    pub started_before: Option<String>,
+    /// Search query across execution ID/status/output/metadata
+    #[serde(default)]
+    pub q: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CloudAllRunsParams {
     /// Maximum runs to return (default 50)
     #[serde(default = "default_cloud_runs_limit")]
@@ -1426,10 +1453,67 @@ pub struct CloudAllRunsParams {
     /// Offset for pagination (default 0)
     #[serde(default)]
     pub offset: i64,
+    /// Filter by status (repeat or comma-separate values)
+    #[serde(default)]
+    pub status: Vec<String>,
+    /// Filter by compute backend
+    #[serde(default)]
+    pub compute_backend: Option<String>,
+    /// Filter runs with started_at >= RFC3339 timestamp
+    #[serde(default)]
+    pub started_after: Option<String>,
+    /// Filter runs with started_at <= RFC3339 timestamp
+    #[serde(default)]
+    pub started_before: Option<String>,
+    /// Search query across execution ID/status/output/metadata
+    #[serde(default)]
+    pub q: Option<String>,
 }
 
 fn default_cloud_runs_limit() -> i64 {
     50
+}
+
+fn build_cloud_runs_query(
+    limit: i64,
+    offset: i64,
+    status: &[String],
+    compute_backend: Option<&str>,
+    started_after: Option<&str>,
+    started_before: Option<&str>,
+    q: Option<&str>,
+) -> String {
+    let mut params = vec![format!("limit={limit}"), format!("offset={offset}")];
+
+    for status in status {
+        let status = status.trim();
+        if !status.is_empty() {
+            params.push(format!("status={}", urlencoding::encode(status)));
+        }
+    }
+    if let Some(compute_backend) = compute_backend.map(str::trim).filter(|v| !v.is_empty()) {
+        params.push(format!(
+            "compute_backend={}",
+            urlencoding::encode(compute_backend)
+        ));
+    }
+    if let Some(started_after) = started_after.map(str::trim).filter(|v| !v.is_empty()) {
+        params.push(format!(
+            "started_after={}",
+            urlencoding::encode(started_after)
+        ));
+    }
+    if let Some(started_before) = started_before.map(str::trim).filter(|v| !v.is_empty()) {
+        params.push(format!(
+            "started_before={}",
+            urlencoding::encode(started_before)
+        ));
+    }
+    if let Some(q) = q.map(str::trim).filter(|v| !v.is_empty()) {
+        params.push(format!("q={}", urlencoding::encode(q)));
+    }
+
+    params.join("&")
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -7389,17 +7473,26 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "List run history for a cloud agent deployment. Returns run events with status, duration, cost, and timestamps.",
+        description = "List run history for a cloud agent deployment. Supports filters: status, compute_backend, started_after, started_before, and q.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_cloud_agent_runs(
         &self,
-        Parameters(params): Parameters<CloudDeploymentIdParams>,
+        Parameters(params): Parameters<CloudAgentRunsParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        let query = build_cloud_runs_query(
+            params.limit,
+            params.offset,
+            &params.status,
+            params.compute_backend.as_deref(),
+            params.started_after.as_deref(),
+            params.started_before.as_deref(),
+            params.q.as_deref(),
+        );
         let url = format!(
-            "{}/publishers/seren-cloud/agents/{}/runs",
-            self.api_base_url, params.deployment_id
+            "{}/publishers/seren-cloud/agents/{}/runs?{}",
+            self.api_base_url, params.deployment_id, query
         );
         let result = self
             .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
@@ -7427,7 +7520,26 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "List all runs across all cloud agent deployments in the organization.",
+        description = "Cancel a queued/running run event for a cloud agent deployment.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn cancel_cloud_agent_run(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentRunParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-cloud/agents/{}/runs/{}/cancel",
+            self.api_base_url, params.deployment_id, params.run_id
+        );
+        let result = self
+            .execute_api_json::<()>(&extensions, reqwest::Method::POST, url, None)
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "List all runs across all cloud agent deployments in the organization. Supports filters: status, compute_backend, started_after, started_before, and q.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_all_cloud_runs(
@@ -7435,9 +7547,18 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CloudAllRunsParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        let query = build_cloud_runs_query(
+            params.limit,
+            params.offset,
+            &params.status,
+            params.compute_backend.as_deref(),
+            params.started_after.as_deref(),
+            params.started_before.as_deref(),
+            params.q.as_deref(),
+        );
         let url = format!(
-            "{}/publishers/seren-cloud/runs?limit={}&offset={}",
-            self.api_base_url, params.limit, params.offset
+            "{}/publishers/seren-cloud/runs?{}",
+            self.api_base_url, query
         );
         let result = self
             .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
