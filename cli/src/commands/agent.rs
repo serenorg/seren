@@ -1856,17 +1856,22 @@ pub async fn cloud_logs(deployment_id: Uuid, ctx: &CommandContext) -> Result<()>
 pub struct CloudRunQueryOptions<'a> {
     pub statuses: &'a [String],
     pub compute_backend: Option<&'a str>,
+    pub source: Option<&'a str>,
+    pub has_artifacts: Option<bool>,
     pub started_after: Option<&'a str>,
     pub started_before: Option<&'a str>,
     pub q: Option<&'a str>,
 }
 
 /// Build query parameters for cloud run listing endpoints.
+#[allow(clippy::too_many_arguments)]
 fn build_cloud_runs_query(
     limit: i64,
     offset: i64,
     statuses: &[String],
     compute_backend: Option<&str>,
+    source: Option<&str>,
+    has_artifacts: Option<bool>,
     started_after: Option<&str>,
     started_before: Option<&str>,
     q: Option<&str>,
@@ -1883,6 +1888,15 @@ fn build_cloud_runs_query(
     }
     if let Some(compute_backend) = compute_backend.map(str::trim).filter(|v| !v.is_empty()) {
         serializer.append_pair("compute_backend", compute_backend);
+    }
+    if let Some(source) = source.map(str::trim).filter(|v| !v.is_empty()) {
+        serializer.append_pair("source", source);
+    }
+    if let Some(has_artifacts) = has_artifacts {
+        serializer.append_pair(
+            "has_artifacts",
+            if has_artifacts { "true" } else { "false" },
+        );
     }
     if let Some(started_after) = started_after.map(str::trim).filter(|v| !v.is_empty()) {
         serializer.append_pair("started_after", started_after);
@@ -1910,6 +1924,8 @@ pub async fn cloud_runs(
         offset,
         options.statuses,
         options.compute_backend,
+        options.source,
+        options.has_artifacts,
         options.started_after,
         options.started_before,
         options.q,
@@ -2006,6 +2022,8 @@ pub async fn cloud_all_runs(
         offset,
         options.statuses,
         options.compute_backend,
+        options.source,
+        options.has_artifacts,
         options.started_after,
         options.started_before,
         options.q,

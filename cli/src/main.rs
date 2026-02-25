@@ -613,6 +613,12 @@ enum AgentAction {
         /// Filter by compute backend (aws_container, cloudflare_worker, daytona)
         #[arg(long)]
         compute_backend: Option<String>,
+        /// Filter by run source (api, cli, scheduler, ui, system, unknown)
+        #[arg(long)]
+        source: Option<String>,
+        /// Only include runs that emitted artifacts
+        #[arg(long)]
+        has_artifacts: bool,
         /// Filter runs with started_at >= RFC3339 timestamp
         #[arg(long)]
         started_after: Option<String>,
@@ -644,6 +650,12 @@ enum AgentAction {
         /// Filter by compute backend (aws_container, cloudflare_worker, daytona)
         #[arg(long)]
         compute_backend: Option<String>,
+        /// Filter by run source (api, cli, scheduler, ui, system, unknown)
+        #[arg(long)]
+        source: Option<String>,
+        /// Only include runs that emitted artifacts
+        #[arg(long)]
+        has_artifacts: bool,
         /// Filter runs with started_at >= RFC3339 timestamp
         #[arg(long)]
         started_after: Option<String>,
@@ -2771,6 +2783,8 @@ async fn main() -> anyhow::Result<()> {
                 offset,
                 status,
                 compute_backend,
+                source,
+                has_artifacts,
                 started_after,
                 started_before,
                 q,
@@ -2782,6 +2796,8 @@ async fn main() -> anyhow::Result<()> {
                     commands::agent::CloudRunQueryOptions {
                         statuses: &status,
                         compute_backend: compute_backend.as_deref(),
+                        source: source.as_deref(),
+                        has_artifacts: if has_artifacts { Some(true) } else { None },
                         started_after: started_after.as_deref(),
                         started_before: started_before.as_deref(),
                         q: q.as_deref(),
@@ -2799,6 +2815,8 @@ async fn main() -> anyhow::Result<()> {
                 offset,
                 status,
                 compute_backend,
+                source,
+                has_artifacts,
                 started_after,
                 started_before,
                 q,
@@ -2809,6 +2827,8 @@ async fn main() -> anyhow::Result<()> {
                     commands::agent::CloudRunQueryOptions {
                         statuses: &status,
                         compute_backend: compute_backend.as_deref(),
+                        source: source.as_deref(),
+                        has_artifacts: if has_artifacts { Some(true) } else { None },
                         started_after: started_after.as_deref(),
                         started_before: started_before.as_deref(),
                         q: q.as_deref(),
