@@ -1533,6 +1533,7 @@ const SEREN_AGENT_SLUG: &str = "seren-agent";
 pub struct CloudDeployOptions<'a> {
     pub publisher_slug: Option<&'a str>,
     pub name: Option<&'a str>,
+    pub environment_id: Option<Uuid>,
     pub mode: &'a str,
     pub cron_schedule: Option<&'a str>,
     pub compute_backend: Option<&'a str>,
@@ -1563,6 +1564,7 @@ pub async fn cloud_deploy(
     let CloudDeployOptions {
         publisher_slug,
         name,
+        environment_id,
         mode,
         cron_schedule,
         compute_backend,
@@ -1659,6 +1661,11 @@ pub async fn cloud_deploy(
             "compute_backend 'daytona' currently requires mode 'cron'."
         ));
     }
+    if environment_id.is_some() && runtime_target.compute_backend != "aws_container" {
+        return Err(anyhow::anyhow!(
+            "--environment-id is only supported with compute_backend 'aws_container'."
+        ));
+    }
 
     let mut body = serde_json::json!({
         "name": deploy_name,
@@ -1674,6 +1681,9 @@ pub async fn cloud_deploy(
 
     if let Some(schedule) = cron_schedule {
         body["cron_schedule"] = serde_json::json!(schedule);
+    }
+    if let Some(environment_id) = environment_id {
+        body["environment_id"] = serde_json::json!(environment_id);
     }
     if let Some(req) = requirements_txt {
         body["requirements_txt"] = serde_json::json!(req);
@@ -1725,6 +1735,238 @@ pub async fn cloud_deploy(
         output::print_json(&result)?;
     }
 
+    Ok(())
+}
+
+/// List reusable cloud deployment environments.
+pub async fn cloud_environment_list(ctx: &CommandContext) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/{}/environments",
+        ctx.api_base(),
+        SEREN_CLOUD_SLUG
+    );
+
+    let response = client.get(&url).send().await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Failed: {} - {}", status, body));
+    }
+
+    let result: serde_json::Value = response.json().await?;
+    if let Some(data) = result.get("data").and_then(|v| v.as_array()) {
+        if data.is_empty() {
+            println!("No cloud environments found.");
+            return Ok(());
+        }
+        println!(
+            "{:<38} {:<24} {:<8} {:<48}",
+            "ID", "NAME", "DEFAULT", "IMAGE"
+        );
+        for environment in data {
+            println!(
+                "{:<38} {:<24} {:<8} {:<48}",
+                environment
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("-"),
+                environment
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("-"),
+                environment
+                    .get("is_default")
+                    .and_then(|v| v.as_bool())
+                    .map(|v| if v { "yes" } else { "no" })
+                    .unwrap_or("-"),
+                environment
+                    .get("docker_image")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("-"),
+            );
+        }
+    } else {
+        output::print_json(&result)?;
+    }
+
+    Ok(())
+}
+
+/// Get a single reusable cloud deployment environment.
+pub async fn cloud_environment_get(environment_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/{}/environments/{}",
+        ctx.api_base(),
+        SEREN_CLOUD_SLUG,
+        environment_id
+    );
+
+    let response = client.get(&url).send().await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Failed: {} - {}", status, body));
+    }
+
+    let result: serde_json::Value = response.json().await?;
+    output::print_json(&result)?;
+    Ok(())
+}
+
+pub struct CloudEnvironmentCreateOptions<'a> {
+    pub description: Option<&'a str>,
+    pub setup_commands: &'a [String],
+    pub is_default: bool,
+}
+
+/// Create a reusable cloud deployment environment.
+pub async fn cloud_environment_create(
+    name: &str,
+    docker_image: &str,
+    options: CloudEnvironmentCreateOptions<'_>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/{}/environments",
+        ctx.api_base(),
+        SEREN_CLOUD_SLUG
+    );
+
+    let setup_commands: Vec<String> = options
+        .setup_commands
+        .iter()
+        .map(|command| command.trim())
+        .filter(|command| !command.is_empty())
+        .map(ToOwned::to_owned)
+        .collect();
+    let body = serde_json::json!({
+        "name": name.trim(),
+        "description": options.description.map(str::trim).filter(|value| !value.is_empty()),
+        "docker_image": docker_image.trim(),
+        "setup_commands": setup_commands,
+        "is_default": options.is_default,
+    });
+
+    let response = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Failed: {} - {}", status, body));
+    }
+
+    let result: serde_json::Value = response.json().await?;
+    output::print_json(&result)?;
+    Ok(())
+}
+
+/// Update a reusable cloud deployment environment.
+#[allow(clippy::too_many_arguments)]
+pub async fn cloud_environment_update(
+    environment_id: Uuid,
+    name: Option<&str>,
+    description: Option<&str>,
+    docker_image: Option<&str>,
+    setup_commands: &[String],
+    clear_setup_commands: bool,
+    is_default: Option<bool>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/{}/environments/{}",
+        ctx.api_base(),
+        SEREN_CLOUD_SLUG,
+        environment_id
+    );
+
+    let mut body = serde_json::Map::new();
+    if let Some(name) = name {
+        body.insert("name".to_string(), serde_json::json!(name.trim()));
+    }
+    if let Some(description) = description {
+        body.insert(
+            "description".to_string(),
+            serde_json::json!(description.trim()),
+        );
+    }
+    if let Some(docker_image) = docker_image {
+        body.insert(
+            "docker_image".to_string(),
+            serde_json::json!(docker_image.trim()),
+        );
+    }
+    if clear_setup_commands {
+        body.insert("setup_commands".to_string(), serde_json::json!([]));
+    } else if !setup_commands.is_empty() {
+        let setup_commands: Vec<String> = setup_commands
+            .iter()
+            .map(|command| command.trim())
+            .filter(|command| !command.is_empty())
+            .map(ToOwned::to_owned)
+            .collect();
+        body.insert(
+            "setup_commands".to_string(),
+            serde_json::json!(setup_commands),
+        );
+    }
+    if let Some(is_default) = is_default {
+        body.insert("is_default".to_string(), serde_json::json!(is_default));
+    }
+    if body.is_empty() {
+        return Err(anyhow::anyhow!(
+            "No updates specified. Provide at least one field to update."
+        ));
+    }
+
+    let response = client
+        .patch(&url)
+        .json(&serde_json::Value::Object(body))
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Failed: {} - {}", status, body));
+    }
+
+    let result: serde_json::Value = response.json().await?;
+    output::print_json(&result)?;
+    Ok(())
+}
+
+/// Delete a reusable cloud deployment environment.
+pub async fn cloud_environment_delete(environment_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/{}/environments/{}",
+        ctx.api_base(),
+        SEREN_CLOUD_SLUG,
+        environment_id
+    );
+
+    let response = client.delete(&url).send().await?;
+    if response.status().as_u16() == 204 {
+        println!("{} Environment {} deleted.", "✓".green(), environment_id);
+        return Ok(());
+    }
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Failed: {} - {}", status, body));
+    }
+    let result: serde_json::Value = response.json().await?;
+    output::print_json(&result)?;
     Ok(())
 }
 

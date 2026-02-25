@@ -1380,6 +1380,9 @@ pub struct DeployCloudAgentParams {
     /// Optional deployment publisher ("seren-cloud" default, or "seren-agent" for orchestration)
     #[serde(default)]
     pub publisher: Option<String>,
+    /// Optional reusable execution environment UUID (AWS container backend only)
+    #[serde(default)]
+    pub environment_id: Option<Uuid>,
     /// Deployment mode: "always_on" or "cron"
     pub mode: String,
     /// Cron schedule expression (required if mode is "cron")
@@ -1402,6 +1405,50 @@ pub struct DeployCloudAgentParams {
     /// JSON secrets object (key-value pairs for .env)
     #[serde(default)]
     pub secrets: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudEnvironmentIdParams {
+    /// Environment UUID
+    pub environment_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CreateCloudEnvironmentParams {
+    /// Environment display name
+    pub name: String,
+    /// Docker image reference
+    pub docker_image: String,
+    /// Optional description
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Setup command list executed before agent entrypoint
+    #[serde(default)]
+    pub setup_commands: Option<Vec<String>>,
+    /// Mark this environment as default
+    #[serde(default)]
+    pub is_default: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct UpdateCloudEnvironmentParams {
+    /// Environment UUID
+    pub environment_id: Uuid,
+    /// New display name
+    #[serde(default)]
+    pub name: Option<String>,
+    /// New description
+    #[serde(default)]
+    pub description: Option<String>,
+    /// New Docker image reference
+    #[serde(default)]
+    pub docker_image: Option<String>,
+    /// Replacement setup command list
+    #[serde(default)]
+    pub setup_commands: Option<Vec<String>>,
+    /// Set/unset default environment
+    #[serde(default)]
+    pub is_default: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -7306,6 +7353,7 @@ API endpoint: {endpoint}",
         let body = serde_json::json!({
             "name": params.name,
             "skill_slug": params.skill_slug,
+            "environment_id": params.environment_id,
             "mode": params.mode,
             "compute_backend": params.compute_backend,
             "runtime_kind": params.runtime_kind,
@@ -7319,6 +7367,149 @@ API endpoint: {endpoint}",
             .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body))
             .await?;
         Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "List reusable cloud deployment environments in the current organization.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_cloud_environments(
+        &self,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!("{}/publishers/seren-cloud/environments", self.api_base_url);
+        let result = self
+            .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Get details for a reusable cloud deployment environment.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_cloud_environment(
+        &self,
+        Parameters(params): Parameters<CloudEnvironmentIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-cloud/environments/{}",
+            self.api_base_url, params.environment_id
+        );
+        let result = self
+            .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Create a reusable cloud deployment environment.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn create_cloud_environment(
+        &self,
+        Parameters(params): Parameters<CreateCloudEnvironmentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!("{}/publishers/seren-cloud/environments", self.api_base_url);
+        let body = serde_json::json!({
+            "name": params.name,
+            "description": params.description,
+            "docker_image": params.docker_image,
+            "setup_commands": params.setup_commands,
+            "is_default": params.is_default,
+        });
+        let result = self
+            .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body))
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Update a reusable cloud deployment environment.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn update_cloud_environment(
+        &self,
+        Parameters(params): Parameters<UpdateCloudEnvironmentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-cloud/environments/{}",
+            self.api_base_url, params.environment_id
+        );
+        let body = serde_json::json!({
+            "name": params.name,
+            "description": params.description,
+            "docker_image": params.docker_image,
+            "setup_commands": params.setup_commands,
+            "is_default": params.is_default,
+        });
+        let result = self
+            .execute_api_json(&extensions, reqwest::Method::PATCH, url, Some(&body))
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Delete a reusable cloud deployment environment.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn delete_cloud_environment(
+        &self,
+        Parameters(params): Parameters<CloudEnvironmentIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-cloud/environments/{}",
+            self.api_base_url, params.environment_id
+        );
+
+        let token = self.bearer_token(&extensions)?;
+        let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
+        let http_client = self.build_http_client(&token, &agent_metadata)?;
+
+        let resp = http_client
+            .delete(&url)
+            .send()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        let status = resp.status();
+        if status.as_u16() == 204 {
+            let payload = serde_json::json!({
+                "deleted": true,
+                "environment_id": params.environment_id,
+            });
+            return Ok(CallToolResult::success(vec![json_content(&payload)?]));
+        }
+
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(McpError::internal_error(
+                format!("Seren API request failed: {} - {}", status, body),
+                None,
+            ));
+        }
+
+        let payload = resp
+            .json::<serde_json::Value>()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![json_content(&payload)?]))
     }
 
     #[tool(
