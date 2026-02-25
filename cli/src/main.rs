@@ -607,6 +607,21 @@ enum AgentAction {
         /// Offset for pagination
         #[arg(long, default_value = "0")]
         offset: i64,
+        /// Filter by run status (repeat or comma-separate)
+        #[arg(long, value_delimiter = ',', num_args = 1..)]
+        status: Vec<String>,
+        /// Filter by compute backend (aws_container, cloudflare_worker, daytona)
+        #[arg(long)]
+        compute_backend: Option<String>,
+        /// Filter runs with started_at >= RFC3339 timestamp
+        #[arg(long)]
+        started_after: Option<String>,
+        /// Filter runs with started_at <= RFC3339 timestamp
+        #[arg(long)]
+        started_before: Option<String>,
+        /// Search query across execution ID/status/output/metadata
+        #[arg(long)]
+        q: Option<String>,
     },
     /// Get details of a specific run event
     CloudRunGet {
@@ -623,6 +638,28 @@ enum AgentAction {
         /// Offset for pagination
         #[arg(long, default_value = "0")]
         offset: i64,
+        /// Filter by run status (repeat or comma-separate)
+        #[arg(long, value_delimiter = ',', num_args = 1..)]
+        status: Vec<String>,
+        /// Filter by compute backend (aws_container, cloudflare_worker, daytona)
+        #[arg(long)]
+        compute_backend: Option<String>,
+        /// Filter runs with started_at >= RFC3339 timestamp
+        #[arg(long)]
+        started_after: Option<String>,
+        /// Filter runs with started_at <= RFC3339 timestamp
+        #[arg(long)]
+        started_before: Option<String>,
+        /// Search query across execution ID/status/output/metadata
+        #[arg(long)]
+        q: Option<String>,
+    },
+    /// Cancel a queued/running run event for a cloud deployment
+    CloudRunCancel {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Run event ID (UUID)
+        run_id: Uuid,
     },
     /// Update config and/or secrets for a cloud agent without redeploying
     CloudUpdateConfig {
@@ -2732,14 +2769,58 @@ async fn main() -> anyhow::Result<()> {
                 deployment_id,
                 limit,
                 offset,
-            } => commands::agent::cloud_runs(deployment_id, limit, offset, &ctx).await?,
+                status,
+                compute_backend,
+                started_after,
+                started_before,
+                q,
+            } => {
+                commands::agent::cloud_runs(
+                    deployment_id,
+                    limit,
+                    offset,
+                    commands::agent::CloudRunQueryOptions {
+                        statuses: &status,
+                        compute_backend: compute_backend.as_deref(),
+                        started_after: started_after.as_deref(),
+                        started_before: started_before.as_deref(),
+                        q: q.as_deref(),
+                    },
+                    &ctx,
+                )
+                .await?
+            }
             AgentAction::CloudRunGet {
                 deployment_id,
                 run_id,
             } => commands::agent::cloud_run_get(deployment_id, run_id, &ctx).await?,
-            AgentAction::CloudAllRuns { limit, offset } => {
-                commands::agent::cloud_all_runs(limit, offset, &ctx).await?
+            AgentAction::CloudAllRuns {
+                limit,
+                offset,
+                status,
+                compute_backend,
+                started_after,
+                started_before,
+                q,
+            } => {
+                commands::agent::cloud_all_runs(
+                    limit,
+                    offset,
+                    commands::agent::CloudRunQueryOptions {
+                        statuses: &status,
+                        compute_backend: compute_backend.as_deref(),
+                        started_after: started_after.as_deref(),
+                        started_before: started_before.as_deref(),
+                        q: q.as_deref(),
+                    },
+                    &ctx,
+                )
+                .await?
             }
+            AgentAction::CloudRunCancel {
+                deployment_id,
+                run_id,
+            } => commands::agent::cloud_run_cancel(deployment_id, run_id, &ctx).await?,
             AgentAction::CloudUpdateConfig {
                 deployment_id,
                 config,

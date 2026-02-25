@@ -1852,21 +1852,74 @@ pub async fn cloud_logs(deployment_id: Uuid, ctx: &CommandContext) -> Result<()>
     Ok(())
 }
 
-/// List run history for a cloud agent deployment.
+#[derive(Debug, Clone, Copy)]
+pub struct CloudRunQueryOptions<'a> {
+    pub statuses: &'a [String],
+    pub compute_backend: Option<&'a str>,
+    pub started_after: Option<&'a str>,
+    pub started_before: Option<&'a str>,
+    pub q: Option<&'a str>,
+}
+
+/// Build query parameters for cloud run listing endpoints.
+fn build_cloud_runs_query(
+    limit: i64,
+    offset: i64,
+    statuses: &[String],
+    compute_backend: Option<&str>,
+    started_after: Option<&str>,
+    started_before: Option<&str>,
+    q: Option<&str>,
+) -> String {
+    let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+    serializer.append_pair("limit", &limit.to_string());
+    serializer.append_pair("offset", &offset.to_string());
+
+    for status in statuses {
+        let status = status.trim();
+        if !status.is_empty() {
+            serializer.append_pair("status", status);
+        }
+    }
+    if let Some(compute_backend) = compute_backend.map(str::trim).filter(|v| !v.is_empty()) {
+        serializer.append_pair("compute_backend", compute_backend);
+    }
+    if let Some(started_after) = started_after.map(str::trim).filter(|v| !v.is_empty()) {
+        serializer.append_pair("started_after", started_after);
+    }
+    if let Some(started_before) = started_before.map(str::trim).filter(|v| !v.is_empty()) {
+        serializer.append_pair("started_before", started_before);
+    }
+    if let Some(q) = q.map(str::trim).filter(|v| !v.is_empty()) {
+        serializer.append_pair("q", q);
+    }
+
+    serializer.finish()
+}
+
 pub async fn cloud_runs(
     deployment_id: Uuid,
     limit: i64,
     offset: i64,
+    options: CloudRunQueryOptions<'_>,
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.http_client().await?;
+    let query = build_cloud_runs_query(
+        limit,
+        offset,
+        options.statuses,
+        options.compute_backend,
+        options.started_after,
+        options.started_before,
+        options.q,
+    );
     let url = format!(
-        "{}/publishers/{}/agents/{}/runs?limit={}&offset={}",
+        "{}/publishers/{}/agents/{}/runs?{}",
         ctx.api_base(),
         SEREN_CLOUD_SLUG,
         deployment_id,
-        limit,
-        offset
+        query,
     );
 
     let response = client.get(&url).send().await?;
@@ -1941,14 +1994,27 @@ pub async fn cloud_run_get(deployment_id: Uuid, run_id: Uuid, ctx: &CommandConte
 }
 
 /// List all runs across all cloud agent deployments.
-pub async fn cloud_all_runs(limit: i64, offset: i64, ctx: &CommandContext) -> Result<()> {
+pub async fn cloud_all_runs(
+    limit: i64,
+    offset: i64,
+    options: CloudRunQueryOptions<'_>,
+    ctx: &CommandContext,
+) -> Result<()> {
     let client = ctx.http_client().await?;
+    let query = build_cloud_runs_query(
+        limit,
+        offset,
+        options.statuses,
+        options.compute_backend,
+        options.started_after,
+        options.started_before,
+        options.q,
+    );
     let url = format!(
-        "{}/publishers/{}/runs?limit={}&offset={}",
+        "{}/publishers/{}/runs?{}",
         ctx.api_base(),
         SEREN_CLOUD_SLUG,
-        limit,
-        offset
+        query
     );
 
     let response = client.get(&url).send().await?;
@@ -2000,6 +2066,33 @@ pub async fn cloud_all_runs(limit: i64, offset: i64, ctx: &CommandContext) -> Re
         output::print_json(&result)?;
     }
 
+    Ok(())
+}
+
+/// Cancel a queued/running run event.
+pub async fn cloud_run_cancel(
+    deployment_id: Uuid,
+    run_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/{}/agents/{}/runs/{}/cancel",
+        ctx.api_base(),
+        SEREN_CLOUD_SLUG,
+        deployment_id,
+        run_id
+    );
+
+    let response = client.post(&url).send().await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Failed: {} - {}", status, body));
+    }
+
+    let result: serde_json::Value = response.json().await?;
+    output::print_json(&result)?;
     Ok(())
 }
 
