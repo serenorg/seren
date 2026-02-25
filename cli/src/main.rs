@@ -546,6 +546,9 @@ enum AgentAction {
         /// Deployment name
         #[arg(long)]
         name: Option<String>,
+        /// Optional reusable execution environment ID (AWS container backend only)
+        #[arg(long)]
+        environment_id: Option<Uuid>,
         /// Deployment mode: "always-on" or "cron"
         #[arg(long, default_value = "always-on")]
         mode: String,
@@ -564,6 +567,59 @@ enum AgentAction {
         /// Path to .env secrets file
         #[arg(long, name = "env")]
         env_file: Option<String>,
+    },
+    /// List reusable cloud deployment environments
+    CloudEnvironmentList,
+    /// Get a reusable cloud deployment environment
+    CloudEnvironmentGet {
+        /// Environment ID (UUID)
+        environment_id: Uuid,
+    },
+    /// Create a reusable cloud deployment environment
+    CloudEnvironmentCreate {
+        /// Environment display name
+        #[arg(long)]
+        name: String,
+        /// Docker image reference
+        #[arg(long)]
+        docker_image: String,
+        /// Optional description
+        #[arg(long)]
+        description: Option<String>,
+        /// Setup command to run before agent start (repeatable)
+        #[arg(long = "setup-command")]
+        setup_commands: Vec<String>,
+        /// Mark as default environment for the organization
+        #[arg(long, default_value_t = false)]
+        is_default: bool,
+    },
+    /// Update a reusable cloud deployment environment
+    CloudEnvironmentUpdate {
+        /// Environment ID (UUID)
+        environment_id: Uuid,
+        /// New environment name
+        #[arg(long)]
+        name: Option<String>,
+        /// New description
+        #[arg(long)]
+        description: Option<String>,
+        /// New Docker image reference
+        #[arg(long)]
+        docker_image: Option<String>,
+        /// Setup command list replacement (repeatable)
+        #[arg(long = "setup-command")]
+        setup_commands: Vec<String>,
+        /// Clear setup commands to an empty list
+        #[arg(long)]
+        clear_setup_commands: bool,
+        /// Set/unset default environment
+        #[arg(long)]
+        is_default: Option<bool>,
+    },
+    /// Delete a reusable cloud deployment environment
+    CloudEnvironmentDelete {
+        /// Environment ID (UUID)
+        environment_id: Uuid,
     },
     /// List cloud agent deployments
     CloudList,
@@ -2735,6 +2791,7 @@ async fn main() -> anyhow::Result<()> {
                 path,
                 publisher,
                 name,
+                environment_id,
                 mode,
                 cron_schedule,
                 compute_backend,
@@ -2747,6 +2804,7 @@ async fn main() -> anyhow::Result<()> {
                     commands::agent::CloudDeployOptions {
                         publisher_slug: Some(&publisher),
                         name: name.as_deref(),
+                        environment_id,
                         mode: &mode,
                         cron_schedule: cron_schedule.as_deref(),
                         compute_backend: compute_backend.as_deref(),
@@ -2757,6 +2815,55 @@ async fn main() -> anyhow::Result<()> {
                     &ctx,
                 )
                 .await?
+            }
+            AgentAction::CloudEnvironmentList => {
+                commands::agent::cloud_environment_list(&ctx).await?
+            }
+            AgentAction::CloudEnvironmentGet { environment_id } => {
+                commands::agent::cloud_environment_get(environment_id, &ctx).await?
+            }
+            AgentAction::CloudEnvironmentCreate {
+                name,
+                docker_image,
+                description,
+                setup_commands,
+                is_default,
+            } => {
+                commands::agent::cloud_environment_create(
+                    &name,
+                    &docker_image,
+                    commands::agent::CloudEnvironmentCreateOptions {
+                        description: description.as_deref(),
+                        setup_commands: &setup_commands,
+                        is_default,
+                    },
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::CloudEnvironmentUpdate {
+                environment_id,
+                name,
+                description,
+                docker_image,
+                setup_commands,
+                clear_setup_commands,
+                is_default,
+            } => {
+                commands::agent::cloud_environment_update(
+                    environment_id,
+                    name.as_deref(),
+                    description.as_deref(),
+                    docker_image.as_deref(),
+                    &setup_commands,
+                    clear_setup_commands,
+                    is_default,
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::CloudEnvironmentDelete { environment_id } => {
+                commands::agent::cloud_environment_delete(environment_id, &ctx).await?
             }
             AgentAction::CloudList => commands::agent::cloud_list(&ctx).await?,
             AgentAction::CloudStatus { deployment_id } => {
