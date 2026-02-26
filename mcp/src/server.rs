@@ -7582,7 +7582,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Trigger a one-shot run of a cloud agent. Creates a K8s Job that runs the agent once.",
+        description = "Trigger a run for a cloud agent. For always_on deployments this proxies the request to the running service; for cron/ephemeral deployments this enqueues a one-shot execution.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn run_cloud_agent(

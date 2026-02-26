@@ -638,7 +638,7 @@ enum AgentAction {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
     },
-    /// Trigger a one-shot run of a cloud agent
+    /// Trigger a run for a cloud agent (always_on proxies request; cron/daytona enqueue one-shot execution)
     CloudRun {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
