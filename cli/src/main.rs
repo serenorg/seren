@@ -642,6 +642,15 @@ enum AgentAction {
     CloudRun {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
+        /// Optional run message payload (recommended for llm orchestrated deployments)
+        #[arg(long)]
+        message: Option<String>,
+        /// Optional raw JSON request body to forward to the deployment
+        #[arg(long = "json")]
+        json_body: Option<String>,
+        /// Optional path to a JSON file to forward as the request body
+        #[arg(long = "json-file")]
+        json_file: Option<String>,
     },
     /// Get logs from a running cloud agent
     CloudLogs {
@@ -2875,8 +2884,20 @@ async fn main() -> anyhow::Result<()> {
             AgentAction::CloudStop { deployment_id } => {
                 commands::agent::cloud_stop(deployment_id, &ctx).await?
             }
-            AgentAction::CloudRun { deployment_id } => {
-                commands::agent::cloud_run(deployment_id, &ctx).await?
+            AgentAction::CloudRun {
+                deployment_id,
+                message,
+                json_body,
+                json_file,
+            } => {
+                commands::agent::cloud_run(
+                    deployment_id,
+                    message.as_deref(),
+                    json_body.as_deref(),
+                    json_file.as_deref(),
+                    &ctx,
+                )
+                .await?
             }
             AgentAction::CloudLogs { deployment_id } => {
                 commands::agent::cloud_logs(deployment_id, &ctx).await?

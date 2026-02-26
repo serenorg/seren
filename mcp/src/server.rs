@@ -1458,6 +1458,18 @@ pub struct CloudDeploymentIdParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudRunAgentParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Optional message payload for orchestrated/always_on agents
+    #[serde(default)]
+    pub message: Option<String>,
+    /// Optional full JSON request body forwarded to the run endpoint
+    #[serde(default)]
+    pub payload: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CloudDeploymentRunParams {
     /// Deployment UUID
     pub deployment_id: Uuid,
@@ -1531,6 +1543,37 @@ pub struct CloudAllRunsParams {
 
 fn default_cloud_runs_limit() -> i64 {
     50
+}
+
+fn build_cloud_run_body(
+    message: Option<&str>,
+    payload: Option<&serde_json::Value>,
+) -> Result<Option<serde_json::Value>, McpError> {
+    let mut body = payload.cloned();
+
+    if let Some(message) = message {
+        let message = message.trim();
+        if message.is_empty() {
+            return Err(McpError::invalid_params("message must not be empty", None));
+        }
+
+        match body.as_mut() {
+            Some(serde_json::Value::Object(map)) => {
+                map.insert("message".to_string(), serde_json::json!(message));
+            }
+            Some(_) => {
+                return Err(McpError::invalid_params(
+                    "payload must be a JSON object when message is provided",
+                    None,
+                ));
+            }
+            None => {
+                body = Some(serde_json::json!({ "message": message }));
+            }
+        }
+    }
+
+    Ok(body)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -7587,15 +7630,16 @@ API endpoint: {endpoint}",
     )]
     async fn run_cloud_agent(
         &self,
-        Parameters(params): Parameters<CloudDeploymentIdParams>,
+        Parameters(params): Parameters<CloudRunAgentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let url = format!(
             "{}/publishers/seren-cloud/agents/{}/runs",
             self.api_base_url, params.deployment_id
         );
+        let body = build_cloud_run_body(params.message.as_deref(), params.payload.as_ref())?;
         let result = self
-            .execute_api_json::<()>(&extensions, reqwest::Method::POST, url, None)
+            .execute_api_json(&extensions, reqwest::Method::POST, url, body.as_ref())
             .await?;
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
