@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{fs, path::Path};
 
 use anyhow::Result;
 use base64::Engine;
@@ -2038,17 +2038,76 @@ pub async fn cloud_status(deployment_id: Uuid, ctx: &CommandContext) -> Result<(
 
 /// Start a stopped always-on cloud agent.
 pub async fn cloud_start(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
-    cloud_action(deployment_id, "start", ctx).await
+    cloud_action(deployment_id, "start", None, ctx).await
 }
 
 /// Stop a running always-on cloud agent.
 pub async fn cloud_stop(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
-    cloud_action(deployment_id, "stop", ctx).await
+    cloud_action(deployment_id, "stop", None, ctx).await
+}
+
+fn build_cloud_run_payload(
+    message: Option<&str>,
+    json_body: Option<&str>,
+    json_file: Option<&str>,
+) -> Result<Option<serde_json::Value>> {
+    if json_body.is_some() && json_file.is_some() {
+        return Err(anyhow::anyhow!(
+            "Provide only one of --json or --json-file for cloud-run."
+        ));
+    }
+
+    let mut payload = if let Some(raw_json) = json_body.map(str::trim).filter(|v| !v.is_empty()) {
+        Some(
+            serde_json::from_str::<serde_json::Value>(raw_json)
+                .map_err(|e| anyhow::anyhow!("Invalid --json payload: {}", e))?,
+        )
+    } else if let Some(json_file) = json_file.map(str::trim).filter(|v| !v.is_empty()) {
+        let raw_json = fs::read_to_string(json_file)
+            .map_err(|e| anyhow::anyhow!("Failed to read --json-file '{}': {}", json_file, e))?;
+        Some(
+            serde_json::from_str::<serde_json::Value>(&raw_json).map_err(|e| {
+                anyhow::anyhow!("Invalid JSON in --json-file '{}': {}", json_file, e)
+            })?,
+        )
+    } else {
+        None
+    };
+
+    if let Some(message) = message {
+        let message = message.trim();
+        if message.is_empty() {
+            return Err(anyhow::anyhow!("--message cannot be empty."));
+        }
+
+        match payload.as_mut() {
+            Some(serde_json::Value::Object(map)) => {
+                map.insert("message".to_string(), serde_json::json!(message));
+            }
+            Some(_) => {
+                return Err(anyhow::anyhow!(
+                    "When --message is provided, --json/--json-file must be a JSON object."
+                ));
+            }
+            None => {
+                payload = Some(serde_json::json!({ "message": message }));
+            }
+        }
+    }
+
+    Ok(payload)
 }
 
 /// Trigger a one-shot run of a cloud agent.
-pub async fn cloud_run(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
-    cloud_action(deployment_id, "runs", ctx).await
+pub async fn cloud_run(
+    deployment_id: Uuid,
+    message: Option<&str>,
+    json_body: Option<&str>,
+    json_file: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let payload = build_cloud_run_payload(message, json_body, json_file)?;
+    cloud_action(deployment_id, "runs", payload.as_ref(), ctx).await
 }
 
 /// Destroy a cloud agent deployment.
@@ -2422,7 +2481,12 @@ pub async fn cloud_update_config(
     Ok(())
 }
 
-async fn cloud_action(deployment_id: Uuid, action: &str, ctx: &CommandContext) -> Result<()> {
+async fn cloud_action(
+    deployment_id: Uuid,
+    action: &str,
+    body: Option<&serde_json::Value>,
+    ctx: &CommandContext,
+) -> Result<()> {
     let client = ctx.http_client().await?;
     let url = format!(
         "{}/publishers/{}/agents/{}/{}",
@@ -2432,7 +2496,12 @@ async fn cloud_action(deployment_id: Uuid, action: &str, ctx: &CommandContext) -
         action
     );
 
-    let response = client.post(&url).send().await?;
+    let mut request = client.post(&url);
+    if let Some(body) = body {
+        request = request.json(body);
+    }
+
+    let response = request.send().await?;
     let status = response.status();
     if !status.is_success() && status.as_u16() != 202 {
         let body = response.text().await.unwrap_or_default();
