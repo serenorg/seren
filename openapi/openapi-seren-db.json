@@ -1,0 +1,4480 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Seren DB",
+    "description": "Create, manage, and query SerenDB serverless Postgres databases.",
+    "contact": {
+      "name": "SerenDB Team"
+    },
+    "license": {
+      "name": "UNLICENSED",
+      "identifier": "UNLICENSED"
+    },
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/publishers/seren-db/projects": {
+      "get": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "List all projects in the organization.",
+        "operationId": "seren_db_list_projects",
+        "responses": {
+          "200": {
+            "description": "Projects listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_Project"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Create a new SerenDB project.",
+        "operationId": "seren_db_create_project",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProjectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Project created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ProjectCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-db/projects/{id}": {
+      "get": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Get a project by ID.",
+        "operationId": "seren_db_get_project",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Project"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Delete a project.",
+        "operationId": "seren_db_delete_project",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Value"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Update a project.",
+        "operationId": "seren_db_update_project",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Project updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Project"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-db/projects/{id}/branches": {
+      "get": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "List all branches in a project.",
+        "operationId": "seren_db_list_branches",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Branches listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_Branch"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Create a new branch in a project.",
+        "operationId": "seren_db_create_branch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBranchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Branch created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_BranchCreationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-db/projects/{id}/branches/{bid}": {
+      "get": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Get a specific branch.",
+        "operationId": "seren_db_get_branch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Branch retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Branch"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Delete a branch.",
+        "operationId": "seren_db_delete_branch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Branch deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Value"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Rename a branch.",
+        "operationId": "seren_db_rename_branch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameBranchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Branch renamed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Branch"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-db/projects/{id}/branches/{bid}/databases": {
+      "get": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "List all databases on a branch.",
+        "operationId": "seren_db_list_databases",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Databases listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_DatabaseWithOwner"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Create a new database on a branch.",
+        "operationId": "seren_db_create_database",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDatabaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Database created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_DatabaseCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-db/projects/{id}/branches/{bid}/databases/{did}": {
+      "get": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Get a specific database.",
+        "operationId": "seren_db_get_database",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "did",
+            "in": "path",
+            "description": "Database ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Database retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_DatabaseWithOwner"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Update a database (change owner).",
+        "operationId": "seren_db_update_database",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "did",
+            "in": "path",
+            "description": "Database ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDatabaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Database updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_DatabaseWithOwner"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Delete a database.",
+        "operationId": "seren_db_delete_database",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "did",
+            "in": "path",
+            "description": "Database ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Database deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Value"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-db/projects/{id}/branches/{bid}/endpoints": {
+      "get": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "List all endpoints on a branch.",
+        "operationId": "seren_db_list_endpoints",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Endpoints listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_Endpoint"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Create a new compute endpoint on a branch.",
+        "operationId": "seren_db_create_endpoint",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEndpointRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Endpoint created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_EndpointCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-db/projects/{id}/branches/{bid}/endpoints/{eid}": {
+      "delete": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Delete an endpoint.",
+        "operationId": "seren_db_delete_endpoint",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "eid",
+            "in": "path",
+            "description": "Endpoint ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Endpoint deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Value"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Update an endpoint's settings.",
+        "operationId": "seren_db_update_endpoint",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "eid",
+            "in": "path",
+            "description": "Endpoint ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEndpointRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Endpoint updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Endpoint"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-db/projects/{id}/branches/{bid}/endpoints/{eid}/start": {
+      "post": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Start a suspended endpoint.",
+        "operationId": "seren_db_start_endpoint",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "eid",
+            "in": "path",
+            "description": "Endpoint ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Endpoint started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_EndpointStatusInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-db/projects/{id}/branches/{bid}/endpoints/{eid}/stop": {
+      "post": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Stop (suspend) an endpoint.",
+        "operationId": "seren_db_stop_endpoint",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "eid",
+            "in": "path",
+            "description": "Endpoint ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Endpoint stopped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_EndpointStatusInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-db/projects/{id}/branches/{bid}/roles": {
+      "get": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "List all roles on a branch.",
+        "operationId": "seren_db_list_roles",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Roles listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_RoleInfo"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Create a new role on a branch.",
+        "operationId": "seren_db_create_role",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Role created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_RoleCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-db/projects/{id}/branches/{bid}/roles/{rid}": {
+      "delete": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Delete a role from a branch.",
+        "operationId": "seren_db_delete_role",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "description": "Role ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Value"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-db/projects/{id}/branches/{bid}/roles/{rid}/reset_password": {
+      "post": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Reset a role's password.",
+        "operationId": "seren_db_reset_role_password",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "description": "Role ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Password reset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_RolePasswordReset"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-db/projects/{id}/branches/{bid}/set-default": {
+      "post": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Set a branch as the default for its project.",
+        "operationId": "seren_db_set_default_branch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Branch set as default",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Value"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-db/projects/{id}/connection_uri": {
+      "get": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Get connection URI for a project.",
+        "operationId": "seren_db_connection_uri",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "branch_id",
+            "in": "query",
+            "description": "Branch ID to target (defaults to project's default branch)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "endpoint_id",
+            "in": "query",
+            "description": "Endpoint ID to target (defaults to first endpoint in branch)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "database_name",
+            "in": "query",
+            "description": "Database name override (currently ignored)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "role_name",
+            "in": "query",
+            "description": "Role name override (currently ignored)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pooled",
+            "in": "query",
+            "description": "Return pooled connection (currently ignored)",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Connection URI retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ProjectConnectionUri"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-db/query": {
+      "post": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Execute a SQL query against a SerenDB database.",
+        "operationId": "seren_db_query",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Query executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_QueryResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request / query error"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Branch": {
+        "type": "object",
+        "description": "Branch represents a SerenDB timeline (database copy)",
+        "required": [
+          "id",
+          "name",
+          "project_id",
+          "timeline_id",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "protected",
+          "archived"
+        ],
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deleted_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "deleted_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "init_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_default": {
+            "type": "boolean",
+            "description": "Computed field: true if this branch is the project's default branch.\nNot stored in DB - computed by comparing branch.id with project.default_branch_id."
+          },
+          "last_reset_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "logical_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent_branch_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "parent_lsn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parent_timestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "physical_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "protected": {
+            "type": "boolean"
+          },
+          "timeline_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "BranchCreated": {
+        "type": "object",
+        "description": "Response after creating a branch",
+        "required": [
+          "id",
+          "name",
+          "project_id",
+          "timeline_id",
+          "created_at",
+          "protected",
+          "archived"
+        ],
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "init_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_default": {
+            "type": "boolean",
+            "description": "True if this is the project's default branch"
+          },
+          "logical_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent_branch_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "parent_lsn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parent_timestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "physical_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "protected": {
+            "type": "boolean"
+          },
+          "timeline_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "BranchCreationResult": {
+        "type": "object",
+        "description": "Response wrapper returned when branch creation provisions auxiliary resources",
+        "required": [
+          "branch"
+        ],
+        "properties": {
+          "branch": {
+            "$ref": "#/components/schemas/BranchCreated"
+          },
+          "endpoint_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Error message if endpoint provisioning failed.\nWhen present, the branch was created successfully but the endpoint failed.\nThe UI should show a \"Retry\" or \"Add Compute\" button."
+          },
+          "endpoints": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/EndpointCreated"
+            }
+          }
+        }
+      },
+      "BranchEndpointRequest": {
+        "type": "object",
+        "properties": {
+          "endpoint_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "settings": {}
+        }
+      },
+      "CreateBranchRequest": {
+        "type": "object",
+        "description": "Request to create a new branch",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "add_endpoint": {
+            "type": "boolean",
+            "description": "Whether to automatically create an endpoint for this branch.\nDefaults to true.\nSet to false to create a branch without compute (equivalent to --no-compute)."
+          },
+          "archived": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BranchEndpointRequest"
+            }
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Optional expiration timestamp for auto-deletion of this branch.\nUseful for temporary dev/preview branches."
+          },
+          "init_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent_branch_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "parent_lsn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parent_timestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "protected": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "schema_only": {
+            "type": "boolean",
+            "description": "Create branch with schema only (no data).\nWhen true, only the database schema is copied, not the data."
+          }
+        }
+      },
+      "CreateDatabaseRequest": {
+        "type": "object",
+        "description": "Request to create a new database",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "owner_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CreateEndpointRequest": {
+        "type": "object",
+        "description": "Request to create a new endpoint",
+        "properties": {
+          "autoscaling_max": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "autoscaling_min": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "compute_unit": {
+            "type": "string"
+          },
+          "endpoint_type": {
+            "$ref": "#/components/schemas/EndpointType",
+            "description": "Type of endpoint: read_write (default) or read_only (replica)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Optional name for the endpoint. If not provided, a name will be auto-generated."
+          },
+          "pooler_enabled": {
+            "type": "boolean"
+          },
+          "pooler_mode": {
+            "$ref": "#/components/schemas/PoolerMode"
+          },
+          "suspend_timeout_seconds": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "CreateProjectRequest": {
+        "type": "object",
+        "description": "Request to create a new project",
+        "required": [
+          "name",
+          "region"
+        ],
+        "properties": {
+          "block_public_connections": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "block_vpc_connections": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "compute_unit_max": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "compute_unit_min": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "enable_logical_replication": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Enable logical replication for this project. Sets wal_level=logical for all compute endpoints.\nOnce enabled, this cannot be disabled."
+          },
+          "hipaa": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "protected_branches_only": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "region": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateRoleRequest": {
+        "type": "object",
+        "description": "Request to create a new role",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "DataResponse_Branch": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Branch represents a SerenDB timeline (database copy)",
+            "required": [
+              "id",
+              "name",
+              "project_id",
+              "timeline_id",
+              "created_by",
+              "created_at",
+              "updated_at",
+              "protected",
+              "archived"
+            ],
+            "properties": {
+              "archived": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "created_by": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "deleted_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "deleted_by": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "expires_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "init_source": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "is_default": {
+                "type": "boolean",
+                "description": "Computed field: true if this branch is the project's default branch.\nNot stored in DB - computed by comparing branch.id with project.default_branch_id."
+              },
+              "last_reset_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "logical_size_bytes": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "name": {
+                "type": "string"
+              },
+              "parent_branch_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "parent_lsn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "parent_timestamp": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "physical_size_bytes": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "project_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "protected": {
+                "type": "boolean"
+              },
+              "timeline_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_BranchCreationResult": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Response wrapper returned when branch creation provisions auxiliary resources",
+            "required": [
+              "branch"
+            ],
+            "properties": {
+              "branch": {
+                "$ref": "#/components/schemas/BranchCreated"
+              },
+              "endpoint_error": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Error message if endpoint provisioning failed.\nWhen present, the branch was created successfully but the endpoint failed.\nThe UI should show a \"Retry\" or \"Add Compute\" button."
+              },
+              "endpoints": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "$ref": "#/components/schemas/EndpointCreated"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_DatabaseCreated": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Response after creating a database",
+            "required": [
+              "id",
+              "name",
+              "branch_id",
+              "created_at"
+            ],
+            "properties": {
+              "branch_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "owner_role_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_DatabaseWithOwner": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Database with owner role name included",
+            "required": [
+              "id",
+              "name",
+              "branch_id",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "branch_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "owner_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Endpoint": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Endpoint represents a compute instance for a branch",
+            "required": [
+              "id",
+              "name",
+              "branch_id",
+              "tenant_id",
+              "timeline_id",
+              "endpoint_type",
+              "compute_unit",
+              "autoscaling_min",
+              "autoscaling_max",
+              "suspend_timeout_seconds",
+              "status",
+              "pooler_enabled",
+              "pooler_mode",
+              "created_by",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "active_time_seconds": {
+                "type": "number",
+                "format": "double"
+              },
+              "autoscaling_max": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "autoscaling_min": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "branch_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "compute_unit": {
+                "type": "string"
+              },
+              "connection_count": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "connection_string": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "connection_string_direct": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "connection_string_pooled": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "created_by": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "current_state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endpoint_type": {
+                "type": "string",
+                "description": "Type of endpoint: read_write (primary) or read_only (replica)"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "last_active_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "name": {
+                "type": "string"
+              },
+              "pooler_enabled": {
+                "type": "boolean"
+              },
+              "pooler_mode": {
+                "type": "string"
+              },
+              "primary_endpoint_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Reference to the primary endpoint for read replicas (NULL for read_write endpoints)"
+              },
+              "proxy_host": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": "string"
+              },
+              "suspend_timeout_seconds": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "tenant_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "timeline_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_EndpointCreated": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Response after creating an endpoint",
+            "required": [
+              "id",
+              "name",
+              "branch_id",
+              "compute_unit",
+              "endpoint_type",
+              "status",
+              "created_at"
+            ],
+            "properties": {
+              "branch_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "compute_unit": {
+                "type": "string"
+              },
+              "connection_string": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "connection_string_direct": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "connection_string_pooled": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "endpoint_type": {
+                "type": "string",
+                "description": "Type of endpoint: read_write (primary) or read_only (replica)"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "internal_http_address": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "pg_address": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "primary_endpoint_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Reference to the primary endpoint for read replicas"
+              },
+              "status": {
+                "type": "string"
+              },
+              "warnings": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_EndpointStatusInfo": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Status response used by lifecycle endpoints",
+            "required": [
+              "id",
+              "status",
+              "k8s_ready"
+            ],
+            "properties": {
+              "compute_status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "k8s_ready": {
+                "type": "boolean"
+              },
+              "status": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Project": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Project represents a SerenDB database instance",
+            "required": [
+              "id",
+              "name",
+              "organization_id",
+              "region",
+              "tenant_id",
+              "created_by",
+              "created_at",
+              "updated_at",
+              "block_public_connections",
+              "block_vpc_connections",
+              "hipaa",
+              "protected_branches_only",
+              "compute_unit_min",
+              "compute_unit_max"
+            ],
+            "properties": {
+              "active_time_seconds": {
+                "type": "number",
+                "format": "double"
+              },
+              "block_public_connections": {
+                "type": "boolean"
+              },
+              "block_vpc_connections": {
+                "type": "boolean"
+              },
+              "branch_count": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "compute_last_active_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "compute_unit_max": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "compute_unit_min": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "created_by": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "default_branch_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "default_compute_size_max": {
+                "type": "number",
+                "format": "float"
+              },
+              "default_compute_size_min": {
+                "type": "number",
+                "format": "float"
+              },
+              "deleted_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "deleted_by": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "enable_logical_replication": {
+                "type": "boolean"
+              },
+              "hipaa": {
+                "type": "boolean"
+              },
+              "history_retention_seconds": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "is_service_project": {
+                "type": "boolean",
+                "description": "Whether this is a service project (hidden from normal listings, contains seren_* databases)"
+              },
+              "name": {
+                "type": "string"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "postgres_version": {
+                "type": "string"
+              },
+              "protected_branches_only": {
+                "type": "boolean"
+              },
+              "region": {
+                "type": "string"
+              },
+              "storage_bytes": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "tenant_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ProjectConnectionUri": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "uri"
+            ],
+            "properties": {
+              "uri": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ProjectCreated": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Response after creating a project",
+            "required": [
+              "id",
+              "name",
+              "organization_id",
+              "region",
+              "tenant_id",
+              "created_at",
+              "block_public_connections",
+              "block_vpc_connections",
+              "hipaa",
+              "protected_branches_only",
+              "compute_unit_min",
+              "compute_unit_max"
+            ],
+            "properties": {
+              "block_public_connections": {
+                "type": "boolean"
+              },
+              "block_vpc_connections": {
+                "type": "boolean"
+              },
+              "branch_count": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "compute_unit_max": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "compute_unit_min": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "default_branch_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "The main branch for this project"
+              },
+              "enable_logical_replication": {
+                "type": "boolean",
+                "description": "Whether logical replication is enabled for this project"
+              },
+              "hipaa": {
+                "type": "boolean"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "is_service_project": {
+                "type": "boolean",
+                "description": "Whether this is a service project (hidden from normal listings, contains seren_* databases)"
+              },
+              "name": {
+                "type": "string"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "postgres_version": {
+                "type": "string"
+              },
+              "protected_branches_only": {
+                "type": "boolean"
+              },
+              "region": {
+                "type": "string"
+              },
+              "storage_bytes": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "tenant_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_QueryResult": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Query result returned to the caller.",
+            "required": [
+              "columns",
+              "rows",
+              "row_count"
+            ],
+            "properties": {
+              "columns": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "row_count": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {}
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_RoleCreated": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Response after creating a role",
+            "required": [
+              "id",
+              "name",
+              "branch_id",
+              "password",
+              "created_at"
+            ],
+            "properties": {
+              "branch_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "password": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_RolePasswordReset": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Response after resetting password",
+            "required": [
+              "role_id",
+              "password"
+            ],
+            "properties": {
+              "password": {
+                "type": "string"
+              },
+              "role_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Value": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {},
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_Branch": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Branch represents a SerenDB timeline (database copy)",
+              "required": [
+                "id",
+                "name",
+                "project_id",
+                "timeline_id",
+                "created_by",
+                "created_at",
+                "updated_at",
+                "protected",
+                "archived"
+              ],
+              "properties": {
+                "archived": {
+                  "type": "boolean"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "created_by": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "deleted_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "deleted_by": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "expires_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "init_source": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "is_default": {
+                  "type": "boolean",
+                  "description": "Computed field: true if this branch is the project's default branch.\nNot stored in DB - computed by comparing branch.id with project.default_branch_id."
+                },
+                "last_reset_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "logical_size_bytes": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "parent_branch_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "parent_lsn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "parent_timestamp": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "physical_size_bytes": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "project_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "protected": {
+                  "type": "boolean"
+                },
+                "timeline_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_DatabaseWithOwner": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Database with owner role name included",
+              "required": [
+                "id",
+                "name",
+                "branch_id",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "branch_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "owner_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_Endpoint": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Endpoint represents a compute instance for a branch",
+              "required": [
+                "id",
+                "name",
+                "branch_id",
+                "tenant_id",
+                "timeline_id",
+                "endpoint_type",
+                "compute_unit",
+                "autoscaling_min",
+                "autoscaling_max",
+                "suspend_timeout_seconds",
+                "status",
+                "pooler_enabled",
+                "pooler_mode",
+                "created_by",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "active_time_seconds": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "autoscaling_max": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "autoscaling_min": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "branch_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "compute_unit": {
+                  "type": "string"
+                },
+                "connection_count": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "connection_string": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "connection_string_direct": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "connection_string_pooled": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "created_by": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "current_state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endpoint_type": {
+                  "type": "string",
+                  "description": "Type of endpoint: read_write (primary) or read_only (replica)"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "last_active_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "pooler_enabled": {
+                  "type": "boolean"
+                },
+                "pooler_mode": {
+                  "type": "string"
+                },
+                "primary_endpoint_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid",
+                  "description": "Reference to the primary endpoint for read replicas (NULL for read_write endpoints)"
+                },
+                "proxy_host": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string"
+                },
+                "suspend_timeout_seconds": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "tenant_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "timeline_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_Project": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Project represents a SerenDB database instance",
+              "required": [
+                "id",
+                "name",
+                "organization_id",
+                "region",
+                "tenant_id",
+                "created_by",
+                "created_at",
+                "updated_at",
+                "block_public_connections",
+                "block_vpc_connections",
+                "hipaa",
+                "protected_branches_only",
+                "compute_unit_min",
+                "compute_unit_max"
+              ],
+              "properties": {
+                "active_time_seconds": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "block_public_connections": {
+                  "type": "boolean"
+                },
+                "block_vpc_connections": {
+                  "type": "boolean"
+                },
+                "branch_count": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "compute_last_active_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "compute_unit_max": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "compute_unit_min": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "created_by": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "default_branch_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "default_compute_size_max": {
+                  "type": "number",
+                  "format": "float"
+                },
+                "default_compute_size_min": {
+                  "type": "number",
+                  "format": "float"
+                },
+                "deleted_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "deleted_by": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "enable_logical_replication": {
+                  "type": "boolean"
+                },
+                "hipaa": {
+                  "type": "boolean"
+                },
+                "history_retention_seconds": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "is_service_project": {
+                  "type": "boolean",
+                  "description": "Whether this is a service project (hidden from normal listings, contains seren_* databases)"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "organization_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "postgres_version": {
+                  "type": "string"
+                },
+                "protected_branches_only": {
+                  "type": "boolean"
+                },
+                "region": {
+                  "type": "string"
+                },
+                "storage_bytes": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "tenant_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_RoleInfo": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Public role info (without password hash)",
+              "required": [
+                "id",
+                "name",
+                "branch_id",
+                "protected",
+                "created_at"
+              ],
+              "properties": {
+                "branch_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "protected": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DatabaseCreated": {
+        "type": "object",
+        "description": "Response after creating a database",
+        "required": [
+          "id",
+          "name",
+          "branch_id",
+          "created_at"
+        ],
+        "properties": {
+          "branch_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner_role_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "DatabaseWithOwner": {
+        "type": "object",
+        "description": "Database with owner role name included",
+        "required": [
+          "id",
+          "name",
+          "branch_id",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "branch_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Endpoint": {
+        "type": "object",
+        "description": "Endpoint represents a compute instance for a branch",
+        "required": [
+          "id",
+          "name",
+          "branch_id",
+          "tenant_id",
+          "timeline_id",
+          "endpoint_type",
+          "compute_unit",
+          "autoscaling_min",
+          "autoscaling_max",
+          "suspend_timeout_seconds",
+          "status",
+          "pooler_enabled",
+          "pooler_mode",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "active_time_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "autoscaling_max": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "autoscaling_min": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "branch_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "compute_unit": {
+            "type": "string"
+          },
+          "connection_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "connection_string": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "connection_string_direct": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "connection_string_pooled": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "current_state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endpoint_type": {
+            "type": "string",
+            "description": "Type of endpoint: read_write (primary) or read_only (replica)"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "last_active_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pooler_enabled": {
+            "type": "boolean"
+          },
+          "pooler_mode": {
+            "type": "string"
+          },
+          "primary_endpoint_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Reference to the primary endpoint for read replicas (NULL for read_write endpoints)"
+          },
+          "proxy_host": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "suspend_timeout_seconds": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "timeline_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "EndpointCreated": {
+        "type": "object",
+        "description": "Response after creating an endpoint",
+        "required": [
+          "id",
+          "name",
+          "branch_id",
+          "compute_unit",
+          "endpoint_type",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "branch_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "compute_unit": {
+            "type": "string"
+          },
+          "connection_string": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "connection_string_direct": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "connection_string_pooled": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endpoint_type": {
+            "type": "string",
+            "description": "Type of endpoint: read_write (primary) or read_only (replica)"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "internal_http_address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "pg_address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "primary_endpoint_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Reference to the primary endpoint for read replicas"
+          },
+          "status": {
+            "type": "string"
+          },
+          "warnings": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "EndpointStatusInfo": {
+        "type": "object",
+        "description": "Status response used by lifecycle endpoints",
+        "required": [
+          "id",
+          "status",
+          "k8s_ready"
+        ],
+        "properties": {
+          "compute_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "k8s_ready": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "EndpointType": {
+        "type": "string",
+        "description": "Endpoint type enum - distinguishes between primary and replica endpoints",
+        "enum": [
+          "read_write",
+          "read_only"
+        ]
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "description": "Pagination metadata included in responses.",
+        "required": [
+          "total",
+          "count",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of items in this response"
+          },
+          "has_more": {
+            "type": "boolean",
+            "description": "Whether there are more items after this page"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Maximum items per page"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Offset from start"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total number of items across all pages"
+          }
+        }
+      },
+      "PoolerMode": {
+        "type": "string",
+        "description": "Pooler mode enum",
+        "enum": [
+          "transaction",
+          "session"
+        ]
+      },
+      "Project": {
+        "type": "object",
+        "description": "Project represents a SerenDB database instance",
+        "required": [
+          "id",
+          "name",
+          "organization_id",
+          "region",
+          "tenant_id",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "block_public_connections",
+          "block_vpc_connections",
+          "hipaa",
+          "protected_branches_only",
+          "compute_unit_min",
+          "compute_unit_max"
+        ],
+        "properties": {
+          "active_time_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "block_public_connections": {
+            "type": "boolean"
+          },
+          "block_vpc_connections": {
+            "type": "boolean"
+          },
+          "branch_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "compute_last_active_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "compute_unit_max": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "compute_unit_min": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "default_branch_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "default_compute_size_max": {
+            "type": "number",
+            "format": "float"
+          },
+          "default_compute_size_min": {
+            "type": "number",
+            "format": "float"
+          },
+          "deleted_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "deleted_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "enable_logical_replication": {
+            "type": "boolean"
+          },
+          "hipaa": {
+            "type": "boolean"
+          },
+          "history_retention_seconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_service_project": {
+            "type": "boolean",
+            "description": "Whether this is a service project (hidden from normal listings, contains seren_* databases)"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "postgres_version": {
+            "type": "string"
+          },
+          "protected_branches_only": {
+            "type": "boolean"
+          },
+          "region": {
+            "type": "string"
+          },
+          "storage_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ProjectConnectionUri": {
+        "type": "object",
+        "required": [
+          "uri"
+        ],
+        "properties": {
+          "uri": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectCreated": {
+        "type": "object",
+        "description": "Response after creating a project",
+        "required": [
+          "id",
+          "name",
+          "organization_id",
+          "region",
+          "tenant_id",
+          "created_at",
+          "block_public_connections",
+          "block_vpc_connections",
+          "hipaa",
+          "protected_branches_only",
+          "compute_unit_min",
+          "compute_unit_max"
+        ],
+        "properties": {
+          "block_public_connections": {
+            "type": "boolean"
+          },
+          "block_vpc_connections": {
+            "type": "boolean"
+          },
+          "branch_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "compute_unit_max": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "compute_unit_min": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "default_branch_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The main branch for this project"
+          },
+          "enable_logical_replication": {
+            "type": "boolean",
+            "description": "Whether logical replication is enabled for this project"
+          },
+          "hipaa": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_service_project": {
+            "type": "boolean",
+            "description": "Whether this is a service project (hidden from normal listings, contains seren_* databases)"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "postgres_version": {
+            "type": "string"
+          },
+          "protected_branches_only": {
+            "type": "boolean"
+          },
+          "region": {
+            "type": "string"
+          },
+          "storage_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "QueryRequest": {
+        "type": "object",
+        "description": "JSON body for the query endpoint.",
+        "required": [
+          "query",
+          "project_id"
+        ],
+        "properties": {
+          "branch_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Branch ID (uses default branch if omitted)"
+          },
+          "database": {
+            "type": "string",
+            "description": "Target database name (defaults to \"serendb\")"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Project ID (required)"
+          },
+          "query": {
+            "type": "string",
+            "description": "SQL query to execute"
+          },
+          "read_only": {
+            "type": "boolean",
+            "description": "Execute query in a read-only transaction (defaults to true)."
+          }
+        }
+      },
+      "QueryResult": {
+        "type": "object",
+        "description": "Query result returned to the caller.",
+        "required": [
+          "columns",
+          "rows",
+          "row_count"
+        ],
+        "properties": {
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "row_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {}
+            }
+          }
+        }
+      },
+      "RenameBranchRequest": {
+        "type": "object",
+        "description": "Request to rename a branch",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "RoleCreated": {
+        "type": "object",
+        "description": "Response after creating a role",
+        "required": [
+          "id",
+          "name",
+          "branch_id",
+          "password",
+          "created_at"
+        ],
+        "properties": {
+          "branch_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "RoleInfo": {
+        "type": "object",
+        "description": "Public role info (without password hash)",
+        "required": [
+          "id",
+          "name",
+          "branch_id",
+          "protected",
+          "created_at"
+        ],
+        "properties": {
+          "branch_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "protected": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RolePasswordReset": {
+        "type": "object",
+        "description": "Response after resetting password",
+        "required": [
+          "role_id",
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "role_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "UpdateDatabaseRequest": {
+        "type": "object",
+        "description": "Request to update a database",
+        "properties": {
+          "owner_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateEndpointRequest": {
+        "type": "object",
+        "description": "Request to update an endpoint",
+        "properties": {
+          "autoscaling_max": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "autoscaling_min": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "pooler_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "pooler_mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PoolerMode"
+              }
+            ]
+          },
+          "suspend_timeout_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "UpdateProjectRequest": {
+        "type": "object",
+        "description": "Request to update a project",
+        "properties": {
+          "block_public_connections": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "block_vpc_connections": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "compute_unit_max": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "compute_unit_min": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "enable_logical_replication": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Enable logical replication for this project. Sets wal_level=logical for all compute endpoints.\nOnce enabled, this cannot be disabled. Enabling will suspend all active endpoints."
+          },
+          "hipaa": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "history_retention_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "History retention period in seconds for point-in-time recovery (PITR).\nDetermines how far back you can create branches from historical data.\nDefault is 21600 (6 hours). Minimum is 3600 (1 hour). Maximum is 2592000 (30 days)."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "protected_branches_only": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "seren-db",
+      "description": "SerenDB database management endpoints"
+    }
+  ]
+}

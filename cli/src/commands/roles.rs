@@ -12,7 +12,7 @@ pub async fn list(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Re
         Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     let response = client
-        .list_branch_roles(&project_uuid, &branch_uuid)
+        .seren_db_list_roles(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list roles: {}", e))?;
 
@@ -44,7 +44,7 @@ pub async fn create(
     };
 
     let response = client
-        .create_branch_role(&project_uuid, &branch_uuid, &request)
+        .seren_db_create_role(&project_uuid, &branch_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create role: {}", e))?;
 
@@ -86,7 +86,7 @@ pub async fn delete(
         Uuid::parse_str(role_id).map_err(|e| anyhow::anyhow!("Invalid role ID: {}", e))?;
 
     client
-        .delete_branch_role(&project_uuid, &branch_uuid, &role_uuid)
+        .seren_db_delete_role(&project_uuid, &branch_uuid, &role_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to delete role: {}", e))?;
 

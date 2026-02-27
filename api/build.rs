@@ -67,11 +67,188 @@ fn default_string_schema() -> Schema {
     }
 }
 
+/// Convert OpenAPI 3.1 constructs to 3.0 equivalents for progenitor compatibility:
+/// - `"type": ["string", "null"]` → `"type": "string", "nullable": true`
+/// - `"oneOf": [{"type":"null"}, {...}]` → the non-null variant + `"nullable": true`
+/// - `"items": {}` (any-type) → `"items": {"type": "object"}`
+fn downconvert_31_to_30(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            // Convert array-typed nullables: "type": ["string", "null"]
+            if let Some(serde_json::Value::Array(types)) = map.get("type") {
+                let non_null: Vec<serde_json::Value> = types
+                    .iter()
+                    .filter(|t| t.as_str() != Some("null"))
+                    .cloned()
+                    .collect();
+                let has_null = types.iter().any(|t| t.as_str() == Some("null"));
+                if has_null && non_null.len() == 1 {
+                    map.insert("type".into(), non_null[0].clone());
+                    map.insert("nullable".into(), serde_json::Value::Bool(true));
+                }
+            }
+
+            // Convert oneOf nullable: "oneOf": [{"type":"null"}, {$ref or schema}]
+            if let Some(serde_json::Value::Array(variants)) = map.get("oneOf") {
+                let non_null: Vec<&serde_json::Value> = variants
+                    .iter()
+                    .filter(|v| {
+                        v.as_object()
+                            .and_then(|o| o.get("type"))
+                            .and_then(|t| t.as_str())
+                            != Some("null")
+                    })
+                    .collect();
+                let has_null = variants.len() > non_null.len();
+                if has_null && non_null.len() == 1 {
+                    // Flatten: replace oneOf with the non-null variant's properties
+                    let replacement = non_null[0].clone();
+                    map.remove("oneOf");
+                    map.insert("nullable".into(), serde_json::Value::Bool(true));
+                    if let serde_json::Value::Object(inner) = replacement {
+                        for (k, v) in inner {
+                            map.insert(k, v);
+                        }
+                    }
+                }
+            }
+
+            // Convert empty items (any-type) to object
+            if let Some(serde_json::Value::Object(items)) = map.get("items")
+                && items.is_empty()
+            {
+                map.insert("items".into(), serde_json::json!({"type": "object"}));
+            }
+
+            for v in map.values_mut() {
+                downconvert_31_to_30(v);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                downconvert_31_to_30(v);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Remap publisher-specific response schema names to their monolithic spec equivalents.
+/// This ensures progenitor generates consistent types across old and new endpoints.
+fn remap_publisher_refs(value: &mut serde_json::Value) {
+    static REMAP: &[(&str, &str)] = &[
+        ("DataResponse_Vec_Project", "PaginatedProjectResponse"),
+        ("DataResponse_Project", "ProjectResponse"),
+        ("DataResponse_ProjectCreated", "ProjectCreatedResponse"),
+        (
+            "DataResponse_ProjectConnectionUri",
+            "ProjectConnectionUriDataResponse",
+        ),
+        ("DataResponse_Vec_Branch", "BranchesResponse"),
+        ("DataResponse_Branch", "BranchResponse"),
+        (
+            "DataResponse_BranchCreationResult",
+            "BranchCreationResultResponse",
+        ),
+        (
+            "DataResponse_Vec_DatabaseWithOwner",
+            "DatabasesWithOwnerResponse",
+        ),
+        (
+            "DataResponse_DatabaseWithOwner",
+            "DatabaseWithOwnerResponse",
+        ),
+        ("DataResponse_DatabaseCreated", "DatabaseCreatedResponse"),
+        ("DataResponse_Vec_RoleInfo", "RoleInfosResponse"),
+        ("DataResponse_RoleCreated", "RoleCreatedResponse"),
+        (
+            "DataResponse_RolePasswordReset",
+            "RolePasswordResetResponse",
+        ),
+        ("DataResponse_Vec_Endpoint", "EndpointsResponse"),
+        ("DataResponse_Endpoint", "EndpointResponse"),
+        ("DataResponse_EndpointCreated", "EndpointCreatedResponse"),
+        (
+            "DataResponse_EndpointStatusInfo",
+            "EndpointStatusInfoResponse",
+        ),
+    ];
+
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::String(r)) = map.get_mut("$ref") {
+                for (from, to) in REMAP {
+                    let from_ref = format!("#/components/schemas/{from}");
+                    if r == &from_ref {
+                        *r = format!("#/components/schemas/{to}");
+                        break;
+                    }
+                }
+            }
+            for v in map.values_mut() {
+                remap_publisher_refs(v);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                remap_publisher_refs(v);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Merge a publisher spec's paths and schemas into the main spec JSON.
+fn merge_publisher_spec(main: &mut serde_json::Value, publisher_path: &str) {
+    let Ok(publisher_str) = fs::read_to_string(publisher_path) else {
+        return;
+    };
+    let Ok(mut publisher): Result<serde_json::Value, _> = serde_json::from_str(&publisher_str)
+    else {
+        return;
+    };
+
+    // Convert 3.1 nullable syntax to 3.0 for progenitor compatibility.
+    downconvert_31_to_30(&mut publisher);
+
+    // Remap publisher response types to monolithic spec equivalents.
+    remap_publisher_refs(&mut publisher);
+
+    // Merge paths
+    if let (Some(main_paths), Some(pub_paths)) = (
+        main.get_mut("paths").and_then(|v| v.as_object_mut()),
+        publisher.get("paths").and_then(|v| v.as_object()),
+    ) {
+        for (path, item) in pub_paths {
+            main_paths.entry(path).or_insert_with(|| item.clone());
+        }
+    }
+
+    // Merge component schemas
+    if let (Some(main_schemas), Some(pub_schemas)) = (
+        main.pointer_mut("/components/schemas")
+            .and_then(|v| v.as_object_mut()),
+        publisher
+            .pointer("/components/schemas")
+            .and_then(|v| v.as_object()),
+    ) {
+        for (name, schema) in pub_schemas {
+            main_schemas.entry(name).or_insert_with(|| schema.clone());
+        }
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     println!("cargo:rerun-if-changed=../openapi/openapi.json");
+    println!("cargo:rerun-if-changed=../openapi/openapi-seren-db.json");
+    println!("cargo:rerun-if-changed=../openapi/openapi-seren-cloud.json");
 
     let spec_str = fs::read_to_string("../openapi/openapi.json")?;
     let mut raw_json: serde_json::Value = serde_json::from_str(&spec_str)?;
+
+    // Merge per-publisher specs so the generated client includes publisher endpoints.
+    merge_publisher_spec(&mut raw_json, "../openapi/openapi-seren-db.json");
+    merge_publisher_spec(&mut raw_json, "../openapi/openapi-seren-cloud.json");
 
     // Strip 402/403 response content bodies for progenitor code generation.
     // Progenitor panics with "response_types.len() <= 1" if an operation has

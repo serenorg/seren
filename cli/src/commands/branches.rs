@@ -55,7 +55,7 @@ pub async fn list(project_id: &str, ctx: &CommandContext) -> Result<()> {
         Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
 
     let response = client
-        .list_branches(&project_uuid)
+        .seren_db_list_branches(&project_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list branches: {}", e))?;
 
@@ -76,7 +76,7 @@ pub async fn get(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Res
         Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     let response = client
-        .get_branch(&project_uuid, &branch_uuid)
+        .seren_db_get_branch(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get branch: {}", e))?;
 
@@ -231,14 +231,14 @@ pub async fn create(
     };
 
     let creation_response = client
-        .create_branch(&project_uuid, &request)
+        .seren_db_create_branch(&project_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create branch: {}", e))?;
 
     let creation = creation_response.into_inner().data;
 
     let branch_response = client
-        .get_branch(&project_uuid, &creation.branch.id)
+        .seren_db_get_branch(&project_uuid, &creation.branch.id)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to fetch branch details: {}", e))?;
 
@@ -314,7 +314,7 @@ pub async fn delete(
 
     // Get branch details for confirmation message
     let response = client
-        .get_branch(&project_uuid, &branch_uuid)
+        .seren_db_get_branch(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get branch: {}", e))?;
     let branch = response.into_inner().data;
@@ -341,7 +341,7 @@ pub async fn delete(
     }
 
     client
-        .delete_branch(&project_uuid, &branch_uuid)
+        .seren_db_delete_branch(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to delete branch: {}", e))?;
 
@@ -372,7 +372,7 @@ pub async fn rename(
     };
 
     let response = client
-        .rename_branch(&project_uuid, &branch_uuid, &request)
+        .seren_db_rename_branch(&project_uuid, &branch_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to rename branch: {}", e))?;
 
@@ -392,7 +392,7 @@ pub async fn set_default(project_id: &str, branch_id: &str, ctx: &CommandContext
         Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     client
-        .set_default_branch(&project_uuid, &branch_uuid)
+        .seren_db_set_default_branch(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to set default branch: {}", e))?;
 
@@ -473,7 +473,7 @@ pub async fn set_expiration(
 
     // Fetch the updated branch to display
     let branch_response = client
-        .get_branch(&project_uuid, &branch_uuid)
+        .seren_db_get_branch(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get branch: {}", e))?;
     let branch = branch_response.into_inner().data;

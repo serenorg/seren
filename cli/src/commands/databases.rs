@@ -21,7 +21,7 @@ pub async fn get(
         Uuid::parse_str(database_id).map_err(|e| anyhow::anyhow!("Invalid database ID: {}", e))?;
 
     let response = client
-        .get_database(&project_uuid, &branch_uuid, &database_uuid)
+        .seren_db_get_database(&project_uuid, &branch_uuid, &database_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get database: {}", e))?;
 
@@ -52,7 +52,7 @@ pub async fn list(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Re
         Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     let response = client
-        .list_databases(&project_uuid, &branch_uuid)
+        .seren_db_list_databases(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list databases: {}", e))?;
 
@@ -84,7 +84,7 @@ pub async fn create(
     };
 
     let response = client
-        .create_database(&project_uuid, &branch_uuid, &request)
+        .seren_db_create_database(&project_uuid, &branch_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create database: {}", e))?;
 
@@ -111,7 +111,7 @@ pub async fn delete(
         Uuid::parse_str(database_id).map_err(|e| anyhow::anyhow!("Invalid database ID: {}", e))?;
 
     client
-        .delete_database(&project_uuid, &branch_uuid, &database_uuid)
+        .seren_db_delete_database(&project_uuid, &branch_uuid, &database_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to delete database: {}", e))?;
 

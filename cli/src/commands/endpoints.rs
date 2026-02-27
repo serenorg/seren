@@ -12,7 +12,7 @@ pub async fn list(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Re
         Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     let response = client
-        .list_endpoints(&project_uuid, &branch_uuid)
+        .seren_db_list_endpoints(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list endpoints: {}", e))?;
 
@@ -70,7 +70,7 @@ pub async fn create(
     }
 
     let response = client
-        .create_endpoint(&project_uuid, &branch_uuid, &request)
+        .seren_db_create_endpoint(&project_uuid, &branch_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create endpoint: {}", e))?;
 
@@ -123,7 +123,7 @@ pub async fn update(
     }
 
     let response = client
-        .update_endpoint(&project_uuid, &branch_uuid, &endpoint_uuid, &request)
+        .seren_db_update_endpoint(&project_uuid, &branch_uuid, &endpoint_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to update endpoint: {}", e))?;
 
@@ -150,7 +150,7 @@ pub async fn delete(
         Uuid::parse_str(endpoint_id).map_err(|e| anyhow::anyhow!("Invalid endpoint ID: {}", e))?;
 
     client
-        .delete_endpoint(&project_uuid, &branch_uuid, &endpoint_uuid)
+        .seren_db_delete_endpoint(&project_uuid, &branch_uuid, &endpoint_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to delete endpoint: {}", e))?;
 
@@ -179,7 +179,7 @@ pub async fn suspend(
         Uuid::parse_str(endpoint_id).map_err(|e| anyhow::anyhow!("Invalid endpoint ID: {}", e))?;
 
     client
-        .stop_endpoint(&project_uuid, &branch_uuid, &endpoint_uuid)
+        .seren_db_stop_endpoint(&project_uuid, &branch_uuid, &endpoint_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to suspend endpoint: {}", e))?;
 
@@ -203,7 +203,7 @@ pub async fn start(
         Uuid::parse_str(endpoint_id).map_err(|e| anyhow::anyhow!("Invalid endpoint ID: {}", e))?;
 
     client
-        .start_endpoint(&project_uuid, &branch_uuid, &endpoint_uuid)
+        .seren_db_start_endpoint(&project_uuid, &branch_uuid, &endpoint_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to start endpoint: {}", e))?;
 
