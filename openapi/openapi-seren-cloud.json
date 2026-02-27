@@ -1,0 +1,2668 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Seren Cloud",
+    "description": "Deploy and operate hosted skills through seren-cloud.",
+    "contact": {
+      "name": "SerenDB Team"
+    },
+    "license": {
+      "name": "UNLICENSED",
+      "identifier": "UNLICENSED"
+    },
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/publishers/seren-cloud/deploy": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Deploy a skill to seren-cloud.",
+        "operationId": "seren_cloud_deploy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeployRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Deployment accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-cloud/deployments": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List all deployments for the authenticated organization.",
+        "operationId": "seren_cloud_list_deployments",
+        "responses": {
+          "200": {
+            "description": "Deployments listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_CloudDeploymentSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-cloud/deployments/{id}": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Get details of a specific deployment.",
+        "operationId": "seren_cloud_get_deployment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deployment details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentSummary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Delete a deployment and clean up compute resources.",
+        "operationId": "seren_cloud_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deployment deleted"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Update config and/or secrets without redeploying code.",
+        "operationId": "seren_cloud_update_config",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCloudDeploymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Config updated"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-cloud/deployments/{id}/logs": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Get logs for a deployment.",
+        "operationId": "seren_cloud_logs",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Logs retrieved",
+            "content": {
+              "text/plain": {}
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-cloud/deployments/{id}/runs": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List run events (history) for a deployment.",
+        "operationId": "seren_cloud_deployment_runs",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max runs to return (default: 50, max: 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Pagination offset (default: 0)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Repeat or comma-separate statuses: queued, running, completed, failed, cancelled, timeout, blocked, error",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "compute_backend",
+            "in": "query",
+            "description": "Filter by compute backend (aws_container, cloudflare_worker, daytona)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "description": "Filter by run source (api, cli, scheduler, ui, system, unknown)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "has_artifacts",
+            "in": "query",
+            "description": "Filter runs by artifact existence",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "started_after",
+            "in": "query",
+            "description": "Filter runs started at/after RFC3339 timestamp",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "started_before",
+            "in": "query",
+            "description": "Filter runs started at/before RFC3339 timestamp",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Case-insensitive search across execution_id, status, source, run_name, output, metadata",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Runs listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_CloudDeploymentRunEvent"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Run a one-shot invocation of a deployment.",
+        "operationId": "seren_cloud_run",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Run completed (always_on deployments)"
+          },
+          "202": {
+            "description": "Run triggered"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-cloud/deployments/{id}/runs/{run_id}": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Get a single run event for a deployment.",
+        "operationId": "seren_cloud_deployment_run",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run event details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentRunEvent"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-cloud/deployments/{id}/runs/{run_id}/artifacts": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List artifacts emitted by a specific deployment run.",
+        "operationId": "seren_cloud_deployment_run_artifacts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max artifacts to return (default: 50, max: 200)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Pagination offset (default: 0)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run artifacts listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_CloudDeploymentRunArtifact"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-cloud/deployments/{id}/runs/{run_id}/cancel": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Cancel a queued/running deployment run.",
+        "operationId": "seren_cloud_deployment_run_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run cancellation requested",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentRunEvent"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-cloud/deployments/{id}/runs/{run_id}/stream": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Stream updates for a deployment run as Server-Sent Events.",
+        "operationId": "seren_cloud_deployment_run_stream",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream of run updates",
+            "content": {
+              "text/event-stream": {}
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-cloud/deployments/{id}/start": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Start an always-on deployment (scale to 1 replica).",
+        "operationId": "seren_cloud_start",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deployment started"
+          },
+          "400": {
+            "description": "Bad request (not always_on)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-cloud/deployments/{id}/stop": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Stop an always-on deployment (scale to 0 replicas).",
+        "operationId": "seren_cloud_stop",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deployment stopped"
+          },
+          "400": {
+            "description": "Bad request (not always_on)"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-cloud/environments": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List reusable execution environment profiles.",
+        "operationId": "seren_cloud_list_environments",
+        "responses": {
+          "200": {
+            "description": "Environments listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_CloudDeploymentEnvironment"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Create a reusable execution environment profile.",
+        "operationId": "seren_cloud_create_environment",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCloudDeploymentEnvironmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Environment created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentEnvironment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-cloud/environments/{id}": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Get a reusable execution environment profile.",
+        "operationId": "seren_cloud_get_environment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Environment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Environment details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentEnvironment"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Delete a reusable execution environment profile.",
+        "operationId": "seren_cloud_delete_environment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Environment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Environment deleted"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Update a reusable execution environment profile.",
+        "operationId": "seren_cloud_update_environment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Environment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCloudDeploymentEnvironmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Environment updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentEnvironment"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-cloud/runs": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List all runs across all deployments for the organization.",
+        "operationId": "seren_cloud_runs",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max runs to return (default: 50, max: 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Pagination offset (default: 0)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Repeat or comma-separate statuses: queued, running, completed, failed, cancelled, timeout, blocked, error",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "compute_backend",
+            "in": "query",
+            "description": "Filter by compute backend (aws_container, cloudflare_worker, daytona)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "description": "Filter by run source (api, cli, scheduler, ui, system, unknown)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "has_artifacts",
+            "in": "query",
+            "description": "Filter runs by artifact existence",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "started_after",
+            "in": "query",
+            "description": "Filter runs started at/after RFC3339 timestamp",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "started_before",
+            "in": "query",
+            "description": "Filter runs started at/before RFC3339 timestamp",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Case-insensitive search across execution_id, status, source, run_name, output, metadata",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "All runs listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_CloudDeploymentRunEvent"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-cloud/runs/{run_id}": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Get a single run event by ID (cross-agent).",
+        "operationId": "seren_cloud_run_detail",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run event details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentRunEvent"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-cloud/runs/{run_id}/artifacts": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List artifacts emitted by a run event.",
+        "operationId": "seren_cloud_run_artifacts",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max artifacts to return (default: 50, max: 200)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Pagination offset (default: 0)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run artifacts listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_CloudDeploymentRunArtifact"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-cloud/runs/{run_id}/cancel": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Cancel a queued/running run by ID.",
+        "operationId": "seren_cloud_run_cancel",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run cancellation requested",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentRunEvent"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-cloud/runs/{run_id}/stream": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Stream updates for a run as Server-Sent Events.",
+        "operationId": "seren_cloud_run_stream",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream of run updates",
+            "content": {
+              "text/event-stream": {}
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CloudDeploymentComputeBackend": {
+        "type": "string",
+        "description": "Cloud deployment compute backend target.",
+        "enum": [
+          "aws_container",
+          "cloudflare_worker",
+          "daytona"
+        ]
+      },
+      "CloudDeploymentEnvironment": {
+        "type": "object",
+        "description": "Reusable execution environment profile for cloud deployments.",
+        "required": [
+          "id",
+          "organization_id",
+          "user_id",
+          "name",
+          "docker_image",
+          "setup_commands",
+          "is_default",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deleted_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "docker_image": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "setup_commands": {},
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "CloudDeploymentMode": {
+        "type": "string",
+        "description": "Cloud deployment execution mode.",
+        "enum": [
+          "always_on",
+          "cron"
+        ]
+      },
+      "CloudDeploymentRunArtifact": {
+        "type": "object",
+        "description": "Artifact emitted by a cloud run (for example PR links, plans, screenshots).",
+        "required": [
+          "id",
+          "run_event_id",
+          "deployment_id",
+          "organization_id",
+          "user_id",
+          "artifact_type",
+          "payload",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "artifact_type": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "payload": {},
+          "run_event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "CloudDeploymentRunEvent": {
+        "type": "object",
+        "description": "A single execution run event for a cloud deployment.",
+        "required": [
+          "id",
+          "deployment_id",
+          "organization_id",
+          "user_id",
+          "execution_id",
+          "compute_backend",
+          "source",
+          "status",
+          "execution_time_ms",
+          "billed_duration_ms",
+          "requested_cpu_millicores",
+          "requested_memory_mib",
+          "compute_cost_atomic",
+          "compute_cost_usd",
+          "inference_input_tokens",
+          "inference_output_tokens",
+          "inference_cost_atomic",
+          "inference_cost_usd",
+          "started_at",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "billed_duration_ms": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "compute_backend": {
+            "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
+          },
+          "compute_cost_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "compute_cost_usd": {
+            "type": "string"
+          },
+          "conversation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "execution_id": {
+            "type": "string"
+          },
+          "execution_time_ms": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "inference_cost_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "inference_cost_usd": {
+            "type": "string"
+          },
+          "inference_input_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "inference_output_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "metadata": {},
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "output": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Raw stdout/stderr output. Universal fallback for all backend types."
+          },
+          "output_events": {
+            "description": "Structured event trace for agentic executions (thinking, tool calls, text).\nNull for non-agentic scripts that produce plain stdout/stderr."
+          },
+          "requested_cpu_millicores": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "requested_memory_mib": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "run_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "status_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stop_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "CloudDeploymentRuntimeKind": {
+        "type": "string",
+        "description": "Cloud deployment runtime kind (language/runtime format).",
+        "enum": [
+          "python",
+          "javascript",
+          "typescript",
+          "rust",
+          "rust_wasm_adk"
+        ]
+      },
+      "CloudDeploymentStatus": {
+        "type": "string",
+        "description": "Cloud deployment lifecycle status.",
+        "enum": [
+          "pending",
+          "building",
+          "running",
+          "stopped",
+          "failed"
+        ]
+      },
+      "CloudDeploymentSummary": {
+        "type": "object",
+        "description": "Summary view for listing deployments (excludes large fields like code_bundle).",
+        "required": [
+          "id",
+          "organization_id",
+          "user_id",
+          "name",
+          "skill_slug",
+          "compute_backend",
+          "runtime_kind",
+          "mode",
+          "status",
+          "code_bundle_hash",
+          "orchestration_mode",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "code_bundle_hash": {
+            "type": "string"
+          },
+          "compute_backend": {
+            "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cron_schedule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endpoint_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "environment_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CloudDeploymentMode"
+          },
+          "model_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "orchestration_mode": {
+            "$ref": "#/components/schemas/OrchestrationMode"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "runtime_kind": {
+            "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
+          },
+          "skill_slug": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CloudDeploymentStatus"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "CreateCloudDeploymentEnvironmentRequest": {
+        "type": "object",
+        "description": "Request body for creating a reusable execution environment.",
+        "required": [
+          "name",
+          "docker_image"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "docker_image": {
+            "type": "string"
+          },
+          "is_default": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "setup_commands": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "DataResponse_CloudDeploymentEnvironment": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Reusable execution environment profile for cloud deployments.",
+            "required": [
+              "id",
+              "organization_id",
+              "user_id",
+              "name",
+              "docker_image",
+              "setup_commands",
+              "is_default",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "deleted_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "docker_image": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "is_default": {
+                "type": "boolean"
+              },
+              "name": {
+                "type": "string"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "setup_commands": {},
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "user_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudDeploymentRunEvent": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A single execution run event for a cloud deployment.",
+            "required": [
+              "id",
+              "deployment_id",
+              "organization_id",
+              "user_id",
+              "execution_id",
+              "compute_backend",
+              "source",
+              "status",
+              "execution_time_ms",
+              "billed_duration_ms",
+              "requested_cpu_millicores",
+              "requested_memory_mib",
+              "compute_cost_atomic",
+              "compute_cost_usd",
+              "inference_input_tokens",
+              "inference_output_tokens",
+              "inference_cost_atomic",
+              "inference_cost_usd",
+              "started_at",
+              "metadata",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "billed_duration_ms": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "completed_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "compute_backend": {
+                "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
+              },
+              "compute_cost_atomic": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "compute_cost_usd": {
+                "type": "string"
+              },
+              "conversation_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "execution_id": {
+                "type": "string"
+              },
+              "execution_time_ms": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "inference_cost_atomic": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "inference_cost_usd": {
+                "type": "string"
+              },
+              "inference_input_tokens": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "inference_output_tokens": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "metadata": {},
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "output": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Raw stdout/stderr output. Universal fallback for all backend types."
+              },
+              "output_events": {
+                "description": "Structured event trace for agentic executions (thinking, tool calls, text).\nNull for non-agentic scripts that produce plain stdout/stderr."
+              },
+              "requested_cpu_millicores": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "requested_memory_mib": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "run_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "session_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "session_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": "string"
+              },
+              "started_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "status": {
+                "type": "string"
+              },
+              "status_message": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "stop_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "user_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudDeploymentSummary": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Summary view for listing deployments (excludes large fields like code_bundle).",
+            "required": [
+              "id",
+              "organization_id",
+              "user_id",
+              "name",
+              "skill_slug",
+              "compute_backend",
+              "runtime_kind",
+              "mode",
+              "status",
+              "code_bundle_hash",
+              "orchestration_mode",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "code_bundle_hash": {
+                "type": "string"
+              },
+              "compute_backend": {
+                "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "cron_schedule": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endpoint_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "environment_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "error_message": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "mode": {
+                "$ref": "#/components/schemas/CloudDeploymentMode"
+              },
+              "model_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "orchestration_mode": {
+                "$ref": "#/components/schemas/OrchestrationMode"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "runtime_kind": {
+                "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
+              },
+              "skill_slug": {
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/components/schemas/CloudDeploymentStatus"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "user_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_CloudDeploymentEnvironment": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Reusable execution environment profile for cloud deployments.",
+              "required": [
+                "id",
+                "organization_id",
+                "user_id",
+                "name",
+                "docker_image",
+                "setup_commands",
+                "is_default",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "deleted_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "docker_image": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "is_default": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "organization_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "setup_commands": {},
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "user_id": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_CloudDeploymentRunArtifact": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Artifact emitted by a cloud run (for example PR links, plans, screenshots).",
+              "required": [
+                "id",
+                "run_event_id",
+                "deployment_id",
+                "organization_id",
+                "user_id",
+                "artifact_type",
+                "payload",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "artifact_type": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "deployment_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "organization_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "payload": {},
+                "run_event_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "user_id": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_CloudDeploymentRunEvent": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A single execution run event for a cloud deployment.",
+              "required": [
+                "id",
+                "deployment_id",
+                "organization_id",
+                "user_id",
+                "execution_id",
+                "compute_backend",
+                "source",
+                "status",
+                "execution_time_ms",
+                "billed_duration_ms",
+                "requested_cpu_millicores",
+                "requested_memory_mib",
+                "compute_cost_atomic",
+                "compute_cost_usd",
+                "inference_input_tokens",
+                "inference_output_tokens",
+                "inference_cost_atomic",
+                "inference_cost_usd",
+                "started_at",
+                "metadata",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "billed_duration_ms": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "completed_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "compute_backend": {
+                  "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
+                },
+                "compute_cost_atomic": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "compute_cost_usd": {
+                  "type": "string"
+                },
+                "conversation_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "deployment_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "execution_id": {
+                  "type": "string"
+                },
+                "execution_time_ms": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "inference_cost_atomic": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "inference_cost_usd": {
+                  "type": "string"
+                },
+                "inference_input_tokens": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "inference_output_tokens": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "metadata": {},
+                "organization_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "output": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Raw stdout/stderr output. Universal fallback for all backend types."
+                },
+                "output_events": {
+                  "description": "Structured event trace for agentic executions (thinking, tool calls, text).\nNull for non-agentic scripts that produce plain stdout/stderr."
+                },
+                "requested_cpu_millicores": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "requested_memory_mib": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "run_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "session_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "session_url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source": {
+                  "type": "string"
+                },
+                "started_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "status_message": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "stop_reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "user_id": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_CloudDeploymentSummary": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Summary view for listing deployments (excludes large fields like code_bundle).",
+              "required": [
+                "id",
+                "organization_id",
+                "user_id",
+                "name",
+                "skill_slug",
+                "compute_backend",
+                "runtime_kind",
+                "mode",
+                "status",
+                "code_bundle_hash",
+                "orchestration_mode",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "code_bundle_hash": {
+                  "type": "string"
+                },
+                "compute_backend": {
+                  "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "cron_schedule": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endpoint_url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "environment_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "error_message": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "mode": {
+                  "$ref": "#/components/schemas/CloudDeploymentMode"
+                },
+                "model_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "orchestration_mode": {
+                  "$ref": "#/components/schemas/OrchestrationMode"
+                },
+                "organization_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "runtime_kind": {
+                  "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
+                },
+                "skill_slug": {
+                  "type": "string"
+                },
+                "status": {
+                  "$ref": "#/components/schemas/CloudDeploymentStatus"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "user_id": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DeployRequest": {
+        "type": "object",
+        "description": "JSON body for the deploy endpoint (base64-encoded code bundle).",
+        "required": [
+          "name",
+          "skill_slug",
+          "mode",
+          "code_bundle_base64"
+        ],
+        "properties": {
+          "code_bundle_base64": {
+            "type": "string",
+            "description": "Base64-encoded tar.gz of the scripts/ directory."
+          },
+          "compute_backend": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "config": {
+            "description": "JSON config object (will be encrypted at rest)."
+          },
+          "cron_schedule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "environment_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "model_config": {
+            "description": "Additional model parameters (temperature, max_tokens, etc.)."
+          },
+          "model_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Model identifier (e.g. \"anthropic/claude-sonnet-4-20250514\")."
+          },
+          "name": {
+            "type": "string"
+          },
+          "orchestration_mode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Orchestration mode: \"script\" (default) or \"llm\"."
+          },
+          "requirements_txt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "runtime_kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "secrets": {
+            "description": "JSON secrets object (key-value pairs, will be encrypted at rest)."
+          },
+          "skill_slug": {
+            "type": "string"
+          },
+          "system_prompt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "System prompt for LLM orchestration (required when orchestration_mode = \"llm\")."
+          },
+          "tool_definitions": {
+            "description": "Tool definitions for the LLM to call."
+          }
+        }
+      },
+      "OrchestrationMode": {
+        "type": "string",
+        "description": "Cloud deployment orchestration mode.\n\n`Script` (default): container runs user code directly (existing behavior).\n`Llm`: container runs the seren-orchestrator LLM tool-calling loop.",
+        "enum": [
+          "script",
+          "llm"
+        ]
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "description": "Pagination metadata included in responses.",
+        "required": [
+          "total",
+          "count",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of items in this response"
+          },
+          "has_more": {
+            "type": "boolean",
+            "description": "Whether there are more items after this page"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Maximum items per page"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Offset from start"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total number of items across all pages"
+          }
+        }
+      },
+      "UpdateCloudDeploymentEnvironmentRequest": {
+        "type": "object",
+        "description": "Request body for updating a reusable execution environment.",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "docker_image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_default": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "setup_commands": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "UpdateCloudDeploymentRequest": {
+        "type": "object",
+        "description": "Request body for updating config/secrets without redeploying.",
+        "properties": {
+          "config": {},
+          "secrets": {}
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "seren-cloud",
+      "description": "Seren Cloud deployment endpoints"
+    }
+  ]
+}

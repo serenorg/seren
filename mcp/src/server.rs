@@ -3357,7 +3357,7 @@ impl SerenMcpServer {
     async fn list_projects(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let projects = api_client
-            .list_projects(None, None, None)
+            .seren_db_list_projects()
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -3375,7 +3375,7 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let project = api_client
-            .get_project(&params.project_id)
+            .seren_db_get_project(&params.project_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -3401,7 +3401,7 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let response = api_client
-            .create_project(&request)
+            .seren_db_create_project(&request)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -3425,7 +3425,7 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         api_client
-            .delete_project(&params.project_id)
+            .seren_db_delete_project(&params.project_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![Content::text(format!(
@@ -3456,7 +3456,7 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let response = api_client
-            .create_branch(&params.path.project_id, &params.body)
+            .seren_db_create_branch(&params.path.project_id, &params.body)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -3480,7 +3480,7 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         api_client
-            .delete_branch(&params.project_id, &params.branch_id)
+            .seren_db_delete_branch(&params.project_id, &params.branch_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![Content::text(format!(
@@ -3502,9 +3502,9 @@ impl SerenMcpServer {
 
         // Fetch databases, project, and branch in parallel for efficiency
         let (databases_result, project_result, branch_result) = tokio::join!(
-            api_client.list_databases(&params.project_id, &params.branch_id),
-            api_client.get_project(&params.project_id),
-            api_client.get_branch(&params.project_id, &params.branch_id)
+            api_client.seren_db_list_databases(&params.project_id, &params.branch_id),
+            api_client.seren_db_get_project(&params.project_id),
+            api_client.seren_db_get_branch(&params.project_id, &params.branch_id)
         );
 
         let databases = databases_result
@@ -3593,7 +3593,7 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let database = api_client
-            .create_database(
+            .seren_db_create_database(
                 &params.path.project_id,
                 &params.path.branch_id,
                 &params.body,
@@ -3615,7 +3615,7 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let roles = api_client
-            .list_branch_roles(&params.project_id, &params.branch_id)
+            .seren_db_list_roles(&params.project_id, &params.branch_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -3945,7 +3945,7 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let branches = api_client
-            .list_branches(&params.project_id)
+            .seren_db_list_branches(&params.project_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -3963,7 +3963,7 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let branch = api_client
-            .get_branch(&params.project_id, &params.branch_id)
+            .seren_db_get_branch(&params.project_id, &params.branch_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -3985,7 +3985,7 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let endpoints = api_client
-            .list_endpoints(&params.project_id, &params.branch_id)
+            .seren_db_list_endpoints(&params.project_id, &params.branch_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -4009,7 +4009,7 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let endpoint = api_client
-            .create_endpoint(
+            .seren_db_create_endpoint(
                 &params.path.project_id,
                 &params.path.branch_id,
                 &params.body,
@@ -4037,7 +4037,7 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         api_client
-            .delete_endpoint(&params.project_id, &params.branch_id, &params.endpoint_id)
+            .seren_db_delete_endpoint(&params.project_id, &params.branch_id, &params.endpoint_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![Content::text(format!(
@@ -4063,7 +4063,7 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let endpoint = api_client
-            .start_endpoint(&params.project_id, &params.branch_id, &params.endpoint_id)
+            .seren_db_start_endpoint(&params.project_id, &params.branch_id, &params.endpoint_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -4087,7 +4087,7 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         api_client
-            .stop_endpoint(&params.project_id, &params.branch_id, &params.endpoint_id)
+            .seren_db_stop_endpoint(&params.project_id, &params.branch_id, &params.endpoint_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![Content::text(format!(
@@ -6661,7 +6661,7 @@ API endpoint: {endpoint}",
         };
 
         let project = api_client
-            .update_project(&params.project_id, &request)
+            .seren_db_update_project(&params.project_id, &request)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -6688,7 +6688,7 @@ API endpoint: {endpoint}",
         let request = seren::RenameBranchRequest { name: params.name };
 
         let branch = api_client
-            .rename_branch(&params.project_id, &params.branch_id, &request)
+            .seren_db_rename_branch(&params.project_id, &params.branch_id, &request)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -6709,7 +6709,7 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
 
         api_client
-            .set_default_branch(&params.project_id, &params.branch_id)
+            .seren_db_set_default_branch(&params.project_id, &params.branch_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -6792,7 +6792,7 @@ API endpoint: {endpoint}",
         };
 
         let role = api_client
-            .create_branch_role(&params.project_id, &params.branch_id, &request)
+            .seren_db_create_role(&params.project_id, &params.branch_id, &request)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -6813,7 +6813,7 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
 
         api_client
-            .delete_branch_role(&params.project_id, &params.branch_id, &params.role_id)
+            .seren_db_delete_role(&params.project_id, &params.branch_id, &params.role_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![Content::text(
@@ -6896,7 +6896,7 @@ API endpoint: {endpoint}",
         };
 
         let endpoint = api_client
-            .update_endpoint(
+            .seren_db_update_endpoint(
                 &params.project_id,
                 &params.branch_id,
                 &params.endpoint_id,
@@ -6943,7 +6943,7 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
 
         let database = api_client
-            .get_database(&params.project_id, &params.branch_id, &params.database_id)
+            .seren_db_get_database(&params.project_id, &params.branch_id, &params.database_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -6964,7 +6964,7 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
 
         api_client
-            .delete_database(&params.project_id, &params.branch_id, &params.database_id)
+            .seren_db_delete_database(&params.project_id, &params.branch_id, &params.database_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![Content::text(

@@ -9,7 +9,7 @@ pub async fn list(ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
 
     let response = client
-        .list_projects(None, None, None)
+        .seren_db_list_projects()
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list projects: {}", e))?;
 
@@ -28,7 +28,7 @@ pub async fn get(id: &str, ctx: &CommandContext) -> Result<()> {
         Uuid::parse_str(id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
 
     let response = client
-        .get_project(&project_id)
+        .seren_db_get_project(&project_id)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get project: {}", e))?;
 
@@ -79,7 +79,7 @@ pub async fn create(
     };
 
     let response = client
-        .create_project(&request)
+        .seren_db_create_project(&request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create project: {}", e))?;
 
@@ -101,7 +101,7 @@ pub async fn create(
     if psql {
         // Fetch connection URI for the default branch
         match client
-            .get_project_connection_uri(
+            .seren_db_connection_uri(
                 &project.data.id,
                 None, // branch_id
                 None, // database_name
@@ -200,7 +200,7 @@ pub async fn update(
     };
 
     let response = client
-        .update_project(&project_id, &request)
+        .seren_db_update_project(&project_id, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to update project: {}", e))?;
 
@@ -219,7 +219,7 @@ pub async fn delete(id: &str, skip_confirm: bool, ctx: &CommandContext) -> Resul
 
     // Get project details for confirmation
     let response = client
-        .get_project(&project_id)
+        .seren_db_get_project(&project_id)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get project: {}", e))?;
     let project = response.into_inner().data;
@@ -254,7 +254,7 @@ pub async fn delete(id: &str, skip_confirm: bool, ctx: &CommandContext) -> Resul
     }
 
     client
-        .delete_project(&project_id)
+        .seren_db_delete_project(&project_id)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to delete project: {}", e))?;
 
@@ -295,7 +295,7 @@ pub async fn connection_uri(
         .transpose()?;
 
     let response = client
-        .get_project_connection_uri(
+        .seren_db_connection_uri(
             &project_id,
             branch_uuid.as_ref(),
             database,
