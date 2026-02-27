@@ -421,9 +421,11 @@ pub async fn connection_string(
         Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     let response = client
-        .get_connection_string(
+        .seren_db_connection_uri(
             &project_uuid,
-            &branch_uuid,
+            Some(&branch_uuid),
+            None,
+            None,
             if pooled { Some(true) } else { None },
             role,
         )
@@ -431,7 +433,7 @@ pub async fn connection_string(
         .map_err(|e| anyhow::anyhow!("Failed to get connection string: {}", e))?;
 
     let conn_data = response.into_inner();
-    output::print_connection_string(&conn_data.data, ssl, ctx.format)?;
+    output::print_project_connection_uri(&conn_data.data, ssl, ctx.format)?;
 
     Ok(())
 }

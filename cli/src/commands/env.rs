@@ -119,9 +119,11 @@ pub async fn init(
         Uuid::parse_str(&branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     let conn = client
-        .get_connection_string(
+        .seren_db_connection_uri(
             &project_uuid,
-            &branch_uuid,
+            Some(&branch_uuid),
+            None,
+            None,
             if pooled { Some(true) } else { None },
             None,
         )
@@ -131,7 +133,7 @@ pub async fn init(
     // Derive the final connection string using the same formatting logic as print_connection_string.
     // We always apply sslmode=require when writing to .env to be explicit.
     let ssl_mode = Some("require");
-    let mut active = conn.into_inner().data.connection_string.clone();
+    let mut active = conn.into_inner().data.uri.clone();
 
     if let Some(mode) = ssl_mode {
         active = output::apply_sslmode(&active, mode);
