@@ -156,7 +156,7 @@ pub async fn reveal_password(
         Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     let response = client
-        .reveal_role_password(&project_uuid, &branch_uuid, role_name)
+        .seren_db_reveal_role_password(&project_uuid, &branch_uuid, role_name)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to reveal role password: {}", e))?;
 

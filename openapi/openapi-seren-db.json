@@ -1051,6 +1051,67 @@
         ]
       }
     },
+    "/publishers/seren-db/projects/{id}/branches/{bid}/endpoints/{eid}/status": {
+      "get": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Get endpoint status.",
+        "operationId": "seren_db_get_endpoint_status",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "eid",
+            "in": "path",
+            "description": "Endpoint ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Endpoint status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_EndpointStatusInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/publishers/seren-db/projects/{id}/branches/{bid}/endpoints/{eid}/stop": {
       "post": {
         "tags": [
@@ -1097,6 +1158,67 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DataResponse_EndpointStatusInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-db/projects/{id}/branches/{bid}/expiration": {
+      "patch": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Set branch expiration.",
+        "operationId": "seren_db_set_branch_expiration",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetBranchExpirationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Branch expiration set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Value"
                 }
               }
             }
@@ -1341,6 +1463,66 @@
         ]
       }
     },
+    "/publishers/seren-db/projects/{id}/branches/{bid}/roles/{role_name}/reveal_password": {
+      "get": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Reveal a role password by role name.",
+        "operationId": "seren_db_reveal_role_password",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "bid",
+            "in": "path",
+            "description": "Branch ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "role_name",
+            "in": "path",
+            "description": "Role name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role password revealed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_RolePasswordReset"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/publishers/seren-db/projects/{id}/branches/{bid}/set-default": {
       "post": {
         "tags": [
@@ -1465,6 +1647,57 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DataResponse_ProjectConnectionUri"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/publishers/seren-db/projects/{id}/endpoints/{eid}/restart": {
+      "post": {
+        "tags": [
+          "seren-db"
+        ],
+        "summary": "Restart an endpoint by project and endpoint ID.",
+        "operationId": "seren_db_restart_endpoint",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "eid",
+            "in": "path",
+            "description": "Endpoint ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Endpoint restarted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_EndpointStatusInfo"
                 }
               }
             }
@@ -4346,6 +4579,19 @@
           "role_id": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "SetBranchExpirationRequest": {
+        "type": "object",
+        "description": "Request to set branch expiration",
+        "properties": {
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           }
         }
       },

@@ -4135,7 +4135,7 @@ impl SerenMcpServer {
 
         let api_client = self.api_client(&extensions)?;
         let response = api_client
-            .restart_project_endpoint(&params.project_id, &params.endpoint_id)
+            .seren_db_restart_endpoint(&params.project_id, &params.endpoint_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         let status = response.into_inner();
@@ -6784,7 +6784,7 @@ API endpoint: {endpoint}",
         let request = seren::SetBranchExpirationRequest { expires_at };
 
         api_client
-            .set_branch_expiration(&params.project_id, &params.branch_id, &request)
+            .seren_db_set_branch_expiration(&params.project_id, &params.branch_id, &request)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -6885,7 +6885,7 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
 
         let role = api_client
-            .reveal_role_password(&params.project_id, &params.branch_id, &params.role_name)
+            .seren_db_reveal_role_password(&params.project_id, &params.branch_id, &params.role_name)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -6942,7 +6942,11 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
 
         let status = api_client
-            .get_endpoint_status(&params.project_id, &params.branch_id, &params.endpoint_id)
+            .seren_db_get_endpoint_status(
+                &params.project_id,
+                &params.branch_id,
+                &params.endpoint_id,
+            )
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
