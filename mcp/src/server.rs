@@ -3633,9 +3633,11 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let response = api_client
-            .get_connection_string(
+            .seren_db_connection_uri(
                 &params.path.project_id,
-                &params.path.branch_id,
+                Some(&params.path.branch_id),
+                None,
+                None,
                 params.query.pooled,
                 params.query.role.as_deref(),
             )
@@ -3643,7 +3645,7 @@ impl SerenMcpServer {
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
 
-        let mut conn_str = response.data.connection_string;
+        let mut conn_str = response.data.uri;
         if let Some(database) = params.database.as_deref() {
             conn_str = connection_string_with_database(&conn_str, database)?;
         }
@@ -3677,15 +3679,19 @@ impl SerenMcpServer {
         let bearer_token = self.bearer_token(&extensions)?;
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
-            .get_connection_string(&params.path.project_id, &params.path.branch_id, None, None)
+            .seren_db_connection_uri(
+                &params.path.project_id,
+                Some(&params.path.branch_id),
+                None,
+                None,
+                None,
+                None,
+            )
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
 
-        let conn_str = connection_string_with_database(
-            &conn_response.data.connection_string,
-            &params.database,
-        )?;
+        let conn_str = connection_string_with_database(&conn_response.data.uri, &params.database)?;
 
         // Use custom timeout if provided, otherwise default to QUERY_TIMEOUT (120s)
         let timeout = params
@@ -3743,15 +3749,19 @@ impl SerenMcpServer {
         let bearer_token = self.bearer_token(&extensions)?;
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
-            .get_connection_string(&params.path.project_id, &params.path.branch_id, None, None)
+            .seren_db_connection_uri(
+                &params.path.project_id,
+                Some(&params.path.branch_id),
+                None,
+                None,
+                None,
+                None,
+            )
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
 
-        let conn_str = connection_string_with_database(
-            &conn_response.data.connection_string,
-            &params.database,
-        )?;
+        let conn_str = connection_string_with_database(&conn_response.data.uri, &params.database)?;
 
         // Use custom timeout if provided, otherwise default to QUERY_TIMEOUT (120s)
         let timeout = params
@@ -3800,15 +3810,19 @@ impl SerenMcpServer {
         let bearer_token = self.bearer_token(&extensions)?;
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
-            .get_connection_string(&params.path.project_id, &params.path.branch_id, None, None)
+            .seren_db_connection_uri(
+                &params.path.project_id,
+                Some(&params.path.branch_id),
+                None,
+                None,
+                None,
+                None,
+            )
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
 
-        let conn_str = connection_string_with_database(
-            &conn_response.data.connection_string,
-            &params.database,
-        )?;
+        let conn_str = connection_string_with_database(&conn_response.data.uri, &params.database)?;
 
         let result = self
             .execute_sql(
@@ -3841,15 +3855,19 @@ impl SerenMcpServer {
         let bearer_token = self.bearer_token(&extensions)?;
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
-            .get_connection_string(&params.path.project_id, &params.path.branch_id, None, None)
+            .seren_db_connection_uri(
+                &params.path.project_id,
+                Some(&params.path.branch_id),
+                None,
+                None,
+                None,
+                None,
+            )
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
 
-        let conn_str = connection_string_with_database(
-            &conn_response.data.connection_string,
-            &params.database,
-        )?;
+        let conn_str = connection_string_with_database(&conn_response.data.uri, &params.database)?;
 
         let result = self
             .execute_sql(
@@ -3897,15 +3915,19 @@ impl SerenMcpServer {
         let bearer_token = self.bearer_token(&extensions)?;
         let api_client = self.api_client(&extensions)?;
         let conn_response = api_client
-            .get_connection_string(&params.path.project_id, &params.path.branch_id, None, None)
+            .seren_db_connection_uri(
+                &params.path.project_id,
+                Some(&params.path.branch_id),
+                None,
+                None,
+                None,
+                None,
+            )
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
 
-        let conn_str = connection_string_with_database(
-            &conn_response.data.connection_string,
-            &params.database,
-        )?;
+        let conn_str = connection_string_with_database(&conn_response.data.uri, &params.database)?;
 
         let result = self
             .execute_sql(
