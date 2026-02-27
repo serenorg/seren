@@ -227,7 +227,7 @@ pub async fn status(
         Uuid::parse_str(endpoint_id).map_err(|e| anyhow::anyhow!("Invalid endpoint ID: {}", e))?;
 
     let response = client
-        .get_endpoint_status(&project_uuid, &branch_uuid, &endpoint_uuid)
+        .seren_db_get_endpoint_status(&project_uuid, &branch_uuid, &endpoint_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get endpoint status: {}", e))?;
 
@@ -248,7 +248,7 @@ pub async fn restart(project_id: &str, endpoint_id: &str, ctx: &CommandContext) 
         Uuid::parse_str(endpoint_id).map_err(|e| anyhow::anyhow!("Invalid endpoint ID: {}", e))?;
 
     let response = client
-        .restart_project_endpoint(&project_uuid, &endpoint_uuid)
+        .seren_db_restart_endpoint(&project_uuid, &endpoint_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to restart endpoint: {}", e))?;
 

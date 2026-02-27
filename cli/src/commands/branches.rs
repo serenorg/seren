@@ -469,7 +469,7 @@ pub async fn set_expiration(
     };
 
     client
-        .set_branch_expiration(&project_uuid, &branch_uuid, &request)
+        .seren_db_set_branch_expiration(&project_uuid, &branch_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to set branch expiration: {}", e))?;
 
