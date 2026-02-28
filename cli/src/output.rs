@@ -515,7 +515,7 @@ pub fn print_payment_methods_table(methods: &[seren::PaymentMethod]) {
 }
 
 // Billing: health summary
-pub fn print_billing_health_table(health: &seren::BillingHealthResponse) {
+pub fn print_billing_health_table(health: &seren::DataResponseBillingHealth) {
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)
@@ -1108,11 +1108,26 @@ pub fn print_created_endpoints(
 }
 
 // Operations
-pub fn print_operations_table(operations: &[seren::Operation]) {
-    if operations.is_empty() {
-        println!("No operations found");
-        return;
-    }
+// Note: Operations are now returned as serde_json::Value since the
+// publisher endpoint uses an untyped DataResponseValue wrapper.
+
+fn val_str(v: &serde_json::Value, key: &str) -> String {
+    v.get(key)
+        .map(|v| match v {
+            serde_json::Value::String(s) => s.clone(),
+            other => other.to_string(),
+        })
+        .unwrap_or_else(|| "-".to_string())
+}
+
+pub fn print_operations_table(operations: &serde_json::Value) {
+    let ops = match operations.as_array() {
+        Some(arr) if !arr.is_empty() => arr,
+        _ => {
+            println!("No operations found");
+            return;
+        }
+    };
 
     let mut table = Table::new();
     table
@@ -1129,22 +1144,22 @@ pub fn print_operations_table(operations: &[seren::Operation]) {
         Cell::new("Created").fg(Color::Green),
     ]);
 
-    for operation in operations {
+    for operation in ops {
         table.add_row(vec![
-            Cell::new(operation.id.to_string()),
-            Cell::new(&operation.operation_type),
-            Cell::new(&operation.resource_type),
-            Cell::new(operation.resource_id.to_string()),
-            Cell::new(&operation.status),
-            Cell::new(format!("{}%", operation.progress)),
-            Cell::new(operation.created_at.to_string()),
+            Cell::new(val_str(operation, "id")),
+            Cell::new(val_str(operation, "operation_type")),
+            Cell::new(val_str(operation, "resource_type")),
+            Cell::new(val_str(operation, "resource_id")),
+            Cell::new(val_str(operation, "status")),
+            Cell::new(format!("{}%", val_str(operation, "progress"))),
+            Cell::new(val_str(operation, "created_at")),
         ]);
     }
 
     println!("{table}");
 }
 
-pub fn print_operation(operation: &seren::Operation, format: OutputFormat) -> anyhow::Result<()> {
+pub fn print_operation(operation: &serde_json::Value, format: OutputFormat) -> anyhow::Result<()> {
     match format {
         OutputFormat::Json => print_json(operation)?,
         OutputFormat::Table => {
@@ -1157,52 +1172,49 @@ pub fn print_operation(operation: &seren::Operation, format: OutputFormat) -> an
                 Cell::new("Field").fg(Color::Green),
                 Cell::new("Value").fg(Color::Green),
             ]);
-            table.add_row(vec![Cell::new("ID"), Cell::new(operation.id.to_string())]);
+            table.add_row(vec![Cell::new("ID"), Cell::new(val_str(operation, "id"))]);
             table.add_row(vec![
                 Cell::new("Type"),
-                Cell::new(&operation.operation_type),
+                Cell::new(val_str(operation, "operation_type")),
             ]);
             table.add_row(vec![
                 Cell::new("Resource Type"),
-                Cell::new(&operation.resource_type),
+                Cell::new(val_str(operation, "resource_type")),
             ]);
             table.add_row(vec![
                 Cell::new("Resource ID"),
-                Cell::new(operation.resource_id.to_string()),
+                Cell::new(val_str(operation, "resource_id")),
             ]);
-            table.add_row(vec![Cell::new("Status"), Cell::new(&operation.status)]);
+            table.add_row(vec![
+                Cell::new("Status"),
+                Cell::new(val_str(operation, "status")),
+            ]);
             table.add_row(vec![
                 Cell::new("Progress"),
-                Cell::new(format!("{}%", operation.progress)),
+                Cell::new(format!("{}%", val_str(operation, "progress"))),
             ]);
             table.add_row(vec![
                 Cell::new("Created By"),
-                Cell::new(operation.created_by.to_string()),
+                Cell::new(val_str(operation, "created_by")),
             ]);
             table.add_row(vec![
                 Cell::new("Created At"),
-                Cell::new(operation.created_at.to_string()),
+                Cell::new(val_str(operation, "created_at")),
             ]);
             table.add_row(vec![
                 Cell::new("Updated At"),
-                Cell::new(operation.updated_at.to_string()),
+                Cell::new(val_str(operation, "updated_at")),
             ]);
-            if let Some(started_at) = &operation.started_at {
-                table.add_row(vec![
-                    Cell::new("Started At"),
-                    Cell::new(started_at.to_string()),
-                ]);
+            if let Some(started_at) = operation.get("started_at").and_then(|v| v.as_str()) {
+                table.add_row(vec![Cell::new("Started At"), Cell::new(started_at)]);
             }
-            if let Some(completed_at) = &operation.completed_at {
-                table.add_row(vec![
-                    Cell::new("Completed At"),
-                    Cell::new(completed_at.to_string()),
-                ]);
+            if let Some(completed_at) = operation.get("completed_at").and_then(|v| v.as_str()) {
+                table.add_row(vec![Cell::new("Completed At"), Cell::new(completed_at)]);
             }
-            if let Some(error) = &operation.error_message {
+            if let Some(error) = operation.get("error_message").and_then(|v| v.as_str()) {
                 table.add_row(vec!["Error", error]);
             }
-            if let Some(metadata) = &operation.metadata {
+            if let Some(metadata) = operation.get("metadata") {
                 let metadata_str =
                     serde_json::to_string(&metadata).unwrap_or_else(|_| "<invalid>".to_string());
                 table.add_row(vec!["Metadata", &metadata_str]);
@@ -1216,7 +1228,7 @@ pub fn print_operation(operation: &seren::Operation, format: OutputFormat) -> an
 }
 
 // User
-pub fn print_user(user: &seren::UserMeResponse) -> anyhow::Result<()> {
+pub fn print_user(user: &seren::DataResponseUserMe) -> anyhow::Result<()> {
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)
@@ -1342,11 +1354,14 @@ pub fn print_org_vpc_endpoints_table(endpoints: &[seren::OrganizationVpcEndpoint
     println!("{table}");
 }
 
-pub fn print_project_vpc_endpoints_table(assignments: &[seren::ProjectVpcEndpointAssignment]) {
-    if assignments.is_empty() {
-        println!("No project VPC endpoint restrictions");
-        return;
-    }
+pub fn print_project_vpc_endpoints_table(assignments: &serde_json::Value) {
+    let arr = match assignments.as_array() {
+        Some(a) if !a.is_empty() => a,
+        _ => {
+            println!("No project VPC endpoint restrictions");
+            return;
+        }
+    };
 
     let mut table = Table::new();
     table
@@ -1362,14 +1377,21 @@ pub fn print_project_vpc_endpoints_table(assignments: &[seren::ProjectVpcEndpoin
         Cell::new("Updated").fg(Color::Green),
     ]);
 
-    for assignment in assignments {
+    for assignment in arr {
+        let val = |key: &str| -> String {
+            assignment
+                .get(key)
+                .and_then(|v| v.as_str())
+                .unwrap_or("-")
+                .to_string()
+        };
         table.add_row(vec![
-            Cell::new(assignment.id.to_string()),
-            Cell::new(&assignment.endpoint_id),
-            Cell::new(&assignment.region),
-            Cell::new(assignment.label.as_deref().unwrap_or("-")),
-            Cell::new(assignment.endpoint_label.as_deref().unwrap_or("-")),
-            Cell::new(assignment.updated_at.to_string()),
+            Cell::new(val("id")),
+            Cell::new(val("endpoint_id")),
+            Cell::new(val("region")),
+            Cell::new(val("label")),
+            Cell::new(val("endpoint_label")),
+            Cell::new(val("updated_at")),
         ]);
     }
 
@@ -1916,62 +1938,113 @@ pub fn print_replication_settings(settings: &seren::LogicalReplicationSettings) 
     print_key_value_table(Some("Logical Replication Settings"), &rows);
 }
 
-pub fn print_agent_balance_summary(summary: &seren::AgentBalanceSummary) {
+pub fn print_agent_balance_summary(summary: &serde_json::Value) {
+    let val = |key: &str| -> String {
+        summary
+            .get(key)
+            .and_then(|v| {
+                v.as_str()
+                    .map(|s| s.to_string())
+                    .or_else(|| Some(v.to_string()))
+            })
+            .unwrap_or_else(|| "-".to_string())
+    };
+
     let rows = [
-        ("Wallet", summary.agent_wallet.to_string()),
-        ("Publishers", summary.publishers_used.to_string()),
-        ("Queries", summary.total_queries.to_string()),
+        ("Wallet", val("agent_wallet")),
+        ("Publishers", val("publishers_used")),
+        ("Queries", val("total_queries")),
     ];
 
     print_key_value_table(Some("Agent Balance Summary"), &rows);
 
-    if summary.totals_by_asset.is_empty() {
-        println!("No balances found");
-        return;
+    let totals = summary.get("totals_by_asset").and_then(|v| v.as_array());
+
+    match totals {
+        Some(arr) if !arr.is_empty() => {
+            let mut table = Table::new();
+            table
+                .load_preset(UTF8_FULL)
+                .set_content_arrangement(ContentArrangement::Dynamic);
+
+            table.set_header(vec![
+                Cell::new("Asset").fg(Color::Green),
+                Cell::new("Network").fg(Color::Green),
+                Cell::new("Balance").fg(Color::Green),
+                Cell::new("Reserved").fg(Color::Green),
+                Cell::new("Available").fg(Color::Green),
+            ]);
+
+            for total in arr {
+                let symbol = total
+                    .get("asset")
+                    .and_then(|a| a.get("symbol"))
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("?");
+                let network = total
+                    .get("asset")
+                    .and_then(|a| a.get("network_name"))
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("-");
+                let balance = total
+                    .get("total_balance")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let reserved = total
+                    .get("total_reserved")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let available = total
+                    .get("total_available")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                table.add_row(vec![
+                    Cell::new(symbol),
+                    Cell::new(network),
+                    Cell::new(format!("{:.6} {}", balance, symbol)),
+                    Cell::new(format!("{:.6} {}", reserved, symbol)),
+                    Cell::new(format!("{:.6} {}", available, symbol)),
+                ]);
+            }
+
+            println!();
+            println!("{}", "Balances by Asset".bold());
+            println!("{table}");
+        }
+        _ => println!("No balances found"),
     }
-
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .set_content_arrangement(ContentArrangement::Dynamic);
-
-    table.set_header(vec![
-        Cell::new("Asset").fg(Color::Green),
-        Cell::new("Network").fg(Color::Green),
-        Cell::new("Balance").fg(Color::Green),
-        Cell::new("Reserved").fg(Color::Green),
-        Cell::new("Available").fg(Color::Green),
-    ]);
-
-    for total in &summary.totals_by_asset {
-        let symbol = &total.asset.symbol;
-        table.add_row(vec![
-            Cell::new(symbol),
-            Cell::new(&total.asset.network_name),
-            Cell::new(format!("{:.6} {}", total.total_balance, symbol)),
-            Cell::new(format!("{:.6} {}", total.total_reserved, symbol)),
-            Cell::new(format!("{:.6} {}", total.total_available, symbol)),
-        ]);
-    }
-
-    println!();
-    println!("{}", "Balances by Asset".bold());
-    println!("{table}");
 }
 
-pub fn print_agent_publisher_balances(balances: &[seren::AgentBalanceResponse]) {
-    if balances.is_empty() {
-        println!("No balances found for this publisher");
-        return;
-    }
+pub fn print_agent_publisher_balances(balances: &serde_json::Value) {
+    let arr = match balances.as_array() {
+        Some(a) if !a.is_empty() => a,
+        _ => {
+            println!("No balances found for this publisher");
+            return;
+        }
+    };
 
-    let first = &balances[0];
+    let first = &arr[0];
 
     let mut rows = vec![
-        ("Wallet", first.agent_wallet.to_string()),
-        ("Publisher", first.publisher_id.to_string()),
+        (
+            "Wallet",
+            first
+                .get("agent_wallet")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-")
+                .to_string(),
+        ),
+        (
+            "Publisher",
+            first
+                .get("publisher_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-")
+                .to_string(),
+        ),
     ];
-    if let Some(name) = &first.publisher_name {
+    if let Some(name) = first.get("publisher_name").and_then(|v| v.as_str()) {
         rows.push(("Name", name.to_string()));
     }
 
@@ -1991,15 +2064,31 @@ pub fn print_agent_publisher_balances(balances: &[seren::AgentBalanceResponse]) 
         Cell::new("Queries").fg(Color::Green),
     ]);
 
-    for bal in balances {
-        let symbol = &bal.asset.symbol;
+    for bal in arr {
+        let symbol = bal
+            .get("asset")
+            .and_then(|a| a.get("symbol"))
+            .and_then(|s| s.as_str())
+            .unwrap_or("?");
+        let network = bal
+            .get("asset")
+            .and_then(|a| a.get("network_name"))
+            .and_then(|s| s.as_str())
+            .unwrap_or("-");
+        let balance = bal.get("balance").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let reserved = bal.get("reserved").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let available = bal.get("available").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let queries = bal
+            .get("total_queries")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
         table.add_row(vec![
             Cell::new(symbol),
-            Cell::new(&bal.asset.network_name),
-            Cell::new(format!("{:.6} {}", bal.balance, symbol)),
-            Cell::new(format!("{:.6} {}", bal.reserved, symbol)),
-            Cell::new(format!("{:.6} {}", bal.available, symbol)),
-            Cell::new(bal.total_queries.to_string()),
+            Cell::new(network),
+            Cell::new(format!("{:.6} {}", balance, symbol)),
+            Cell::new(format!("{:.6} {}", reserved, symbol)),
+            Cell::new(format!("{:.6} {}", available, symbol)),
+            Cell::new(queries.to_string()),
         ]);
     }
 
@@ -2057,19 +2146,35 @@ pub fn print_invoice(invoice: &seren::Invoice) {
     println!("{items_table}");
 }
 
-pub fn print_validate_token(result: &seren::ValidateTokenResponse) {
+pub fn print_validate_token(result: &serde_json::Value) {
+    let val = |key: &str| -> String {
+        result
+            .get(key)
+            .and_then(|v| {
+                v.as_str()
+                    .map(|s| s.to_string())
+                    .or_else(|| Some(v.to_string()))
+            })
+            .unwrap_or_else(|| "-".to_string())
+    };
+
     let rows = [
-        ("Endpoint ID", result.endpoint_id.to_string()),
-        ("User ID", result.user_id.to_string()),
-        ("Balance", format!("${:.4}", result.balance)),
-        ("Expires At", result.expires_at.to_string()),
+        ("Endpoint ID", val("endpoint_id")),
+        ("User ID", val("user_id")),
+        ("Balance", val("balance")),
+        ("Expires At", val("expires_at")),
     ];
 
     print_key_value_table(Some("Token Valid"), &rows);
 }
 
-pub fn print_balance(result: &seren::BalanceResponse) {
-    let rows = [("Balance", format!("${:.4}", result.balance))];
+pub fn print_balance(result: &serde_json::Value) {
+    let balance = result
+        .get("balance")
+        .and_then(|v| v.as_f64())
+        .map(|b| format!("${:.4}", b))
+        .unwrap_or_else(|| "-".to_string());
+    let rows = [("Balance", balance)];
 
     print_key_value_table(Some("Balance"), &rows);
 }

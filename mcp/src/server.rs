@@ -211,8 +211,12 @@ pub type DeleteOrgOAuthProviderParams = OrgOAuthProviderPath;
 pub struct GetConnectionStringParams {
     #[serde(flatten)]
     pub path: BranchPath,
-    #[serde(flatten)]
-    pub query: seren::ConnectionStringQueryParams,
+    /// Whether to use pooled connection
+    #[serde(default)]
+    pub pooled: Option<bool>,
+    /// Role name for the connection
+    #[serde(default)]
+    pub role: Option<String>,
     /// Database name to include in the connection string (optional override)
     #[serde(default)]
     pub database: Option<String>,
@@ -465,32 +469,8 @@ pub struct CreatePrepaidDepositParams {
     pub amount_usd: UsdAmount,
 }
 
-/// Parameters for checking geographic routing opt-in status for a publisher.
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct UserRoutingPublisherParams {
-    /// Publisher slug (e.g. "firecrawl")
-    pub publisher: String,
-}
-
-/// Parameters for enabling geographic routing (geo proxy opt-in) for a publisher.
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct EnableUserRoutingParams {
-    /// Publisher slug (e.g. "firecrawl")
-    pub publisher: String,
-    /// Proxy region to enable (e.g. "EU")
-    pub region: String,
-    /// Set to true to acknowledge that requests may be proxied through the selected
-    /// region and may incur additional charges.
-    #[serde(default)]
-    pub confirm: bool,
-}
-
-/// Parameters for disabling geographic routing (geo proxy opt-in) for a publisher.
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct DisableUserRoutingParams {
-    /// Publisher slug (e.g. "firecrawl")
-    pub publisher: String,
-}
+// NOTE: UserRoutingPublisherParams, EnableUserRoutingParams, DisableUserRoutingParams
+// were removed along with their corresponding routing tools (removed from the API spec).
 
 /// A USD amount passed by a client/tool call.
 ///
@@ -1058,9 +1038,12 @@ pub struct UpdatePublisherPricingParams {
     /// Minimum charge per request (decimal string)
     #[serde(default)]
     pub min_charge: Option<String>,
-    /// Maximum charge per request (decimal string)
+    /// Maximum amount to reserve up-front for pay_per_use pre-authorization (decimal string)
     #[serde(default)]
-    pub max_charge: Option<String>,
+    pub reserve_max_charge: Option<String>,
+    /// Fallback charge when cost cannot be resolved from upstream response (decimal string)
+    #[serde(default)]
+    pub unresolved_fallback_charge: Option<String>,
     /// Whether prepaid credits are enabled
     #[serde(default)]
     pub prepaid_enabled: Option<bool>,
@@ -1255,8 +1238,6 @@ pub struct ResetRolePasswordParams {
     pub branch_id: Uuid,
     /// Role ID (UUID)
     pub role_id: Uuid,
-    /// New password for the role
-    pub password: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -3638,8 +3619,8 @@ impl SerenMcpServer {
                 Some(&params.path.branch_id),
                 None,
                 None,
-                params.query.pooled,
-                params.query.role.as_deref(),
+                params.pooled,
+                params.role.as_deref(),
             )
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
@@ -4653,142 +4634,10 @@ impl SerenMcpServer {
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
-    // ========================================================================
-    // User Geographic Routing Tools
-    // ========================================================================
-
-    #[tool(
-        description = "List all geographic routing opt-ins for the authenticated user. These opt-ins allow certain geo-restricted publishers to proxy requests through a region (e.g. EU).",
-        annotations(read_only_hint = true, open_world_hint = false)
-    )]
-    async fn list_user_routing(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
-        let result = match api_client.list_user_routing().await {
-            Ok(resp) => resp.into_inner(),
-            Err(e) => return Err(seren_error_to_mcp_error(e).await),
-        };
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
-    }
-
-    #[tool(
-        description = "Get geographic routing opt-in status for a specific publisher. Returns enabled=false if you have not opted in.",
-        annotations(read_only_hint = true, open_world_hint = false)
-    )]
-    async fn get_user_routing(
-        &self,
-        Parameters(params): Parameters<UserRoutingPublisherParams>,
-        extensions: Extensions,
-    ) -> Result<CallToolResult, McpError> {
-        let publisher = params.publisher.trim().to_string();
-        validate_slug(&publisher, "Publisher slug")?;
-
-        let api_client = self.api_client(&extensions)?;
-        match api_client.get_user_routing(&publisher).await {
-            Ok(resp) => {
-                let opt_in = resp.into_inner().data;
-                let response = serde_json::json!({
-                    "enabled": true,
-                    "publisher": publisher,
-                    "opt_in": opt_in,
-                });
-                Ok(CallToolResult::success(vec![json_content(&response)?]))
-            }
-            Err(e) if e.status() == Some(reqwest::StatusCode::NOT_FOUND) => {
-                let response = serde_json::json!({
-                    "enabled": false,
-                    "publisher": publisher,
-                });
-                Ok(CallToolResult::success(vec![json_content(&response)?]))
-            }
-            Err(e) => Err(seren_error_to_mcp_error(e).await),
-        }
-    }
-
-    #[tool(
-        description = "Enable geographic routing (geo proxy opt-in) for a publisher. This may route requests through the specified proxy region and may incur additional charges. Requires confirm=true.",
-        annotations(read_only_hint = false, open_world_hint = false)
-    )]
-    async fn enable_user_routing(
-        &self,
-        Parameters(params): Parameters<EnableUserRoutingParams>,
-        extensions: Extensions,
-    ) -> Result<CallToolResult, McpError> {
-        ensure_writes_allowed(&extensions)?;
-
-        let publisher = params.publisher.trim().to_string();
-        validate_slug(&publisher, "Publisher slug")?;
-
-        let region = params.region.trim().to_ascii_uppercase();
-        if region.is_empty() {
-            return Err(McpError::invalid_params(
-                "region must not be empty".to_string(),
-                None,
-            ));
-        }
-
-        if !params.confirm {
-            return Err(McpError::invalid_request(
-                format!(
-                    "Enabling geographic routing may route requests through {} and may incur additional charges. Re-run with confirm=true to proceed.",
-                    region
-                ),
-                None,
-            ));
-        }
-
-        let api_client = self.api_client(&extensions)?;
-        let body = seren::EnableGeoRoutingRequest { region };
-
-        match api_client.enable_user_routing(&publisher, &body).await {
-            Ok(resp) => Ok(CallToolResult::success(vec![json_content(
-                &resp.into_inner(),
-            )?])),
-            Err(seren::Error::UnexpectedResponse(response))
-                if response.status() == reqwest::StatusCode::BAD_REQUEST =>
-            {
-                let body_text = response.text().await.unwrap_or_default();
-                Err(McpError::invalid_params(
-                    format!(
-                        "Failed to enable routing: {}",
-                        truncate_for_client(&body_text, 1200)
-                    ),
-                    None,
-                ))
-            }
-            Err(e) => Err(seren_error_to_mcp_error(e).await),
-        }
-    }
-
-    #[tool(
-        description = "Disable geographic routing (geo proxy opt-in) for a publisher. This is idempotent: if you were not opted in, it returns enabled=false.",
-        annotations(read_only_hint = false, open_world_hint = false)
-    )]
-    async fn disable_user_routing(
-        &self,
-        Parameters(params): Parameters<DisableUserRoutingParams>,
-        extensions: Extensions,
-    ) -> Result<CallToolResult, McpError> {
-        ensure_writes_allowed(&extensions)?;
-
-        let publisher = params.publisher.trim().to_string();
-        validate_slug(&publisher, "Publisher slug")?;
-
-        let api_client = self.api_client(&extensions)?;
-        match api_client.disable_user_routing(&publisher).await {
-            Ok(resp) => Ok(CallToolResult::success(vec![json_content(
-                &resp.into_inner(),
-            )?])),
-            Err(e) if e.status() == Some(reqwest::StatusCode::NOT_FOUND) => {
-                let response = serde_json::json!({
-                    "enabled": false,
-                    "publisher": publisher,
-                    "message": "No routing opt-in found (already disabled) or publisher not found.",
-                });
-                Ok(CallToolResult::success(vec![json_content(&response)?]))
-            }
-            Err(e) => Err(seren_error_to_mcp_error(e).await),
-        }
-    }
+    // NOTE: User geographic routing tools (list_user_routing, get_user_routing,
+    // enable_user_routing, disable_user_routing) were removed from the API.
+    // Geographic routing is now configured at the publisher level via the
+    // routing field in CreatePublisherRequest/UpdatePublisherRequest.
 
     // =========================================================================
     // Unified Publisher Tool
@@ -6190,6 +6039,9 @@ API endpoint: {endpoint}",
             oauth_provider_slug,
             requires_user_oauth,
             routing: None,
+            a2a_endpoint_url: None,
+            reserve_max_charge: None,
+            unresolved_fallback_charge: None,
         };
 
         let api_base_url = self.api_base_url.trim_end_matches('/');
@@ -6468,6 +6320,9 @@ API endpoint: {endpoint}",
             oauth_provider_id,
             requires_user_oauth,
             routing: None,
+            a2a_endpoint_url: None,
+            reserve_max_charge: None,
+            unresolved_fallback_charge: None,
         };
 
         let api_base_url = self.api_base_url.trim_end_matches('/');
@@ -6567,7 +6422,8 @@ API endpoint: {endpoint}",
             price_per_patch: params.price_per_patch,
             price_per_delete: params.price_per_delete,
             min_charge: params.min_charge,
-            max_charge: params.max_charge,
+            reserve_max_charge: params.reserve_max_charge,
+            unresolved_fallback_charge: params.unresolved_fallback_charge,
             prepaid_enabled: params.prepaid_enabled,
             onchain_enabled: params.onchain_enabled,
             // Set defaults for fields not exposed in MCP params
@@ -6754,7 +6610,7 @@ API endpoint: {endpoint}",
         let request = seren::ResetBranchRequest { parent: true };
 
         let branch = api_client
-            .reset_branch(&params.project_id, &params.branch_id, &request)
+            .seren_db_reset_branch(&params.project_id, &params.branch_id, &request)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -6807,11 +6663,7 @@ API endpoint: {endpoint}",
 
         let api_client = self.api_client(&extensions)?;
 
-        let request = seren::CreateRoleRequest {
-            name: params.name,
-            description: None,
-            permissions: vec![],
-        };
+        let request = seren::CreateDbRoleRequest { name: params.name };
 
         let role = api_client
             .seren_db_create_role(&params.project_id, &params.branch_id, &request)
@@ -6856,17 +6708,8 @@ API endpoint: {endpoint}",
 
         let api_client = self.api_client(&extensions)?;
 
-        let request = seren::ResetRolePasswordRequest {
-            password: params.password,
-        };
-
         let role = api_client
-            .reset_role_password(
-                &params.project_id,
-                &params.branch_id,
-                &params.role_id,
-                &request,
-            )
+            .seren_db_reset_role_password(&params.project_id, &params.branch_id, &params.role_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -7014,7 +6857,7 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
 
         let transactions = api_client
-            .get_transactions(params.limit, params.offset)
+            .get_transactions(None, None, params.limit, params.offset, None)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -7311,13 +7154,14 @@ API endpoint: {endpoint}",
             Err(e) => return Err(McpError::internal_error(e.to_string(), None)),
         };
 
-        let result: seren::ListMcpToolsResponse = serde_json::from_value(result_json)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let result: serde_json::Value = result_json;
 
+        let tools = result.get("tools").and_then(|t| t.as_array());
+        let tool_count = tools.map(|t| t.len()).unwrap_or(0);
         let response = serde_json::json!({
             "publisher": params.publisher,
-            "tools": result.tools,
-            "tool_count": result.tools.len(),
+            "tools": result.get("tools").unwrap_or(&serde_json::Value::Array(vec![])),
+            "tool_count": tool_count,
         });
 
         Ok(CallToolResult::success(vec![json_content(&response)?]))
@@ -7377,13 +7221,14 @@ API endpoint: {endpoint}",
             Err(e) => return Err(McpError::internal_error(e.to_string(), None)),
         };
 
-        let result: seren::ListMcpResourcesResponse = serde_json::from_value(result_json)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let result: serde_json::Value = result_json;
 
+        let resources = result.get("resources").and_then(|r| r.as_array());
+        let resource_count = resources.map(|r| r.len()).unwrap_or(0);
         let response = serde_json::json!({
             "publisher": params.publisher,
-            "resources": result.resources,
-            "resource_count": result.resources.len(),
+            "resources": result.get("resources").unwrap_or(&serde_json::Value::Array(vec![])),
+            "resource_count": resource_count,
         });
 
         Ok(CallToolResult::success(vec![json_content(&response)?]))

@@ -37,10 +37,8 @@ pub async fn create(
     let branch_uuid =
         Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
-    let request = seren::CreateRoleRequest {
+    let request = seren::CreateDbRoleRequest {
         name: name.to_string(),
-        description: None,
-        permissions: vec![],
     };
 
     let response = client
@@ -104,7 +102,7 @@ pub async fn reset_password(
     project_id: &str,
     branch_id: &str,
     role_id: &str,
-    password: &str,
+    _password: &str,
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
@@ -115,12 +113,8 @@ pub async fn reset_password(
     let role_uuid =
         Uuid::parse_str(role_id).map_err(|e| anyhow::anyhow!("Invalid role ID: {}", e))?;
 
-    let request = seren::ResetRolePasswordRequest {
-        password: password.to_string(),
-    };
-
     let response = client
-        .reset_role_password(&project_uuid, &branch_uuid, &role_uuid, &request)
+        .seren_db_reset_role_password(&project_uuid, &branch_uuid, &role_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to reset role password: {}", e))?;
 

@@ -548,6 +548,9 @@ pub async fn create_publisher(
         oauth_provider_slug: None,
         requires_user_oauth: Some(false),
         routing: None,
+        a2a_endpoint_url: None,
+        reserve_max_charge: None,
+        unresolved_fallback_charge: None,
     };
 
     let response = client
@@ -712,7 +715,7 @@ pub async fn get_transaction_history(
     let client = ctx.client().await?;
 
     let response = client
-        .get_transactions(limit, offset)
+        .get_transactions(None, None, limit, offset, None)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get transaction history: {}", e))?;
 

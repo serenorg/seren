@@ -110,14 +110,14 @@ pub async fn project_list(project_id: &str, ctx: &CommandContext) -> Result<()> 
         Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
 
     let response = client
-        .list_project_vpc_endpoints(&project_uuid)
+        .seren_db_list_project_vpc_endpoints(&project_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list project VPC endpoints: {}", e))?;
 
     let assignments = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&assignments)?,
-        OutputFormat::Table => output::print_project_vpc_endpoints_table(&assignments),
+        OutputFormat::Table => output::print_project_vpc_endpoints_table(&assignments.data),
     }
 
     Ok(())
@@ -140,7 +140,7 @@ pub async fn project_assign(
     };
 
     let response = client
-        .assign_project_vpc_endpoint(&project_uuid, &request)
+        .seren_db_assign_project_vpc_endpoint(&project_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to assign VPC endpoint: {}", e))?;
 
@@ -149,7 +149,11 @@ pub async fn project_assign(
     println!();
     match ctx.format {
         OutputFormat::Json => output::print_json(&assignment)?,
-        OutputFormat::Table => output::print_project_vpc_endpoints_table(&[assignment.data]),
+        OutputFormat::Table => {
+            // Wrap single assignment in an array for the table printer
+            let arr = serde_json::Value::Array(vec![assignment.data]);
+            output::print_project_vpc_endpoints_table(&arr);
+        }
     }
 
     Ok(())
@@ -167,7 +171,7 @@ pub async fn project_remove(
         .map_err(|e| anyhow::anyhow!("Invalid assignment ID: {}", e))?;
 
     client
-        .remove_project_vpc_endpoint(&project_uuid, &assignment_uuid)
+        .seren_db_remove_project_vpc_endpoint(&project_uuid, &assignment_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to remove project VPC endpoint: {}", e))?;
 

@@ -16,7 +16,7 @@ pub async fn get_settings(project_id: &str, ctx: &CommandContext) -> Result<()> 
         Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
 
     let response = client
-        .get_replication_settings(&project_uuid)
+        .seren_db_get_replication_settings(&project_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get replication settings: {}", e))?;
 
@@ -37,7 +37,7 @@ pub async fn enable(project_id: &str, ctx: &CommandContext) -> Result<()> {
     let request = UpdateLogicalReplicationRequest { enabled: true };
 
     let response = client
-        .update_replication_settings(&project_uuid, &request)
+        .seren_db_update_replication_settings(&project_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to enable logical replication: {}", e))?;
 
@@ -74,7 +74,7 @@ pub async fn list_publications(
         Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     let response = client
-        .list_publications(&project_uuid, &branch_uuid)
+        .seren_db_list_publications(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list publications: {}", e))?;
 
@@ -114,7 +114,7 @@ pub async fn create_publication(
     };
 
     let response = client
-        .create_publication(&project_uuid, &branch_uuid, &request)
+        .seren_db_create_publication(&project_uuid, &branch_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create publication: {}", e))?;
 
@@ -162,7 +162,7 @@ pub async fn update_publication(
     };
 
     let response = client
-        .update_publication(&project_uuid, &branch_uuid, &publication_uuid, &request)
+        .seren_db_update_publication(&project_uuid, &branch_uuid, &publication_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to update publication: {}", e))?;
 
@@ -193,7 +193,7 @@ pub async fn delete_publication(
         .map_err(|e| anyhow::anyhow!("Invalid publication ID: {}", e))?;
 
     client
-        .delete_publication(&project_uuid, &branch_uuid, &publication_uuid)
+        .seren_db_delete_publication(&project_uuid, &branch_uuid, &publication_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to delete publication: {}", e))?;
 
@@ -217,7 +217,7 @@ pub async fn list_slots(project_id: &str, branch_id: &str, ctx: &CommandContext)
         Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     let response = client
-        .list_replication_slots(&project_uuid, &branch_uuid)
+        .seren_db_list_replication_slots(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list replication slots: {}", e))?;
 
@@ -250,7 +250,7 @@ pub async fn create_slot(
     };
 
     let response = client
-        .create_replication_slot(&project_uuid, &branch_uuid, &request)
+        .seren_db_create_replication_slot(&project_uuid, &branch_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create replication slot: {}", e))?;
 
@@ -284,7 +284,7 @@ pub async fn delete_slot(
         Uuid::parse_str(slot_id).map_err(|e| anyhow::anyhow!("Invalid slot ID: {}", e))?;
 
     client
-        .delete_replication_slot(&project_uuid, &branch_uuid, &slot_uuid)
+        .seren_db_delete_replication_slot(&project_uuid, &branch_uuid, &slot_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to delete replication slot: {}", e))?;
 

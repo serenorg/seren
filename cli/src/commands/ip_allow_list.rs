@@ -10,7 +10,7 @@ pub async fn list(project_id: &str, ctx: &CommandContext) -> Result<()> {
         Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
 
     let response = client
-        .list_ip_allow_list(&project_uuid)
+        .seren_db_list_ip_allow_list(&project_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list IP allow list: {}", e))?;
 
@@ -39,7 +39,7 @@ pub async fn add(
     };
 
     let response = client
-        .add_ip_to_allow_list(&project_uuid, &request)
+        .seren_db_add_ip_allow_list(&project_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to add IP to allow list: {}", e))?;
 
@@ -62,7 +62,7 @@ pub async fn remove(project_id: &str, ip_id: &str, ctx: &CommandContext) -> Resu
     let ip_uuid = Uuid::parse_str(ip_id).map_err(|e| anyhow::anyhow!("Invalid IP ID: {}", e))?;
 
     client
-        .remove_ip_from_allow_list(&project_uuid, &ip_uuid)
+        .seren_db_remove_ip_allow_list(&project_uuid, &ip_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to remove IP from allow list: {}", e))?;
 
@@ -92,7 +92,7 @@ pub async fn reset(project_id: &str, ips: &[String], ctx: &CommandContext) -> Re
     let request = seren::ResetIpAllowListRequest { entries };
 
     let response = client
-        .reset_ip_allow_list(&project_uuid, &request)
+        .seren_db_reset_ip_allow_list(&project_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to reset IP allow list: {}", e))?;
 

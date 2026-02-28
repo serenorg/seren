@@ -11,7 +11,7 @@ pub async fn list(project_id: &str, ctx: &CommandContext) -> Result<()> {
         Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
 
     let response = client
-        .list_operations(&project_uuid)
+        .seren_db_list_operations(&project_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list operations: {}", e))?;
 
@@ -32,7 +32,7 @@ pub async fn get(project_id: &str, operation_id: &str, ctx: &CommandContext) -> 
         .map_err(|e| anyhow::anyhow!("Invalid operation ID: {}", e))?;
 
     let response = client
-        .get_operation(&project_uuid, &operation_uuid)
+        .seren_db_get_operation(&project_uuid, &operation_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get operation: {}", e))?;
 
@@ -49,25 +49,33 @@ pub async fn poll_operation(
     project_id: &Uuid,
     operation_id: &Uuid,
     timeout_secs: u64,
-) -> Result<seren::Operation> {
+) -> Result<serde_json::Value> {
     let start = std::time::Instant::now();
 
     loop {
         let response = client
-            .get_operation(project_id, operation_id)
+            .seren_db_get_operation(project_id, operation_id)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get operation {operation_id}: {}", e))?;
 
         let op = response.into_inner().data;
-        let status = op.status.to_lowercase();
+        let status = op
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_lowercase();
         if matches!(status.as_str(), "completed" | "failed" | "cancelled") {
             return if status == "completed" {
                 Ok(op)
             } else {
+                let error_message = op
+                    .get("error_message")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("");
                 Err(anyhow::anyhow!(
                     "Operation {operation_id} ended with status {}: {}",
-                    op.status,
-                    op.error_message.clone().unwrap_or_default()
+                    status,
+                    error_message
                 ))
             };
         }

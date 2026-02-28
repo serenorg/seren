@@ -159,7 +159,7 @@ const API_KEY_CACHE_SIZE: usize = 1_000;
 /// Cached API key validation result with expiry timestamp.
 #[derive(Clone)]
 struct CachedApiKeyValidation {
-    user_info: seren::UserMe,
+    user_info: seren::DataResponseUserMeData,
     expires_at: std::time::Instant,
 }
 
@@ -183,7 +183,7 @@ async fn validate_api_key_cached(
     api_base_url: &str,
     api_key: &str,
     cache: &Arc<Mutex<LruCache<String, CachedApiKeyValidation>>>,
-) -> Result<seren::UserMe, ApiKeyValidationError> {
+) -> Result<seren::DataResponseUserMeData, ApiKeyValidationError> {
     // Check cache first
     {
         let mut cache_guard = cache.lock().await;
@@ -234,7 +234,7 @@ async fn validate_api_key_cached(
 async fn validate_api_key_uncached(
     api_base_url: &str,
     api_key: &str,
-) -> Result<seren::UserMe, ApiKeyValidationError> {
+) -> Result<seren::DataResponseUserMeData, ApiKeyValidationError> {
     // Build HTTP client with the API key as bearer token
     let mut headers = reqwest::header::HeaderMap::new();
     let auth_value = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", api_key))
