@@ -2493,7 +2493,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateRoleRequest"
+                "$ref": "#/components/schemas/CreateDbRoleRequest"
               }
             }
           },
@@ -4665,6 +4665,18 @@
           }
         }
       },
+      "CreateDbRoleRequest": {
+        "type": "object",
+        "description": "Request to create a new PostgreSQL database role",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "CreateEndpointRequest": {
         "type": "object",
         "description": "Request to create a new endpoint",
@@ -4809,18 +4821,6 @@
           "slot_type": {
             "type": "string",
             "description": "Slot type: logical or physical (default: logical)"
-          }
-        }
-      },
-      "CreateRoleRequest": {
-        "type": "object",
-        "description": "Request to create a new role",
-        "required": [
-          "name"
-        ],
-        "properties": {
-          "name": {
-            "type": "string"
           }
         }
       },

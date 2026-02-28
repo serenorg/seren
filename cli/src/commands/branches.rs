@@ -539,7 +539,7 @@ pub async fn reset(project_id: &str, branch_id: &str, ctx: &CommandContext) -> R
     let request = seren::ResetBranchRequest { parent: true };
 
     match client
-        .reset_branch(&project_uuid, &branch_uuid, &request)
+        .seren_db_reset_branch(&project_uuid, &branch_uuid, &request)
         .await
     {
         Ok(response) => {
@@ -628,7 +628,7 @@ pub async fn restore(
     };
 
     match client
-        .restore_branch(&project_uuid, &branch_uuid, &request)
+        .seren_db_restore_branch(&project_uuid, &branch_uuid, &request)
         .await
     {
         Ok(response) => {

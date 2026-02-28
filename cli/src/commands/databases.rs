@@ -133,11 +133,19 @@ pub async fn list_all(project_id: Option<&str>, ctx: &CommandContext) -> Result<
         // List databases for a specific project (across all branches)
         let project_uuid =
             Uuid::parse_str(pid).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
-        client
-            .list_project_databases(&project_uuid)
+        let resp = client
+            .seren_db_list_project_databases(&project_uuid)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to list databases: {}", e))?
-            .into_inner()
+            .into_inner();
+        // The publisher endpoint returns DataResponseValue (untyped), so deserialize
+        // into the same typed structure used by list_all_databases.
+        let items: Vec<seren::DatabaseWithContext> = serde_json::from_value(resp.data)
+            .map_err(|e| anyhow::anyhow!("Failed to parse databases response: {}", e))?;
+        seren::DataResponseVecDatabaseWithContext {
+            data: items,
+            pagination: resp.pagination,
+        }
     } else {
         // List all databases across all projects
         client

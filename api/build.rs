@@ -164,51 +164,155 @@ fn downconvert_31_to_30(value: &mut serde_json::Value) {
     }
 }
 
+/// Replace inline schemas in `DataResponse_*` wrappers with `$ref` to their named
+/// equivalents.  Seren-core's OpenAPI generator inlines the inner schema inside
+/// every `DataResponse<T>` instead of using `$ref`, which causes progenitor to
+/// create duplicate `*DataItem` / `*Data` types.  By matching the `required`
+/// fields of the inline schema to the named component schema we can replace the
+/// inline definition with a `$ref`, making progenitor reuse the existing type.
+fn dedup_data_response_schemas(raw: &mut serde_json::Value) {
+    // Build a lookup: sorted-required-fields -> schema name (skip DataResponse_ prefixed)
+    let mut required_to_name: std::collections::HashMap<Vec<String>, String> =
+        std::collections::HashMap::new();
+    if let Some(schemas) = raw
+        .pointer("/components/schemas")
+        .and_then(|v| v.as_object())
+    {
+        for (name, schema) in schemas {
+            if name.starts_with("DataResponse_") {
+                continue;
+            }
+            if let Some(req) = schema.get("required").and_then(|v| v.as_array()) {
+                let mut fields: Vec<String> = req
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect();
+                fields.sort();
+                if !fields.is_empty() {
+                    // Only insert if not already present (first match wins)
+                    required_to_name
+                        .entry(fields)
+                        .or_insert_with(|| name.clone());
+                }
+            }
+        }
+    }
+
+    // Now patch all wrapper schemas that have a `data` property with inline items.
+    // This handles both DataResponse_* schemas and remapped schemas (e.g. BranchesResponse).
+    let dr_names: Vec<String> = raw
+        .pointer("/components/schemas")
+        .and_then(|v| v.as_object())
+        .map(|schemas| {
+            schemas
+                .keys()
+                .filter(|n| {
+                    // Check if this schema has a `data` property
+                    schemas
+                        .get(n.as_str())
+                        .and_then(|s| s.pointer("/properties/data"))
+                        .is_some()
+                })
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+
+    for dr_name in &dr_names {
+        let data_path = format!("/components/schemas/{dr_name}/properties/data");
+        // Read the data property
+        let data_val = raw.pointer(&data_path).cloned();
+        let Some(data_val) = data_val else { continue };
+
+        if data_val.get("type").and_then(|v| v.as_str()) == Some("array") {
+            // Vec wrapper – check items
+            let items = data_val.get("items");
+            if let Some(items) = items {
+                if items.get("$ref").is_some() {
+                    continue; // already a $ref
+                }
+                if let Some(req) = items.get("required").and_then(|v| v.as_array()) {
+                    let mut fields: Vec<String> = req
+                        .iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect();
+                    fields.sort();
+                    if let Some(target) = required_to_name.get(&fields) {
+                        let items_path = format!("{data_path}/items");
+                        if let Some(slot) = raw.pointer_mut(&items_path) {
+                            *slot = serde_json::json!({ "$ref": format!("#/components/schemas/{target}") });
+                        }
+                    }
+                }
+            }
+        } else if data_val.get("type").and_then(|v| v.as_str()) == Some("object")
+            && data_val.get("$ref").is_none()
+        {
+            // Single object wrapper – replace data with $ref
+            if let Some(req) = data_val.get("required").and_then(|v| v.as_array()) {
+                let mut fields: Vec<String> = req
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect();
+                fields.sort();
+                if let Some(target) = required_to_name.get(&fields)
+                    && let Some(slot) = raw.pointer_mut(&data_path)
+                {
+                    *slot = serde_json::json!({ "$ref": format!("#/components/schemas/{target}") });
+                }
+            }
+        }
+    }
+}
+
+/// Mapping from publisher-specific `DataResponse_*` schema names to the legacy
+/// monolithic spec equivalents so progenitor generates the same Rust types the
+/// CLI/MCP code already expects.
+const SCHEMA_REMAP: &[(&str, &str)] = &[
+    ("DataResponse_Vec_Project", "PaginatedProjectResponse"),
+    ("DataResponse_Project", "ProjectResponse"),
+    ("DataResponse_ProjectCreated", "ProjectCreatedResponse"),
+    (
+        "DataResponse_ProjectConnectionUri",
+        "ProjectConnectionUriDataResponse",
+    ),
+    ("DataResponse_Vec_Branch", "BranchesResponse"),
+    ("DataResponse_Branch", "BranchResponse"),
+    (
+        "DataResponse_BranchCreationResult",
+        "BranchCreationResultResponse",
+    ),
+    (
+        "DataResponse_Vec_DatabaseWithOwner",
+        "DatabasesWithOwnerResponse",
+    ),
+    (
+        "DataResponse_DatabaseWithOwner",
+        "DatabaseWithOwnerResponse",
+    ),
+    ("DataResponse_DatabaseCreated", "DatabaseCreatedResponse"),
+    ("DataResponse_Vec_RoleInfo", "RoleInfosResponse"),
+    ("DataResponse_RoleCreated", "RoleCreatedResponse"),
+    (
+        "DataResponse_RolePasswordReset",
+        "RolePasswordResetResponse",
+    ),
+    ("DataResponse_Vec_Endpoint", "EndpointsResponse"),
+    ("DataResponse_Endpoint", "EndpointResponse"),
+    ("DataResponse_EndpointCreated", "EndpointCreatedResponse"),
+    (
+        "DataResponse_EndpointStatusInfo",
+        "EndpointStatusInfoResponse",
+    ),
+];
+
 /// Remap publisher-specific response schema names to their monolithic spec equivalents.
 /// This ensures progenitor generates consistent types across old and new endpoints.
 fn remap_publisher_refs(value: &mut serde_json::Value) {
-    static REMAP: &[(&str, &str)] = &[
-        ("DataResponse_Vec_Project", "PaginatedProjectResponse"),
-        ("DataResponse_Project", "ProjectResponse"),
-        ("DataResponse_ProjectCreated", "ProjectCreatedResponse"),
-        (
-            "DataResponse_ProjectConnectionUri",
-            "ProjectConnectionUriDataResponse",
-        ),
-        ("DataResponse_Vec_Branch", "BranchesResponse"),
-        ("DataResponse_Branch", "BranchResponse"),
-        (
-            "DataResponse_BranchCreationResult",
-            "BranchCreationResultResponse",
-        ),
-        (
-            "DataResponse_Vec_DatabaseWithOwner",
-            "DatabasesWithOwnerResponse",
-        ),
-        (
-            "DataResponse_DatabaseWithOwner",
-            "DatabaseWithOwnerResponse",
-        ),
-        ("DataResponse_DatabaseCreated", "DatabaseCreatedResponse"),
-        ("DataResponse_Vec_RoleInfo", "RoleInfosResponse"),
-        ("DataResponse_RoleCreated", "RoleCreatedResponse"),
-        (
-            "DataResponse_RolePasswordReset",
-            "RolePasswordResetResponse",
-        ),
-        ("DataResponse_Vec_Endpoint", "EndpointsResponse"),
-        ("DataResponse_Endpoint", "EndpointResponse"),
-        ("DataResponse_EndpointCreated", "EndpointCreatedResponse"),
-        (
-            "DataResponse_EndpointStatusInfo",
-            "EndpointStatusInfoResponse",
-        ),
-    ];
-
     match value {
         serde_json::Value::Object(map) => {
             if let Some(serde_json::Value::String(r)) = map.get_mut("$ref") {
-                for (from, to) in REMAP {
+                for (from, to) in SCHEMA_REMAP {
                     let from_ref = format!("#/components/schemas/{from}");
                     if r == &from_ref {
                         *r = format!("#/components/schemas/{to}");
@@ -269,7 +373,7 @@ fn merge_publisher_spec(main: &mut serde_json::Value, publisher_path: &str, publ
         }
     }
 
-    // Merge component schemas
+    // Merge component schemas, renaming keys that were remapped in $refs.
     if let (Some(main_schemas), Some(pub_schemas)) = (
         main.pointer_mut("/components/schemas")
             .and_then(|v| v.as_object_mut()),
@@ -278,7 +382,14 @@ fn merge_publisher_spec(main: &mut serde_json::Value, publisher_path: &str, publ
             .and_then(|v| v.as_object()),
     ) {
         for (name, schema) in pub_schemas {
-            main_schemas.entry(name).or_insert_with(|| schema.clone());
+            let target_name = SCHEMA_REMAP
+                .iter()
+                .find(|(from, _)| *from == name.as_str())
+                .map(|(_, to)| (*to).to_string())
+                .unwrap_or_else(|| name.clone());
+            main_schemas
+                .entry(&target_name)
+                .or_insert_with(|| schema.clone());
         }
     }
 }
@@ -301,6 +412,10 @@ fn main() -> anyhow::Result<()> {
         "../openapi/openapi-seren-cloud.json",
         "seren-cloud",
     );
+
+    // Replace inline schemas in DataResponse_* wrappers with $ref to named equivalents.
+    // This must run after merging publisher specs so all schemas are present.
+    dedup_data_response_schemas(&mut raw_json);
 
     // Normalize OpenAPI 3.1 nullable syntax before deserializing with openapiv3.
     downconvert_31_to_30(&mut raw_json);

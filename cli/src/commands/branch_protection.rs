@@ -10,7 +10,7 @@ pub async fn list(project_id: &str, ctx: &CommandContext) -> Result<()> {
         Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
 
     let response = client
-        .list_branch_protection_rules(&project_uuid)
+        .seren_db_list_branch_protection_rules(&project_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to list branch protection rules: {}", e))?;
 
@@ -31,7 +31,7 @@ pub async fn get(project_id: &str, branch_id: &str, ctx: &CommandContext) -> Res
         Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     let response = client
-        .get_branch_protection(&project_uuid, &branch_uuid)
+        .seren_db_get_branch_protection(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get branch protection: {}", e))?;
 
@@ -67,7 +67,7 @@ pub async fn create(
     };
 
     let response = client
-        .create_branch_protection(&project_uuid, &branch_uuid, &request)
+        .seren_db_create_branch_protection(&project_uuid, &branch_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create branch protection: {}", e))?;
 
@@ -111,7 +111,7 @@ pub async fn update(
     };
 
     let response = client
-        .update_branch_protection(&project_uuid, &branch_uuid, &request)
+        .seren_db_update_branch_protection(&project_uuid, &branch_uuid, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to update branch protection: {}", e))?;
 
@@ -140,7 +140,7 @@ pub async fn delete(project_id: &str, branch_id: &str, ctx: &CommandContext) -> 
         Uuid::parse_str(branch_id).map_err(|e| anyhow::anyhow!("Invalid branch ID: {}", e))?;
 
     client
-        .delete_branch_protection(&project_uuid, &branch_uuid)
+        .seren_db_delete_branch_protection(&project_uuid, &branch_uuid)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to delete branch protection: {}", e))?;
 
