@@ -53,6 +53,37 @@ fn strip_error_response_content(value: &mut serde_json::Value) {
     }
 }
 
+/// Normalize binary media schemas so progenitor can generate typed responses.
+///
+/// Some endpoints emit `application/octet-stream` with an unconstrained schema
+/// (`AnySchema`). Progenitor rejects that shape, so we normalize it to
+/// `{ type: "string", format: "binary" }`.
+fn normalize_binary_content_schemas(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::Object(content)) = map.get_mut("content")
+                && let Some(serde_json::Value::Object(media)) =
+                    content.get_mut("application/octet-stream")
+            {
+                media.insert(
+                    "schema".to_string(),
+                    serde_json::json!({ "type": "string", "format": "binary" }),
+                );
+            }
+
+            for v in map.values_mut() {
+                normalize_binary_content_schemas(v);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                normalize_binary_content_schemas(v);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn ensure_schema(components: &mut openapiv3::Components, name: &str, schema: Schema) {
     components
         .schemas
@@ -199,7 +230,7 @@ fn remap_publisher_refs(value: &mut serde_json::Value) {
 }
 
 /// Merge a publisher spec's paths and schemas into the main spec JSON.
-fn merge_publisher_spec(main: &mut serde_json::Value, publisher_path: &str) {
+fn merge_publisher_spec(main: &mut serde_json::Value, publisher_path: &str, publisher_slug: &str) {
     let Ok(publisher_str) = fs::read_to_string(publisher_path) else {
         return;
     };
@@ -214,13 +245,27 @@ fn merge_publisher_spec(main: &mut serde_json::Value, publisher_path: &str) {
     // Remap publisher response types to monolithic spec equivalents.
     remap_publisher_refs(&mut publisher);
 
-    // Merge paths
+    // Merge paths.
+    // Publisher specs now use relative paths; convert to absolute paths under
+    // /publishers/<slug> when composing the monolithic client spec.
     if let (Some(main_paths), Some(pub_paths)) = (
         main.get_mut("paths").and_then(|v| v.as_object_mut()),
         publisher.get("paths").and_then(|v| v.as_object()),
     ) {
         for (path, item) in pub_paths {
-            main_paths.entry(path).or_insert_with(|| item.clone());
+            let absolute_path = if path.starts_with("/publishers/") {
+                path.to_string()
+            } else if path == "/" {
+                format!("/publishers/{publisher_slug}")
+            } else if path.starts_with('/') {
+                format!("/publishers/{publisher_slug}{path}")
+            } else {
+                format!("/publishers/{publisher_slug}/{path}")
+            };
+
+            main_paths
+                .entry(absolute_path)
+                .or_insert_with(|| item.clone());
         }
     }
 
@@ -237,7 +282,6 @@ fn merge_publisher_spec(main: &mut serde_json::Value, publisher_path: &str) {
         }
     }
 }
-
 fn main() -> anyhow::Result<()> {
     println!("cargo:rerun-if-changed=../openapi/openapi.json");
     println!("cargo:rerun-if-changed=../openapi/openapi-seren-db.json");
@@ -247,8 +291,20 @@ fn main() -> anyhow::Result<()> {
     let mut raw_json: serde_json::Value = serde_json::from_str(&spec_str)?;
 
     // Merge per-publisher specs so the generated client includes publisher endpoints.
-    merge_publisher_spec(&mut raw_json, "../openapi/openapi-seren-db.json");
-    merge_publisher_spec(&mut raw_json, "../openapi/openapi-seren-cloud.json");
+    merge_publisher_spec(
+        &mut raw_json,
+        "../openapi/openapi-seren-db.json",
+        "seren-db",
+    );
+    merge_publisher_spec(
+        &mut raw_json,
+        "../openapi/openapi-seren-cloud.json",
+        "seren-cloud",
+    );
+
+    // Normalize OpenAPI 3.1 nullable syntax before deserializing with openapiv3.
+    downconvert_31_to_30(&mut raw_json);
+    raw_json["openapi"] = serde_json::json!("3.0.3");
 
     // Strip 402/403 response content bodies for progenitor code generation.
     // Progenitor panics with "response_types.len() <= 1" if an operation has
@@ -257,6 +313,7 @@ fn main() -> anyhow::Result<()> {
     // The generated code will use UnexpectedResponse for these statuses, preserving the raw
     // response so callers can deserialize the error body manually when needed.
     strip_error_response_content(&mut raw_json);
+    normalize_binary_content_schemas(&mut raw_json);
 
     let mut refs = HashSet::new();
     collect_refs(&raw_json, &mut refs);

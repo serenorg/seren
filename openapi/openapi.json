@@ -5672,9 +5672,7 @@
             "description": "Agent task accepted (async)",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DataResponse_AgentTask"
-                }
+                "schema": {}
               }
             }
           },

@@ -12,8 +12,13 @@
     },
     "version": "1.0.0"
   },
+  "servers": [
+    {
+      "url": "/publishers/seren-cloud"
+    }
+  ],
   "paths": {
-    "/publishers/seren-cloud/deploy": {
+    "/deploy": {
       "post": {
         "tags": [
           "seren-cloud"
@@ -55,7 +60,7 @@
         ]
       }
     },
-    "/publishers/seren-cloud/deployments": {
+    "/deployments": {
       "get": {
         "tags": [
           "seren-cloud"
@@ -84,7 +89,7 @@
         ]
       }
     },
-    "/publishers/seren-cloud/deployments/{id}": {
+    "/deployments/{id}": {
       "get": {
         "tags": [
           "seren-cloud"
@@ -199,7 +204,7 @@
         ]
       }
     },
-    "/publishers/seren-cloud/deployments/{id}/logs": {
+    "/deployments/{id}/logs": {
       "get": {
         "tags": [
           "seren-cloud"
@@ -236,7 +241,7 @@
         ]
       }
     },
-    "/publishers/seren-cloud/deployments/{id}/runs": {
+    "/deployments/{id}/runs": {
       "get": {
         "tags": [
           "seren-cloud"
@@ -402,7 +407,7 @@
         ]
       }
     },
-    "/publishers/seren-cloud/deployments/{id}/runs/{run_id}": {
+    "/deployments/{id}/runs/{run_id}": {
       "get": {
         "tags": [
           "seren-cloud"
@@ -453,7 +458,7 @@
         ]
       }
     },
-    "/publishers/seren-cloud/deployments/{id}/runs/{run_id}/artifacts": {
+    "/deployments/{id}/runs/{run_id}/artifacts": {
       "get": {
         "tags": [
           "seren-cloud"
@@ -524,7 +529,7 @@
         ]
       }
     },
-    "/publishers/seren-cloud/deployments/{id}/runs/{run_id}/cancel": {
+    "/deployments/{id}/runs/{run_id}/cancel": {
       "post": {
         "tags": [
           "seren-cloud"
@@ -575,7 +580,7 @@
         ]
       }
     },
-    "/publishers/seren-cloud/deployments/{id}/runs/{run_id}/stream": {
+    "/deployments/{id}/runs/{run_id}/stream": {
       "get": {
         "tags": [
           "seren-cloud"
@@ -622,7 +627,7 @@
         ]
       }
     },
-    "/publishers/seren-cloud/deployments/{id}/start": {
+    "/deployments/{id}/start": {
       "post": {
         "tags": [
           "seren-cloud"
@@ -656,7 +661,7 @@
         ]
       }
     },
-    "/publishers/seren-cloud/deployments/{id}/stop": {
+    "/deployments/{id}/stop": {
       "post": {
         "tags": [
           "seren-cloud"
@@ -690,7 +695,7 @@
         ]
       }
     },
-    "/publishers/seren-cloud/environments": {
+    "/environments": {
       "get": {
         "tags": [
           "seren-cloud"
@@ -753,7 +758,7 @@
         ]
       }
     },
-    "/publishers/seren-cloud/environments/{id}": {
+    "/environments/{id}": {
       "get": {
         "tags": [
           "seren-cloud"
@@ -875,7 +880,7 @@
         ]
       }
     },
-    "/publishers/seren-cloud/runs": {
+    "/runs": {
       "get": {
         "tags": [
           "seren-cloud"
@@ -989,7 +994,7 @@
         ]
       }
     },
-    "/publishers/seren-cloud/runs/{run_id}": {
+    "/runs/{run_id}": {
       "get": {
         "tags": [
           "seren-cloud"
@@ -1030,7 +1035,7 @@
         ]
       }
     },
-    "/publishers/seren-cloud/runs/{run_id}/artifacts": {
+    "/runs/{run_id}/artifacts": {
       "get": {
         "tags": [
           "seren-cloud"
@@ -1091,7 +1096,7 @@
         ]
       }
     },
-    "/publishers/seren-cloud/runs/{run_id}/cancel": {
+    "/runs/{run_id}/cancel": {
       "post": {
         "tags": [
           "seren-cloud"
@@ -1132,7 +1137,7 @@
         ]
       }
     },
-    "/publishers/seren-cloud/runs/{run_id}/stream": {
+    "/runs/{run_id}/stream": {
       "get": {
         "tags": [
           "seren-cloud"
