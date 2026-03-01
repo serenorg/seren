@@ -5437,7 +5437,7 @@ Examples:
                             let endpoint = geo_error
                                 .get("opt_in_endpoint")
                                 .and_then(|v| v.as_str())
-                                .unwrap_or("PUT /user/routing/{publisher}");
+                                .unwrap_or("publisher routing opt-in endpoint (not provided)");
 
                             tracing::info!(
                                 publisher = %publisher,
@@ -5453,7 +5453,7 @@ Examples:
                             return Err(McpError::invalid_request(
                                 format!(
                                     "Publisher '{publisher}' requires geographic routing via region {region}, but you have not opted in.\n\
-To opt in (MCP): enable_user_routing(publisher: \"{publisher}\", region: \"{region}\", confirm: true)\n\
+Configure publisher routing (via create_publisher/update_publisher `routing`) or call the API endpoint directly.\n\
 API endpoint: {endpoint}",
                                 ),
                                 None,
