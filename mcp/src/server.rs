@@ -1557,60 +1557,6 @@ fn build_cloud_run_body(
     Ok(body)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn build_cloud_runs_query(
-    limit: i64,
-    offset: i64,
-    status: &[String],
-    compute_backend: Option<&str>,
-    source: Option<&str>,
-    has_artifacts: Option<bool>,
-    started_after: Option<&str>,
-    started_before: Option<&str>,
-    q: Option<&str>,
-) -> String {
-    let mut params = vec![format!("limit={limit}"), format!("offset={offset}")];
-
-    for status in status {
-        let status = status.trim();
-        if !status.is_empty() {
-            params.push(format!("status={}", urlencoding::encode(status)));
-        }
-    }
-    if let Some(compute_backend) = compute_backend.map(str::trim).filter(|v| !v.is_empty()) {
-        params.push(format!(
-            "compute_backend={}",
-            urlencoding::encode(compute_backend)
-        ));
-    }
-    if let Some(source) = source.map(str::trim).filter(|v| !v.is_empty()) {
-        params.push(format!("source={}", urlencoding::encode(source)));
-    }
-    if let Some(has_artifacts) = has_artifacts {
-        params.push(format!(
-            "has_artifacts={}",
-            if has_artifacts { "true" } else { "false" }
-        ));
-    }
-    if let Some(started_after) = started_after.map(str::trim).filter(|v| !v.is_empty()) {
-        params.push(format!(
-            "started_after={}",
-            urlencoding::encode(started_after)
-        ));
-    }
-    if let Some(started_before) = started_before.map(str::trim).filter(|v| !v.is_empty()) {
-        params.push(format!(
-            "started_before={}",
-            urlencoding::encode(started_before)
-        ));
-    }
-    if let Some(q) = q.map(str::trim).filter(|v| !v.is_empty()) {
-        params.push(format!("q={}", urlencoding::encode(q)));
-    }
-
-    params.join("&")
-}
-
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CloudUpdateConfigParams {
     /// Deployment UUID
@@ -7263,24 +7209,54 @@ API endpoint: {endpoint}",
                 ));
             }
         };
-        let url = format!("{}/publishers/{}/deploy", self.api_base_url, publisher);
-        let body = serde_json::json!({
-            "name": params.name,
-            "skill_slug": params.skill_slug,
-            "environment_id": params.environment_id,
-            "mode": params.mode,
-            "compute_backend": params.compute_backend,
-            "runtime_kind": params.runtime_kind,
-            "code_bundle_base64": params.code_bundle_base64,
-            "cron_schedule": params.cron_schedule,
-            "requirements_txt": params.requirements_txt,
-            "config": params.config,
-            "secrets": params.secrets,
-        });
-        let result = self
-            .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body))
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+
+        // seren-agent doesn't have generated client methods yet; use raw HTTP.
+        if publisher == "seren-agent" {
+            let url = format!("{}/publishers/seren-agent/deploy", self.api_base_url);
+            let body = serde_json::json!({
+                "name": params.name,
+                "skill_slug": params.skill_slug,
+                "environment_id": params.environment_id,
+                "mode": params.mode,
+                "compute_backend": params.compute_backend,
+                "runtime_kind": params.runtime_kind,
+                "code_bundle_base64": params.code_bundle_base64,
+                "cron_schedule": params.cron_schedule,
+                "requirements_txt": params.requirements_txt,
+                "config": params.config,
+                "secrets": params.secrets,
+            });
+            let result = self
+                .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body))
+                .await?;
+            return Ok(CallToolResult::success(vec![json_content(&result)?]));
+        }
+
+        let api_client = self.api_client(&extensions)?;
+        let request = seren::DeployRequest {
+            name: params.name,
+            skill_slug: params.skill_slug,
+            environment_id: params.environment_id,
+            mode: params.mode,
+            compute_backend: params.compute_backend,
+            runtime_kind: params.runtime_kind,
+            code_bundle_base64: params.code_bundle_base64,
+            cron_schedule: params.cron_schedule,
+            requirements_txt: params.requirements_txt,
+            config: params.config,
+            secrets: params.secrets,
+            model_config: None,
+            model_id: None,
+            orchestration_mode: None,
+            system_prompt: None,
+            tool_definitions: None,
+        };
+        let response = api_client
+            .seren_cloud_deploy(&request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -7291,11 +7267,13 @@ API endpoint: {endpoint}",
         &self,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!("{}/publishers/seren-cloud/environments", self.api_base_url);
-        let result = self
-            .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_list_environments()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -7307,14 +7285,13 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CloudEnvironmentIdParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!(
-            "{}/publishers/seren-cloud/environments/{}",
-            self.api_base_url, params.environment_id
-        );
-        let result = self
-            .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_get_environment(&params.environment_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -7330,18 +7307,20 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CreateCloudEnvironmentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!("{}/publishers/seren-cloud/environments", self.api_base_url);
-        let body = serde_json::json!({
-            "name": params.name,
-            "description": params.description,
-            "docker_image": params.docker_image,
-            "setup_commands": params.setup_commands,
-            "is_default": params.is_default,
-        });
-        let result = self
-            .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body))
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let api_client = self.api_client(&extensions)?;
+        let request = seren::CreateCloudDeploymentEnvironmentRequest {
+            name: params.name,
+            docker_image: params.docker_image,
+            description: params.description,
+            setup_commands: params.setup_commands,
+            is_default: params.is_default,
+        };
+        let response = api_client
+            .seren_cloud_create_environment(&request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -7357,21 +7336,20 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<UpdateCloudEnvironmentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!(
-            "{}/publishers/seren-cloud/environments/{}",
-            self.api_base_url, params.environment_id
-        );
-        let body = serde_json::json!({
-            "name": params.name,
-            "description": params.description,
-            "docker_image": params.docker_image,
-            "setup_commands": params.setup_commands,
-            "is_default": params.is_default,
-        });
-        let result = self
-            .execute_api_json(&extensions, reqwest::Method::PATCH, url, Some(&body))
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let api_client = self.api_client(&extensions)?;
+        let request = seren::UpdateCloudDeploymentEnvironmentRequest {
+            name: params.name,
+            description: params.description,
+            docker_image: params.docker_image,
+            setup_commands: params.setup_commands,
+            is_default: params.is_default,
+        };
+        let response = api_client
+            .seren_cloud_update_environment(&params.environment_id, &request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -7387,42 +7365,15 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CloudEnvironmentIdParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!(
-            "{}/publishers/seren-cloud/environments/{}",
-            self.api_base_url, params.environment_id
-        );
-
-        let token = self.bearer_token(&extensions)?;
-        let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
-        let http_client = self.build_http_client(&token, &agent_metadata)?;
-
-        let resp = http_client
-            .delete(&url)
-            .send()
+        let api_client = self.api_client(&extensions)?;
+        api_client
+            .seren_cloud_delete_environment(&params.environment_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        let status = resp.status();
-        if status.as_u16() == 204 {
-            let payload = serde_json::json!({
-                "deleted": true,
-                "environment_id": params.environment_id,
-            });
-            return Ok(CallToolResult::success(vec![json_content(&payload)?]));
-        }
-
-        if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            return Err(McpError::internal_error(
-                format!("Seren API request failed: {} - {}", status, body),
-                None,
-            ));
-        }
-
-        let payload = resp
-            .json::<serde_json::Value>()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let payload = serde_json::json!({
+            "deleted": true,
+            "environment_id": params.environment_id,
+        });
         Ok(CallToolResult::success(vec![json_content(&payload)?]))
     }
 
@@ -7431,11 +7382,13 @@ API endpoint: {endpoint}",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_cloud_agents(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
-        let url = format!("{}/publishers/seren-cloud/agents", self.api_base_url);
-        let result = self
-            .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_list_deployments()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -7447,14 +7400,13 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CloudDeploymentIdParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!(
-            "{}/publishers/seren-cloud/agents/{}",
-            self.api_base_url, params.deployment_id
-        );
-        let result = self
-            .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_get_deployment(&params.deployment_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -7466,14 +7418,15 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CloudDeploymentIdParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!(
-            "{}/publishers/seren-cloud/agents/{}/start",
-            self.api_base_url, params.deployment_id
-        );
-        let result = self
-            .execute_api_json::<()>(&extensions, reqwest::Method::POST, url, None)
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let api_client = self.api_client(&extensions)?;
+        api_client
+            .seren_cloud_start(&params.deployment_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Deployment {} started.",
+            params.deployment_id
+        ))]))
     }
 
     #[tool(
@@ -7485,14 +7438,15 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CloudDeploymentIdParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!(
-            "{}/publishers/seren-cloud/agents/{}/stop",
-            self.api_base_url, params.deployment_id
-        );
-        let result = self
-            .execute_api_json::<()>(&extensions, reqwest::Method::POST, url, None)
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let api_client = self.api_client(&extensions)?;
+        api_client
+            .seren_cloud_stop(&params.deployment_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Deployment {} stopped.",
+            params.deployment_id
+        ))]))
     }
 
     #[tool(
@@ -7504,15 +7458,17 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CloudRunAgentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!(
-            "{}/publishers/seren-cloud/agents/{}/runs",
-            self.api_base_url, params.deployment_id
-        );
         let body = build_cloud_run_body(params.message.as_deref(), params.payload.as_ref())?;
-        let result = self
-            .execute_api_json(&extensions, reqwest::Method::POST, url, body.as_ref())
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let body = body.unwrap_or(serde_json::json!({}));
+        let api_client = self.api_client(&extensions)?;
+        api_client
+            .seren_cloud_run(&params.deployment_id, &body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Run triggered for deployment {}.",
+            params.deployment_id
+        ))]))
     }
 
     #[tool(
@@ -7524,33 +7480,20 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CloudDeploymentIdParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!(
-            "{}/publishers/seren-cloud/agents/{}/logs",
-            self.api_base_url, params.deployment_id
-        );
-        let token = self.bearer_token(&extensions)?;
-        let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
-        let http_client = self.build_http_client(&token, &agent_metadata)?;
-
-        let resp = http_client
-            .get(&url)
-            .send()
+        let api_client = self.api_client(&extensions)?;
+        let stream = api_client
+            .seren_cloud_logs(&params.deployment_id)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            return Err(McpError::internal_error(
-                format!("Failed to get logs: {} - {}", status, body),
-                None,
-            ));
+        use futures::StreamExt;
+        let mut logs = String::new();
+        let mut stream = stream;
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            logs.push_str(&String::from_utf8_lossy(&chunk));
         }
-
-        let logs = resp
-            .text()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![Content::text(logs)]))
     }
 
@@ -7567,39 +7510,15 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CloudDeploymentIdParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!(
-            "{}/publishers/seren-cloud/agents/{}",
-            self.api_base_url, params.deployment_id
-        );
-        let token = self.bearer_token(&extensions)?;
-        let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
-        let http_client = self.build_http_client(&token, &agent_metadata)?;
-
-        let resp = http_client
-            .delete(&url)
-            .send()
+        let api_client = self.api_client(&extensions)?;
+        api_client
+            .seren_cloud_delete(&params.deployment_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        if resp.status().as_u16() == 204 {
-            Ok(CallToolResult::success(vec![Content::text(format!(
-                "Deployment {} destroyed successfully.",
-                params.deployment_id
-            ))]))
-        } else if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            Err(McpError::internal_error(
-                format!("Failed to destroy deployment: {} - {}", status, body),
-                None,
-            ))
-        } else {
-            let result: serde_json::Value = resp
-                .json()
-                .await
-                .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-            Ok(CallToolResult::success(vec![json_content(&result)?]))
-        }
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Deployment {} destroyed successfully.",
+            params.deployment_id
+        ))]))
     }
 
     #[tool(
@@ -7611,25 +7530,29 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CloudAgentRunsParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let query = build_cloud_runs_query(
-            params.limit,
-            params.offset,
-            &params.status,
-            params.compute_backend.as_deref(),
-            params.source.as_deref(),
-            params.has_artifacts,
-            params.started_after.as_deref(),
-            params.started_before.as_deref(),
-            params.q.as_deref(),
-        );
-        let url = format!(
-            "{}/publishers/seren-cloud/agents/{}/runs?{}",
-            self.api_base_url, params.deployment_id, query
-        );
-        let result = self
-            .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let api_client = self.api_client(&extensions)?;
+        let status_str = params.status.join(",");
+        let response = api_client
+            .seren_cloud_deployment_runs(
+                &params.deployment_id,
+                params.compute_backend.as_deref(),
+                params.has_artifacts,
+                Some(params.limit),
+                Some(params.offset),
+                params.q.as_deref(),
+                params.source.as_deref(),
+                params.started_after.as_deref(),
+                params.started_before.as_deref(),
+                if status_str.is_empty() {
+                    None
+                } else {
+                    Some(status_str.as_str())
+                },
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -7641,14 +7564,13 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CloudDeploymentRunParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!(
-            "{}/publishers/seren-cloud/agents/{}/runs/{}",
-            self.api_base_url, params.deployment_id, params.run_id
-        );
-        let result = self
-            .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_deployment_run(&params.deployment_id, &params.run_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -7660,14 +7582,13 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CloudDeploymentRunParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!(
-            "{}/publishers/seren-cloud/agents/{}/runs/{}/cancel",
-            self.api_base_url, params.deployment_id, params.run_id
-        );
-        let result = self
-            .execute_api_json::<()>(&extensions, reqwest::Method::POST, url, None)
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_deployment_run_cancel(&params.deployment_id, &params.run_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -7679,25 +7600,28 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CloudAllRunsParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let query = build_cloud_runs_query(
-            params.limit,
-            params.offset,
-            &params.status,
-            params.compute_backend.as_deref(),
-            params.source.as_deref(),
-            params.has_artifacts,
-            params.started_after.as_deref(),
-            params.started_before.as_deref(),
-            params.q.as_deref(),
-        );
-        let url = format!(
-            "{}/publishers/seren-cloud/runs?{}",
-            self.api_base_url, query
-        );
-        let result = self
-            .execute_api_json::<()>(&extensions, reqwest::Method::GET, url, None)
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let api_client = self.api_client(&extensions)?;
+        let status_str = params.status.join(",");
+        let response = api_client
+            .seren_cloud_runs(
+                params.compute_backend.as_deref(),
+                params.has_artifacts,
+                Some(params.limit),
+                Some(params.offset),
+                params.q.as_deref(),
+                params.source.as_deref(),
+                params.started_after.as_deref(),
+                params.started_before.as_deref(),
+                if status_str.is_empty() {
+                    None
+                } else {
+                    Some(status_str.as_str())
+                },
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -7719,26 +7643,19 @@ API endpoint: {endpoint}",
                 None,
             ));
         }
-        let url = format!(
-            "{}/publishers/seren-cloud/agents/{}",
-            self.api_base_url, params.deployment_id
-        );
-        let mut body = serde_json::Map::new();
-        if let Some(config) = params.config {
-            body.insert("config".to_string(), config);
-        }
-        if let Some(secrets) = params.secrets {
-            body.insert("secrets".to_string(), secrets);
-        }
-        let result = self
-            .execute_api_json(
-                &extensions,
-                reqwest::Method::PATCH,
-                url,
-                Some(&serde_json::Value::Object(body)),
-            )
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let api_client = self.api_client(&extensions)?;
+        let request = seren::UpdateCloudDeploymentRequest {
+            config: params.config,
+            secrets: params.secrets,
+        };
+        api_client
+            .seren_cloud_update_config(&params.deployment_id, &request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Configuration updated for deployment {}.",
+            params.deployment_id
+        ))]))
     }
 }
 
