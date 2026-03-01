@@ -1,5 +1,6 @@
 use std::{collections::HashSet, env, fs, path::PathBuf};
 
+use anyhow::Context;
 use openapiv3::{
     ReferenceOr, Schema, SchemaData, SchemaKind, StringFormat, StringType, VariantOrUnknownOrEmpty,
 };
@@ -164,103 +165,158 @@ fn downconvert_31_to_30(value: &mut serde_json::Value) {
     }
 }
 
-/// Replace inline schemas in `DataResponse_*` wrappers with `$ref` to their named
-/// equivalents.  Seren-core's OpenAPI generator inlines the inner schema inside
-/// every `DataResponse<T>` instead of using `$ref`, which causes progenitor to
-/// create duplicate `*DataItem` / `*Data` types.  By matching the `required`
-/// fields of the inline schema to the named component schema we can replace the
-/// inline definition with a `$ref`, making progenitor reuse the existing type.
+fn source_wrapper_to_inner_name(source_wrapper: &str) -> Option<String> {
+    if let Some(rest) = source_wrapper.strip_prefix("DataResponse_Vec_") {
+        return Some(rest.to_string());
+    }
+    if let Some(rest) = source_wrapper.strip_prefix("DataResponse_") {
+        return Some(rest.to_string());
+    }
+    None
+}
+
+fn expected_inner_schema_name(wrapper_name: &str) -> Option<String> {
+    if let Some((from, _to)) = SCHEMA_REMAP.iter().find(|(_from, to)| *to == wrapper_name) {
+        return source_wrapper_to_inner_name(from);
+    }
+    source_wrapper_to_inner_name(wrapper_name)
+}
+
+fn choose_ref_target(wrapper_name: &str, candidates: &[String]) -> Option<String> {
+    if candidates.is_empty() {
+        return None;
+    }
+    if candidates.len() == 1 {
+        return Some(candidates[0].clone());
+    }
+
+    if let Some(expected) = expected_inner_schema_name(wrapper_name) {
+        let expected_matches: Vec<&String> = candidates
+            .iter()
+            .filter(|name| name.as_str() == expected.as_str())
+            .collect();
+        if expected_matches.len() == 1 {
+            return Some(expected_matches[0].clone());
+        }
+    }
+
+    None
+}
+
+fn normalize_schema_for_fingerprint(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            // Drop documentation-only fields so equivalent schemas hash the same.
+            const NON_STRUCTURAL_KEYS: &[&str] = &[
+                "title",
+                "description",
+                "example",
+                "examples",
+                "externalDocs",
+            ];
+
+            let mut keys: Vec<&str> = map.keys().map(String::as_str).collect();
+            keys.sort_unstable();
+
+            let mut out = serde_json::Map::new();
+            for key in keys {
+                if NON_STRUCTURAL_KEYS.contains(&key) {
+                    continue;
+                }
+                if let Some(v) = map.get(key) {
+                    out.insert(key.to_string(), normalize_schema_for_fingerprint(v));
+                }
+            }
+            serde_json::Value::Object(out)
+        }
+        serde_json::Value::Array(arr) => serde_json::Value::Array(
+            arr.iter()
+                .map(normalize_schema_for_fingerprint)
+                .collect::<Vec<_>>(),
+        ),
+        _ => value.clone(),
+    }
+}
+
+fn schema_fingerprint(value: &serde_json::Value) -> Option<String> {
+    serde_json::to_string(&normalize_schema_for_fingerprint(value)).ok()
+}
+
+/// Replace inline schemas in DataResponse wrappers with `$ref` to named schemas.
+///
+/// We intentionally use a strict schema fingerprint match instead of loose field
+/// heuristics to avoid accidental cross-type deduplication.
 fn dedup_data_response_schemas(raw: &mut serde_json::Value) {
-    // Build a lookup: sorted-required-fields -> schema name (skip DataResponse_ prefixed)
-    let mut required_to_name: std::collections::HashMap<Vec<String>, String> =
+    // Build lookup: normalized schema fingerprint -> candidate component names.
+    let mut schema_candidates: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
     if let Some(schemas) = raw
         .pointer("/components/schemas")
         .and_then(|v| v.as_object())
     {
         for (name, schema) in schemas {
-            if name.starts_with("DataResponse_") {
+            // Skip wrappers; we only want inner item/object types as ref targets.
+            if schema.pointer("/properties/data").is_some() {
                 continue;
             }
-            if let Some(req) = schema.get("required").and_then(|v| v.as_array()) {
-                let mut fields: Vec<String> = req
-                    .iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect();
-                fields.sort();
-                if !fields.is_empty() {
-                    // Only insert if not already present (first match wins)
-                    required_to_name
-                        .entry(fields)
-                        .or_insert_with(|| name.clone());
-                }
+            if let Some(fp) = schema_fingerprint(schema) {
+                schema_candidates.entry(fp).or_default().push(name.clone());
             }
         }
     }
 
-    // Now patch all wrapper schemas that have a `data` property with inline items.
-    // This handles both DataResponse_* schemas and remapped schemas (e.g. BranchesResponse).
-    let dr_names: Vec<String> = raw
+    // Patch schemas that expose a `data` property with inline object/array item schemas.
+    let wrapper_names: Vec<String> = raw
         .pointer("/components/schemas")
         .and_then(|v| v.as_object())
         .map(|schemas| {
             schemas
-                .keys()
-                .filter(|n| {
-                    // Check if this schema has a `data` property
-                    schemas
-                        .get(n.as_str())
-                        .and_then(|s| s.pointer("/properties/data"))
+                .iter()
+                .filter_map(|(name, schema)| {
+                    schema
+                        .pointer("/properties/data")
                         .is_some()
+                        .then_some(name.clone())
                 })
-                .cloned()
                 .collect()
         })
         .unwrap_or_default();
 
-    for dr_name in &dr_names {
-        let data_path = format!("/components/schemas/{dr_name}/properties/data");
-        // Read the data property
-        let data_val = raw.pointer(&data_path).cloned();
-        let Some(data_val) = data_val else { continue };
+    for wrapper_name in &wrapper_names {
+        let data_path = format!("/components/schemas/{wrapper_name}/properties/data");
+        let Some(data_schema) = raw.pointer(&data_path).cloned() else {
+            continue;
+        };
 
-        if data_val.get("type").and_then(|v| v.as_str()) == Some("array") {
-            // Vec wrapper – check items
-            let items = data_val.get("items");
-            if let Some(items) = items {
-                if items.get("$ref").is_some() {
-                    continue; // already a $ref
+        let (inline_schema, replace_path) =
+            if data_schema.get("type").and_then(|v| v.as_str()) == Some("array") {
+                let Some(items) = data_schema.get("items") else {
+                    continue;
+                };
+                if items.get("$ref").is_some() || !items.is_object() {
+                    continue;
                 }
-                if let Some(req) = items.get("required").and_then(|v| v.as_array()) {
-                    let mut fields: Vec<String> = req
-                        .iter()
-                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                        .collect();
-                    fields.sort();
-                    if let Some(target) = required_to_name.get(&fields) {
-                        let items_path = format!("{data_path}/items");
-                        if let Some(slot) = raw.pointer_mut(&items_path) {
-                            *slot = serde_json::json!({ "$ref": format!("#/components/schemas/{target}") });
-                        }
-                    }
-                }
-            }
-        } else if data_val.get("type").and_then(|v| v.as_str()) == Some("object")
-            && data_val.get("$ref").is_none()
-        {
-            // Single object wrapper – replace data with $ref
-            if let Some(req) = data_val.get("required").and_then(|v| v.as_array()) {
-                let mut fields: Vec<String> = req
-                    .iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect();
-                fields.sort();
-                if let Some(target) = required_to_name.get(&fields)
-                    && let Some(slot) = raw.pointer_mut(&data_path)
-                {
-                    *slot = serde_json::json!({ "$ref": format!("#/components/schemas/{target}") });
-                }
-            }
+                (items.clone(), format!("{data_path}/items"))
+            } else if data_schema.get("type").and_then(|v| v.as_str()) == Some("object")
+                && data_schema.get("$ref").is_none()
+            {
+                (data_schema.clone(), data_path.clone())
+            } else {
+                continue;
+            };
+
+        let Some(fingerprint) = schema_fingerprint(&inline_schema) else {
+            continue;
+        };
+        let Some(candidates) = schema_candidates.get(&fingerprint) else {
+            continue;
+        };
+        let Some(target) = choose_ref_target(wrapper_name, candidates) else {
+            continue;
+        };
+
+        if let Some(slot) = raw.pointer_mut(&replace_path) {
+            *slot = serde_json::json!({ "$ref": format!("#/components/schemas/{target}") });
         }
     }
 }
@@ -334,14 +390,15 @@ fn remap_publisher_refs(value: &mut serde_json::Value) {
 }
 
 /// Merge a publisher spec's paths and schemas into the main spec JSON.
-fn merge_publisher_spec(main: &mut serde_json::Value, publisher_path: &str, publisher_slug: &str) {
-    let Ok(publisher_str) = fs::read_to_string(publisher_path) else {
-        return;
-    };
-    let Ok(mut publisher): Result<serde_json::Value, _> = serde_json::from_str(&publisher_str)
-    else {
-        return;
-    };
+fn merge_publisher_spec(
+    main: &mut serde_json::Value,
+    publisher_path: &str,
+    publisher_slug: &str,
+) -> anyhow::Result<()> {
+    let publisher_str = fs::read_to_string(publisher_path)
+        .with_context(|| format!("failed to read publisher spec: {publisher_path}"))?;
+    let mut publisher: serde_json::Value = serde_json::from_str(&publisher_str)
+        .with_context(|| format!("failed to parse publisher spec JSON: {publisher_path}"))?;
 
     // Convert 3.1 nullable syntax to 3.0 for progenitor compatibility.
     downconvert_31_to_30(&mut publisher);
@@ -392,6 +449,8 @@ fn merge_publisher_spec(main: &mut serde_json::Value, publisher_path: &str, publ
                 .or_insert_with(|| schema.clone());
         }
     }
+
+    Ok(())
 }
 fn main() -> anyhow::Result<()> {
     println!("cargo:rerun-if-changed=../openapi/openapi.json");
@@ -406,12 +465,12 @@ fn main() -> anyhow::Result<()> {
         &mut raw_json,
         "../openapi/openapi-seren-db.json",
         "seren-db",
-    );
+    )?;
     merge_publisher_spec(
         &mut raw_json,
         "../openapi/openapi-seren-cloud.json",
         "seren-cloud",
-    );
+    )?;
 
     // Replace inline schemas in DataResponse_* wrappers with $ref to named equivalents.
     // This must run after merging publisher specs so all schemas are present.

@@ -102,9 +102,17 @@ pub async fn reset_password(
     project_id: &str,
     branch_id: &str,
     role_id: &str,
-    _password: &str,
+    password: Option<&str>,
     ctx: &CommandContext,
 ) -> Result<()> {
+    if password.is_some() {
+        eprintln!(
+            "{}",
+            "Warning: --password is ignored; reset-password now generates a password server-side."
+                .yellow()
+        );
+    }
+
     let client = ctx.client().await?;
     let project_uuid =
         Uuid::parse_str(project_id).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
