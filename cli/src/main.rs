@@ -651,6 +651,9 @@ enum AgentAction {
         /// Optional path to a JSON file to forward as the request body
         #[arg(long = "json-file")]
         json_file: Option<String>,
+        /// Request async execution for always_on deployments (returns run_id + execution_id)
+        #[arg(long = "async")]
+        async_run: bool,
     },
     /// Get logs from a running cloud agent
     CloudLogs {
@@ -2895,12 +2898,14 @@ async fn main() -> anyhow::Result<()> {
                 message,
                 json_body,
                 json_file,
+                async_run,
             } => {
                 commands::agent::cloud_run(
                     deployment_id,
                     message.as_deref(),
                     json_body.as_deref(),
                     json_file.as_deref(),
+                    async_run,
                     &ctx,
                 )
                 .await?

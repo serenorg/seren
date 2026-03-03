@@ -1448,6 +1448,9 @@ pub struct CloudRunAgentParams {
     /// Optional full JSON request body forwarded to the run endpoint
     #[serde(default)]
     pub payload: Option<serde_json::Value>,
+    /// Request async execution for always_on deployments
+    #[serde(default, rename = "async")]
+    pub async_run: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -1529,6 +1532,7 @@ fn default_cloud_runs_limit() -> i64 {
 fn build_cloud_run_body(
     message: Option<&str>,
     payload: Option<&serde_json::Value>,
+    async_run: Option<bool>,
 ) -> Result<Option<serde_json::Value>, McpError> {
     let mut body = payload.cloned();
 
@@ -1550,6 +1554,23 @@ fn build_cloud_run_body(
             }
             None => {
                 body = Some(serde_json::json!({ "message": message }));
+            }
+        }
+    }
+
+    if let Some(async_run) = async_run {
+        match body.as_mut() {
+            Some(serde_json::Value::Object(map)) => {
+                map.insert("async".to_string(), serde_json::Value::Bool(async_run));
+            }
+            Some(_) => {
+                return Err(McpError::invalid_params(
+                    "payload must be a JSON object when async is provided",
+                    None,
+                ));
+            }
+            None => {
+                body = Some(serde_json::json!({ "async": async_run }));
             }
         }
     }
@@ -7458,17 +7479,46 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CloudRunAgentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let body = build_cloud_run_body(params.message.as_deref(), params.payload.as_ref())?;
+        let body = build_cloud_run_body(
+            params.message.as_deref(),
+            params.payload.as_ref(),
+            params.async_run,
+        )?;
         let body = body.unwrap_or(serde_json::json!({}));
-        let api_client = self.api_client(&extensions)?;
-        api_client
-            .seren_cloud_run(&params.deployment_id, &body)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Run triggered for deployment {}.",
+        let url = format!(
+            "{}/publishers/seren-cloud/deployments/{}/runs",
+            self.api_base_url.trim_end_matches('/'),
             params.deployment_id
-        ))]))
+        );
+        let response_json = self
+            .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body))
+            .await?;
+        let data = response_json.get("data").unwrap_or(&response_json);
+        let run_id = data
+            .get("run_id")
+            .or_else(|| data.get("id"))
+            .and_then(|v| v.as_str());
+        let execution_id = data.get("execution_id").and_then(|v| v.as_str());
+
+        let mut content = Vec::new();
+        if let (Some(run_id), Some(execution_id)) = (run_id, execution_id) {
+            content.push(Content::text(format!(
+                "Run accepted for deployment {}.\nrun_id: {}\nexecution_id: {}",
+                params.deployment_id, run_id, execution_id
+            )));
+        } else if let Some(run_id) = run_id {
+            content.push(Content::text(format!(
+                "Run triggered for deployment {} (run_id: {}).",
+                params.deployment_id, run_id
+            )));
+        } else {
+            content.push(Content::text(format!(
+                "Run triggered for deployment {}.",
+                params.deployment_id
+            )));
+        }
+        content.push(json_content(&response_json)?);
+        Ok(CallToolResult::success(content))
     }
 
     #[tool(

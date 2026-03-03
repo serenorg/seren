@@ -1977,6 +1977,7 @@ fn build_cloud_run_payload(
     message: Option<&str>,
     json_body: Option<&str>,
     json_file: Option<&str>,
+    async_run: bool,
 ) -> Result<Option<serde_json::Value>> {
     if json_body.is_some() && json_file.is_some() {
         return Err(anyhow::anyhow!(
@@ -2022,7 +2023,37 @@ fn build_cloud_run_payload(
         }
     }
 
+    if async_run {
+        match payload.as_mut() {
+            Some(serde_json::Value::Object(map)) => {
+                map.insert("async".to_string(), serde_json::json!(true));
+            }
+            Some(_) => {
+                return Err(anyhow::anyhow!(
+                    "When --async is provided, --json/--json-file must be a JSON object."
+                ));
+            }
+            None => {
+                payload = Some(serde_json::json!({ "async": true }));
+            }
+        }
+    }
+
     Ok(payload)
+}
+
+fn extract_run_identifiers(response_body: &serde_json::Value) -> (Option<String>, Option<String>) {
+    let data = response_body.get("data").unwrap_or(response_body);
+    let run_id = data
+        .get("run_id")
+        .or_else(|| data.get("id"))
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
+    let execution_id = data
+        .get("execution_id")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
+    (run_id, execution_id)
 }
 
 /// Trigger a one-shot run of a cloud agent.
@@ -2031,20 +2062,76 @@ pub async fn cloud_run(
     message: Option<&str>,
     json_body: Option<&str>,
     json_file: Option<&str>,
+    async_run: bool,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let payload = build_cloud_run_payload(message, json_body, json_file)?;
+    let payload = build_cloud_run_payload(message, json_body, json_file, async_run)?;
     let body = payload.unwrap_or(serde_json::json!({}));
-    let client = ctx.client().await?;
-    client
-        .seren_cloud_run(&deployment_id, &body)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?;
-    println!(
-        "{} Run triggered for deployment {}.",
-        "✓".green(),
+    let http_client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/seren-cloud/deployments/{}/runs",
+        ctx.api_base(),
         deployment_id
     );
+    let response = http_client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?;
+    let status = response.status();
+    let response_text = response
+        .text()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read run response body: {}", e))?;
+    if !status.is_success() {
+        return Err(anyhow::anyhow!(
+            "Failed to trigger run: {} - {}",
+            status,
+            response_text
+        ));
+    }
+    let response_body = if response_text.trim().is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::from_str::<serde_json::Value>(&response_text)
+            .unwrap_or_else(|_| serde_json::json!({ "data": response_text }))
+    };
+    let (run_id, execution_id) = extract_run_identifiers(&response_body);
+
+    match (run_id, execution_id) {
+        (Some(run_id), Some(execution_id)) => {
+            println!(
+                "{} Run accepted for deployment {}.",
+                "✓".green(),
+                deployment_id
+            );
+            println!("  Run ID: {}", run_id.bold());
+            println!("  Execution ID: {}", execution_id.bold());
+            println!(
+                "  Check status: seren agent cloud-run-get {} {}",
+                deployment_id, run_id
+            );
+        }
+        (Some(run_id), None) => {
+            println!(
+                "{} Run triggered for deployment {} (run_id: {}).",
+                "✓".green(),
+                deployment_id,
+                run_id.bold()
+            );
+        }
+        _ => {
+            println!(
+                "{} Run triggered for deployment {}.",
+                "✓".green(),
+                deployment_id
+            );
+            if !response_body.is_null() {
+                output::print_json(&response_body)?;
+            }
+        }
+    }
     Ok(())
 }
 
