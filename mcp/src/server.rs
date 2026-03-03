@@ -1445,6 +1445,9 @@ pub struct CloudRunAgentParams {
     /// Optional message payload for orchestrated/always_on agents
     #[serde(default)]
     pub message: Option<String>,
+    /// Optional run identifier (useful for resumable orchestrations)
+    #[serde(default)]
+    pub run_id: Option<String>,
     /// Optional full JSON request body forwarded to the run endpoint
     #[serde(default)]
     pub payload: Option<serde_json::Value>,
@@ -1457,6 +1460,12 @@ pub struct CloudRunAgentParams {
 pub struct CloudDeploymentRunParams {
     /// Deployment UUID
     pub deployment_id: Uuid,
+    /// Run event UUID
+    pub run_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudRunIdParams {
     /// Run event UUID
     pub run_id: Uuid,
 }
@@ -1531,6 +1540,7 @@ fn default_cloud_runs_limit() -> i64 {
 
 fn build_cloud_run_body(
     message: Option<&str>,
+    run_id: Option<&str>,
     payload: Option<&serde_json::Value>,
     async_run: Option<bool>,
 ) -> Result<Option<serde_json::Value>, McpError> {
@@ -1554,6 +1564,23 @@ fn build_cloud_run_body(
             }
             None => {
                 body = Some(serde_json::json!({ "message": message }));
+            }
+        }
+    }
+
+    if let Some(run_id) = run_id.map(str::trim).filter(|v| !v.is_empty()) {
+        match body.as_mut() {
+            Some(serde_json::Value::Object(map)) => {
+                map.insert("run_id".to_string(), serde_json::json!(run_id));
+            }
+            Some(_) => {
+                return Err(McpError::invalid_params(
+                    "payload must be a JSON object when run_id is provided",
+                    None,
+                ));
+            }
+            None => {
+                body = Some(serde_json::json!({ "run_id": run_id }));
             }
         }
     }
@@ -7260,17 +7287,25 @@ API endpoint: {endpoint}",
             environment_id: params.environment_id,
             mode: params.mode,
             compute_backend: params.compute_backend,
+            context_budget_tokens: None,
             runtime_kind: params.runtime_kind,
             code_bundle_base64: params.code_bundle_base64,
             cron_schedule: params.cron_schedule,
+            dashboard_config: None,
             requirements_txt: params.requirements_txt,
             config: params.config,
             secrets: params.secrets,
+            fallback_models: None,
+            max_iterations: None,
+            max_timeout_seconds: None,
+            max_tool_output_chars: None,
             model_config: None,
             model_id: None,
             orchestration_mode: None,
+            requirements: None,
             system_prompt: None,
             tool_definitions: None,
+            visibility: None,
         };
         let response = api_client
             .seren_cloud_deploy(&request)
@@ -7481,6 +7516,7 @@ API endpoint: {endpoint}",
     ) -> Result<CallToolResult, McpError> {
         let body = build_cloud_run_body(
             params.message.as_deref(),
+            params.run_id.as_deref(),
             params.payload.as_ref(),
             params.async_run,
         )?;
@@ -7624,6 +7660,24 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "List artifacts emitted by a specific run event for a cloud agent deployment.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_cloud_agent_run_artifacts(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentRunParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_deployment_run_artifacts(&params.deployment_id, &params.run_id, None, None)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
         description = "Cancel a queued/running run event for a cloud agent deployment.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
@@ -7668,6 +7722,60 @@ API endpoint: {endpoint}",
                     Some(status_str.as_str())
                 },
             )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get details of a run event by run ID (global path, no deployment ID required).",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_cloud_run_by_id(
+        &self,
+        Parameters(params): Parameters<CloudRunIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_run_detail(&params.run_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List artifacts emitted by a run event using the global run path (no deployment ID required).",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_cloud_run_artifacts(
+        &self,
+        Parameters(params): Parameters<CloudRunIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_run_artifacts(&params.run_id, None, None)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Cancel a queued/running run event by run ID (global path, no deployment ID required).",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn cancel_cloud_run_by_id(
+        &self,
+        Parameters(params): Parameters<CloudRunIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_run_cancel(&params.run_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();

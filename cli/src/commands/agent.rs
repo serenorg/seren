@@ -889,6 +889,7 @@ pub async fn publish_template(
         dependencies: deps,
         compute_backend: compute_backend.map(|s| s.to_string()),
         llm_config: None,
+        settings_schema: None,
     };
 
     let response = match client.publish_template(&body).await {
@@ -1700,21 +1701,29 @@ pub async fn cloud_deploy(
         } else {
             None
         },
+        context_budget_tokens: None,
         runtime_kind: if runtime_target.include_request_fields {
             Some(runtime_target.runtime_kind.to_string())
         } else {
             None
         },
         cron_schedule: cron_schedule.map(ToString::to_string),
+        dashboard_config: None,
         environment_id,
         requirements_txt,
         config,
         secrets,
+        fallback_models: None,
+        max_iterations: None,
+        max_timeout_seconds: None,
+        max_tool_output_chars: None,
         model_config: None,
         model_id: None,
         orchestration_mode: None,
+        requirements: None,
         system_prompt: None,
         tool_definitions: None,
+        visibility: None,
     };
     let response = client
         .seren_cloud_deploy(&request)
@@ -1977,6 +1986,7 @@ fn build_cloud_run_payload(
     message: Option<&str>,
     json_body: Option<&str>,
     json_file: Option<&str>,
+    run_id: Option<&str>,
     async_run: bool,
 ) -> Result<Option<serde_json::Value>> {
     if json_body.is_some() && json_file.is_some() {
@@ -2023,6 +2033,27 @@ fn build_cloud_run_payload(
         }
     }
 
+    if let Some(run_id) = run_id {
+        let run_id = run_id.trim();
+        if run_id.is_empty() {
+            return Err(anyhow::anyhow!("--run-id cannot be empty."));
+        }
+
+        match payload.as_mut() {
+            Some(serde_json::Value::Object(map)) => {
+                map.insert("run_id".to_string(), serde_json::json!(run_id));
+            }
+            Some(_) => {
+                return Err(anyhow::anyhow!(
+                    "When --run-id is provided, --json/--json-file must be a JSON object."
+                ));
+            }
+            None => {
+                payload = Some(serde_json::json!({ "run_id": run_id }));
+            }
+        }
+    }
+
     if async_run {
         match payload.as_mut() {
             Some(serde_json::Value::Object(map)) => {
@@ -2062,10 +2093,11 @@ pub async fn cloud_run(
     message: Option<&str>,
     json_body: Option<&str>,
     json_file: Option<&str>,
+    run_id: Option<&str>,
     async_run: bool,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let payload = build_cloud_run_payload(message, json_body, json_file, async_run)?;
+    let payload = build_cloud_run_payload(message, json_body, json_file, run_id, async_run)?;
     let body = payload.unwrap_or(serde_json::json!({}));
     let http_client = ctx.http_client().await?;
     let url = format!(
@@ -2132,6 +2164,208 @@ pub async fn cloud_run(
             }
         }
     }
+    Ok(())
+}
+
+/// Get details of a specific run event by run ID (global path).
+pub async fn cloud_run_by_id(run_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_run_detail(&run_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+/// List artifacts emitted by a run (global path).
+pub async fn cloud_run_artifacts(run_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_run_artifacts(&run_id, None, None)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+/// Cancel a queued/running run event by run ID (global path).
+pub async fn cloud_run_cancel_by_id(run_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_run_cancel(&run_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+/// Stream updates for a run via SSE (global run path).
+///
+/// Supports explicit stream session reuse (`x-seren-stream-session-id`) and
+/// event replay (`Last-Event-ID`) for resumable clients.
+pub async fn cloud_run_stream(
+    run_id: Uuid,
+    session_id: Option<&str>,
+    last_event_id: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    use futures_util::StreamExt;
+
+    let client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/seren-cloud/runs/{}/stream",
+        ctx.api_base(),
+        run_id
+    );
+
+    let mut request = client.get(&url).header("Accept", "text/event-stream");
+    if let Some(session_id) = session_id.map(str::trim).filter(|v| !v.is_empty()) {
+        request = request.header("x-seren-stream-session-id", session_id);
+    }
+    if let Some(last_event_id) = last_event_id.map(str::trim).filter(|v| !v.is_empty()) {
+        request = request.header("Last-Event-ID", last_event_id);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("SSE connection failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to stream run: {} - {}",
+            status,
+            body
+        ));
+    }
+
+    if let Some(server_session_id) = response
+        .headers()
+        .get("x-seren-stream-session-id")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        eprintln!(
+            "{} {}",
+            "Stream session:".dimmed(),
+            server_session_id.bold()
+        );
+        eprintln!(
+            "{}",
+            format!(
+                "Close session: seren agent cloud-run-stream-close {} --session-id {}",
+                run_id, server_session_id
+            )
+            .dimmed()
+        );
+    }
+
+    eprintln!(
+        "{}",
+        format!("Streaming run {}... (Ctrl+C to stop)", run_id).dimmed()
+    );
+
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| anyhow::anyhow!("Stream read error: {}", e))?;
+        let normalized = String::from_utf8_lossy(&chunk)
+            .replace("\r\n", "\n")
+            .replace('\r', "\n");
+        buffer.push_str(&normalized);
+
+        while let Some(end) = buffer.find("\n\n") {
+            let event_block = buffer[..end].to_string();
+            buffer = buffer[end + 2..].to_string();
+
+            let mut event_type = String::new();
+            let mut data_lines: Vec<String> = Vec::new();
+
+            for line in event_block.lines() {
+                if let Some(et) = line.strip_prefix("event:") {
+                    event_type = et.trim().to_string();
+                } else if let Some(d) = line.strip_prefix("data:") {
+                    data_lines.push(d.trim_start().to_string());
+                }
+            }
+
+            if data_lines.is_empty() {
+                continue;
+            }
+
+            let data = data_lines.join("\n");
+            let display = if event_type.is_empty() {
+                "event"
+            } else {
+                event_type.as_str()
+            };
+
+            let terminal_from_event = matches!(
+                event_type.as_str(),
+                "done"
+                    | "error"
+                    | "run.completed"
+                    | "run.failed"
+                    | "run.cancelled"
+                    | "run.canceled"
+            );
+
+            if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&data) {
+                eprintln!(
+                    "{} {}",
+                    format!("[{display}]").cyan(),
+                    serde_json::to_string(&payload).unwrap_or_else(|_| data.clone())
+                );
+
+                let terminal_from_status = payload
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .map(|status| {
+                        matches!(status, "completed" | "failed" | "cancelled" | "canceled")
+                    })
+                    .unwrap_or(false);
+                if terminal_from_event || terminal_from_status {
+                    return Ok(());
+                }
+            } else {
+                eprintln!("{} {}", format!("[{display}]").cyan(), data);
+                if terminal_from_event {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    eprintln!("{}", "Stream ended.".dimmed());
+    Ok(())
+}
+
+/// Close an active run stream session (global run path).
+pub async fn cloud_run_stream_close(
+    run_id: Uuid,
+    session_id: &str,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let session_id = session_id.trim();
+    if session_id.is_empty() {
+        return Err(anyhow::anyhow!("--session-id cannot be empty."));
+    }
+
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_run_stream_close(&run_id, session_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
     Ok(())
 }
 

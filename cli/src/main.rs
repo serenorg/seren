@@ -651,9 +651,41 @@ enum AgentAction {
         /// Optional path to a JSON file to forward as the request body
         #[arg(long = "json-file")]
         json_file: Option<String>,
+        /// Optional run identifier (useful for resumable orchestrations)
+        #[arg(long)]
+        run_id: Option<String>,
         /// Request async execution for always_on deployments (returns run_id + execution_id)
         #[arg(long = "async")]
         async_run: bool,
+    },
+    /// Get details of a run by run ID (global path, no deployment ID required)
+    CloudRunById {
+        /// Run event ID (UUID)
+        run_id: Uuid,
+    },
+    /// List artifacts emitted by a run (global path, no deployment ID required)
+    CloudRunArtifacts {
+        /// Run event ID (UUID)
+        run_id: Uuid,
+    },
+    /// Stream run events over SSE, with optional session resume headers
+    CloudRunStream {
+        /// Run event ID (UUID)
+        run_id: Uuid,
+        /// Optional stream session ID to resume/reattach an existing stream session
+        #[arg(long)]
+        session_id: Option<String>,
+        /// Optional Last-Event-ID header for SSE replay/resume
+        #[arg(long)]
+        last_event_id: Option<String>,
+    },
+    /// Close an active run stream session by run ID and session ID
+    CloudRunStreamClose {
+        /// Run event ID (UUID)
+        run_id: Uuid,
+        /// Stream session ID returned by cloud-run-stream
+        #[arg(long)]
+        session_id: String,
     },
     /// Get logs from a running cloud agent
     CloudLogs {
@@ -738,6 +770,11 @@ enum AgentAction {
     CloudRunCancel {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
+        /// Run event ID (UUID)
+        run_id: Uuid,
+    },
+    /// Cancel a queued/running run by run ID (global path, no deployment ID required)
+    CloudRunCancelById {
         /// Run event ID (UUID)
         run_id: Uuid,
     },
@@ -2898,6 +2935,7 @@ async fn main() -> anyhow::Result<()> {
                 message,
                 json_body,
                 json_file,
+                run_id,
                 async_run,
             } => {
                 commands::agent::cloud_run(
@@ -2905,10 +2943,33 @@ async fn main() -> anyhow::Result<()> {
                     message.as_deref(),
                     json_body.as_deref(),
                     json_file.as_deref(),
+                    run_id.as_deref(),
                     async_run,
                     &ctx,
                 )
                 .await?
+            }
+            AgentAction::CloudRunById { run_id } => {
+                commands::agent::cloud_run_by_id(run_id, &ctx).await?
+            }
+            AgentAction::CloudRunArtifacts { run_id } => {
+                commands::agent::cloud_run_artifacts(run_id, &ctx).await?
+            }
+            AgentAction::CloudRunStream {
+                run_id,
+                session_id,
+                last_event_id,
+            } => {
+                commands::agent::cloud_run_stream(
+                    run_id,
+                    session_id.as_deref(),
+                    last_event_id.as_deref(),
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::CloudRunStreamClose { run_id, session_id } => {
+                commands::agent::cloud_run_stream_close(run_id, &session_id, &ctx).await?
             }
             AgentAction::CloudLogs { deployment_id } => {
                 commands::agent::cloud_logs(deployment_id, &ctx).await?
@@ -2980,6 +3041,9 @@ async fn main() -> anyhow::Result<()> {
                 deployment_id,
                 run_id,
             } => commands::agent::cloud_run_cancel(deployment_id, run_id, &ctx).await?,
+            AgentAction::CloudRunCancelById { run_id } => {
+                commands::agent::cloud_run_cancel_by_id(run_id, &ctx).await?
+            }
             AgentAction::CloudUpdateConfig {
                 deployment_id,
                 config,
