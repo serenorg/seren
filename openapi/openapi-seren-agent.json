@@ -1,0 +1,655 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Seren Agent",
+    "description": "Orchestrate agent deployments through the seren-agent publisher.",
+    "contact": {
+      "name": "SerenDB Team"
+    },
+    "license": {
+      "name": "UNLICENSED",
+      "identifier": "UNLICENSED"
+    },
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "/publishers/seren-agent"
+    }
+  ],
+  "paths": {
+    "/capabilities": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Inspect available orchestration features and runtime limits.",
+        "operationId": "seren_agent_capabilities",
+        "responses": {
+          "200": {
+            "description": "Capabilities retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_AgentCapabilitiesResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deploy": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Create or update an orchestrated deployment (forwarded to seren-cloud).",
+        "operationId": "seren_agent_deploy",
+        "responses": {
+          "202": {
+            "description": "Deployment accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "List orchestrated deployments and their runtime metadata.",
+        "operationId": "seren_agent_list_deployments",
+        "responses": {
+          "200": {
+            "description": "Deployments listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_CloudDeploymentSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AgentCapabilitiesResponse": {
+        "type": "object",
+        "required": [
+          "publisher",
+          "orchestration_plane",
+          "runtime_provider",
+          "supports_direct_skill_deploy",
+          "supports_orchestrated_deploy",
+          "deployment_targets",
+          "deployment_runtime_api"
+        ],
+        "properties": {
+          "deployment_runtime_api": {
+            "type": "string"
+          },
+          "deployment_targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "orchestration_plane": {
+            "type": "boolean"
+          },
+          "publisher": {
+            "type": "string"
+          },
+          "runtime_provider": {
+            "type": "string"
+          },
+          "supports_direct_skill_deploy": {
+            "type": "boolean"
+          },
+          "supports_orchestrated_deploy": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CloudDeploymentComputeBackend": {
+        "type": "string",
+        "description": "Cloud deployment compute backend target.",
+        "enum": [
+          "aws_container",
+          "cloudflare_worker",
+          "daytona"
+        ]
+      },
+      "CloudDeploymentMode": {
+        "type": "string",
+        "description": "Cloud deployment execution mode.",
+        "enum": [
+          "always_on",
+          "cron",
+          "job"
+        ]
+      },
+      "CloudDeploymentRuntimeKind": {
+        "type": "string",
+        "description": "Cloud deployment runtime kind (language/runtime format).",
+        "enum": [
+          "python",
+          "javascript",
+          "typescript",
+          "rust",
+          "rust_wasm_adk"
+        ]
+      },
+      "CloudDeploymentStatus": {
+        "type": "string",
+        "description": "Cloud deployment lifecycle status.",
+        "enum": [
+          "pending",
+          "building",
+          "running",
+          "stopped",
+          "failed"
+        ]
+      },
+      "CloudDeploymentSummary": {
+        "type": "object",
+        "description": "Summary view for listing deployments (excludes large fields like code_bundle).",
+        "required": [
+          "id",
+          "organization_id",
+          "user_id",
+          "name",
+          "skill_slug",
+          "compute_backend",
+          "runtime_kind",
+          "mode",
+          "status",
+          "code_bundle_hash",
+          "orchestration_mode",
+          "requirements",
+          "visibility",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "code_bundle_hash": {
+            "type": "string"
+          },
+          "compute_backend": {
+            "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cron_schedule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dashboard_config": {},
+          "endpoint_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "environment_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CloudDeploymentMode"
+          },
+          "model_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "orchestration_mode": {
+            "$ref": "#/components/schemas/OrchestrationMode"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requirements": {},
+          "runtime_kind": {
+            "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
+          },
+          "skill_slug": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CloudDeploymentStatus"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "visibility": {
+            "type": "string",
+            "description": "Visibility mode: \"open\" (default) or \"opaque\" (hides internals from non-owners)."
+          }
+        }
+      },
+      "DataResponse_AgentCapabilitiesResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "publisher",
+              "orchestration_plane",
+              "runtime_provider",
+              "supports_direct_skill_deploy",
+              "supports_orchestrated_deploy",
+              "deployment_targets",
+              "deployment_runtime_api"
+            ],
+            "properties": {
+              "deployment_runtime_api": {
+                "type": "string"
+              },
+              "deployment_targets": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "orchestration_plane": {
+                "type": "boolean"
+              },
+              "publisher": {
+                "type": "string"
+              },
+              "runtime_provider": {
+                "type": "string"
+              },
+              "supports_direct_skill_deploy": {
+                "type": "boolean"
+              },
+              "supports_orchestrated_deploy": {
+                "type": "boolean"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudDeploymentSummary": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Summary view for listing deployments (excludes large fields like code_bundle).",
+            "required": [
+              "id",
+              "organization_id",
+              "user_id",
+              "name",
+              "skill_slug",
+              "compute_backend",
+              "runtime_kind",
+              "mode",
+              "status",
+              "code_bundle_hash",
+              "orchestration_mode",
+              "requirements",
+              "visibility",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "code_bundle_hash": {
+                "type": "string"
+              },
+              "compute_backend": {
+                "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "cron_schedule": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dashboard_config": {},
+              "endpoint_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "environment_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "error_message": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "mode": {
+                "$ref": "#/components/schemas/CloudDeploymentMode"
+              },
+              "model_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "orchestration_mode": {
+                "$ref": "#/components/schemas/OrchestrationMode"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "requirements": {},
+              "runtime_kind": {
+                "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
+              },
+              "skill_slug": {
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/components/schemas/CloudDeploymentStatus"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "user_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "visibility": {
+                "type": "string",
+                "description": "Visibility mode: \"open\" (default) or \"opaque\" (hides internals from non-owners)."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_CloudDeploymentSummary": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Summary view for listing deployments (excludes large fields like code_bundle).",
+              "required": [
+                "id",
+                "organization_id",
+                "user_id",
+                "name",
+                "skill_slug",
+                "compute_backend",
+                "runtime_kind",
+                "mode",
+                "status",
+                "code_bundle_hash",
+                "orchestration_mode",
+                "requirements",
+                "visibility",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "code_bundle_hash": {
+                  "type": "string"
+                },
+                "compute_backend": {
+                  "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "cron_schedule": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "dashboard_config": {},
+                "endpoint_url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "environment_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "error_message": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "mode": {
+                  "$ref": "#/components/schemas/CloudDeploymentMode"
+                },
+                "model_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "orchestration_mode": {
+                  "$ref": "#/components/schemas/OrchestrationMode"
+                },
+                "organization_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "requirements": {},
+                "runtime_kind": {
+                  "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
+                },
+                "skill_slug": {
+                  "type": "string"
+                },
+                "status": {
+                  "$ref": "#/components/schemas/CloudDeploymentStatus"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "user_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "visibility": {
+                  "type": "string",
+                  "description": "Visibility mode: \"open\" (default) or \"opaque\" (hides internals from non-owners)."
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "OrchestrationMode": {
+        "type": "string",
+        "description": "Cloud deployment orchestration mode.\n\n`Script` (default): container runs user code directly (existing behavior).\n`Llm`: container runs the seren-orchestrator LLM tool-calling loop.",
+        "enum": [
+          "script",
+          "llm"
+        ]
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "description": "Pagination metadata included in responses.",
+        "required": [
+          "total",
+          "count",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of items in this response"
+          },
+          "has_more": {
+            "type": "boolean",
+            "description": "Whether there are more items after this page"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Maximum items per page"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Offset from start"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total number of items across all pages"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "seren-agent",
+      "description": "Seren Agent orchestration endpoints"
+    }
+  ]
+}

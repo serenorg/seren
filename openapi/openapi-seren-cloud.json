@@ -191,7 +191,14 @@
         },
         "responses": {
           "200": {
-            "description": "Config updated"
+            "description": "Config updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentActionStatusResponse"
+                }
+              }
+            }
           },
           "404": {
             "description": "Not found"
@@ -385,16 +392,39 @@
         "requestBody": {
           "content": {
             "application/json": {
-              "schema": {}
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudDeploymentRunRequest"
+                  }
+                ]
+              }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Run completed (always_on deployments)"
+            "description": "Run completed (always_on deployments)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentRunInvocationResponse"
+                }
+              }
+            }
           },
           "202": {
-            "description": "Run triggered"
+            "description": "Run triggered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentRunInvocationResponse"
+                }
+              }
+            }
           },
           "404": {
             "description": "Not found"
@@ -625,6 +655,64 @@
             "bearer_auth": []
           }
         ]
+      },
+      "delete": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Close an active deployment-run stream session.",
+        "operationId": "seren_cloud_deployment_run_stream_close",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "x-seren-stream-session-id",
+            "in": "header",
+            "description": "Active stream session ID to close",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stream session closed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudRunStreamCloseResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
     "/deployments/{id}/start": {
@@ -648,7 +736,14 @@
         ],
         "responses": {
           "200": {
-            "description": "Deployment started"
+            "description": "Deployment started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentActionStatusResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "Bad request (not always_on)"
@@ -682,7 +777,14 @@
         ],
         "responses": {
           "200": {
-            "description": "Deployment stopped"
+            "description": "Deployment stopped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentActionStatusResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "Bad request (not always_on)"
@@ -1172,11 +1274,71 @@
             "bearer_auth": []
           }
         ]
+      },
+      "delete": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Close an active run stream session (global run path).",
+        "operationId": "seren_cloud_run_stream_close",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "x-seren-stream-session-id",
+            "in": "header",
+            "description": "Active stream session ID to close",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stream session closed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudRunStreamCloseResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     }
   },
   "components": {
     "schemas": {
+      "CloudDeploymentActionStatusResponse": {
+        "type": "object",
+        "description": "Generic status payload used by cloud deployment lifecycle endpoints.",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      },
       "CloudDeploymentComputeBackend": {
         "type": "string",
         "description": "Cloud deployment compute backend target.",
@@ -1251,7 +1413,8 @@
         "description": "Cloud deployment execution mode.",
         "enum": [
           "always_on",
-          "cron"
+          "cron",
+          "job"
         ]
       },
       "CloudDeploymentRunArtifact": {
@@ -1477,6 +1640,109 @@
           }
         }
       },
+      "CloudDeploymentRunInvocationResponse": {
+        "type": "object",
+        "description": "Response envelope for triggering a cloud deployment run.\n\nThis schema intentionally covers both synchronous and asynchronous responses\nacross compute backends (`always_on`, `cron`, Cloudflare, Daytona).",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "compute_cost_atomic": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Atomic compute cost units when emitted by the backend."
+          },
+          "execution_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Backend execution ID for correlating orchestrator/job-level status."
+          },
+          "execution_time_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Execution duration in milliseconds when available."
+          },
+          "exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Process exit code for runtimes that expose it (for example Daytona)."
+          },
+          "job_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "K8s Job name for queued cron executions."
+          },
+          "result": {
+            "description": "Backend-specific result payload."
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Persisted run event ID when the invocation is tracked in the run history table."
+          },
+          "sandbox_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Daytona sandbox ID when applicable."
+          },
+          "script_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Cloudflare Worker script name when applicable."
+          },
+          "status": {
+            "type": "string",
+            "description": "Lifecycle status reported by the backend (`queued`, `running`, `completed`, etc.)."
+          }
+        }
+      },
+      "CloudDeploymentRunRequest": {
+        "type": "object",
+        "description": "Request body for triggering a cloud deployment run.\n\nAdditional JSON fields are allowed and forwarded to the runtime.",
+        "properties": {
+          "async": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether to request async execution for always-on orchestrators."
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional message for orchestrated runtimes."
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional client-provided run identifier (used by some orchestrators)."
+          }
+        }
+      },
       "CloudDeploymentRuntimeKind": {
         "type": "string",
         "description": "Cloud deployment runtime kind (language/runtime format).",
@@ -1514,6 +1780,8 @@
           "status",
           "code_bundle_hash",
           "orchestration_mode",
+          "requirements",
+          "visibility",
           "created_at",
           "updated_at"
         ],
@@ -1534,6 +1802,7 @@
               "null"
             ]
           },
+          "dashboard_config": {},
           "endpoint_url": {
             "type": [
               "string",
@@ -1576,6 +1845,7 @@
             "type": "string",
             "format": "uuid"
           },
+          "requirements": {},
           "runtime_kind": {
             "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
           },
@@ -1592,6 +1862,31 @@
           "user_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "visibility": {
+            "type": "string",
+            "description": "Visibility mode: \"open\" (default) or \"opaque\" (hides internals from non-owners)."
+          }
+        }
+      },
+      "CloudRunStreamCloseResponse": {
+        "type": "object",
+        "description": "Response payload for explicitly closing an active run stream session.",
+        "required": [
+          "status",
+          "run_id",
+          "session_id"
+        ],
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
           }
         }
       },
@@ -1629,6 +1924,38 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "DataResponse_CloudDeploymentActionStatusResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Generic status payload used by cloud deployment lifecycle endpoints.",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
           }
         }
       },
@@ -1894,6 +2221,102 @@
           }
         }
       },
+      "DataResponse_CloudDeploymentRunInvocationResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Response envelope for triggering a cloud deployment run.\n\nThis schema intentionally covers both synchronous and asynchronous responses\nacross compute backends (`always_on`, `cron`, Cloudflare, Daytona).",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "compute_cost_atomic": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "Atomic compute cost units when emitted by the backend."
+              },
+              "execution_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Backend execution ID for correlating orchestrator/job-level status."
+              },
+              "execution_time_ms": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "description": "Execution duration in milliseconds when available."
+              },
+              "exit_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "description": "Process exit code for runtimes that expose it (for example Daytona)."
+              },
+              "job_name": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "K8s Job name for queued cron executions."
+              },
+              "result": {
+                "description": "Backend-specific result payload."
+              },
+              "run_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Persisted run event ID when the invocation is tracked in the run history table."
+              },
+              "sandbox_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Daytona sandbox ID when applicable."
+              },
+              "script_name": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Cloudflare Worker script name when applicable."
+              },
+              "status": {
+                "type": "string",
+                "description": "Lifecycle status reported by the backend (`queued`, `running`, `completed`, etc.)."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_CloudDeploymentSummary": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -1916,6 +2339,8 @@
               "status",
               "code_bundle_hash",
               "orchestration_mode",
+              "requirements",
+              "visibility",
               "created_at",
               "updated_at"
             ],
@@ -1936,6 +2361,7 @@
                   "null"
                 ]
               },
+              "dashboard_config": {},
               "endpoint_url": {
                 "type": [
                   "string",
@@ -1978,6 +2404,7 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "requirements": {},
               "runtime_kind": {
                 "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
               },
@@ -1994,6 +2421,51 @@
               "user_id": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "visibility": {
+                "type": "string",
+                "description": "Visibility mode: \"open\" (default) or \"opaque\" (hides internals from non-owners)."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudRunStreamCloseResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Response payload for explicitly closing an active run stream session.",
+            "required": [
+              "status",
+              "run_id",
+              "session_id"
+            ],
+            "properties": {
+              "run_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "session_id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
               }
             }
           },
@@ -2386,6 +2858,8 @@
                 "status",
                 "code_bundle_hash",
                 "orchestration_mode",
+                "requirements",
+                "visibility",
                 "created_at",
                 "updated_at"
               ],
@@ -2406,6 +2880,7 @@
                     "null"
                   ]
                 },
+                "dashboard_config": {},
                 "endpoint_url": {
                   "type": [
                     "string",
@@ -2448,6 +2923,7 @@
                   "type": "string",
                   "format": "uuid"
                 },
+                "requirements": {},
                 "runtime_kind": {
                   "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
                 },
@@ -2464,6 +2940,10 @@
                 "user_id": {
                   "type": "string",
                   "format": "uuid"
+                },
+                "visibility": {
+                  "type": "string",
+                  "description": "Visibility mode: \"open\" (default) or \"opaque\" (hides internals from non-owners)."
                 }
               }
             }
@@ -2504,11 +2984,23 @@
           "config": {
             "description": "JSON config object (will be encrypted at rest)."
           },
+          "context_budget_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Cumulative context token budget; oldest tool results truncated when exceeded.",
+            "minimum": 0
+          },
           "cron_schedule": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "dashboard_config": {
+            "description": "UI rendering hints for custom dashboards."
           },
           "environment_id": {
             "type": [
@@ -2516,6 +3008,43 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "fallback_models": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Fallback model IDs to try on transient errors (429, 503, timeout)."
+          },
+          "max_iterations": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Max LLM loop iterations (overrides SEREN_MAX_ITERATIONS env var in orchestrator).",
+            "minimum": 0
+          },
+          "max_timeout_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Max wall-clock seconds per run (overrides SEREN_MAX_TIMEOUT env var in orchestrator).",
+            "minimum": 0
+          },
+          "max_tool_output_chars": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Max characters per tool output (overrides SEREN_MAX_TOOL_OUTPUT env var).",
+            "minimum": 0
           },
           "mode": {
             "type": "string"
@@ -2539,6 +3068,16 @@
               "null"
             ],
             "description": "Orchestration mode: \"script\" (default) or \"llm\"."
+          },
+          "requirements": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/RequirementSpec"
+            },
+            "description": "Declared requirements (env vars, secrets, config keys) validated at deploy time."
           },
           "requirements_txt": {
             "type": [
@@ -2567,6 +3106,13 @@
           },
           "tool_definitions": {
             "description": "Tool definitions for the LLM to call."
+          },
+          "visibility": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Visibility mode: \"open\" (default, internals visible) or \"opaque\" (internals hidden)."
           }
         }
       },
@@ -2612,6 +3158,37 @@
             "type": "integer",
             "format": "int64",
             "description": "Total number of items across all pages"
+          }
+        }
+      },
+      "RequirementSource": {
+        "type": "string",
+        "description": "Where a deployment requirement should be satisfied from.",
+        "enum": [
+          "env",
+          "secret",
+          "config"
+        ]
+      },
+      "RequirementSpec": {
+        "type": "object",
+        "description": "A declared requirement for a cloud deployment (validated at deploy time).",
+        "required": [
+          "key",
+          "source"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "key": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/RequirementSource"
           }
         }
       },
