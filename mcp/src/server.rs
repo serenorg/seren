@@ -1386,6 +1386,45 @@ pub struct DeployCloudAgentParams {
     /// JSON secrets object (key-value pairs for .env)
     #[serde(default)]
     pub secrets: Option<serde_json::Value>,
+    /// Optional orchestration mode ("script" or "llm")
+    #[serde(default)]
+    pub orchestration_mode: Option<String>,
+    /// Optional system prompt for LLM orchestration
+    #[serde(default)]
+    pub system_prompt: Option<String>,
+    /// Optional model identifier for LLM orchestration
+    #[serde(default)]
+    pub model_id: Option<String>,
+    /// Optional model configuration (temperature, max_tokens, etc.)
+    #[serde(default)]
+    pub model_config: Option<serde_json::Value>,
+    /// Optional fallback model list for transient failures
+    #[serde(default)]
+    pub fallback_models: Option<Vec<String>>,
+    /// Optional maximum LLM loop iterations
+    #[serde(default)]
+    pub max_iterations: Option<i32>,
+    /// Optional maximum wall-clock timeout per run in seconds
+    #[serde(default)]
+    pub max_timeout_seconds: Option<i32>,
+    /// Optional maximum tool output size in characters
+    #[serde(default)]
+    pub max_tool_output_chars: Option<i32>,
+    /// Optional cumulative context token budget
+    #[serde(default)]
+    pub context_budget_tokens: Option<i32>,
+    /// Optional tool definitions passed to the orchestrator
+    #[serde(default)]
+    pub tool_definitions: Option<serde_json::Value>,
+    /// Optional deployment requirements validated at deploy time
+    #[serde(default)]
+    pub requirements: Option<serde_json::Value>,
+    /// Optional dashboard rendering config
+    #[serde(default)]
+    pub dashboard_config: Option<serde_json::Value>,
+    /// Optional visibility mode ("open" or "opaque")
+    #[serde(default)]
+    pub visibility: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -7258,61 +7297,121 @@ API endpoint: {endpoint}",
             }
         };
 
-        // seren-agent doesn't have generated client methods yet; use raw HTTP.
-        if publisher == "seren-agent" {
-            let url = format!("{}/publishers/seren-agent/deploy", self.api_base_url);
-            let body = serde_json::json!({
-                "name": params.name,
-                "skill_slug": params.skill_slug,
-                "environment_id": params.environment_id,
-                "mode": params.mode,
-                "compute_backend": params.compute_backend,
-                "runtime_kind": params.runtime_kind,
-                "code_bundle_base64": params.code_bundle_base64,
-                "cron_schedule": params.cron_schedule,
-                "requirements_txt": params.requirements_txt,
-                "config": params.config,
-                "secrets": params.secrets,
-            });
-            let result = self
-                .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body))
-                .await?;
-            return Ok(CallToolResult::success(vec![json_content(&result)?]));
+        let url = format!("{}/publishers/{publisher}/deploy", self.api_base_url);
+        let mut body = serde_json::Map::new();
+        body.insert("name".to_string(), serde_json::json!(params.name));
+        body.insert(
+            "skill_slug".to_string(),
+            serde_json::json!(params.skill_slug),
+        );
+        body.insert("mode".to_string(), serde_json::json!(params.mode));
+        body.insert(
+            "code_bundle_base64".to_string(),
+            serde_json::json!(params.code_bundle_base64),
+        );
+        if let Some(environment_id) = params.environment_id {
+            body.insert(
+                "environment_id".to_string(),
+                serde_json::json!(environment_id),
+            );
+        }
+        if let Some(compute_backend) = params.compute_backend {
+            body.insert(
+                "compute_backend".to_string(),
+                serde_json::json!(compute_backend),
+            );
+        }
+        if let Some(runtime_kind) = params.runtime_kind {
+            body.insert("runtime_kind".to_string(), serde_json::json!(runtime_kind));
+        }
+        if let Some(cron_schedule) = params.cron_schedule {
+            body.insert(
+                "cron_schedule".to_string(),
+                serde_json::json!(cron_schedule),
+            );
+        }
+        if let Some(requirements_txt) = params.requirements_txt {
+            body.insert(
+                "requirements_txt".to_string(),
+                serde_json::json!(requirements_txt),
+            );
+        }
+        if let Some(config) = params.config {
+            body.insert("config".to_string(), config);
+        }
+        if let Some(secrets) = params.secrets {
+            body.insert("secrets".to_string(), secrets);
+        }
+        if let Some(orchestration_mode) = params.orchestration_mode {
+            body.insert(
+                "orchestration_mode".to_string(),
+                serde_json::json!(orchestration_mode),
+            );
+        }
+        if let Some(system_prompt) = params.system_prompt {
+            body.insert(
+                "system_prompt".to_string(),
+                serde_json::json!(system_prompt),
+            );
+        }
+        if let Some(model_id) = params.model_id {
+            body.insert("model_id".to_string(), serde_json::json!(model_id));
+        }
+        if let Some(model_config) = params.model_config {
+            body.insert("model_config".to_string(), model_config);
+        }
+        if let Some(fallback_models) = params.fallback_models {
+            body.insert(
+                "fallback_models".to_string(),
+                serde_json::json!(fallback_models),
+            );
+        }
+        if let Some(max_iterations) = params.max_iterations {
+            body.insert(
+                "max_iterations".to_string(),
+                serde_json::json!(max_iterations),
+            );
+        }
+        if let Some(max_timeout_seconds) = params.max_timeout_seconds {
+            body.insert(
+                "max_timeout_seconds".to_string(),
+                serde_json::json!(max_timeout_seconds),
+            );
+        }
+        if let Some(max_tool_output_chars) = params.max_tool_output_chars {
+            body.insert(
+                "max_tool_output_chars".to_string(),
+                serde_json::json!(max_tool_output_chars),
+            );
+        }
+        if let Some(context_budget_tokens) = params.context_budget_tokens {
+            body.insert(
+                "context_budget_tokens".to_string(),
+                serde_json::json!(context_budget_tokens),
+            );
+        }
+        if let Some(tool_definitions) = params.tool_definitions {
+            body.insert("tool_definitions".to_string(), tool_definitions);
+        }
+        if let Some(requirements) = params.requirements {
+            body.insert("requirements".to_string(), requirements);
+        }
+        if let Some(dashboard_config) = params.dashboard_config {
+            body.insert("dashboard_config".to_string(), dashboard_config);
+        }
+        if let Some(visibility) = params.visibility {
+            body.insert("visibility".to_string(), serde_json::json!(visibility));
         }
 
-        let api_client = self.api_client(&extensions)?;
-        let request = seren::DeployRequest {
-            name: params.name,
-            skill_slug: params.skill_slug,
-            environment_id: params.environment_id,
-            mode: params.mode,
-            compute_backend: params.compute_backend,
-            context_budget_tokens: None,
-            runtime_kind: params.runtime_kind,
-            code_bundle_base64: params.code_bundle_base64,
-            cron_schedule: params.cron_schedule,
-            dashboard_config: None,
-            requirements_txt: params.requirements_txt,
-            config: params.config,
-            secrets: params.secrets,
-            fallback_models: None,
-            max_iterations: None,
-            max_timeout_seconds: None,
-            max_tool_output_chars: None,
-            model_config: None,
-            model_id: None,
-            orchestration_mode: None,
-            requirements: None,
-            system_prompt: None,
-            tool_definitions: None,
-            visibility: None,
-        };
-        let response = api_client
-            .seren_cloud_deploy(&request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let result = self
+            .execute_api_json(
+                &extensions,
+                reqwest::Method::POST,
+                url,
+                Some(&serde_json::Value::Object(body)),
+            )
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
 
     #[tool(

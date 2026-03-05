@@ -567,6 +567,9 @@ enum AgentAction {
         /// Path to .env secrets file
         #[arg(long, name = "env")]
         env_file: Option<String>,
+        /// Path to an orchestration JSON file (defaults to <skill>/orchestration.json if present)
+        #[arg(long)]
+        orchestration_config: Option<String>,
     },
     /// List reusable cloud deployment environments
     CloudEnvironmentList,
@@ -2853,6 +2856,7 @@ async fn main() -> anyhow::Result<()> {
                 runtime_kind,
                 config,
                 env_file,
+                orchestration_config,
             } => {
                 commands::agent::cloud_deploy(
                     &path,
@@ -2866,6 +2870,7 @@ async fn main() -> anyhow::Result<()> {
                         runtime_kind: runtime_kind.as_deref(),
                         config_path: config.as_deref(),
                         env_path: env_file.as_deref(),
+                        orchestration_config_path: orchestration_config.as_deref(),
                     },
                     &ctx,
                 )

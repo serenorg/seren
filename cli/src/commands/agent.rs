@@ -889,7 +889,6 @@ pub async fn publish_template(
         dependencies: deps,
         compute_backend: compute_backend.map(|s| s.to_string()),
         llm_config: None,
-        settings_schema: None,
     };
 
     let response = match client.publish_template(&body).await {
@@ -1497,9 +1496,25 @@ pub struct CloudDeployOptions<'a> {
     pub runtime_kind: Option<&'a str>,
     pub config_path: Option<&'a str>,
     pub env_path: Option<&'a str>,
+    pub orchestration_config_path: Option<&'a str>,
 }
 
 const MAX_CLOUD_CODE_BUNDLE_BYTES: usize = 1_000_000;
+const ORCHESTRATION_CONFIG_FIELDS: &[&str] = &[
+    "context_budget_tokens",
+    "dashboard_config",
+    "fallback_models",
+    "max_iterations",
+    "max_timeout_seconds",
+    "max_tool_output_chars",
+    "model_config",
+    "model_id",
+    "orchestration_mode",
+    "requirements",
+    "system_prompt",
+    "tool_definitions",
+    "visibility",
+];
 
 fn normalize_deploy_publisher_slug(publisher_slug: Option<&str>) -> Result<&'static str> {
     match publisher_slug.unwrap_or(SEREN_CLOUD_SLUG) {
@@ -1510,6 +1525,65 @@ fn normalize_deploy_publisher_slug(publisher_slug: Option<&str>) -> Result<&'sta
             other
         )),
     }
+}
+
+fn load_orchestration_config(
+    skill_dir: &Path,
+    orchestration_config_path: Option<&str>,
+) -> Result<Option<serde_json::Map<String, serde_json::Value>>> {
+    let config_path = orchestration_config_path
+        .map(|p| Path::new(p).to_path_buf())
+        .or_else(|| {
+            let default_path = skill_dir.join("orchestration.json");
+            default_path.exists().then_some(default_path)
+        });
+
+    let Some(config_path) = config_path else {
+        return Ok(None);
+    };
+
+    let contents = fs::read_to_string(&config_path)?;
+    let value: serde_json::Value = serde_json::from_str(&contents).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to parse orchestration config {}: {}",
+            config_path.display(),
+            e
+        )
+    })?;
+
+    let serde_json::Value::Object(map) = value else {
+        return Err(anyhow::anyhow!(
+            "Orchestration config {} must contain a JSON object.",
+            config_path.display()
+        ));
+    };
+
+    Ok(Some(map))
+}
+
+fn merge_orchestration_config(
+    body: &mut serde_json::Map<String, serde_json::Value>,
+    orchestration_config: serde_json::Map<String, serde_json::Value>,
+) -> Result<()> {
+    let mut unsupported = Vec::new();
+
+    for (key, value) in orchestration_config {
+        if ORCHESTRATION_CONFIG_FIELDS.contains(&key.as_str()) {
+            body.insert(key, value);
+        } else {
+            unsupported.push(key);
+        }
+    }
+
+    if unsupported.is_empty() {
+        return Ok(());
+    }
+
+    unsupported.sort();
+    Err(anyhow::anyhow!(
+        "Unsupported orchestration config keys: {}",
+        unsupported.join(", ")
+    ))
 }
 
 /// Deploy a skill directory to Seren Cloud.
@@ -1528,6 +1602,7 @@ pub async fn cloud_deploy(
         runtime_kind,
         config_path,
         env_path,
+        orchestration_config_path,
     } = options;
     let deploy_publisher = normalize_deploy_publisher_slug(publisher_slug)?;
 
@@ -1601,6 +1676,7 @@ pub async fn cloud_deploy(
             None
         }
     };
+    let orchestration_config = load_orchestration_config(skill_dir, orchestration_config_path)?;
 
     let api_mode = match mode {
         "always-on" | "always_on" => "always_on",
@@ -1634,109 +1710,72 @@ pub async fn cloud_deploy(
         runtime_target.runtime_kind
     );
 
-    // seren-agent doesn't have generated client methods yet; use raw HTTP.
-    if deploy_publisher == "seren-agent" {
-        let mut body = serde_json::json!({
-            "name": deploy_name,
-            "skill_slug": skill_slug,
-            "mode": api_mode,
-            "code_bundle_base64": code_bundle_base64,
-        });
-        if runtime_target.include_request_fields {
-            body["compute_backend"] = serde_json::json!(runtime_target.compute_backend);
-            body["runtime_kind"] = serde_json::json!(runtime_target.runtime_kind);
-        }
-        if let Some(schedule) = cron_schedule {
-            body["cron_schedule"] = serde_json::json!(schedule);
-        }
-        if let Some(environment_id) = environment_id {
-            body["environment_id"] = serde_json::json!(environment_id);
-        }
-        if let Some(req) = &requirements_txt {
-            body["requirements_txt"] = serde_json::json!(req);
-        }
-        if let Some(cfg) = &config {
-            body["config"] = cfg.clone();
-        }
-        if let Some(sec) = &secrets {
-            body["secrets"] = sec.clone();
-        }
-        let http_client = ctx.http_client().await?;
-        let url = format!("{}/publishers/seren-agent/deploy", ctx.api_base());
-        let response = http_client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
-        let status = response.status();
-        if !status.is_success() && status.as_u16() != 202 {
-            let body = response.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!("Deploy failed: {} - {}", status, body));
-        }
-        let result: serde_json::Value = response.json().await?;
-        if let Some(data) = result.get("data") {
-            let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-            let deploy_status = data.get("status").and_then(|v| v.as_str()).unwrap_or("?");
-            println!(
-                "{} Deployment created: {} (status: {})",
-                "✓".green(),
-                id.bold(),
-                deploy_status
-            );
-        } else {
-            output::print_json(&result)?;
-        }
-        return Ok(());
+    let mut body = serde_json::Map::new();
+    body.insert("name".to_string(), serde_json::json!(deploy_name));
+    body.insert("skill_slug".to_string(), serde_json::json!(skill_slug));
+    body.insert("mode".to_string(), serde_json::json!(api_mode));
+    body.insert(
+        "code_bundle_base64".to_string(),
+        serde_json::json!(code_bundle_base64),
+    );
+    if runtime_target.include_request_fields {
+        body.insert(
+            "compute_backend".to_string(),
+            serde_json::json!(runtime_target.compute_backend),
+        );
+        body.insert(
+            "runtime_kind".to_string(),
+            serde_json::json!(runtime_target.runtime_kind),
+        );
+    }
+    if let Some(schedule) = cron_schedule {
+        body.insert("cron_schedule".to_string(), serde_json::json!(schedule));
+    }
+    if let Some(environment_id) = environment_id {
+        body.insert(
+            "environment_id".to_string(),
+            serde_json::json!(environment_id),
+        );
+    }
+    if let Some(req) = &requirements_txt {
+        body.insert("requirements_txt".to_string(), serde_json::json!(req));
+    }
+    if let Some(cfg) = &config {
+        body.insert("config".to_string(), cfg.clone());
+    }
+    if let Some(sec) = &secrets {
+        body.insert("secrets".to_string(), sec.clone());
+    }
+    if let Some(orchestration_config) = orchestration_config {
+        merge_orchestration_config(&mut body, orchestration_config)?;
     }
 
-    let client = ctx.client().await?;
-    let request = seren::DeployRequest {
-        name: deploy_name.to_string(),
-        skill_slug,
-        mode: api_mode.to_string(),
-        code_bundle_base64,
-        compute_backend: if runtime_target.include_request_fields {
-            Some(runtime_target.compute_backend.to_string())
-        } else {
-            None
-        },
-        context_budget_tokens: None,
-        runtime_kind: if runtime_target.include_request_fields {
-            Some(runtime_target.runtime_kind.to_string())
-        } else {
-            None
-        },
-        cron_schedule: cron_schedule.map(ToString::to_string),
-        dashboard_config: None,
-        environment_id,
-        requirements_txt,
-        config,
-        secrets,
-        fallback_models: None,
-        max_iterations: None,
-        max_timeout_seconds: None,
-        max_tool_output_chars: None,
-        model_config: None,
-        model_id: None,
-        orchestration_mode: None,
-        requirements: None,
-        system_prompt: None,
-        tool_definitions: None,
-        visibility: None,
-    };
-    let response = client
-        .seren_cloud_deploy(&request)
+    let http_client = ctx.http_client().await?;
+    let url = format!("{}/publishers/{deploy_publisher}/deploy", ctx.api_base());
+    let response = http_client
+        .post(&url)
+        .json(&serde_json::Value::Object(body))
+        .send()
         .await
-        .map_err(|e| anyhow::anyhow!("Deploy failed: {}", e))?
-        .into_inner();
-    let data = &response.data;
-    println!(
-        "{} Deployment created: {} (status: {})",
-        "✓".green(),
-        data.id.to_string().bold(),
-        data.status
-    );
+        .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
+    let status = response.status();
+    if !status.is_success() && status.as_u16() != 202 {
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Deploy failed: {} - {}", status, body));
+    }
+    let result: serde_json::Value = response.json().await?;
+    if let Some(data) = result.get("data") {
+        let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+        let deploy_status = data.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+        println!(
+            "{} Deployment created: {} (status: {})",
+            "✓".green(),
+            id.bold(),
+            deploy_status
+        );
+    } else {
+        output::print_json(&result)?;
+    }
 
     Ok(())
 }
