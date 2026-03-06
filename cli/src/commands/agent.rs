@@ -1527,6 +1527,30 @@ fn normalize_deploy_publisher_slug(publisher_slug: Option<&str>) -> Result<&'sta
     }
 }
 
+fn resolve_skill_dir(path: &str) -> Result<std::path::PathBuf> {
+    let resolved = Path::new(path);
+    if resolved.is_dir() {
+        return Ok(resolved.to_path_buf());
+    }
+
+    if resolved.is_file()
+        && resolved
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case("SKILL.md"))
+    {
+        return resolved
+            .parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| anyhow::anyhow!("Could not resolve parent directory for '{}'.", path));
+    }
+
+    Err(anyhow::anyhow!(
+        "'{}' must be a skill directory or a SKILL.md file",
+        path
+    ))
+}
+
 fn load_orchestration_config(
     skill_dir: &Path,
     orchestration_config_path: Option<&str>,
@@ -1606,10 +1630,8 @@ pub async fn cloud_deploy(
     } = options;
     let deploy_publisher = normalize_deploy_publisher_slug(publisher_slug)?;
 
-    let skill_dir = Path::new(path);
-    if !skill_dir.is_dir() {
-        return Err(anyhow::anyhow!("'{}' is not a directory", path));
-    }
+    let skill_dir_buf = resolve_skill_dir(path)?;
+    let skill_dir = skill_dir_buf.as_path();
 
     let scripts_dir = skill_dir.join("scripts");
     if !scripts_dir.is_dir() {
@@ -1617,7 +1639,9 @@ pub async fn cloud_deploy(
     }
 
     let runtime_target = resolve_cloud_runtime_target(compute_backend, runtime_kind)?;
-    ensure_runtime_entrypoint(&scripts_dir, runtime_target.runtime_kind)?;
+    if let Some(runtime_kind) = runtime_target.runtime_kind {
+        ensure_runtime_entrypoint(&scripts_dir, runtime_kind)?;
+    }
 
     // Derive skill slug from directory name
     let skill_slug = skill_dir
@@ -1689,12 +1713,16 @@ pub async fn cloud_deploy(
         }
     };
 
-    if runtime_target.compute_backend == "daytona" && api_mode != "cron" {
+    if runtime_target.compute_backend == Some("daytona") && api_mode != "cron" {
         return Err(anyhow::anyhow!(
             "compute_backend 'daytona' currently requires mode 'cron'."
         ));
     }
-    if environment_id.is_some() && runtime_target.compute_backend != "aws_container" {
+    if environment_id.is_some()
+        && runtime_target
+            .compute_backend
+            .is_some_and(|backend| backend != "aws_container")
+    {
         return Err(anyhow::anyhow!(
             "--environment-id is only supported with compute_backend 'aws_container'."
         ));
@@ -1706,8 +1734,8 @@ pub async fn cloud_deploy(
         skill_slug.bold(),
         deploy_publisher,
         mode,
-        runtime_target.compute_backend,
-        runtime_target.runtime_kind
+        runtime_target.compute_backend.unwrap_or("auto"),
+        runtime_target.runtime_kind.unwrap_or("auto")
     );
 
     let mut body = serde_json::Map::new();
@@ -1718,15 +1746,14 @@ pub async fn cloud_deploy(
         "code_bundle_base64".to_string(),
         serde_json::json!(code_bundle_base64),
     );
-    if runtime_target.include_request_fields {
+    if let Some(compute_backend) = runtime_target.compute_backend {
         body.insert(
             "compute_backend".to_string(),
-            serde_json::json!(runtime_target.compute_backend),
+            serde_json::json!(compute_backend),
         );
-        body.insert(
-            "runtime_kind".to_string(),
-            serde_json::json!(runtime_target.runtime_kind),
-        );
+    }
+    if let Some(runtime_kind) = runtime_target.runtime_kind {
+        body.insert("runtime_kind".to_string(), serde_json::json!(runtime_kind));
     }
     if let Some(schedule) = cron_schedule {
         body.insert("cron_schedule".to_string(), serde_json::json!(schedule));
@@ -2676,65 +2703,55 @@ pub async fn cloud_update_config(
 }
 
 struct CloudRuntimeTarget {
-    compute_backend: &'static str,
-    runtime_kind: &'static str,
-    include_request_fields: bool,
+    compute_backend: Option<&'static str>,
+    runtime_kind: Option<&'static str>,
 }
 
 fn resolve_cloud_runtime_target(
     compute_backend: Option<&str>,
     runtime_kind: Option<&str>,
 ) -> Result<CloudRuntimeTarget> {
-    let normalize_backend = |value: &str| -> Result<&'static str> {
+    let normalize_backend = |value: &str| -> Result<Option<&'static str>> {
         match value {
-            "aws_container" => Ok("aws_container"),
-            "cloudflare_worker" => Ok("cloudflare_worker"),
-            "daytona" => Ok("daytona"),
+            "" | "auto" => Ok(None),
+            "aws_container" => Ok(Some("aws_container")),
+            "cloudflare_worker" => Ok(Some("cloudflare_worker")),
+            "daytona" => Ok(Some("daytona")),
             other => Err(anyhow::anyhow!(
-                "Invalid compute_backend '{}'. Use 'aws_container', 'cloudflare_worker', or 'daytona'.",
+                "Invalid compute_backend '{}'. Use 'auto', 'aws_container', 'cloudflare_worker', or 'daytona'.",
                 other
             )),
         }
     };
 
-    let normalize_runtime = |value: &str| -> Result<&'static str> {
+    let normalize_runtime = |value: &str| -> Result<Option<&'static str>> {
         match value {
-            "python" => Ok("python"),
-            "javascript" => Ok("javascript"),
-            "typescript" => Ok("typescript"),
-            "rust" => Ok("rust"),
-            "rust_wasm_adk" => Ok("rust_wasm_adk"),
+            "" | "auto" => Ok(None),
+            "python" => Ok(Some("python")),
+            "javascript" => Ok(Some("javascript")),
+            "typescript" => Ok(Some("typescript")),
+            "rust" => Ok(Some("rust")),
+            "rust_wasm_adk" => Ok(Some("rust_wasm_adk")),
             other => Err(anyhow::anyhow!(
-                "Invalid runtime_kind '{}'. Use 'python', 'javascript', 'typescript', 'rust', or 'rust_wasm_adk'.",
+                "Invalid runtime_kind '{}'. Use 'auto', 'python', 'javascript', 'typescript', 'rust', or 'rust_wasm_adk'.",
                 other
             )),
         }
     };
 
-    let backend = compute_backend.map(normalize_backend).transpose()?;
-    let runtime = runtime_kind.map(normalize_runtime).transpose()?;
-    let include_request_fields = backend.is_some() || runtime.is_some();
+    let backend = compute_backend
+        .map(normalize_backend)
+        .transpose()?
+        .flatten();
+    let runtime = runtime_kind.map(normalize_runtime).transpose()?.flatten();
 
-    let (compute_backend, runtime_kind) = match (backend, runtime) {
-        (None, None) => ("aws_container", "python"),
-        (Some(cb), Some(rk)) => (cb, rk),
-        (Some("aws_container"), None) => ("aws_container", "python"),
-        (Some("cloudflare_worker"), None) => ("cloudflare_worker", "javascript"),
-        (Some("daytona"), None) => ("daytona", "python"),
-        (None, Some("python")) => ("aws_container", "python"),
-        (None, Some("javascript")) => ("aws_container", "javascript"),
-        (None, Some("typescript")) => ("aws_container", "typescript"),
-        (None, Some("rust")) => ("cloudflare_worker", "rust"),
-        (None, Some("rust_wasm_adk")) => ("cloudflare_worker", "rust_wasm_adk"),
-        _ => unreachable!(),
-    };
-
-    validate_runtime_target(compute_backend, runtime_kind)?;
+    if let (Some(compute_backend), Some(runtime_kind)) = (backend, runtime) {
+        validate_runtime_target(compute_backend, runtime_kind)?;
+    }
 
     Ok(CloudRuntimeTarget {
-        compute_backend,
-        runtime_kind,
-        include_request_fields,
+        compute_backend: backend,
+        runtime_kind: runtime,
     })
 }
 
@@ -2743,6 +2760,8 @@ fn validate_runtime_target(compute_backend: &str, runtime_kind: &str) -> Result<
         ("aws_container", "python") => Ok(()),
         ("aws_container", "javascript") => Ok(()),
         ("aws_container", "typescript") => Ok(()),
+        ("aws_container", "rust") => Ok(()),
+        ("aws_container", "rust_wasm_adk") => Ok(()),
         ("cloudflare_worker", "python") => Ok(()),
         ("cloudflare_worker", "javascript") => Ok(()),
         ("cloudflare_worker", "typescript") => Ok(()),
@@ -2751,8 +2770,9 @@ fn validate_runtime_target(compute_backend: &str, runtime_kind: &str) -> Result<
         ("daytona", "python") => Ok(()),
         ("daytona", "javascript") => Ok(()),
         ("daytona", "typescript") => Ok(()),
+        ("daytona", "rust") => Ok(()),
         _ => Err(anyhow::anyhow!(
-            "Invalid backend/runtime combination: {}/{}. Valid pairs are aws_container+(python|javascript|typescript), cloudflare_worker+(python|javascript|typescript|rust|rust_wasm_adk), daytona+(python|javascript|typescript).",
+            "Invalid backend/runtime combination: {}/{}. Valid pairs are aws_container+(python|javascript|typescript|rust|rust_wasm_adk), cloudflare_worker+(python|javascript|typescript|rust|rust_wasm_adk), daytona+(python|javascript|typescript|rust).",
             compute_backend,
             runtime_kind
         )),

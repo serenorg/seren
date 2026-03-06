@@ -538,7 +538,7 @@ enum AgentAction {
     // =========================================================================
     /// Deploy a skill to Seren Cloud
     Deploy {
-        /// Path to the skill directory (containing scripts/ for the selected runtime)
+        /// Path to a skill directory or SKILL.md (must contain scripts/)
         path: String,
         /// Deployment publisher slug (`seren-cloud` for direct runtime deploys, `seren-agent` for orchestrated app deploys)
         #[arg(long, default_value = "seren-cloud")]
@@ -555,10 +555,10 @@ enum AgentAction {
         /// Cron schedule expression (required if mode is "cron")
         #[arg(long)]
         cron_schedule: Option<String>,
-        /// Compute backend target (aws_container, cloudflare_worker, or daytona)
+        /// Optional compute backend override (auto, aws_container, cloudflare_worker, or daytona). Omit for AWS-first auto-routing.
         #[arg(long)]
         compute_backend: Option<String>,
-        /// Runtime kind (python, javascript, typescript, rust, rust_wasm_adk)
+        /// Optional runtime override (auto, python, javascript, typescript, rust, rust_wasm_adk). Omit to infer from the bundle.
         #[arg(long)]
         runtime_kind: Option<String>,
         /// Path to config.json

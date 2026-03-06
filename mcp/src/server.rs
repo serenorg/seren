@@ -1369,10 +1369,10 @@ pub struct DeployCloudAgentParams {
     /// Cron schedule expression (required if mode is "cron")
     #[serde(default)]
     pub cron_schedule: Option<String>,
-    /// Compute backend target ("aws_container", "cloudflare_worker", or "daytona")
+    /// Optional compute backend override ("auto", "aws_container", "cloudflare_worker", or "daytona"). Omit for AWS-first auto-routing.
     #[serde(default)]
     pub compute_backend: Option<String>,
-    /// Runtime kind ("python", "javascript", "typescript", "rust", or "rust_wasm_adk")
+    /// Optional runtime override ("auto", "python", "javascript", "typescript", "rust", or "rust_wasm_adk"). Omit to infer from the bundle.
     #[serde(default)]
     pub runtime_kind: Option<String>,
     /// Base64-encoded tar.gz of the scripts/ directory
@@ -7272,7 +7272,7 @@ API endpoint: {endpoint}",
     // ========================================================================
 
     #[tool(
-        description = "Deploy a skill to Seren Cloud for managed hosting. Supports always_on (persistent) and cron (scheduled) modes. Optionally set compute_backend (aws_container/cloudflare_worker/daytona) and runtime_kind (python/javascript/typescript/rust/rust_wasm_adk). Backend/runtime support: aws_container (python/javascript/typescript), cloudflare_worker (python/javascript/typescript/rust/rust_wasm_adk), daytona (python/javascript/typescript) with cron mode. runtime_kind=rust expects prebuilt workers-rs artifacts (JS glue + .wasm). Requires a base64-encoded tar.gz code bundle of scripts/.",
+        description = "Deploy a skill to Seren Cloud for managed hosting. Supports always_on (persistent) and cron (scheduled) modes. Leave compute_backend/runtime_kind unset, or set them to auto, for AWS-first bundle-based routing. Set compute_backend explicitly to force cloudflare_worker or daytona. Backend/runtime support: aws_container (python/javascript/typescript/rust/rust_wasm_adk), cloudflare_worker (python/javascript/typescript/rust/rust_wasm_adk), daytona (python/javascript/typescript/rust) with cron mode. Worker-style Rust bundles (.wasm plus worker.js/index.js) route to Cloudflare when selected or inferred. Requires a base64-encoded tar.gz code bundle of scripts/.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
