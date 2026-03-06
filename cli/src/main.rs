@@ -571,6 +571,51 @@ enum AgentAction {
         #[arg(long)]
         orchestration_config: Option<String>,
     },
+    /// Deploy a prompt-only LLM agent to Seren Cloud
+    DeployPrompt {
+        /// Deployment display name
+        #[arg(long)]
+        name: String,
+        /// Optional skill slug override (defaults to a slugified form of --name)
+        #[arg(long)]
+        skill_slug: Option<String>,
+        /// Deployment publisher slug (`seren-cloud` for direct runtime deploys, `seren-agent` for orchestrated app deploys)
+        #[arg(long, default_value = "seren-cloud")]
+        publisher: String,
+        /// Optional reusable execution environment ID (AWS container backend only)
+        #[arg(long)]
+        environment_id: Option<Uuid>,
+        /// Deployment mode: "always-on" or "cron"
+        #[arg(long, default_value = "always-on")]
+        mode: String,
+        /// Cron schedule expression (required if mode is "cron")
+        #[arg(long)]
+        cron_schedule: Option<String>,
+        /// Optional compute backend override (auto, aws_container, cloudflare_worker, or daytona). Omit for AWS-first auto-routing.
+        #[arg(long)]
+        compute_backend: Option<String>,
+        /// Optional runtime override (auto, python, javascript, typescript, rust, rust_wasm_adk). Omit to let the platform choose the default LLM runtime.
+        #[arg(long)]
+        runtime_kind: Option<String>,
+        /// Optional system prompt. Required unless provided by --orchestration-config.
+        #[arg(long)]
+        system_prompt: Option<String>,
+        /// Optional model ID. Required unless provided by --orchestration-config.
+        #[arg(long = "model-id")]
+        model_id: Option<String>,
+        /// Optional visibility mode (open or opaque)
+        #[arg(long)]
+        visibility: Option<String>,
+        /// Path to config.json
+        #[arg(long)]
+        config: Option<String>,
+        /// Path to .env secrets file
+        #[arg(long, name = "env")]
+        env_file: Option<String>,
+        /// Path to an orchestration JSON file for advanced tuning
+        #[arg(long)]
+        orchestration_config: Option<String>,
+    },
     /// List reusable cloud deployment environments
     CloudEnvironmentList,
     /// Get a reusable cloud deployment environment
@@ -2871,6 +2916,43 @@ async fn main() -> anyhow::Result<()> {
                         config_path: config.as_deref(),
                         env_path: env_file.as_deref(),
                         orchestration_config_path: orchestration_config.as_deref(),
+                    },
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::DeployPrompt {
+                name,
+                skill_slug,
+                publisher,
+                environment_id,
+                mode,
+                cron_schedule,
+                compute_backend,
+                runtime_kind,
+                system_prompt,
+                model_id,
+                visibility,
+                config,
+                env_file,
+                orchestration_config,
+            } => {
+                commands::agent::cloud_deploy_prompt(
+                    commands::agent::CloudDeployPromptOptions {
+                        publisher_slug: Some(&publisher),
+                        name: &name,
+                        skill_slug: skill_slug.as_deref(),
+                        environment_id,
+                        mode: &mode,
+                        cron_schedule: cron_schedule.as_deref(),
+                        compute_backend: compute_backend.as_deref(),
+                        runtime_kind: runtime_kind.as_deref(),
+                        config_path: config.as_deref(),
+                        env_path: env_file.as_deref(),
+                        orchestration_config_path: orchestration_config.as_deref(),
+                        system_prompt: system_prompt.as_deref(),
+                        model_id: model_id.as_deref(),
+                        visibility: visibility.as_deref(),
                     },
                     &ctx,
                 )

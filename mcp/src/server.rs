@@ -1375,7 +1375,8 @@ pub struct DeployCloudAgentParams {
     /// Optional runtime override ("auto", "python", "javascript", "typescript", "rust", or "rust_wasm_adk"). Omit to infer from the bundle.
     #[serde(default)]
     pub runtime_kind: Option<String>,
-    /// Base64-encoded tar.gz of the scripts/ directory
+    /// Base64-encoded tar.gz of the scripts/ directory. Leave empty for prompt-only LLM deployments.
+    #[serde(default)]
     pub code_bundle_base64: String,
     /// pip requirements.txt content
     #[serde(default)]
@@ -7272,7 +7273,7 @@ API endpoint: {endpoint}",
     // ========================================================================
 
     #[tool(
-        description = "Deploy a skill to Seren Cloud for managed hosting. Supports always_on (persistent) and cron (scheduled) modes. Leave compute_backend/runtime_kind unset, or set them to auto, for AWS-first bundle-based routing. Set compute_backend explicitly to force cloudflare_worker or daytona. Backend/runtime support: aws_container (python/javascript/typescript/rust/rust_wasm_adk), cloudflare_worker (python/javascript/typescript/rust/rust_wasm_adk), daytona (python/javascript/typescript/rust) with cron mode. Auto-routing inspects the uploaded scripts bundle itself: Python/JS/TS entrypoints, shell scripts, Linux binaries, standalone .wasm modules, and Worker JS+.wasm artifacts are all detected from files rather than SKILL.md prose. Requires a base64-encoded tar.gz code bundle of scripts/.",
+        description = "Deploy a skill to Seren Cloud for managed hosting. Supports always_on (persistent) and cron (scheduled) modes. Leave compute_backend/runtime_kind unset, or set them to auto, for AWS-first bundle-based routing. Set compute_backend explicitly to force cloudflare_worker or daytona. Backend/runtime support: aws_container (python/javascript/typescript/rust/rust_wasm_adk), cloudflare_worker (python/javascript/typescript/rust/rust_wasm_adk), daytona (python/javascript/typescript/rust) with cron mode. Auto-routing inspects the uploaded scripts bundle itself: Python/JS/TS entrypoints, shell scripts, Linux binaries, standalone .wasm modules, and Worker JS+.wasm artifacts are all detected from files rather than SKILL.md prose. For prompt-only LLM deployments, omit code_bundle_base64 or pass an empty string and provide orchestration_mode=llm plus system_prompt/model_id. Those runs are guided toward Seren publisher tools by default.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,

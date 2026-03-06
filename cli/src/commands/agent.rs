@@ -1500,6 +1500,23 @@ pub struct CloudDeployOptions<'a> {
     pub orchestration_config_path: Option<&'a str>,
 }
 
+pub struct CloudDeployPromptOptions<'a> {
+    pub publisher_slug: Option<&'a str>,
+    pub name: &'a str,
+    pub skill_slug: Option<&'a str>,
+    pub environment_id: Option<Uuid>,
+    pub mode: &'a str,
+    pub cron_schedule: Option<&'a str>,
+    pub compute_backend: Option<&'a str>,
+    pub runtime_kind: Option<&'a str>,
+    pub config_path: Option<&'a str>,
+    pub env_path: Option<&'a str>,
+    pub orchestration_config_path: Option<&'a str>,
+    pub system_prompt: Option<&'a str>,
+    pub model_id: Option<&'a str>,
+    pub visibility: Option<&'a str>,
+}
+
 const MAX_CLOUD_CODE_BUNDLE_BYTES: usize = 1_000_000;
 const ORCHESTRATION_CONFIG_FIELDS: &[&str] = &[
     "context_budget_tokens",
@@ -1552,15 +1569,36 @@ fn resolve_skill_dir(path: &str) -> Result<std::path::PathBuf> {
     ))
 }
 
+fn normalize_cloud_skill_slug(value: &str) -> String {
+    let mut slug = String::with_capacity(value.len());
+    let mut last_was_dash = false;
+    for ch in value.trim().chars().flat_map(char::to_lowercase) {
+        let next = if ch.is_ascii_alphanumeric() { ch } else { '-' };
+        if next == '-' {
+            if last_was_dash {
+                continue;
+            }
+            last_was_dash = true;
+        } else {
+            last_was_dash = false;
+        }
+        slug.push(next);
+    }
+
+    slug.trim_matches('-').to_string()
+}
+
 fn load_orchestration_config(
-    skill_dir: &Path,
+    skill_dir: Option<&Path>,
     orchestration_config_path: Option<&str>,
 ) -> Result<Option<serde_json::Map<String, serde_json::Value>>> {
     let config_path = orchestration_config_path
         .map(|p| Path::new(p).to_path_buf())
         .or_else(|| {
-            let default_path = skill_dir.join("orchestration.json");
-            default_path.exists().then_some(default_path)
+            skill_dir.and_then(|skill_dir| {
+                let default_path = skill_dir.join("orchestration.json");
+                default_path.exists().then_some(default_path)
+            })
         });
 
     let Some(config_path) = config_path else {
@@ -1609,6 +1647,41 @@ fn merge_orchestration_config(
         "Unsupported orchestration config keys: {}",
         unsupported.join(", ")
     ))
+}
+
+async fn submit_cloud_deploy_request(
+    deploy_publisher: &str,
+    body: serde_json::Map<String, serde_json::Value>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let http_client = ctx.http_client().await?;
+    let url = format!("{}/publishers/{deploy_publisher}/deploy", ctx.api_base());
+    let response = http_client
+        .post(&url)
+        .json(&serde_json::Value::Object(body))
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
+    let status = response.status();
+    if !status.is_success() && status.as_u16() != 202 {
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Deploy failed: {} - {}", status, body));
+    }
+    let result: serde_json::Value = response.json().await?;
+    if let Some(data) = result.get("data") {
+        let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+        let deploy_status = data.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+        println!(
+            "{} Deployment created: {} (status: {})",
+            "✓".green(),
+            id.bold(),
+            deploy_status
+        );
+    } else {
+        output::print_json(&result)?;
+    }
+
+    Ok(())
 }
 
 /// Deploy a skill directory to Seren Cloud.
@@ -1701,7 +1774,8 @@ pub async fn cloud_deploy(
             None
         }
     };
-    let orchestration_config = load_orchestration_config(skill_dir, orchestration_config_path)?;
+    let orchestration_config =
+        load_orchestration_config(Some(skill_dir), orchestration_config_path)?;
 
     let api_mode = match mode {
         "always-on" | "always_on" => "always_on",
@@ -1778,34 +1852,160 @@ pub async fn cloud_deploy(
         merge_orchestration_config(&mut body, orchestration_config)?;
     }
 
-    let http_client = ctx.http_client().await?;
-    let url = format!("{}/publishers/{deploy_publisher}/deploy", ctx.api_base());
-    let response = http_client
-        .post(&url)
-        .json(&serde_json::Value::Object(body))
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
-    let status = response.status();
-    if !status.is_success() && status.as_u16() != 202 {
-        let body = response.text().await.unwrap_or_default();
-        return Err(anyhow::anyhow!("Deploy failed: {} - {}", status, body));
+    submit_cloud_deploy_request(deploy_publisher, body, ctx).await
+}
+
+/// Deploy a prompt-only LLM agent to Seren Cloud.
+pub async fn cloud_deploy_prompt(
+    options: CloudDeployPromptOptions<'_>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let CloudDeployPromptOptions {
+        publisher_slug,
+        name,
+        skill_slug,
+        environment_id,
+        mode,
+        cron_schedule,
+        compute_backend,
+        runtime_kind,
+        config_path,
+        env_path,
+        orchestration_config_path,
+        system_prompt,
+        model_id,
+        visibility,
+    } = options;
+    let deploy_publisher = normalize_deploy_publisher_slug(publisher_slug)?;
+    let runtime_target = resolve_cloud_runtime_target(compute_backend, runtime_kind)?;
+    let orchestration_config = load_orchestration_config(None, orchestration_config_path)?;
+
+    let api_mode = match mode {
+        "always-on" | "always_on" => "always_on",
+        "cron" => "cron",
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Invalid mode '{}'. Use 'always-on' or 'cron'.",
+                mode
+            ));
+        }
+    };
+
+    if runtime_target.compute_backend == Some("daytona") && api_mode != "cron" {
+        return Err(anyhow::anyhow!(
+            "compute_backend 'daytona' currently requires mode 'cron'."
+        ));
     }
-    let result: serde_json::Value = response.json().await?;
-    if let Some(data) = result.get("data") {
-        let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-        let deploy_status = data.get("status").and_then(|v| v.as_str()).unwrap_or("?");
-        println!(
-            "{} Deployment created: {} (status: {})",
-            "✓".green(),
-            id.bold(),
-            deploy_status
-        );
-    } else {
-        output::print_json(&result)?;
+    if environment_id.is_some()
+        && runtime_target
+            .compute_backend
+            .is_some_and(|backend| backend != "aws_container")
+    {
+        return Err(anyhow::anyhow!(
+            "--environment-id is only supported with compute_backend 'aws_container'."
+        ));
     }
 
-    Ok(())
+    let config: Option<serde_json::Value> = if let Some(p) = config_path {
+        let content = fs::read_to_string(p)?;
+        Some(serde_json::from_str(&content)?)
+    } else {
+        None
+    };
+
+    let secrets: Option<serde_json::Value> = if let Some(p) = env_path {
+        Some(parse_env_file(p)?)
+    } else {
+        None
+    };
+
+    let prompt_skill_slug = skill_slug
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| normalize_cloud_skill_slug(name));
+    if prompt_skill_slug.is_empty() {
+        return Err(anyhow::anyhow!(
+            "Could not derive a valid skill slug from '{}'. Provide --skill-slug.",
+            name
+        ));
+    }
+
+    println!(
+        "{} Deploying prompt agent {} via {} ({} mode, backend={}, runtime={})...",
+        "→".blue(),
+        prompt_skill_slug.bold(),
+        deploy_publisher,
+        mode,
+        runtime_target.compute_backend.unwrap_or("auto"),
+        runtime_target.runtime_kind.unwrap_or("auto")
+    );
+
+    let mut body = serde_json::Map::new();
+    body.insert("name".to_string(), serde_json::json!(name.trim()));
+    body.insert(
+        "skill_slug".to_string(),
+        serde_json::json!(prompt_skill_slug),
+    );
+    body.insert("mode".to_string(), serde_json::json!(api_mode));
+    body.insert("code_bundle_base64".to_string(), serde_json::json!(""));
+    body.insert("orchestration_mode".to_string(), serde_json::json!("llm"));
+
+    if let Some(compute_backend) = runtime_target.compute_backend {
+        body.insert(
+            "compute_backend".to_string(),
+            serde_json::json!(compute_backend),
+        );
+    }
+    if let Some(runtime_kind) = runtime_target.runtime_kind {
+        body.insert("runtime_kind".to_string(), serde_json::json!(runtime_kind));
+    }
+    if let Some(schedule) = cron_schedule {
+        body.insert("cron_schedule".to_string(), serde_json::json!(schedule));
+    }
+    if let Some(environment_id) = environment_id {
+        body.insert(
+            "environment_id".to_string(),
+            serde_json::json!(environment_id),
+        );
+    }
+    if let Some(cfg) = &config {
+        body.insert("config".to_string(), cfg.clone());
+    }
+    if let Some(sec) = &secrets {
+        body.insert("secrets".to_string(), sec.clone());
+    }
+    if let Some(orchestration_config) = orchestration_config {
+        merge_orchestration_config(&mut body, orchestration_config)?;
+    }
+    if let Some(system_prompt) = system_prompt
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        body.insert(
+            "system_prompt".to_string(),
+            serde_json::json!(system_prompt),
+        );
+    }
+    if let Some(model_id) = model_id.map(str::trim).filter(|value| !value.is_empty()) {
+        body.insert("model_id".to_string(), serde_json::json!(model_id));
+    }
+    if let Some(visibility) = visibility.map(str::trim).filter(|value| !value.is_empty()) {
+        body.insert("visibility".to_string(), serde_json::json!(visibility));
+    }
+
+    if !body.contains_key("system_prompt") {
+        return Err(anyhow::anyhow!(
+            "Prompt deployments require --system-prompt or an orchestration config containing system_prompt."
+        ));
+    }
+    if !body.contains_key("model_id") {
+        return Err(anyhow::anyhow!(
+            "Prompt deployments require --model-id or an orchestration config containing model_id."
+        ));
+    }
+
+    submit_cloud_deploy_request(deploy_publisher, body, ctx).await
 }
 
 /// List reusable cloud deployment environments.
