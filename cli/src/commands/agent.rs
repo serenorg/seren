@@ -888,6 +888,7 @@ pub async fn publish_template(
         description: description.map(|s| s.to_string()),
         dependencies: deps,
         compute_backend: compute_backend.map(|s| s.to_string()),
+        settings_schema: None,
         llm_config: None,
     };
 
@@ -1640,7 +1641,7 @@ pub async fn cloud_deploy(
 
     let runtime_target = resolve_cloud_runtime_target(compute_backend, runtime_kind)?;
     if let Some(runtime_kind) = runtime_target.runtime_kind {
-        ensure_runtime_entrypoint(&scripts_dir, runtime_kind)?;
+        ensure_runtime_entrypoint(&scripts_dir, runtime_target.compute_backend, runtime_kind)?;
     }
 
     // Derive skill slug from directory name
@@ -2779,37 +2780,86 @@ fn validate_runtime_target(compute_backend: &str, runtime_kind: &str) -> Result<
     }
 }
 
-fn ensure_runtime_entrypoint(scripts_dir: &Path, runtime_kind: &str) -> Result<()> {
-    if runtime_kind == "rust" {
-        let has_js_entrypoint = find_runtime_entrypoint(scripts_dir, runtime_kind).is_some();
-        let has_wasm_artifact = contains_file_with_extension(scripts_dir, "wasm");
-        if has_js_entrypoint && has_wasm_artifact {
-            return Ok(());
+fn ensure_runtime_entrypoint(
+    scripts_dir: &Path,
+    compute_backend: Option<&str>,
+    runtime_kind: &str,
+) -> Result<()> {
+    match runtime_kind {
+        "rust" => {
+            let has_worker_artifact = find_worker_runtime_entrypoint(scripts_dir).is_some()
+                && contains_file_with_extension(scripts_dir, "wasm");
+            let has_native_entrypoint = find_native_runtime_entrypoint(scripts_dir).is_some();
+
+            match compute_backend {
+                Some("cloudflare_worker") => {
+                    if has_worker_artifact {
+                        return Ok(());
+                    }
+                    Err(anyhow::anyhow!(
+                        "No Rust Worker artifact set found in '{}'. compute_backend=cloudflare_worker with runtime_kind=rust expects JS glue entrypoint (worker.js/index.js) plus at least one .wasm file.",
+                        scripts_dir.display()
+                    ))
+                }
+                Some("aws_container") | Some("daytona") => {
+                    if has_native_entrypoint {
+                        return Ok(());
+                    }
+                    Err(anyhow::anyhow!(
+                        "No native runtime entrypoint found in '{}'. runtime_kind=rust on AWS/Daytona expects a shell script (*.sh) or a precompiled Linux binary such as agent/main/app/worker.",
+                        scripts_dir.display()
+                    ))
+                }
+                _ => {
+                    if has_worker_artifact || has_native_entrypoint {
+                        return Ok(());
+                    }
+                    Err(anyhow::anyhow!(
+                        "No Rust runtime entrypoint found in '{}'. runtime_kind=rust supports either Cloudflare Worker artifacts (worker.js/index.js plus .wasm) or AWS/Daytona native bundles (shell script or precompiled Linux binary).",
+                        scripts_dir.display()
+                    ))
+                }
+            }
         }
-        return Err(anyhow::anyhow!(
-            "No Rust Worker artifact set found in '{}'. runtime_kind=rust expects JS glue entrypoint (worker.js/index.js) plus at least one .wasm file (workers-rs build output).",
-            scripts_dir.display()
-        ));
+        "rust_wasm_adk" => match compute_backend {
+            Some("cloudflare_worker") => {
+                if find_worker_runtime_entrypoint(scripts_dir).is_some() {
+                    return Ok(());
+                }
+                Err(anyhow::anyhow!(
+                    "No Worker wrapper entrypoint found in '{}'. compute_backend=cloudflare_worker with runtime_kind=rust_wasm_adk expects worker.js/index.js (or similar JS/TS worker source).",
+                    scripts_dir.display()
+                ))
+            }
+            _ => {
+                if find_standalone_wasm_entrypoint(scripts_dir).is_some() {
+                    return Ok(());
+                }
+                Err(anyhow::anyhow!(
+                    "No standalone WASI module found in '{}'. runtime_kind=rust_wasm_adk on AWS expects a prebuilt .wasm file such as agent.wasm or main.wasm.",
+                    scripts_dir.display()
+                ))
+            }
+        },
+        _ => {
+            if find_runtime_entrypoint(scripts_dir, runtime_kind).is_some() {
+                return Ok(());
+            }
+
+            let expected = match runtime_kind {
+                "python" => "agent.py/main.py/index.py (or any .py file)",
+                "javascript" => "agent.js/main.js/index.js/worker.js (or any .js/.mjs/.cjs file)",
+                "typescript" => "agent.ts/main.ts/index.ts/worker.ts (or any .ts file)",
+                other => return Err(anyhow::anyhow!("Unsupported runtime_kind '{}'.", other)),
+            };
+
+            Err(anyhow::anyhow!(
+                "No entrypoint found in '{}'. Expected one of: {}.",
+                scripts_dir.display(),
+                expected
+            ))
+        }
     }
-
-    if find_runtime_entrypoint(scripts_dir, runtime_kind).is_some() {
-        return Ok(());
-    }
-
-    let expected = match runtime_kind {
-        "python" => "agent.py/main.py/index.py (or any .py file)",
-        "javascript" => "agent.js/main.js/index.js/worker.js (or any .js/.mjs/.cjs file)",
-        "typescript" => "agent.ts/main.ts/index.ts/worker.ts (or any .ts file)",
-        "rust" => "worker.js/index.js/dist/worker.js plus at least one .wasm file",
-        "rust_wasm_adk" => "worker.js/index.js/dist/worker.js (or any JS/TS source file)",
-        other => return Err(anyhow::anyhow!("Unsupported runtime_kind '{}'.", other)),
-    };
-
-    Err(anyhow::anyhow!(
-        "No entrypoint found in '{}'. Expected one of: {}.",
-        scripts_dir.display(),
-        expected
-    ))
 }
 
 fn find_runtime_entrypoint(scripts_dir: &Path, runtime_kind: &str) -> Option<String> {
@@ -2819,31 +2869,17 @@ fn find_runtime_entrypoint(scripts_dir: &Path, runtime_kind: &str) -> Option<Str
             "agent.js",
             "main.js",
             "index.js",
-            "worker.ts",
             "worker.js",
-            "index.ts",
-            "index.js",
-            "main.ts",
-            "main.js",
+            "agent.mjs",
+            "main.mjs",
+            "index.mjs",
+            "worker.mjs",
+            "agent.cjs",
+            "main.cjs",
+            "index.cjs",
+            "worker.cjs",
         ],
         "typescript" => &["agent.ts", "main.ts", "index.ts", "worker.ts"],
-        "rust" => &[
-            "worker.js",
-            "index.js",
-            "dist/worker.js",
-            "dist/index.js",
-            "worker.mjs",
-            "index.mjs",
-            "dist/worker.mjs",
-            "dist/index.mjs",
-        ],
-        "rust_wasm_adk" => &[
-            "worker.js",
-            "index.js",
-            "dist/worker.js",
-            "dist/index.js",
-            "worker.ts",
-        ],
         _ => &[],
     };
 
@@ -2857,11 +2893,120 @@ fn find_runtime_entrypoint(scripts_dir: &Path, runtime_kind: &str) -> Option<Str
         "python" => &["py"],
         "javascript" => &["js", "mjs", "cjs"],
         "typescript" => &["ts"],
-        "rust" => &["js", "mjs", "cjs"],
-        "rust_wasm_adk" => &["js", "ts", "mjs", "cjs"],
         _ => return None,
     };
     find_file_with_extensions(scripts_dir, fallback_exts)
+}
+
+fn find_worker_runtime_entrypoint(scripts_dir: &Path) -> Option<String> {
+    let candidates = [
+        "worker.js",
+        "index.js",
+        "main.js",
+        "dist/worker.js",
+        "dist/index.js",
+        "dist/main.js",
+        "worker.mjs",
+        "index.mjs",
+        "main.mjs",
+        "dist/worker.mjs",
+        "dist/index.mjs",
+        "dist/main.mjs",
+        "worker.ts",
+        "index.ts",
+        "main.ts",
+        "dist/worker.ts",
+        "dist/index.ts",
+        "dist/main.ts",
+    ];
+
+    for candidate in candidates {
+        if scripts_dir.join(candidate).is_file() {
+            return Some(candidate.to_string());
+        }
+    }
+
+    find_file_with_extensions(scripts_dir, &["js", "mjs", "cjs", "ts"])
+}
+
+fn find_standalone_wasm_entrypoint(scripts_dir: &Path) -> Option<String> {
+    for candidate in ["agent.wasm", "main.wasm", "app.wasm", "worker.wasm"] {
+        if scripts_dir.join(candidate).is_file() {
+            return Some(candidate.to_string());
+        }
+    }
+
+    find_file_with_extensions(scripts_dir, &["wasm"])
+}
+
+fn find_native_runtime_entrypoint(scripts_dir: &Path) -> Option<String> {
+    let candidates = [
+        "agent",
+        "main",
+        "app",
+        "worker",
+        "run",
+        "entrypoint",
+        "start",
+        "agent.sh",
+        "main.sh",
+        "run.sh",
+        "entrypoint.sh",
+        "start.sh",
+    ];
+
+    for candidate in candidates {
+        if scripts_dir.join(candidate).is_file() {
+            return Some(candidate.to_string());
+        }
+    }
+
+    if let Some(path) = find_file_with_extensions(scripts_dir, &["sh", "bash"]) {
+        return Some(path);
+    }
+
+    find_extensionless_runtime_file(scripts_dir)
+}
+
+fn find_extensionless_runtime_file(dir: &Path) -> Option<String> {
+    let entries = std::fs::read_dir(dir).ok()?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let lower = file_name.to_ascii_lowercase();
+            if lower.contains('.')
+                || matches!(
+                    lower.as_str(),
+                    "dockerfile" | "makefile" | "justfile" | "license" | "notice"
+                )
+                || lower.starts_with("readme")
+            {
+                continue;
+            }
+            if matches!(
+                lower.as_str(),
+                "agent" | "main" | "app" | "worker" | "run" | "entrypoint" | "start"
+            ) || path.parent() == Some(dir)
+            {
+                return path
+                    .strip_prefix(dir)
+                    .ok()
+                    .and_then(|p| p.to_str())
+                    .map(|p| p.to_string());
+            }
+        } else if path.is_dir()
+            && let Some(found) = find_extensionless_runtime_file(&path)
+        {
+            let dir_name = path.file_name()?.to_str()?;
+            return Some(format!("{}/{}", dir_name, found));
+        }
+    }
+
+    None
 }
 
 fn find_file_with_extensions(dir: &Path, extensions: &[&str]) -> Option<String> {

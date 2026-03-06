@@ -558,7 +558,7 @@ enum AgentAction {
         /// Optional compute backend override (auto, aws_container, cloudflare_worker, or daytona). Omit for AWS-first auto-routing.
         #[arg(long)]
         compute_backend: Option<String>,
-        /// Optional runtime override (auto, python, javascript, typescript, rust, rust_wasm_adk). Omit to infer from the bundle.
+        /// Optional runtime override (auto, python, javascript, typescript, rust, rust_wasm_adk). Omit to infer from the bundle. `rust` covers native Linux binaries and shell scripts; `rust_wasm_adk` covers standalone WASI .wasm modules on AWS.
         #[arg(long)]
         runtime_kind: Option<String>,
         /// Path to config.json
