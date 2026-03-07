@@ -1444,6 +1444,15 @@ pub struct DeploySerenAgentParams {
     /// Optional compute backend override ("aws_container", "cloudflare_worker", or "daytona"). Omit for AWS-first managed routing.
     #[serde(default)]
     pub compute_backend: Option<String>,
+    /// Managed tool presets ("publishers" and/or "database")
+    #[serde(default)]
+    pub tool_presets: Option<Vec<String>>,
+    /// Managed approval policy ("read_only" or "allow_mutations")
+    #[serde(default)]
+    pub approval_policy: Option<String>,
+    /// Managed model policy preset ("fast", "balanced", or "deep")
+    #[serde(default)]
+    pub model_policy: Option<String>,
     /// JSON config object
     #[serde(default)]
     pub config: Option<serde_json::Value>,
@@ -7461,7 +7470,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Deploy a managed prompt-based agent through the first-class seren-agent publisher. This path is AWS-first, hides runtime internals, injects built-in Seren publisher tools automatically, and supports always_on or cron mode with optional backend override.",
+        description = "Deploy a managed prompt-based agent through the first-class seren-agent publisher. This path is AWS-first, hides runtime internals, injects built-in Seren publisher tools from managed presets, and supports explicit approval/model policies plus always_on or cron mode with optional backend override.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -7494,6 +7503,18 @@ API endpoint: {endpoint}",
                 "compute_backend".to_string(),
                 serde_json::json!(compute_backend),
             );
+        }
+        if let Some(tool_presets) = params.tool_presets {
+            body.insert("tool_presets".to_string(), serde_json::json!(tool_presets));
+        }
+        if let Some(approval_policy) = params.approval_policy {
+            body.insert(
+                "approval_policy".to_string(),
+                serde_json::json!(approval_policy),
+            );
+        }
+        if let Some(model_policy) = params.model_policy {
+            body.insert("model_policy".to_string(), serde_json::json!(model_policy));
         }
         if let Some(config) = params.config {
             body.insert("config".to_string(), config);

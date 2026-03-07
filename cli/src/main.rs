@@ -588,6 +588,15 @@ enum AgentAction {
         /// Optional compute backend override (auto, aws_container, cloudflare_worker, or daytona). Omit for AWS-first managed routing.
         #[arg(long)]
         compute_backend: Option<String>,
+        /// Managed tool preset list. Use publishers for Seren publisher discovery/calls and database to include direct SerenDB queries.
+        #[arg(long = "tool-preset", value_delimiter = ',')]
+        tool_presets: Vec<String>,
+        /// Managed approval policy (read_only or allow_mutations).
+        #[arg(long)]
+        approval_policy: Option<String>,
+        /// Managed model policy preset (fast, balanced, or deep).
+        #[arg(long)]
+        model_policy: Option<String>,
         /// Agent prompt. Required unless provided by --agent-config.
         #[arg(long)]
         prompt: Option<String>,
@@ -2918,6 +2927,9 @@ async fn main() -> anyhow::Result<()> {
                 mode,
                 cron_schedule,
                 compute_backend,
+                tool_presets,
+                approval_policy,
+                model_policy,
                 prompt,
                 model_id,
                 visibility,
@@ -2932,6 +2944,9 @@ async fn main() -> anyhow::Result<()> {
                         mode: &mode,
                         cron_schedule: cron_schedule.as_deref(),
                         compute_backend: compute_backend.as_deref(),
+                        tool_presets: &tool_presets,
+                        approval_policy: approval_policy.as_deref(),
+                        model_policy: model_policy.as_deref(),
                         config_path: config.as_deref(),
                         env_path: env_file.as_deref(),
                         agent_config_path: agent_config.as_deref(),

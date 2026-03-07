@@ -1507,6 +1507,9 @@ pub struct CloudDeployPromptOptions<'a> {
     pub mode: &'a str,
     pub cron_schedule: Option<&'a str>,
     pub compute_backend: Option<&'a str>,
+    pub tool_presets: &'a [String],
+    pub approval_policy: Option<&'a str>,
+    pub model_policy: Option<&'a str>,
     pub config_path: Option<&'a str>,
     pub env_path: Option<&'a str>,
     pub agent_config_path: Option<&'a str>,
@@ -1541,6 +1544,9 @@ const MANAGED_AGENT_CONFIG_FIELDS: &[&str] = &[
     "model_config",
     "model_id",
     "prompt",
+    "tool_presets",
+    "approval_policy",
+    "model_policy",
     "requirements",
     "visibility",
 ];
@@ -1712,6 +1718,48 @@ async fn submit_cloud_deploy_request(
             id.bold(),
             deploy_status
         );
+        if let Some(compute_backend) = data.get("compute_backend").and_then(|v| v.as_str()) {
+            println!("  Backend: {}", compute_backend);
+        }
+        if let Some(runtime_kind) = data.get("runtime_kind").and_then(|v| v.as_str()) {
+            println!("  Runtime: {}", runtime_kind);
+        }
+        if let Some(managed_agent) = data.get("managed_agent") {
+            if let Some(target_framework) = managed_agent
+                .get("target_framework")
+                .and_then(|v| v.as_str())
+            {
+                println!("  Managed Runtime: {}", target_framework);
+            }
+            if let Some(tool_presets) = managed_agent
+                .get("tool_presets")
+                .and_then(|v| v.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|value| value.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .filter(|value| !value.is_empty())
+            {
+                println!("  Tool Presets: {}", tool_presets);
+            }
+            if let Some(approval_policy) = managed_agent
+                .get("approval_policy")
+                .and_then(|v| v.as_str())
+            {
+                println!("  Approval Policy: {}", approval_policy);
+            }
+            if let Some(model_policy) = managed_agent.get("model_policy").and_then(|v| v.as_str()) {
+                println!("  Model Policy: {}", model_policy);
+            }
+            if let Some(routing_reason) =
+                managed_agent.get("routing_reason").and_then(|v| v.as_str())
+            {
+                println!("  Routing: {}", routing_reason);
+            }
+        }
     } else {
         output::print_json(&result)?;
     }
@@ -1901,6 +1949,9 @@ pub async fn cloud_deploy_prompt(
         mode,
         cron_schedule,
         compute_backend,
+        tool_presets,
+        approval_policy,
+        model_policy,
         config_path,
         env_path,
         agent_config_path,
@@ -1975,6 +2026,24 @@ pub async fn cloud_deploy_prompt(
             "compute_backend".to_string(),
             serde_json::json!(compute_backend),
         );
+    }
+    if !tool_presets.is_empty() {
+        body.insert("tool_presets".to_string(), serde_json::json!(tool_presets));
+    }
+    if let Some(approval_policy) = approval_policy
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        body.insert(
+            "approval_policy".to_string(),
+            serde_json::json!(approval_policy),
+        );
+    }
+    if let Some(model_policy) = model_policy
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        body.insert("model_policy".to_string(), serde_json::json!(model_policy));
     }
     if let Some(schedule) = cron_schedule {
         body.insert("cron_schedule".to_string(), serde_json::json!(schedule));
