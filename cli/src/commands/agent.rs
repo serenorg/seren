@@ -1519,6 +1519,22 @@ pub struct CloudDeployPromptOptions<'a> {
     pub visibility: Option<&'a str>,
 }
 
+pub struct ManagedAgentUpdateOptions<'a> {
+    pub name: Option<&'a str>,
+    pub agent_slug: Option<&'a str>,
+    pub cron_schedule: Option<&'a str>,
+    pub template: Option<&'a str>,
+    pub tool_presets: &'a [String],
+    pub approval_policy: Option<&'a str>,
+    pub model_policy: Option<&'a str>,
+    pub config_path: Option<&'a str>,
+    pub env_path: Option<&'a str>,
+    pub agent_config_path: Option<&'a str>,
+    pub prompt: Option<&'a str>,
+    pub model_id: Option<&'a str>,
+    pub visibility: Option<&'a str>,
+}
+
 const MAX_CLOUD_CODE_BUNDLE_BYTES: usize = 1_000_000;
 const ORCHESTRATION_CONFIG_FIELDS: &[&str] = &[
     "context_budget_tokens",
@@ -2125,6 +2141,133 @@ pub async fn managed_agent_get(deployment_id: Uuid, ctx: &CommandContext) -> Res
     if !status.is_success() {
         return Err(anyhow::anyhow!(
             "Failed to get managed agent detail: {} - {}",
+            status,
+            response_text
+        ));
+    }
+    let response_body = serde_json::from_str::<serde_json::Value>(&response_text)
+        .map_err(|e| anyhow::anyhow!("Failed to parse response JSON: {}", e))?;
+    output::print_json(&response_body)?;
+    Ok(())
+}
+
+/// Update an existing managed seren-agent deployment.
+pub async fn managed_agent_update(
+    deployment_id: Uuid,
+    options: ManagedAgentUpdateOptions<'_>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let ManagedAgentUpdateOptions {
+        name,
+        agent_slug,
+        cron_schedule,
+        template,
+        tool_presets,
+        approval_policy,
+        model_policy,
+        config_path,
+        env_path,
+        agent_config_path,
+        prompt,
+        model_id,
+        visibility,
+    } = options;
+
+    let agent_config = load_orchestration_config(None, agent_config_path)?;
+    let config: Option<serde_json::Value> = if let Some(p) = config_path {
+        let content = fs::read_to_string(p)?;
+        Some(serde_json::from_str(&content)?)
+    } else {
+        None
+    };
+    let secrets: Option<serde_json::Value> = if let Some(p) = env_path {
+        Some(parse_env_file(p)?)
+    } else {
+        None
+    };
+
+    let mut body = serde_json::Map::new();
+    if let Some(name) = name.map(str::trim).filter(|value| !value.is_empty()) {
+        body.insert("name".to_string(), serde_json::json!(name));
+    }
+    if let Some(agent_slug) = agent_slug.map(str::trim).filter(|value| !value.is_empty()) {
+        body.insert("agent_slug".to_string(), serde_json::json!(agent_slug));
+    }
+    if let Some(cron_schedule) = cron_schedule
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        body.insert(
+            "cron_schedule".to_string(),
+            serde_json::json!(cron_schedule),
+        );
+    }
+    if let Some(template) = template.map(str::trim).filter(|value| !value.is_empty()) {
+        body.insert("template".to_string(), serde_json::json!(template));
+    }
+    if !tool_presets.is_empty() {
+        body.insert("tool_presets".to_string(), serde_json::json!(tool_presets));
+    }
+    if let Some(approval_policy) = approval_policy
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        body.insert(
+            "approval_policy".to_string(),
+            serde_json::json!(approval_policy),
+        );
+    }
+    if let Some(model_policy) = model_policy
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        body.insert("model_policy".to_string(), serde_json::json!(model_policy));
+    }
+    if let Some(cfg) = &config {
+        body.insert("config".to_string(), cfg.clone());
+    }
+    if let Some(sec) = &secrets {
+        body.insert("secrets".to_string(), sec.clone());
+    }
+    if let Some(agent_config) = agent_config {
+        merge_managed_agent_config(&mut body, agent_config)?;
+    }
+    if let Some(prompt) = prompt.map(str::trim).filter(|value| !value.is_empty()) {
+        body.insert("prompt".to_string(), serde_json::json!(prompt));
+    }
+    if let Some(model_id) = model_id.map(str::trim).filter(|value| !value.is_empty()) {
+        body.insert("model_id".to_string(), serde_json::json!(model_id));
+    }
+    if let Some(visibility) = visibility.map(str::trim).filter(|value| !value.is_empty()) {
+        body.insert("visibility".to_string(), serde_json::json!(visibility));
+    }
+
+    if body.is_empty() {
+        return Err(anyhow::anyhow!(
+            "No managed deployment updates specified. Provide at least one field or --agent-config."
+        ));
+    }
+
+    let http_client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/seren-agent/deployments/{}/managed",
+        ctx.api_base(),
+        deployment_id
+    );
+    let response = http_client
+        .patch(&url)
+        .json(&serde_json::Value::Object(body))
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?;
+    let status = response.status();
+    let response_text = response
+        .text()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))?;
+    if !status.is_success() {
+        return Err(anyhow::anyhow!(
+            "Failed to update managed agent deployment: {} - {}",
             status,
             response_text
         ));

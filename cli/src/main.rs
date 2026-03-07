@@ -624,6 +624,50 @@ enum AgentAction {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
     },
+    /// Update an existing managed seren-agent deployment
+    ManagedUpdate {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Updated display name
+        #[arg(long)]
+        name: Option<String>,
+        /// Updated stable agent slug
+        #[arg(long)]
+        agent_slug: Option<String>,
+        /// Updated cron schedule (cron deployments only)
+        #[arg(long)]
+        cron_schedule: Option<String>,
+        /// Managed template override
+        #[arg(long)]
+        template: Option<String>,
+        /// Managed tool preset list
+        #[arg(long = "tool-preset", value_delimiter = ',')]
+        tool_presets: Vec<String>,
+        /// Managed approval policy (read_only or allow_mutations)
+        #[arg(long)]
+        approval_policy: Option<String>,
+        /// Managed model policy preset (fast, balanced, or deep)
+        #[arg(long)]
+        model_policy: Option<String>,
+        /// Updated agent prompt
+        #[arg(long)]
+        prompt: Option<String>,
+        /// Updated model ID
+        #[arg(long = "model-id")]
+        model_id: Option<String>,
+        /// Optional visibility mode (open or opaque)
+        #[arg(long)]
+        visibility: Option<String>,
+        /// Path to config.json
+        #[arg(long)]
+        config: Option<String>,
+        /// Path to .env secrets file
+        #[arg(long, name = "env")]
+        env_file: Option<String>,
+        /// Path to a managed agent JSON config for advanced tuning
+        #[arg(long)]
+        agent_config: Option<String>,
+    },
     /// List reusable cloud deployment environments
     CloudEnvironmentList,
     /// Get a reusable cloud deployment environment
@@ -2970,6 +3014,43 @@ async fn main() -> anyhow::Result<()> {
             }
             AgentAction::ManagedGet { deployment_id } => {
                 commands::agent::managed_agent_get(deployment_id, &ctx).await?
+            }
+            AgentAction::ManagedUpdate {
+                deployment_id,
+                name,
+                agent_slug,
+                cron_schedule,
+                template,
+                tool_presets,
+                approval_policy,
+                model_policy,
+                prompt,
+                model_id,
+                visibility,
+                config,
+                env_file,
+                agent_config,
+            } => {
+                commands::agent::managed_agent_update(
+                    deployment_id,
+                    commands::agent::ManagedAgentUpdateOptions {
+                        name: name.as_deref(),
+                        agent_slug: agent_slug.as_deref(),
+                        cron_schedule: cron_schedule.as_deref(),
+                        template: template.as_deref(),
+                        tool_presets: &tool_presets,
+                        approval_policy: approval_policy.as_deref(),
+                        model_policy: model_policy.as_deref(),
+                        config_path: config.as_deref(),
+                        env_path: env_file.as_deref(),
+                        agent_config_path: agent_config.as_deref(),
+                        prompt: prompt.as_deref(),
+                        model_id: model_id.as_deref(),
+                        visibility: visibility.as_deref(),
+                    },
+                    &ctx,
+                )
+                .await?
             }
             AgentAction::CloudEnvironmentList => {
                 commands::agent::cloud_environment_list(&ctx).await?

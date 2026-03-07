@@ -1432,6 +1432,72 @@ pub struct GetSerenAgentDeploymentParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct UpdateSerenAgentDeploymentParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Updated stable agent slug identifier
+    #[serde(default)]
+    pub agent_slug: Option<String>,
+    /// Updated display name for the managed agent
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Updated cron schedule expression (cron deployments only)
+    #[serde(default)]
+    pub cron_schedule: Option<String>,
+    /// Updated main instructions for the managed agent
+    #[serde(default)]
+    pub prompt: Option<String>,
+    /// Updated model identifier
+    #[serde(default)]
+    pub model_id: Option<String>,
+    /// Updated managed template
+    #[serde(default)]
+    pub template: Option<String>,
+    /// Updated managed tool presets
+    #[serde(default)]
+    pub tool_presets: Option<Vec<String>>,
+    /// Updated managed approval policy
+    #[serde(default)]
+    pub approval_policy: Option<String>,
+    /// Updated managed model policy preset
+    #[serde(default)]
+    pub model_policy: Option<String>,
+    /// Updated JSON config object
+    #[serde(default)]
+    pub config: Option<serde_json::Value>,
+    /// Updated JSON secrets object
+    #[serde(default)]
+    pub secrets: Option<serde_json::Value>,
+    /// Updated optional model configuration
+    #[serde(default)]
+    pub model_config: Option<serde_json::Value>,
+    /// Updated optional fallback model list
+    #[serde(default)]
+    pub fallback_models: Option<Vec<String>>,
+    /// Updated optional maximum LLM loop iterations
+    #[serde(default)]
+    pub max_iterations: Option<i32>,
+    /// Updated optional maximum wall-clock timeout per run in seconds
+    #[serde(default)]
+    pub max_timeout_seconds: Option<i32>,
+    /// Updated optional maximum tool output size in characters
+    #[serde(default)]
+    pub max_tool_output_chars: Option<i32>,
+    /// Updated optional cumulative context token budget
+    #[serde(default)]
+    pub context_budget_tokens: Option<i32>,
+    /// Updated optional deployment requirements validated at deploy time
+    #[serde(default)]
+    pub requirements: Option<serde_json::Value>,
+    /// Updated optional dashboard rendering config
+    #[serde(default)]
+    pub dashboard_config: Option<serde_json::Value>,
+    /// Updated optional visibility mode ("open" or "opaque")
+    #[serde(default)]
+    pub visibility: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct DeploySerenAgentParams {
     /// Stable agent slug identifier (e.g., "btc-price-watcher")
     #[serde(default)]
@@ -7497,6 +7563,51 @@ API endpoint: {endpoint}",
         );
         let result = self
             .execute_api_json::<serde_json::Value>(&extensions, reqwest::Method::GET, url, None)
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Update an existing managed seren-agent deployment. This edits the saved managed spec in place without exposing raw cloud runtime internals. Backend, mode, and runtime remain fixed; update prompt, template, presets, policies, config, secrets, or advanced managed runtime fields instead.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn update_seren_agent_deployment(
+        &self,
+        Parameters(params): Parameters<UpdateSerenAgentDeploymentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-agent/deployments/{}/managed",
+            self.api_base_url, params.deployment_id
+        );
+        let body = serde_json::json!({
+            "agent_slug": params.agent_slug,
+            "name": params.name,
+            "cron_schedule": params.cron_schedule,
+            "prompt": params.prompt,
+            "model_id": params.model_id,
+            "template": params.template,
+            "tool_presets": params.tool_presets,
+            "approval_policy": params.approval_policy,
+            "model_policy": params.model_policy,
+            "config": params.config,
+            "secrets": params.secrets,
+            "model_config": params.model_config,
+            "fallback_models": params.fallback_models,
+            "max_iterations": params.max_iterations,
+            "max_timeout_seconds": params.max_timeout_seconds,
+            "max_tool_output_chars": params.max_tool_output_chars,
+            "context_budget_tokens": params.context_budget_tokens,
+            "requirements": params.requirements,
+            "dashboard_config": params.dashboard_config,
+            "visibility": params.visibility,
+        });
+        let result = self
+            .execute_api_json(&extensions, reqwest::Method::PATCH, url, Some(&body))
             .await?;
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
