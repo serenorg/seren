@@ -1444,7 +1444,7 @@ pub struct DeploySerenAgentParams {
     /// Optional compute backend override ("aws_container", "cloudflare_worker", or "daytona"). Omit for AWS-first managed routing.
     #[serde(default)]
     pub compute_backend: Option<String>,
-    /// Managed tool presets ("publishers" and/or "database")
+    /// Managed tool presets ("live_data", "publisher_actions", and/or "database")
     #[serde(default)]
     pub tool_presets: Option<Vec<String>>,
     /// Managed approval policy ("read_only" or "allow_mutations")
@@ -7470,7 +7470,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Deploy a managed prompt-based agent through the first-class seren-agent publisher. This path is AWS-first, hides runtime internals, injects built-in Seren publisher tools from managed presets, and supports explicit approval/model policies plus always_on or cron mode with optional backend override.",
+        description = "Deploy a managed prompt-based agent through the first-class seren-agent publisher. This path is AWS-first, hides runtime internals, defaults to live_data publisher access, and supports optional publisher_actions/database presets plus explicit approval/model policies and always_on or cron mode with optional backend override.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,

@@ -588,7 +588,7 @@ enum AgentAction {
         /// Optional compute backend override (auto, aws_container, cloudflare_worker, or daytona). Omit for AWS-first managed routing.
         #[arg(long)]
         compute_backend: Option<String>,
-        /// Managed tool preset list. Use publishers for Seren publisher discovery/calls and database to include direct SerenDB queries.
+        /// Managed tool preset list. Use live_data for publisher-backed data access, publisher_actions for write-capable publisher actions, and database for direct SerenDB queries.
         #[arg(long = "tool-preset", value_delimiter = ',')]
         tool_presets: Vec<String>,
         /// Managed approval policy (read_only or allow_mutations).

@@ -1751,6 +1751,20 @@ async fn submit_cloud_deploy_request(
             {
                 println!("  Approval Policy: {}", approval_policy);
             }
+            if let Some(allowed_operations) = managed_agent
+                .get("allowed_publisher_operations")
+                .and_then(|v| v.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|value| value.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .filter(|value| !value.is_empty())
+            {
+                println!("  Publisher Ops: {}", allowed_operations);
+            }
             if let Some(model_policy) = managed_agent.get("model_policy").and_then(|v| v.as_str()) {
                 println!("  Model Policy: {}", model_policy);
             }
