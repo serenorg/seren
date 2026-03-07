@@ -1358,7 +1358,7 @@ pub struct DeployCloudAgentParams {
     pub skill_slug: String,
     /// Display name for the deployment
     pub name: String,
-    /// Optional deployment publisher. Defaults to "seren-agent" for prompt-only LLM deploys and "seren-cloud" for bundle/runtime deploys.
+    /// Optional deployment publisher. Prompt-only LLM deploys use "seren-agent"; bundle/runtime deploys use "seren-cloud".
     #[serde(default)]
     pub publisher: Option<String>,
     /// Optional reusable execution environment UUID (AWS container backend only)
@@ -1576,6 +1576,48 @@ pub struct CloudAllRunsParams {
 
 fn default_cloud_runs_limit() -> i64 {
     50
+}
+
+fn convert_prompt_body_to_seren_agent_request(
+    mut body: serde_json::Map<String, serde_json::Value>,
+) -> Result<serde_json::Map<String, serde_json::Value>, McpError> {
+    if body.contains_key("runtime_kind") {
+        return Err(McpError::invalid_params(
+            "runtime_kind is not supported for managed seren-agent prompt deploys. Omit it or use publisher='seren-cloud'.",
+            None,
+        ));
+    }
+
+    let orchestration_mode = body
+        .remove("orchestration_mode")
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "llm".to_string());
+    if orchestration_mode != "llm" {
+        return Err(McpError::invalid_params(
+            "Managed seren-agent prompt deploys require orchestration_mode='llm'.",
+            None,
+        ));
+    }
+
+    body.remove("code_bundle_base64");
+    body.remove("requirements_txt");
+
+    let agent_slug = body.remove("skill_slug").ok_or_else(|| {
+        McpError::invalid_params(
+            "Prompt deployments require skill_slug before converting to seren-agent request.",
+            None,
+        )
+    })?;
+    let prompt = body.remove("system_prompt").ok_or_else(|| {
+        McpError::invalid_params(
+            "Prompt deployments require system_prompt before converting to seren-agent request.",
+            None,
+        )
+    })?;
+
+    body.insert("agent_slug".to_string(), agent_slug);
+    body.insert("prompt".to_string(), prompt);
+    Ok(body)
 }
 
 fn build_cloud_run_body(
@@ -7273,7 +7315,7 @@ API endpoint: {endpoint}",
     // ========================================================================
 
     #[tool(
-        description = "Deploy a skill to Seren Cloud for managed hosting. Supports always_on (persistent) and cron (scheduled) modes. Leave compute_backend/runtime_kind unset, or set them to auto, for AWS-first bundle-based routing. Set compute_backend explicitly to force cloudflare_worker or daytona. Backend/runtime support: aws_container (python/javascript/typescript/rust/rust_wasm_adk), cloudflare_worker (python/javascript/typescript/rust/rust_wasm_adk), daytona (python/javascript/typescript/rust) with cron mode. Auto-routing inspects the uploaded scripts bundle itself: Python/JS/TS entrypoints, shell scripts, Linux binaries, standalone .wasm modules, and Worker JS+.wasm artifacts are all detected from files rather than SKILL.md prose. For prompt-only LLM deployments, omit code_bundle_base64 or pass an empty string and provide orchestration_mode=llm plus system_prompt/model_id. Those runs default to the first-class seren-agent publisher unless you explicitly force seren-cloud, and they are guided toward Seren publisher tools by default.",
+        description = "Deploy a skill to Seren Cloud for managed hosting. Supports always_on (persistent) and cron (scheduled) modes. Leave compute_backend/runtime_kind unset, or set them to auto, for AWS-first bundle-based routing. Set compute_backend explicitly to force cloudflare_worker or daytona. Backend/runtime support: aws_container (python/javascript/typescript/rust/rust_wasm_adk), cloudflare_worker (python/javascript/typescript/rust/rust_wasm_adk), daytona (python/javascript/typescript/rust) with cron mode. Auto-routing inspects the uploaded scripts bundle itself: Python/JS/TS entrypoints, shell scripts, Linux binaries, standalone .wasm modules, and Worker JS+.wasm artifacts are all detected from files rather than SKILL.md prose. Prompt-only LLM deployments use the first-class seren-agent publisher with the managed request shape; bundle/runtime deploys use seren-cloud.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -7285,25 +7327,33 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<DeployCloudAgentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let default_publisher = if params.code_bundle_base64.trim().is_empty()
-            && params.orchestration_mode.as_deref() == Some("llm")
-        {
-            "seren-agent"
-        } else {
-            "seren-cloud"
-        };
-        let publisher = match params.publisher.as_deref().unwrap_or(default_publisher) {
-            "seren-cloud" | "seren-agent" => {
-                params.publisher.as_deref().unwrap_or(default_publisher)
+        let is_prompt_deploy = params.code_bundle_base64.trim().is_empty()
+            && params.orchestration_mode.as_deref() == Some("llm");
+        let publisher = if is_prompt_deploy {
+            match params.publisher.as_deref().unwrap_or("seren-agent") {
+                "seren-agent" => "seren-agent",
+                other => {
+                    return Err(McpError::invalid_params(
+                        format!(
+                            "Prompt-only managed deployments must use publisher 'seren-agent', not '{}'.",
+                            other
+                        ),
+                        None,
+                    ));
+                }
             }
-            other => {
-                return Err(McpError::invalid_params(
-                    format!(
-                        "Invalid publisher '{}'. Use 'seren-cloud' or 'seren-agent'.",
-                        other
-                    ),
-                    None,
-                ));
+        } else {
+            match params.publisher.as_deref().unwrap_or("seren-cloud") {
+                "seren-cloud" => "seren-cloud",
+                other => {
+                    return Err(McpError::invalid_params(
+                        format!(
+                            "Bundle/runtime deployments must use publisher 'seren-cloud', not '{}'.",
+                            other
+                        ),
+                        None,
+                    ));
+                }
             }
         };
 
@@ -7412,6 +7462,12 @@ API endpoint: {endpoint}",
         if let Some(visibility) = params.visibility {
             body.insert("visibility".to_string(), serde_json::json!(visibility));
         }
+
+        let body = if is_prompt_deploy {
+            convert_prompt_body_to_seren_agent_request(body)?
+        } else {
+            body
+        };
 
         let result = self
             .execute_api_json(

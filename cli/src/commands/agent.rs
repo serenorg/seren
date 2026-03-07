@@ -1509,7 +1509,6 @@ pub struct CloudDeployPromptOptions<'a> {
     pub mode: &'a str,
     pub cron_schedule: Option<&'a str>,
     pub compute_backend: Option<&'a str>,
-    pub runtime_kind: Option<&'a str>,
     pub config_path: Option<&'a str>,
     pub env_path: Option<&'a str>,
     pub orchestration_config_path: Option<&'a str>,
@@ -1538,9 +1537,8 @@ const ORCHESTRATION_CONFIG_FIELDS: &[&str] = &[
 fn normalize_deploy_publisher_slug(publisher_slug: Option<&str>) -> Result<&'static str> {
     match publisher_slug.unwrap_or(SEREN_CLOUD_SLUG) {
         SEREN_CLOUD_SLUG => Ok(SEREN_CLOUD_SLUG),
-        SEREN_AGENT_SLUG => Ok(SEREN_AGENT_SLUG),
         other => Err(anyhow::anyhow!(
-            "Invalid deploy publisher '{}'. Use 'seren-cloud' or 'seren-agent'.",
+            "Bundle deployments only support publisher 'seren-cloud'. Managed prompt agents use 'seren-agent', not '{}'.",
             other
         )),
     }
@@ -1548,13 +1546,50 @@ fn normalize_deploy_publisher_slug(publisher_slug: Option<&str>) -> Result<&'sta
 
 fn normalize_prompt_deploy_publisher_slug(publisher_slug: Option<&str>) -> Result<&'static str> {
     match publisher_slug.unwrap_or(SEREN_AGENT_SLUG) {
-        SEREN_CLOUD_SLUG => Ok(SEREN_CLOUD_SLUG),
         SEREN_AGENT_SLUG => Ok(SEREN_AGENT_SLUG),
         other => Err(anyhow::anyhow!(
-            "Invalid deploy publisher '{}'. Use 'seren-cloud' or 'seren-agent'.",
+            "Managed prompt deployments only support publisher 'seren-agent'. Use 'seren-cloud' for bundle deployments, not '{}'.",
             other
         )),
     }
+}
+
+fn convert_prompt_body_to_seren_agent_request(
+    mut body: serde_json::Map<String, serde_json::Value>,
+) -> Result<serde_json::Map<String, serde_json::Value>> {
+    if body.contains_key("runtime_kind") {
+        return Err(anyhow::anyhow!(
+            "--runtime-kind is not supported for managed seren-agent prompt deploys. Omit it or use --publisher seren-cloud."
+        ));
+    }
+
+    let orchestration_mode = body
+        .remove("orchestration_mode")
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "llm".to_string());
+    if orchestration_mode != "llm" {
+        return Err(anyhow::anyhow!(
+            "Managed seren-agent prompt deploys require orchestration_mode 'llm'."
+        ));
+    }
+
+    body.remove("code_bundle_base64");
+    body.remove("requirements_txt");
+
+    let agent_slug = body.remove("skill_slug").ok_or_else(|| {
+        anyhow::anyhow!(
+            "Prompt deployments require a skill slug before converting to seren-agent request."
+        )
+    })?;
+    let prompt = body.remove("system_prompt").ok_or_else(|| {
+        anyhow::anyhow!(
+            "Prompt deployments require system_prompt before converting to seren-agent request."
+        )
+    })?;
+
+    body.insert("agent_slug".to_string(), agent_slug);
+    body.insert("prompt".to_string(), prompt);
+    Ok(body)
 }
 
 fn resolve_skill_dir(path: &str) -> Result<std::path::PathBuf> {
@@ -1715,6 +1750,7 @@ pub async fn cloud_deploy(
         orchestration_config_path,
     } = options;
     let deploy_publisher = normalize_deploy_publisher_slug(publisher_slug)?;
+    let runtime_target = resolve_cloud_runtime_target(compute_backend, runtime_kind)?;
 
     let skill_dir_buf = resolve_skill_dir(path)?;
     let skill_dir = skill_dir_buf.as_path();
@@ -1724,7 +1760,6 @@ pub async fn cloud_deploy(
         return Err(anyhow::anyhow!("No scripts/ directory found in {}", path));
     }
 
-    let runtime_target = resolve_cloud_runtime_target(compute_backend, runtime_kind)?;
     if let Some(runtime_kind) = runtime_target.runtime_kind {
         ensure_runtime_entrypoint(&scripts_dir, runtime_target.compute_backend, runtime_kind)?;
     }
@@ -1880,7 +1915,6 @@ pub async fn cloud_deploy_prompt(
         mode,
         cron_schedule,
         compute_backend,
-        runtime_kind,
         config_path,
         env_path,
         orchestration_config_path,
@@ -1889,7 +1923,7 @@ pub async fn cloud_deploy_prompt(
         visibility,
     } = options;
     let deploy_publisher = normalize_prompt_deploy_publisher_slug(publisher_slug)?;
-    let runtime_target = resolve_cloud_runtime_target(compute_backend, runtime_kind)?;
+    let runtime_target = resolve_cloud_runtime_target(compute_backend, None)?;
     let orchestration_config = load_orchestration_config(None, orchestration_config_path)?;
 
     let api_mode = match mode {
@@ -1969,9 +2003,6 @@ pub async fn cloud_deploy_prompt(
             serde_json::json!(compute_backend),
         );
     }
-    if let Some(runtime_kind) = runtime_target.runtime_kind {
-        body.insert("runtime_kind".to_string(), serde_json::json!(runtime_kind));
-    }
     if let Some(schedule) = cron_schedule {
         body.insert("cron_schedule".to_string(), serde_json::json!(schedule));
     }
@@ -2016,6 +2047,8 @@ pub async fn cloud_deploy_prompt(
             "Prompt deployments require --model-id or an orchestration config containing model_id."
         ));
     }
+
+    let body = convert_prompt_body_to_seren_agent_request(body)?;
 
     submit_cloud_deploy_request(deploy_publisher, body, ctx).await
 }

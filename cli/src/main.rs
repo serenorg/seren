@@ -540,7 +540,7 @@ enum AgentAction {
     Deploy {
         /// Path to a skill directory or SKILL.md (must contain scripts/)
         path: String,
-        /// Deployment publisher slug (`seren-cloud` for direct runtime deploys, `seren-agent` for orchestrated app deploys)
+        /// Deployment publisher slug (`seren-cloud` for direct bundle/runtime deploys)
         #[arg(long, default_value = "seren-cloud")]
         publisher: String,
         /// Deployment name
@@ -579,7 +579,7 @@ enum AgentAction {
         /// Optional skill slug override (defaults to a slugified form of --name)
         #[arg(long)]
         skill_slug: Option<String>,
-        /// Deployment publisher slug (`seren-agent` for managed prompt agents, `seren-cloud` for direct runtime deploys)
+        /// Deployment publisher slug (`seren-agent` for managed prompt agents)
         #[arg(long, default_value = "seren-agent")]
         publisher: String,
         /// Optional reusable execution environment ID (AWS container backend only)
@@ -594,9 +594,6 @@ enum AgentAction {
         /// Optional compute backend override (auto, aws_container, cloudflare_worker, or daytona). Omit for AWS-first auto-routing.
         #[arg(long)]
         compute_backend: Option<String>,
-        /// Optional runtime override (auto, python, javascript, typescript, rust, rust_wasm_adk). Omit to let the platform choose the default LLM runtime.
-        #[arg(long)]
-        runtime_kind: Option<String>,
         /// Optional system prompt. Required unless provided by --orchestration-config.
         #[arg(long)]
         system_prompt: Option<String>,
@@ -2929,7 +2926,6 @@ async fn main() -> anyhow::Result<()> {
                 mode,
                 cron_schedule,
                 compute_backend,
-                runtime_kind,
                 system_prompt,
                 model_id,
                 visibility,
@@ -2946,7 +2942,6 @@ async fn main() -> anyhow::Result<()> {
                         mode: &mode,
                         cron_schedule: cron_schedule.as_deref(),
                         compute_backend: compute_backend.as_deref(),
-                        runtime_kind: runtime_kind.as_deref(),
                         config_path: config.as_deref(),
                         env_path: env_file.as_deref(),
                         orchestration_config_path: orchestration_config.as_deref(),
