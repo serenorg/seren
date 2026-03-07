@@ -375,7 +375,6 @@
         "tags": [
           "seren-cloud"
         ],
-        "summary": "Run a one-shot invocation of a deployment.",
         "operationId": "seren_cloud_run",
         "parameters": [
           {
@@ -425,6 +424,9 @@
                 }
               }
             }
+          },
+          "402": {
+            "description": "Insufficient SerenBucks balance"
           },
           "404": {
             "description": "Not found"
@@ -715,6 +717,47 @@
         ]
       }
     },
+    "/deployments/{id}/spend": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Run a one-shot invocation of a deployment.",
+        "operationId": "seren_cloud_get_deployment_spend",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Aggregated spend summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_DeploymentSpendSummary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/start": {
       "post": {
         "tags": [
@@ -747,6 +790,9 @@
           },
           "400": {
             "description": "Bad request (not always_on)"
+          },
+          "402": {
+            "description": "Insufficient SerenBucks balance"
           }
         },
         "security": [
@@ -1826,6 +1872,16 @@
             "type": "string",
             "format": "uuid"
           },
+          "managed_agent": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentSummary"
+              }
+            ]
+          },
           "mode": {
             "$ref": "#/components/schemas/CloudDeploymentMode"
           },
@@ -2385,6 +2441,16 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "managed_agent": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentSummary"
+                  }
+                ]
+              },
               "mode": {
                 "$ref": "#/components/schemas/CloudDeploymentMode"
               },
@@ -2465,6 +2531,65 @@
                 "type": "string"
               },
               "status": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_DeploymentSpendSummary": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Aggregated spend summary for a single cloud deployment.",
+            "required": [
+              "compute_cost_usd",
+              "inference_cost_usd",
+              "total_cost_usd",
+              "run_count"
+            ],
+            "properties": {
+              "compute_cost_usd": {
+                "type": "string"
+              },
+              "first_event_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "inference_cost_usd": {
+                "type": "string"
+              },
+              "last_event_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "run_count": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "total_cost_usd": {
                 "type": "string"
               }
             }
@@ -2904,6 +3029,16 @@
                   "type": "string",
                   "format": "uuid"
                 },
+                "managed_agent": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ManagedAgentSummary"
+                    }
+                  ]
+                },
                 "mode": {
                   "$ref": "#/components/schemas/CloudDeploymentMode"
                 },
@@ -2979,7 +3114,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Optional backend override. Omit or set \"auto\" for AWS-first bundle-based routing."
           },
           "config": {
             "description": "JSON config object (will be encrypted at rest)."
@@ -3089,7 +3225,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Optional runtime override. Omit or set \"auto\" to infer from the uploaded bundle."
           },
           "secrets": {
             "description": "JSON secrets object (key-value pairs, will be encrypted at rest)."
@@ -3115,6 +3252,135 @@
             "description": "Visibility mode: \"open\" (default, internals visible) or \"opaque\" (internals hidden)."
           }
         }
+      },
+      "DeploymentSpendSummary": {
+        "type": "object",
+        "description": "Aggregated spend summary for a single cloud deployment.",
+        "required": [
+          "compute_cost_usd",
+          "inference_cost_usd",
+          "total_cost_usd",
+          "run_count"
+        ],
+        "properties": {
+          "compute_cost_usd": {
+            "type": "string"
+          },
+          "first_event_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "inference_cost_usd": {
+            "type": "string"
+          },
+          "last_event_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "run_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_cost_usd": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentApprovalPolicy": {
+        "type": "string",
+        "enum": [
+          "read_only",
+          "allow_mutations"
+        ]
+      },
+      "ManagedAgentModelPolicy": {
+        "type": "string",
+        "enum": [
+          "fast",
+          "balanced",
+          "deep"
+        ]
+      },
+      "ManagedAgentSummary": {
+        "type": "object",
+        "required": [
+          "publisher",
+          "template",
+          "target_framework",
+          "runtime_adapter",
+          "build_target",
+          "tool_presets",
+          "allowed_publisher_operations",
+          "resolved_tools",
+          "approval_policy",
+          "model_policy",
+          "routing_reason"
+        ],
+        "properties": {
+          "allowed_publisher_operations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "approval_policy": {
+            "$ref": "#/components/schemas/ManagedAgentApprovalPolicy"
+          },
+          "build_target": {
+            "type": "string"
+          },
+          "model_policy": {
+            "$ref": "#/components/schemas/ManagedAgentModelPolicy"
+          },
+          "publisher": {
+            "type": "string"
+          },
+          "resolved_tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "routing_reason": {
+            "type": "string"
+          },
+          "runtime_adapter": {
+            "type": "string"
+          },
+          "target_framework": {
+            "type": "string"
+          },
+          "template": {
+            "$ref": "#/components/schemas/ManagedAgentTemplate"
+          },
+          "tool_presets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentToolPreset"
+            }
+          }
+        }
+      },
+      "ManagedAgentTemplate": {
+        "type": "string",
+        "enum": [
+          "research_monitor",
+          "workflow_agent"
+        ]
+      },
+      "ManagedAgentToolPreset": {
+        "type": "string",
+        "enum": [
+          "live_data",
+          "publisher_actions",
+          "database"
+        ]
       },
       "OrchestrationMode": {
         "type": "string",

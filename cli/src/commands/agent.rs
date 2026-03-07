@@ -2122,41 +2122,23 @@ pub async fn cloud_deploy_prompt(
 
 /// Get the resolved managed seren-agent deployment detail.
 pub async fn managed_agent_get(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
-    let http_client = ctx.http_client().await?;
-    let url = format!(
-        "{}/publishers/seren-agent/deployments/{}/managed",
-        ctx.api_base(),
-        deployment_id
-    );
-    let response = http_client
-        .get(&url)
-        .send()
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_agent_get_managed_deployment(&deployment_id)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?;
-    let status = response.status();
-    let response_text = response
-        .text()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))?;
-    if !status.is_success() {
-        return Err(anyhow::anyhow!(
-            "Failed to get managed agent detail: {} - {}",
-            status,
-            response_text
-        ));
-    }
-    let response_body = serde_json::from_str::<serde_json::Value>(&response_text)
-        .map_err(|e| anyhow::anyhow!("Failed to parse response JSON: {}", e))?;
-    output::print_json(&response_body)?;
+    {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(anyhow_from_seren_error("Failed to get managed agent detail", err).await);
+        }
+    };
+    output::print_json(&response.into_inner())?;
     Ok(())
 }
 
-/// Update an existing managed seren-agent deployment.
-pub async fn managed_agent_update(
-    deployment_id: Uuid,
+fn build_managed_agent_update_request(
     options: ManagedAgentUpdateOptions<'_>,
-    ctx: &CommandContext,
-) -> Result<()> {
+) -> Result<seren::UpdateSerenAgentDeploymentRequest> {
     let ManagedAgentUpdateOptions {
         name,
         agent_slug,
@@ -2190,8 +2172,11 @@ pub async fn managed_agent_update(
     if let Some(name) = name.map(str::trim).filter(|value| !value.is_empty()) {
         body.insert("name".to_string(), serde_json::json!(name));
     }
-    if let Some(agent_slug) = agent_slug.map(str::trim).filter(|value| !value.is_empty()) {
-        body.insert("agent_slug".to_string(), serde_json::json!(agent_slug));
+    if let Some(agent_slug) = agent_slug {
+        body.insert(
+            "agent_slug".to_string(),
+            serde_json::json!(agent_slug.trim()),
+        );
     }
     if let Some(cron_schedule) = cron_schedule
         .map(str::trim)
@@ -2248,33 +2233,55 @@ pub async fn managed_agent_update(
         ));
     }
 
-    let http_client = ctx.http_client().await?;
-    let url = format!(
-        "{}/publishers/seren-agent/deployments/{}/managed",
-        ctx.api_base(),
-        deployment_id
-    );
-    let response = http_client
-        .patch(&url)
-        .json(&serde_json::Value::Object(body))
-        .send()
+    serde_json::from_value(serde_json::Value::Object(body))
+        .map_err(|e| anyhow::anyhow!("Failed to build managed update request: {}", e))
+}
+
+/// Preview an update to an existing managed seren-agent deployment.
+pub async fn managed_agent_preview(
+    deployment_id: Uuid,
+    options: ManagedAgentUpdateOptions<'_>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let body = build_managed_agent_update_request(options)?;
+    let response = match client
+        .seren_agent_preview_managed_deployment_update(&deployment_id, &body)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?;
-    let status = response.status();
-    let response_text = response
-        .text()
+    {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to preview managed agent deployment update",
+                err,
+            )
+            .await);
+        }
+    };
+    output::print_json(&response.into_inner())?;
+    Ok(())
+}
+
+/// Update an existing managed seren-agent deployment.
+pub async fn managed_agent_update(
+    deployment_id: Uuid,
+    options: ManagedAgentUpdateOptions<'_>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let body = build_managed_agent_update_request(options)?;
+    let response = match client
+        .seren_agent_update_managed_deployment(&deployment_id, &body)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))?;
-    if !status.is_success() {
-        return Err(anyhow::anyhow!(
-            "Failed to update managed agent deployment: {} - {}",
-            status,
-            response_text
-        ));
-    }
-    let response_body = serde_json::from_str::<serde_json::Value>(&response_text)
-        .map_err(|e| anyhow::anyhow!("Failed to parse response JSON: {}", e))?;
-    output::print_json(&response_body)?;
+    {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(
+                anyhow_from_seren_error("Failed to update managed agent deployment", err).await,
+            );
+        }
+    };
+    output::print_json(&response.into_inner())?;
     Ok(())
 }
 

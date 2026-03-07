@@ -1497,6 +1497,39 @@ pub struct UpdateSerenAgentDeploymentParams {
     pub visibility: Option<String>,
 }
 
+fn build_update_seren_agent_deployment_request(
+    params: &UpdateSerenAgentDeploymentParams,
+) -> Result<seren::UpdateSerenAgentDeploymentRequest, McpError> {
+    serde_json::from_value(serde_json::json!({
+        "agent_slug": params.agent_slug,
+        "name": params.name,
+        "cron_schedule": params.cron_schedule,
+        "prompt": params.prompt,
+        "model_id": params.model_id,
+        "template": params.template,
+        "tool_presets": params.tool_presets,
+        "approval_policy": params.approval_policy,
+        "model_policy": params.model_policy,
+        "config": params.config,
+        "secrets": params.secrets,
+        "model_config": params.model_config,
+        "fallback_models": params.fallback_models,
+        "max_iterations": params.max_iterations,
+        "max_timeout_seconds": params.max_timeout_seconds,
+        "max_tool_output_chars": params.max_tool_output_chars,
+        "context_budget_tokens": params.context_budget_tokens,
+        "requirements": params.requirements,
+        "dashboard_config": params.dashboard_config,
+        "visibility": params.visibility,
+    }))
+    .map_err(|e| {
+        McpError::invalid_params(
+            format!("Invalid managed deployment update payload: {e}"),
+            None,
+        )
+    })
+}
+
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct DeploySerenAgentParams {
     /// Stable agent slug identifier (e.g., "btc-price-watcher")
@@ -7568,6 +7601,33 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "Preview an existing managed seren-agent deployment update before applying it. This returns the current resolved managed spec, the proposed resolved spec, and the changed fields so callers can inspect the diff before mutation.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn preview_seren_agent_deployment_update(
+        &self,
+        Parameters(params): Parameters<UpdateSerenAgentDeploymentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-agent/deployments/{}/managed/preview",
+            self.api_base_url, params.deployment_id
+        );
+        let body = build_update_seren_agent_deployment_request(&params)?;
+        let body_value = serde_json::to_value(&body).map_err(|e| {
+            McpError::invalid_params(format!("Failed to encode preview body: {e}"), None)
+        })?;
+        let result = self
+            .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body_value))
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
         description = "Update an existing managed seren-agent deployment. This edits the saved managed spec in place without exposing raw cloud runtime internals. Backend, mode, and runtime remain fixed; update prompt, template, presets, policies, config, secrets, or advanced managed runtime fields instead.",
         annotations(
             read_only_hint = false,
@@ -7584,30 +7644,12 @@ API endpoint: {endpoint}",
             "{}/publishers/seren-agent/deployments/{}/managed",
             self.api_base_url, params.deployment_id
         );
-        let body = serde_json::json!({
-            "agent_slug": params.agent_slug,
-            "name": params.name,
-            "cron_schedule": params.cron_schedule,
-            "prompt": params.prompt,
-            "model_id": params.model_id,
-            "template": params.template,
-            "tool_presets": params.tool_presets,
-            "approval_policy": params.approval_policy,
-            "model_policy": params.model_policy,
-            "config": params.config,
-            "secrets": params.secrets,
-            "model_config": params.model_config,
-            "fallback_models": params.fallback_models,
-            "max_iterations": params.max_iterations,
-            "max_timeout_seconds": params.max_timeout_seconds,
-            "max_tool_output_chars": params.max_tool_output_chars,
-            "context_budget_tokens": params.context_budget_tokens,
-            "requirements": params.requirements,
-            "dashboard_config": params.dashboard_config,
-            "visibility": params.visibility,
-        });
+        let body = build_update_seren_agent_deployment_request(&params)?;
+        let body_value = serde_json::to_value(&body).map_err(|e| {
+            McpError::invalid_params(format!("Failed to encode update body: {e}"), None)
+        })?;
         let result = self
-            .execute_api_json(&extensions, reqwest::Method::PATCH, url, Some(&body))
+            .execute_api_json(&extensions, reqwest::Method::PATCH, url, Some(&body_value))
             .await?;
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }

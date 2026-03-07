@@ -456,6 +456,7 @@ fn main() -> anyhow::Result<()> {
     println!("cargo:rerun-if-changed=../openapi/openapi.json");
     println!("cargo:rerun-if-changed=../openapi/openapi-seren-db.json");
     println!("cargo:rerun-if-changed=../openapi/openapi-seren-cloud.json");
+    println!("cargo:rerun-if-changed=../openapi/openapi-seren-agent.json");
 
     let spec_str = fs::read_to_string("../openapi/openapi.json")?;
     let mut raw_json: serde_json::Value = serde_json::from_str(&spec_str)?;
@@ -470,6 +471,11 @@ fn main() -> anyhow::Result<()> {
         &mut raw_json,
         "../openapi/openapi-seren-cloud.json",
         "seren-cloud",
+    )?;
+    merge_publisher_spec(
+        &mut raw_json,
+        "../openapi/openapi-seren-agent.json",
+        "seren-agent",
     )?;
 
     // Replace inline schemas in DataResponse_* wrappers with $ref to named equivalents.

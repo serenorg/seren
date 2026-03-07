@@ -51,6 +51,16 @@
         ],
         "summary": "Create or update an orchestrated deployment (forwarded to seren-cloud).",
         "operationId": "seren_agent_deploy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSerenAgentDeploymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "202": {
             "description": "Deployment accepted",
@@ -96,6 +106,162 @@
           },
           "401": {
             "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/managed": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Get the resolved managed spec for a seren-agent deployment.",
+        "operationId": "seren_agent_get_managed_deployment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed deployment detail retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentDeploymentDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Managed deployment is opaque to this caller"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Update the editable managed spec for a seren-agent deployment.",
+        "operationId": "seren_agent_update_managed_deployment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSerenAgentDeploymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Managed deployment updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "403": {
+            "description": "Managed deployment is opaque to this caller"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/managed/preview": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Preview a managed update before applying it.",
+        "operationId": "seren_agent_preview_managed_deployment_update",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSerenAgentDeploymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Managed deployment update preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentDeploymentUpdatePreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "403": {
+            "description": "Managed deployment is opaque to this caller"
+          },
+          "404": {
+            "description": "Deployment not found"
           }
         },
         "security": [
@@ -247,6 +413,16 @@
             "type": "string",
             "format": "uuid"
           },
+          "managed_agent": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentSummary"
+              }
+            ]
+          },
           "mode": {
             "$ref": "#/components/schemas/CloudDeploymentMode"
           },
@@ -289,6 +465,178 @@
             "description": "Visibility mode: \"open\" (default) or \"opaque\" (hides internals from non-owners)."
           }
         }
+      },
+      "CreateSerenAgentDeploymentRequest": {
+        "type": "object",
+        "description": "Managed deploy request for the `seren-agent` first-class publisher.",
+        "required": [
+          "name",
+          "mode",
+          "prompt",
+          "model_id"
+        ],
+        "properties": {
+          "agent_slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional stable slug for the agent. If omitted, derived from `name`."
+          },
+          "approval_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentApprovalPolicy",
+                "description": "Safety policy for publisher operations. Defaults to `read_only`."
+              }
+            ]
+          },
+          "compute_backend": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentComputeBackend",
+                "description": "Optional backend override. Omit for AWS-first managed routing."
+              }
+            ]
+          },
+          "config": {
+            "description": "JSON config object."
+          },
+          "context_budget_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Optional cumulative context token budget.",
+            "minimum": 0
+          },
+          "cron_schedule": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Cron schedule expression, required when `mode` is `cron`."
+          },
+          "dashboard_config": {
+            "description": "Optional dashboard rendering config."
+          },
+          "fallback_models": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional fallback model list for transient failures."
+          },
+          "max_iterations": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Optional maximum LLM loop iterations.",
+            "minimum": 0
+          },
+          "max_timeout_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Optional maximum wall-clock timeout per run in seconds.",
+            "minimum": 0
+          },
+          "max_tool_output_chars": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Optional maximum tool output size in characters.",
+            "minimum": 0
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CloudDeploymentMode",
+            "description": "Deployment mode."
+          },
+          "model_config": {
+            "description": "Additional model parameters."
+          },
+          "model_id": {
+            "type": "string",
+            "description": "Model identifier (for example `anthropic/claude-sonnet-4-20250514`)."
+          },
+          "model_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentModelPolicy",
+                "description": "Runtime/model execution profile. Defaults to `balanced`."
+              }
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable agent name."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Main task instructions for the managed agent."
+          },
+          "requirements": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/RequirementSpec"
+            },
+            "description": "Declared requirements validated at deploy time."
+          },
+          "secrets": {
+            "description": "JSON secrets object."
+          },
+          "template": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplate",
+                "description": "Opinionated managed template. Defaults to `research_monitor`."
+              }
+            ]
+          },
+          "tool_presets": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentToolPreset"
+            },
+            "description": "Managed tool presets. Defaults to `live_data`."
+          },
+          "visibility": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Visibility mode (`open` or `opaque`)."
+          }
+        },
+        "additionalProperties": false
       },
       "DataResponse_AgentCapabilitiesResponse": {
         "type": "object",
@@ -416,6 +764,16 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "managed_agent": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentSummary"
+                  }
+                ]
+              },
               "mode": {
                 "$ref": "#/components/schemas/CloudDeploymentMode"
               },
@@ -456,6 +814,225 @@
               "visibility": {
                 "type": "string",
                 "description": "Visibility mode: \"open\" (default) or \"opaque\" (hides internals from non-owners)."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentDeploymentDetail": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "deployment_id",
+              "name",
+              "agent_slug",
+              "mode",
+              "compute_backend",
+              "runtime_kind",
+              "status",
+              "model_id",
+              "model_config",
+              "template",
+              "tool_presets",
+              "allowed_publisher_operations",
+              "resolved_tools",
+              "approval_policy",
+              "model_policy",
+              "secret_keys",
+              "requirements",
+              "visibility",
+              "routing_reason"
+            ],
+            "properties": {
+              "agent_slug": {
+                "type": "string"
+              },
+              "allowed_publisher_operations": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "approval_policy": {
+                "$ref": "#/components/schemas/ManagedAgentApprovalPolicy"
+              },
+              "compute_backend": {
+                "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
+              },
+              "config": {},
+              "context_budget_tokens": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
+              "cron_schedule": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dashboard_config": {},
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "fallback_models": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "max_iterations": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
+              "max_timeout_seconds": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
+              "max_tool_output_chars": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
+              "mode": {
+                "$ref": "#/components/schemas/CloudDeploymentMode"
+              },
+              "model_config": {},
+              "model_id": {
+                "type": "string"
+              },
+              "model_policy": {
+                "$ref": "#/components/schemas/ManagedAgentModelPolicy"
+              },
+              "name": {
+                "type": "string"
+              },
+              "prompt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "requirements": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RequirementSpec"
+                }
+              },
+              "resolved_tools": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "routing_reason": {
+                "type": "string"
+              },
+              "runtime_kind": {
+                "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
+              },
+              "secret_keys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "$ref": "#/components/schemas/CloudDeploymentStatus"
+              },
+              "template": {
+                "$ref": "#/components/schemas/ManagedAgentTemplate"
+              },
+              "tool_presets": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentToolPreset"
+                }
+              },
+              "visibility": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentDeploymentUpdatePreview": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "deployment_id",
+              "current",
+              "proposed",
+              "changed_fields"
+            ],
+            "properties": {
+              "changed_fields": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentFieldChange"
+                }
+              },
+              "current": {
+                "$ref": "#/components/schemas/ManagedAgentDeploymentDetail"
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "proposed": {
+                "$ref": "#/components/schemas/ManagedAgentDeploymentDetail"
               }
             }
           },
@@ -542,6 +1119,16 @@
                   "type": "string",
                   "format": "uuid"
                 },
+                "managed_agent": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ManagedAgentSummary"
+                    }
+                  ]
+                },
                 "mode": {
                   "$ref": "#/components/schemas/CloudDeploymentMode"
                 },
@@ -599,6 +1186,294 @@
           }
         }
       },
+      "ManagedAgentApprovalPolicy": {
+        "type": "string",
+        "enum": [
+          "read_only",
+          "allow_mutations"
+        ]
+      },
+      "ManagedAgentDeploymentDetail": {
+        "type": "object",
+        "required": [
+          "deployment_id",
+          "name",
+          "agent_slug",
+          "mode",
+          "compute_backend",
+          "runtime_kind",
+          "status",
+          "model_id",
+          "model_config",
+          "template",
+          "tool_presets",
+          "allowed_publisher_operations",
+          "resolved_tools",
+          "approval_policy",
+          "model_policy",
+          "secret_keys",
+          "requirements",
+          "visibility",
+          "routing_reason"
+        ],
+        "properties": {
+          "agent_slug": {
+            "type": "string"
+          },
+          "allowed_publisher_operations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "approval_policy": {
+            "$ref": "#/components/schemas/ManagedAgentApprovalPolicy"
+          },
+          "compute_backend": {
+            "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
+          },
+          "config": {},
+          "context_budget_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "cron_schedule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dashboard_config": {},
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fallback_models": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "max_iterations": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_timeout_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_tool_output_chars": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CloudDeploymentMode"
+          },
+          "model_config": {},
+          "model_id": {
+            "type": "string"
+          },
+          "model_policy": {
+            "$ref": "#/components/schemas/ManagedAgentModelPolicy"
+          },
+          "name": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequirementSpec"
+            }
+          },
+          "resolved_tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "routing_reason": {
+            "type": "string"
+          },
+          "runtime_kind": {
+            "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
+          },
+          "secret_keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/CloudDeploymentStatus"
+          },
+          "template": {
+            "$ref": "#/components/schemas/ManagedAgentTemplate"
+          },
+          "tool_presets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentToolPreset"
+            }
+          },
+          "visibility": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentDeploymentUpdatePreview": {
+        "type": "object",
+        "required": [
+          "deployment_id",
+          "current",
+          "proposed",
+          "changed_fields"
+        ],
+        "properties": {
+          "changed_fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentFieldChange"
+            }
+          },
+          "current": {
+            "$ref": "#/components/schemas/ManagedAgentDeploymentDetail"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "proposed": {
+            "$ref": "#/components/schemas/ManagedAgentDeploymentDetail"
+          }
+        }
+      },
+      "ManagedAgentFieldChange": {
+        "type": "object",
+        "required": [
+          "field",
+          "label",
+          "current_value",
+          "proposed_value"
+        ],
+        "properties": {
+          "current_value": {},
+          "field": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "proposed_value": {}
+        }
+      },
+      "ManagedAgentModelPolicy": {
+        "type": "string",
+        "enum": [
+          "fast",
+          "balanced",
+          "deep"
+        ]
+      },
+      "ManagedAgentSummary": {
+        "type": "object",
+        "required": [
+          "publisher",
+          "template",
+          "target_framework",
+          "runtime_adapter",
+          "build_target",
+          "tool_presets",
+          "allowed_publisher_operations",
+          "resolved_tools",
+          "approval_policy",
+          "model_policy",
+          "routing_reason"
+        ],
+        "properties": {
+          "allowed_publisher_operations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "approval_policy": {
+            "$ref": "#/components/schemas/ManagedAgentApprovalPolicy"
+          },
+          "build_target": {
+            "type": "string"
+          },
+          "model_policy": {
+            "$ref": "#/components/schemas/ManagedAgentModelPolicy"
+          },
+          "publisher": {
+            "type": "string"
+          },
+          "resolved_tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "routing_reason": {
+            "type": "string"
+          },
+          "runtime_adapter": {
+            "type": "string"
+          },
+          "target_framework": {
+            "type": "string"
+          },
+          "template": {
+            "$ref": "#/components/schemas/ManagedAgentTemplate"
+          },
+          "tool_presets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentToolPreset"
+            }
+          }
+        }
+      },
+      "ManagedAgentTemplate": {
+        "type": "string",
+        "enum": [
+          "research_monitor",
+          "workflow_agent"
+        ]
+      },
+      "ManagedAgentToolPreset": {
+        "type": "string",
+        "enum": [
+          "live_data",
+          "publisher_actions",
+          "database"
+        ]
+      },
       "OrchestrationMode": {
         "type": "string",
         "description": "Cloud deployment orchestration mode.\n\n`Script` (default): container runs user code directly (existing behavior).\n`Llm`: container runs the seren-orchestrator LLM tool-calling loop.",
@@ -643,6 +1518,197 @@
             "description": "Total number of items across all pages"
           }
         }
+      },
+      "RequirementSource": {
+        "type": "string",
+        "description": "Where a deployment requirement should be satisfied from.",
+        "enum": [
+          "env",
+          "secret",
+          "config"
+        ]
+      },
+      "RequirementSpec": {
+        "type": "object",
+        "description": "A declared requirement for a cloud deployment (validated at deploy time).",
+        "required": [
+          "key",
+          "source"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "key": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/RequirementSource"
+          }
+        }
+      },
+      "UpdateSerenAgentDeploymentRequest": {
+        "type": "object",
+        "description": "Partial update request for an existing managed `seren-agent` deployment.",
+        "properties": {
+          "agent_slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Updated stable slug for the agent."
+          },
+          "approval_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentApprovalPolicy",
+                "description": "Updated approval policy."
+              }
+            ]
+          },
+          "config": {
+            "description": "Updated JSON config object."
+          },
+          "context_budget_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Updated cumulative context token budget.",
+            "minimum": 0
+          },
+          "cron_schedule": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Updated cron schedule. Only valid for cron deployments."
+          },
+          "dashboard_config": {
+            "description": "Updated dashboard rendering config."
+          },
+          "fallback_models": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Updated fallback model list."
+          },
+          "max_iterations": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Updated maximum LLM loop iterations.",
+            "minimum": 0
+          },
+          "max_timeout_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Updated run timeout in seconds.",
+            "minimum": 0
+          },
+          "max_tool_output_chars": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Updated maximum tool output size in characters.",
+            "minimum": 0
+          },
+          "model_config": {
+            "description": "Updated model parameters."
+          },
+          "model_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Updated primary model identifier."
+          },
+          "model_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentModelPolicy",
+                "description": "Updated model/runtime profile."
+              }
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Updated human-readable agent name."
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Updated task instructions."
+          },
+          "requirements": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/RequirementSpec"
+            },
+            "description": "Updated deploy-time requirements."
+          },
+          "secrets": {
+            "description": "Updated JSON secrets object."
+          },
+          "template": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplate",
+                "description": "Updated managed template."
+              }
+            ]
+          },
+          "tool_presets": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentToolPreset"
+            },
+            "description": "Updated managed tool presets."
+          },
+          "visibility": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Updated visibility mode (`open` or `opaque`)."
+          }
+        },
+        "additionalProperties": false
       }
     }
   },
