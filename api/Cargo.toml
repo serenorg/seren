@@ -16,7 +16,6 @@ readme = "README.md"
 doctest = false
 
 [dependencies]
-tokio = { workspace = true }
 reqwest = { workspace = true, default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -25,7 +24,7 @@ base62 = { workspace = true }
 futures = { workspace = true }
 progenitor-client = { workspace = true }
 jiff = { workspace = true }
-uuid = { workspace = true }
+uuid = { workspace = true, features = ["js"] }
 regress = { workspace = true }
 schemars = { workspace = true }
 

@@ -52,9 +52,19 @@ impl Client {
             headers.insert(reqwest::header::AUTHORIZATION, auth_value);
         }
 
-        let http_client = reqwest::Client::builder()
-            .default_headers(headers)
-            .build()?;
+        let builder = reqwest::Client::builder().default_headers(headers);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let builder = {
+            let mut builder =
+                builder.timeout(std::time::Duration::from_secs(config.timeout_seconds));
+            if !config.user_agent.trim().is_empty() {
+                builder = builder.user_agent(config.user_agent.clone());
+            }
+            builder
+        };
+
+        let http_client = builder.build()?;
 
         Ok(Self::new_with_client(&config.base_url, http_client))
     }
