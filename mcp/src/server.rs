@@ -1444,6 +1444,9 @@ pub struct DeploySerenAgentParams {
     /// Optional compute backend override ("aws_container", "cloudflare_worker", or "daytona"). Omit for AWS-first managed routing.
     #[serde(default)]
     pub compute_backend: Option<String>,
+    /// Managed template ("research_monitor" or "workflow_agent")
+    #[serde(default)]
+    pub template: Option<String>,
     /// Managed tool presets ("live_data", "publisher_actions", and/or "database")
     #[serde(default)]
     pub tool_presets: Option<Vec<String>>,
@@ -7470,7 +7473,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Deploy a managed prompt-based agent through the first-class seren-agent publisher. This path is AWS-first, hides runtime internals, defaults to live_data publisher access, and supports optional publisher_actions/database presets plus explicit approval/model policies and always_on or cron mode with optional backend override.",
+        description = "Deploy a managed prompt-based agent through the first-class seren-agent publisher. Choose the research_monitor template for read-oriented live-data work or workflow_agent for action-oriented workflows, then optionally override presets or policies. This path is AWS-first, hides runtime internals, and supports always_on or cron mode with optional backend override.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -7503,6 +7506,9 @@ API endpoint: {endpoint}",
                 "compute_backend".to_string(),
                 serde_json::json!(compute_backend),
             );
+        }
+        if let Some(template) = params.template {
+            body.insert("template".to_string(), serde_json::json!(template));
         }
         if let Some(tool_presets) = params.tool_presets {
             body.insert("tool_presets".to_string(), serde_json::json!(tool_presets));

@@ -1507,6 +1507,7 @@ pub struct CloudDeployPromptOptions<'a> {
     pub mode: &'a str,
     pub cron_schedule: Option<&'a str>,
     pub compute_backend: Option<&'a str>,
+    pub template: Option<&'a str>,
     pub tool_presets: &'a [String],
     pub approval_policy: Option<&'a str>,
     pub model_policy: Option<&'a str>,
@@ -1544,6 +1545,7 @@ const MANAGED_AGENT_CONFIG_FIELDS: &[&str] = &[
     "model_config",
     "model_id",
     "prompt",
+    "template",
     "tool_presets",
     "approval_policy",
     "model_policy",
@@ -1730,6 +1732,9 @@ async fn submit_cloud_deploy_request(
                 .and_then(|v| v.as_str())
             {
                 println!("  Managed Runtime: {}", target_framework);
+            }
+            if let Some(template) = managed_agent.get("template").and_then(|v| v.as_str()) {
+                println!("  Template: {}", template);
             }
             if let Some(tool_presets) = managed_agent
                 .get("tool_presets")
@@ -1963,6 +1968,7 @@ pub async fn cloud_deploy_prompt(
         mode,
         cron_schedule,
         compute_backend,
+        template,
         tool_presets,
         approval_policy,
         model_policy,
@@ -2040,6 +2046,9 @@ pub async fn cloud_deploy_prompt(
             "compute_backend".to_string(),
             serde_json::json!(compute_backend),
         );
+    }
+    if let Some(template) = template.map(str::trim).filter(|value| !value.is_empty()) {
+        body.insert("template".to_string(), serde_json::json!(template));
     }
     if !tool_presets.is_empty() {
         body.insert("tool_presets".to_string(), serde_json::json!(tool_presets));

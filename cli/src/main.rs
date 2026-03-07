@@ -588,6 +588,9 @@ enum AgentAction {
         /// Optional compute backend override (auto, aws_container, cloudflare_worker, or daytona). Omit for AWS-first managed routing.
         #[arg(long)]
         compute_backend: Option<String>,
+        /// Managed template. Use research_monitor for read-oriented live-data agents or workflow_agent for write-capable workflow agents.
+        #[arg(long)]
+        template: Option<String>,
         /// Managed tool preset list. Use live_data for publisher-backed data access, publisher_actions for write-capable publisher actions, and database for direct SerenDB queries.
         #[arg(long = "tool-preset", value_delimiter = ',')]
         tool_presets: Vec<String>,
@@ -2927,6 +2930,7 @@ async fn main() -> anyhow::Result<()> {
                 mode,
                 cron_schedule,
                 compute_backend,
+                template,
                 tool_presets,
                 approval_policy,
                 model_policy,
@@ -2944,6 +2948,7 @@ async fn main() -> anyhow::Result<()> {
                         mode: &mode,
                         cron_schedule: cron_schedule.as_deref(),
                         compute_backend: compute_backend.as_deref(),
+                        template: template.as_deref(),
                         tool_presets: &tool_presets,
                         approval_policy: approval_policy.as_deref(),
                         model_policy: model_policy.as_deref(),
