@@ -270,6 +270,164 @@
           }
         ]
       }
+    },
+    "/deployments/{id}/managed/revisions": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "List immutable revision snapshots for a managed deployment.",
+        "operationId": "seren_agent_list_managed_deployment_revisions",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed deployment revisions listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_ManagedAgentDeploymentRevisionSummary"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Managed deployment is opaque to this caller"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/managed/rollback": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Roll a managed deployment back to a prior revision.",
+        "operationId": "seren_agent_rollback_managed_deployment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RollbackSerenAgentDeploymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Managed deployment rolled back",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "403": {
+            "description": "Managed deployment is opaque to this caller"
+          },
+          "404": {
+            "description": "Deployment or revision not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/managed/rollback/preview": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Preview rolling a managed deployment back to a prior revision.",
+        "operationId": "seren_agent_preview_managed_deployment_rollback",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RollbackSerenAgentDeploymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Managed deployment rollback preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentDeploymentRollbackPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "403": {
+            "description": "Managed deployment is opaque to this caller"
+          },
+          "404": {
+            "description": "Deployment or revision not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -1002,6 +1160,57 @@
           }
         }
       },
+      "DataResponse_ManagedAgentDeploymentRollbackPreview": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "deployment_id",
+              "target_revision",
+              "current",
+              "proposed",
+              "changed_fields"
+            ],
+            "properties": {
+              "changed_fields": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentFieldChange"
+                }
+              },
+              "current": {
+                "$ref": "#/components/schemas/ManagedAgentDeploymentDetail"
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "proposed": {
+                "$ref": "#/components/schemas/ManagedAgentDeploymentDetail"
+              },
+              "target_revision": {
+                "$ref": "#/components/schemas/ManagedAgentDeploymentRevisionSummary"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentDeploymentUpdatePreview": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -1186,6 +1395,96 @@
           }
         }
       },
+      "DataResponse_Vec_ManagedAgentDeploymentRevisionSummary": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "revision_id",
+                "deployment_id",
+                "version",
+                "change_kind",
+                "created_by_user_id",
+                "name",
+                "agent_slug",
+                "model_id",
+                "template",
+                "approval_policy",
+                "model_policy",
+                "created_at"
+              ],
+              "properties": {
+                "agent_slug": {
+                  "type": "string"
+                },
+                "approval_policy": {
+                  "$ref": "#/components/schemas/ManagedAgentApprovalPolicy"
+                },
+                "change_kind": {
+                  "$ref": "#/components/schemas/ManagedAgentRevisionChangeKind"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "created_by_user_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "deployment_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "model_id": {
+                  "type": "string"
+                },
+                "model_policy": {
+                  "$ref": "#/components/schemas/ManagedAgentModelPolicy"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "restored_from_revision_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "revision_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "template": {
+                  "$ref": "#/components/schemas/ManagedAgentTemplate"
+                },
+                "version": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "ManagedAgentApprovalPolicy": {
         "type": "string",
         "enum": [
@@ -1345,6 +1644,104 @@
           }
         }
       },
+      "ManagedAgentDeploymentRevisionSummary": {
+        "type": "object",
+        "required": [
+          "revision_id",
+          "deployment_id",
+          "version",
+          "change_kind",
+          "created_by_user_id",
+          "name",
+          "agent_slug",
+          "model_id",
+          "template",
+          "approval_policy",
+          "model_policy",
+          "created_at"
+        ],
+        "properties": {
+          "agent_slug": {
+            "type": "string"
+          },
+          "approval_policy": {
+            "$ref": "#/components/schemas/ManagedAgentApprovalPolicy"
+          },
+          "change_kind": {
+            "$ref": "#/components/schemas/ManagedAgentRevisionChangeKind"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by_user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "model_policy": {
+            "$ref": "#/components/schemas/ManagedAgentModelPolicy"
+          },
+          "name": {
+            "type": "string"
+          },
+          "restored_from_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "template": {
+            "$ref": "#/components/schemas/ManagedAgentTemplate"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "ManagedAgentDeploymentRollbackPreview": {
+        "type": "object",
+        "required": [
+          "deployment_id",
+          "target_revision",
+          "current",
+          "proposed",
+          "changed_fields"
+        ],
+        "properties": {
+          "changed_fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentFieldChange"
+            }
+          },
+          "current": {
+            "$ref": "#/components/schemas/ManagedAgentDeploymentDetail"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "proposed": {
+            "$ref": "#/components/schemas/ManagedAgentDeploymentDetail"
+          },
+          "target_revision": {
+            "$ref": "#/components/schemas/ManagedAgentDeploymentRevisionSummary"
+          }
+        }
+      },
       "ManagedAgentDeploymentUpdatePreview": {
         "type": "object",
         "required": [
@@ -1397,6 +1794,14 @@
           "fast",
           "balanced",
           "deep"
+        ]
+      },
+      "ManagedAgentRevisionChangeKind": {
+        "type": "string",
+        "enum": [
+          "create",
+          "update",
+          "rollback"
         ]
       },
       "ManagedAgentSummary": {
@@ -1549,6 +1954,19 @@
             "$ref": "#/components/schemas/RequirementSource"
           }
         }
+      },
+      "RollbackSerenAgentDeploymentRequest": {
+        "type": "object",
+        "required": [
+          "revision_id"
+        ],
+        "properties": {
+          "revision_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
       },
       "UpdateSerenAgentDeploymentRequest": {
         "type": "object",

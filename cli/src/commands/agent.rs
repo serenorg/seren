@@ -2136,6 +2136,26 @@ pub async fn managed_agent_get(deployment_id: Uuid, ctx: &CommandContext) -> Res
     Ok(())
 }
 
+/// List immutable revision snapshots for a managed seren-agent deployment.
+pub async fn managed_agent_revisions(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_agent_list_managed_deployment_revisions(&deployment_id)
+        .await
+    {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to list managed agent deployment revisions",
+                err,
+            )
+            .await);
+        }
+    };
+    output::print_json(&response.into_inner())?;
+    Ok(())
+}
+
 fn build_managed_agent_update_request(
     options: ManagedAgentUpdateOptions<'_>,
 ) -> Result<seren::UpdateSerenAgentDeploymentRequest> {
@@ -2237,6 +2257,12 @@ fn build_managed_agent_update_request(
         .map_err(|e| anyhow::anyhow!("Failed to build managed update request: {}", e))
 }
 
+fn build_managed_agent_rollback_request(
+    revision_id: Uuid,
+) -> seren::RollbackSerenAgentDeploymentRequest {
+    seren::RollbackSerenAgentDeploymentRequest { revision_id }
+}
+
 /// Preview an update to an existing managed seren-agent deployment.
 pub async fn managed_agent_preview(
     deployment_id: Uuid,
@@ -2279,6 +2305,54 @@ pub async fn managed_agent_update(
             return Err(
                 anyhow_from_seren_error("Failed to update managed agent deployment", err).await,
             );
+        }
+    };
+    output::print_json(&response.into_inner())?;
+    Ok(())
+}
+
+/// Preview a rollback to a prior managed seren-agent revision.
+pub async fn managed_agent_rollback_preview(
+    deployment_id: Uuid,
+    revision_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let body = build_managed_agent_rollback_request(revision_id);
+    let response = match client
+        .seren_agent_preview_managed_deployment_rollback(&deployment_id, &body)
+        .await
+    {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(
+                anyhow_from_seren_error("Failed to preview managed agent rollback", err).await,
+            );
+        }
+    };
+    output::print_json(&response.into_inner())?;
+    Ok(())
+}
+
+/// Roll back a managed seren-agent deployment to a prior revision.
+pub async fn managed_agent_rollback(
+    deployment_id: Uuid,
+    revision_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let body = build_managed_agent_rollback_request(revision_id);
+    let response = match client
+        .seren_agent_rollback_managed_deployment(&deployment_id, &body)
+        .await
+    {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to roll back managed agent deployment",
+                err,
+            )
+            .await);
         }
     };
     output::print_json(&response.into_inner())?;

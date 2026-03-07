@@ -624,6 +624,25 @@ enum AgentAction {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
     },
+    /// List immutable revision snapshots for a managed seren-agent deployment
+    ManagedRevisions {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+    /// Preview rolling a managed seren-agent deployment back to a prior revision
+    ManagedRollbackPreview {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Revision ID (UUID)
+        revision_id: Uuid,
+    },
+    /// Roll a managed seren-agent deployment back to a prior revision
+    ManagedRollback {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Revision ID (UUID)
+        revision_id: Uuid,
+    },
     /// Preview an update to an existing managed seren-agent deployment
     ManagedPreview {
         /// Deployment ID (UUID)
@@ -3059,6 +3078,20 @@ async fn main() -> anyhow::Result<()> {
             AgentAction::ManagedGet { deployment_id } => {
                 commands::agent::managed_agent_get(deployment_id, &ctx).await?
             }
+            AgentAction::ManagedRevisions { deployment_id } => {
+                commands::agent::managed_agent_revisions(deployment_id, &ctx).await?
+            }
+            AgentAction::ManagedRollbackPreview {
+                deployment_id,
+                revision_id,
+            } => {
+                commands::agent::managed_agent_rollback_preview(deployment_id, revision_id, &ctx)
+                    .await?
+            }
+            AgentAction::ManagedRollback {
+                deployment_id,
+                revision_id,
+            } => commands::agent::managed_agent_rollback(deployment_id, revision_id, &ctx).await?,
             AgentAction::ManagedPreview {
                 deployment_id,
                 name,

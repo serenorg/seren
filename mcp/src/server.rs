@@ -1531,6 +1531,14 @@ fn build_update_seren_agent_deployment_request(
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct RollbackSerenAgentDeploymentParams {
+    /// Managed deployment ID
+    pub deployment_id: uuid::Uuid,
+    /// Revision to preview or restore
+    pub revision_id: uuid::Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct DeploySerenAgentParams {
     /// Stable agent slug identifier (e.g., "btc-price-watcher")
     #[serde(default)]
@@ -7601,6 +7609,29 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "List immutable revision snapshots for a managed seren-agent deployment so callers can inspect version history before rollback.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn list_seren_agent_deployment_revisions(
+        &self,
+        Parameters(params): Parameters<GetSerenAgentDeploymentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-agent/deployments/{}/managed/revisions",
+            self.api_base_url, params.deployment_id
+        );
+        let result = self
+            .execute_api_json::<serde_json::Value>(&extensions, reqwest::Method::GET, url, None)
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
         description = "Preview an existing managed seren-agent deployment update before applying it. This returns the current resolved managed spec, the proposed resolved spec, and the changed fields so callers can inspect the diff before mutation.",
         annotations(
             read_only_hint = true,
@@ -7628,6 +7659,30 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "Preview rolling a managed seren-agent deployment back to a prior revision. This returns the target revision metadata plus the resolved diff against the current deployment.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn preview_seren_agent_deployment_rollback(
+        &self,
+        Parameters(params): Parameters<RollbackSerenAgentDeploymentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-agent/deployments/{}/managed/rollback/preview",
+            self.api_base_url, params.deployment_id
+        );
+        let body = serde_json::json!({ "revision_id": params.revision_id });
+        let result = self
+            .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body))
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
         description = "Update an existing managed seren-agent deployment. This edits the saved managed spec in place without exposing raw cloud runtime internals. Backend, mode, and runtime remain fixed; update prompt, template, presets, policies, config, secrets, or advanced managed runtime fields instead.",
         annotations(
             read_only_hint = false,
@@ -7650,6 +7705,30 @@ API endpoint: {endpoint}",
         })?;
         let result = self
             .execute_api_json(&extensions, reqwest::Method::PATCH, url, Some(&body_value))
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Roll a managed seren-agent deployment back to a prior revision. Use the preview tool first to inspect the resolved diff before applying the rollback.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn rollback_seren_agent_deployment(
+        &self,
+        Parameters(params): Parameters<RollbackSerenAgentDeploymentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-agent/deployments/{}/managed/rollback",
+            self.api_base_url, params.deployment_id
+        );
+        let body = serde_json::json!({ "revision_id": params.revision_id });
+        let result = self
+            .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body))
             .await?;
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
