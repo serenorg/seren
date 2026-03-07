@@ -571,33 +571,27 @@ enum AgentAction {
         #[arg(long)]
         orchestration_config: Option<String>,
     },
-    /// Deploy a prompt-only LLM agent to Seren Cloud
+    /// Deploy a managed prompt-based agent through seren-agent
     DeployPrompt {
         /// Deployment display name
         #[arg(long)]
         name: String,
-        /// Optional skill slug override (defaults to a slugified form of --name)
+        /// Optional agent slug override (defaults to a slugified form of --name)
         #[arg(long)]
-        skill_slug: Option<String>,
-        /// Deployment publisher slug (`seren-agent` for managed prompt agents)
-        #[arg(long, default_value = "seren-agent")]
-        publisher: String,
-        /// Optional reusable execution environment ID (AWS container backend only)
-        #[arg(long)]
-        environment_id: Option<Uuid>,
+        agent_slug: Option<String>,
         /// Deployment mode: "always-on" or "cron"
         #[arg(long, default_value = "always-on")]
         mode: String,
         /// Cron schedule expression (required if mode is "cron")
         #[arg(long)]
         cron_schedule: Option<String>,
-        /// Optional compute backend override (auto, aws_container, cloudflare_worker, or daytona). Omit for AWS-first auto-routing.
+        /// Optional compute backend override (auto, aws_container, cloudflare_worker, or daytona). Omit for AWS-first managed routing.
         #[arg(long)]
         compute_backend: Option<String>,
-        /// Optional system prompt. Required unless provided by --orchestration-config.
+        /// Agent prompt. Required unless provided by --agent-config.
         #[arg(long)]
-        system_prompt: Option<String>,
-        /// Optional model ID. Required unless provided by --orchestration-config.
+        prompt: Option<String>,
+        /// Optional model ID. Required unless provided by --agent-config.
         #[arg(long = "model-id")]
         model_id: Option<String>,
         /// Optional visibility mode (open or opaque)
@@ -609,9 +603,9 @@ enum AgentAction {
         /// Path to .env secrets file
         #[arg(long, name = "env")]
         env_file: Option<String>,
-        /// Path to an orchestration JSON file for advanced tuning
+        /// Path to a managed agent JSON config for advanced tuning
         #[arg(long)]
-        orchestration_config: Option<String>,
+        agent_config: Option<String>,
     },
     /// List reusable cloud deployment environments
     CloudEnvironmentList,
@@ -2920,32 +2914,28 @@ async fn main() -> anyhow::Result<()> {
             }
             AgentAction::DeployPrompt {
                 name,
-                skill_slug,
-                publisher,
-                environment_id,
+                agent_slug,
                 mode,
                 cron_schedule,
                 compute_backend,
-                system_prompt,
+                prompt,
                 model_id,
                 visibility,
                 config,
                 env_file,
-                orchestration_config,
+                agent_config,
             } => {
                 commands::agent::cloud_deploy_prompt(
                     commands::agent::CloudDeployPromptOptions {
-                        publisher_slug: Some(&publisher),
                         name: &name,
-                        skill_slug: skill_slug.as_deref(),
-                        environment_id,
+                        agent_slug: agent_slug.as_deref(),
                         mode: &mode,
                         cron_schedule: cron_schedule.as_deref(),
                         compute_backend: compute_backend.as_deref(),
                         config_path: config.as_deref(),
                         env_path: env_file.as_deref(),
-                        orchestration_config_path: orchestration_config.as_deref(),
-                        system_prompt: system_prompt.as_deref(),
+                        agent_config_path: agent_config.as_deref(),
+                        prompt: prompt.as_deref(),
                         model_id: model_id.as_deref(),
                         visibility: visibility.as_deref(),
                     },

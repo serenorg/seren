@@ -1502,17 +1502,15 @@ pub struct CloudDeployOptions<'a> {
 }
 
 pub struct CloudDeployPromptOptions<'a> {
-    pub publisher_slug: Option<&'a str>,
     pub name: &'a str,
-    pub skill_slug: Option<&'a str>,
-    pub environment_id: Option<Uuid>,
+    pub agent_slug: Option<&'a str>,
     pub mode: &'a str,
     pub cron_schedule: Option<&'a str>,
     pub compute_backend: Option<&'a str>,
     pub config_path: Option<&'a str>,
     pub env_path: Option<&'a str>,
-    pub orchestration_config_path: Option<&'a str>,
-    pub system_prompt: Option<&'a str>,
+    pub agent_config_path: Option<&'a str>,
+    pub prompt: Option<&'a str>,
     pub model_id: Option<&'a str>,
     pub visibility: Option<&'a str>,
 }
@@ -1533,6 +1531,19 @@ const ORCHESTRATION_CONFIG_FIELDS: &[&str] = &[
     "tool_definitions",
     "visibility",
 ];
+const MANAGED_AGENT_CONFIG_FIELDS: &[&str] = &[
+    "context_budget_tokens",
+    "dashboard_config",
+    "fallback_models",
+    "max_iterations",
+    "max_timeout_seconds",
+    "max_tool_output_chars",
+    "model_config",
+    "model_id",
+    "prompt",
+    "requirements",
+    "visibility",
+];
 
 fn normalize_deploy_publisher_slug(publisher_slug: Option<&str>) -> Result<&'static str> {
     match publisher_slug.unwrap_or(SEREN_CLOUD_SLUG) {
@@ -1542,54 +1553,6 @@ fn normalize_deploy_publisher_slug(publisher_slug: Option<&str>) -> Result<&'sta
             other
         )),
     }
-}
-
-fn normalize_prompt_deploy_publisher_slug(publisher_slug: Option<&str>) -> Result<&'static str> {
-    match publisher_slug.unwrap_or(SEREN_AGENT_SLUG) {
-        SEREN_AGENT_SLUG => Ok(SEREN_AGENT_SLUG),
-        other => Err(anyhow::anyhow!(
-            "Managed prompt deployments only support publisher 'seren-agent'. Use 'seren-cloud' for bundle deployments, not '{}'.",
-            other
-        )),
-    }
-}
-
-fn convert_prompt_body_to_seren_agent_request(
-    mut body: serde_json::Map<String, serde_json::Value>,
-) -> Result<serde_json::Map<String, serde_json::Value>> {
-    if body.contains_key("runtime_kind") {
-        return Err(anyhow::anyhow!(
-            "--runtime-kind is not supported for managed seren-agent prompt deploys. Omit it or use --publisher seren-cloud."
-        ));
-    }
-
-    let orchestration_mode = body
-        .remove("orchestration_mode")
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .unwrap_or_else(|| "llm".to_string());
-    if orchestration_mode != "llm" {
-        return Err(anyhow::anyhow!(
-            "Managed seren-agent prompt deploys require orchestration_mode 'llm'."
-        ));
-    }
-
-    body.remove("code_bundle_base64");
-    body.remove("requirements_txt");
-
-    let agent_slug = body.remove("skill_slug").ok_or_else(|| {
-        anyhow::anyhow!(
-            "Prompt deployments require a skill slug before converting to seren-agent request."
-        )
-    })?;
-    let prompt = body.remove("system_prompt").ok_or_else(|| {
-        anyhow::anyhow!(
-            "Prompt deployments require system_prompt before converting to seren-agent request."
-        )
-    })?;
-
-    body.insert("agent_slug".to_string(), agent_slug);
-    body.insert("prompt".to_string(), prompt);
-    Ok(body)
 }
 
 fn resolve_skill_dir(path: &str) -> Result<std::path::PathBuf> {
@@ -1692,6 +1655,31 @@ fn merge_orchestration_config(
     unsupported.sort();
     Err(anyhow::anyhow!(
         "Unsupported orchestration config keys: {}",
+        unsupported.join(", ")
+    ))
+}
+
+fn merge_managed_agent_config(
+    body: &mut serde_json::Map<String, serde_json::Value>,
+    agent_config: serde_json::Map<String, serde_json::Value>,
+) -> Result<()> {
+    let mut unsupported = Vec::new();
+
+    for (key, value) in agent_config {
+        if MANAGED_AGENT_CONFIG_FIELDS.contains(&key.as_str()) {
+            body.insert(key, value);
+        } else {
+            unsupported.push(key);
+        }
+    }
+
+    if unsupported.is_empty() {
+        return Ok(());
+    }
+
+    unsupported.sort();
+    Err(anyhow::anyhow!(
+        "Unsupported managed agent config keys: {}",
         unsupported.join(", ")
     ))
 }
@@ -1902,29 +1890,27 @@ pub async fn cloud_deploy(
     submit_cloud_deploy_request(deploy_publisher, body, ctx).await
 }
 
-/// Deploy a prompt-only LLM agent to Seren Cloud.
+/// Deploy a managed prompt-based agent through seren-agent.
 pub async fn cloud_deploy_prompt(
     options: CloudDeployPromptOptions<'_>,
     ctx: &CommandContext,
 ) -> Result<()> {
     let CloudDeployPromptOptions {
-        publisher_slug,
         name,
-        skill_slug,
-        environment_id,
+        agent_slug,
         mode,
         cron_schedule,
         compute_backend,
         config_path,
         env_path,
-        orchestration_config_path,
-        system_prompt,
+        agent_config_path,
+        prompt,
         model_id,
         visibility,
     } = options;
-    let deploy_publisher = normalize_prompt_deploy_publisher_slug(publisher_slug)?;
+    let deploy_publisher = SEREN_AGENT_SLUG;
     let runtime_target = resolve_cloud_runtime_target(compute_backend, None)?;
-    let orchestration_config = load_orchestration_config(None, orchestration_config_path)?;
+    let agent_config = load_orchestration_config(None, agent_config_path)?;
 
     let api_mode = match mode {
         "always-on" | "always_on" => "always_on",
@@ -1942,16 +1928,6 @@ pub async fn cloud_deploy_prompt(
             "compute_backend 'daytona' currently requires mode 'cron'."
         ));
     }
-    if environment_id.is_some()
-        && runtime_target
-            .compute_backend
-            .is_some_and(|backend| backend != "aws_container")
-    {
-        return Err(anyhow::anyhow!(
-            "--environment-id is only supported with compute_backend 'aws_container'."
-        ));
-    }
-
     let config: Option<serde_json::Value> = if let Some(p) = config_path {
         let content = fs::read_to_string(p)?;
         Some(serde_json::from_str(&content)?)
@@ -1965,37 +1941,34 @@ pub async fn cloud_deploy_prompt(
         None
     };
 
-    let prompt_skill_slug = skill_slug
+    let managed_agent_slug = agent_slug
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| normalize_cloud_skill_slug(name));
-    if prompt_skill_slug.is_empty() {
+    if managed_agent_slug.is_empty() {
         return Err(anyhow::anyhow!(
-            "Could not derive a valid skill slug from '{}'. Provide --skill-slug.",
+            "Could not derive a valid agent slug from '{}'. Provide --agent-slug.",
             name
         ));
     }
 
     println!(
-        "{} Deploying prompt agent {} via {} ({} mode, backend={}, runtime={})...",
+        "{} Deploying managed agent {} via {} ({} mode, backend={})...",
         "→".blue(),
-        prompt_skill_slug.bold(),
+        managed_agent_slug.bold(),
         deploy_publisher,
         mode,
         runtime_target.compute_backend.unwrap_or("auto"),
-        runtime_target.runtime_kind.unwrap_or("auto")
     );
 
     let mut body = serde_json::Map::new();
     body.insert("name".to_string(), serde_json::json!(name.trim()));
     body.insert(
-        "skill_slug".to_string(),
-        serde_json::json!(prompt_skill_slug),
+        "agent_slug".to_string(),
+        serde_json::json!(managed_agent_slug),
     );
     body.insert("mode".to_string(), serde_json::json!(api_mode));
-    body.insert("code_bundle_base64".to_string(), serde_json::json!(""));
-    body.insert("orchestration_mode".to_string(), serde_json::json!("llm"));
 
     if let Some(compute_backend) = runtime_target.compute_backend {
         body.insert(
@@ -2006,29 +1979,17 @@ pub async fn cloud_deploy_prompt(
     if let Some(schedule) = cron_schedule {
         body.insert("cron_schedule".to_string(), serde_json::json!(schedule));
     }
-    if let Some(environment_id) = environment_id {
-        body.insert(
-            "environment_id".to_string(),
-            serde_json::json!(environment_id),
-        );
-    }
     if let Some(cfg) = &config {
         body.insert("config".to_string(), cfg.clone());
     }
     if let Some(sec) = &secrets {
         body.insert("secrets".to_string(), sec.clone());
     }
-    if let Some(orchestration_config) = orchestration_config {
-        merge_orchestration_config(&mut body, orchestration_config)?;
+    if let Some(agent_config) = agent_config {
+        merge_managed_agent_config(&mut body, agent_config)?;
     }
-    if let Some(system_prompt) = system_prompt
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        body.insert(
-            "system_prompt".to_string(),
-            serde_json::json!(system_prompt),
-        );
+    if let Some(prompt) = prompt.map(str::trim).filter(|value| !value.is_empty()) {
+        body.insert("prompt".to_string(), serde_json::json!(prompt));
     }
     if let Some(model_id) = model_id.map(str::trim).filter(|value| !value.is_empty()) {
         body.insert("model_id".to_string(), serde_json::json!(model_id));
@@ -2037,18 +1998,16 @@ pub async fn cloud_deploy_prompt(
         body.insert("visibility".to_string(), serde_json::json!(visibility));
     }
 
-    if !body.contains_key("system_prompt") {
+    if !body.contains_key("prompt") {
         return Err(anyhow::anyhow!(
-            "Prompt deployments require --system-prompt or an orchestration config containing system_prompt."
+            "Managed agent deployments require --prompt or an agent config containing prompt."
         ));
     }
     if !body.contains_key("model_id") {
         return Err(anyhow::anyhow!(
-            "Prompt deployments require --model-id or an orchestration config containing model_id."
+            "Managed agent deployments require --model-id or an agent config containing model_id."
         ));
     }
-
-    let body = convert_prompt_body_to_seren_agent_request(body)?;
 
     submit_cloud_deploy_request(deploy_publisher, body, ctx).await
 }

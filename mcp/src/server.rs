@@ -1358,9 +1358,6 @@ pub struct DeployCloudAgentParams {
     pub skill_slug: String,
     /// Display name for the deployment
     pub name: String,
-    /// Optional deployment publisher. Prompt-only LLM deploys use "seren-agent"; bundle/runtime deploys use "seren-cloud".
-    #[serde(default)]
-    pub publisher: Option<String>,
     /// Optional reusable execution environment UUID (AWS container backend only)
     #[serde(default)]
     pub environment_id: Option<Uuid>,
@@ -1375,7 +1372,7 @@ pub struct DeployCloudAgentParams {
     /// Optional runtime override ("auto", "python", "javascript", "typescript", "rust", or "rust_wasm_adk"). Omit to infer from the bundle.
     #[serde(default)]
     pub runtime_kind: Option<String>,
-    /// Base64-encoded tar.gz of the scripts/ directory. Leave empty for prompt-only LLM deployments.
+    /// Base64-encoded tar.gz of the scripts/ directory.
     #[serde(default)]
     pub code_bundle_base64: String,
     /// pip requirements.txt content
@@ -1417,6 +1414,60 @@ pub struct DeployCloudAgentParams {
     /// Optional tool definitions passed to the orchestrator
     #[serde(default)]
     pub tool_definitions: Option<serde_json::Value>,
+    /// Optional deployment requirements validated at deploy time
+    #[serde(default)]
+    pub requirements: Option<serde_json::Value>,
+    /// Optional dashboard rendering config
+    #[serde(default)]
+    pub dashboard_config: Option<serde_json::Value>,
+    /// Optional visibility mode ("open" or "opaque")
+    #[serde(default)]
+    pub visibility: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct DeploySerenAgentParams {
+    /// Stable agent slug identifier (e.g., "btc-price-watcher")
+    #[serde(default)]
+    pub agent_slug: Option<String>,
+    /// Display name for the managed agent
+    pub name: String,
+    /// Deployment mode: "always_on" or "cron"
+    pub mode: String,
+    /// Cron schedule expression (required if mode is "cron")
+    #[serde(default)]
+    pub cron_schedule: Option<String>,
+    /// Main instructions for the managed agent
+    pub prompt: String,
+    /// Model identifier
+    pub model_id: String,
+    /// Optional compute backend override ("aws_container", "cloudflare_worker", or "daytona"). Omit for AWS-first managed routing.
+    #[serde(default)]
+    pub compute_backend: Option<String>,
+    /// JSON config object
+    #[serde(default)]
+    pub config: Option<serde_json::Value>,
+    /// JSON secrets object (key-value pairs for .env)
+    #[serde(default)]
+    pub secrets: Option<serde_json::Value>,
+    /// Optional model configuration (temperature, max_tokens, etc.)
+    #[serde(default)]
+    pub model_config: Option<serde_json::Value>,
+    /// Optional fallback model list for transient failures
+    #[serde(default)]
+    pub fallback_models: Option<Vec<String>>,
+    /// Optional maximum LLM loop iterations
+    #[serde(default)]
+    pub max_iterations: Option<i32>,
+    /// Optional maximum wall-clock timeout per run in seconds
+    #[serde(default)]
+    pub max_timeout_seconds: Option<i32>,
+    /// Optional maximum tool output size in characters
+    #[serde(default)]
+    pub max_tool_output_chars: Option<i32>,
+    /// Optional cumulative context token budget
+    #[serde(default)]
+    pub context_budget_tokens: Option<i32>,
     /// Optional deployment requirements validated at deploy time
     #[serde(default)]
     pub requirements: Option<serde_json::Value>,
@@ -1576,48 +1627,6 @@ pub struct CloudAllRunsParams {
 
 fn default_cloud_runs_limit() -> i64 {
     50
-}
-
-fn convert_prompt_body_to_seren_agent_request(
-    mut body: serde_json::Map<String, serde_json::Value>,
-) -> Result<serde_json::Map<String, serde_json::Value>, McpError> {
-    if body.contains_key("runtime_kind") {
-        return Err(McpError::invalid_params(
-            "runtime_kind is not supported for managed seren-agent prompt deploys. Omit it or use publisher='seren-cloud'.",
-            None,
-        ));
-    }
-
-    let orchestration_mode = body
-        .remove("orchestration_mode")
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .unwrap_or_else(|| "llm".to_string());
-    if orchestration_mode != "llm" {
-        return Err(McpError::invalid_params(
-            "Managed seren-agent prompt deploys require orchestration_mode='llm'.",
-            None,
-        ));
-    }
-
-    body.remove("code_bundle_base64");
-    body.remove("requirements_txt");
-
-    let agent_slug = body.remove("skill_slug").ok_or_else(|| {
-        McpError::invalid_params(
-            "Prompt deployments require skill_slug before converting to seren-agent request.",
-            None,
-        )
-    })?;
-    let prompt = body.remove("system_prompt").ok_or_else(|| {
-        McpError::invalid_params(
-            "Prompt deployments require system_prompt before converting to seren-agent request.",
-            None,
-        )
-    })?;
-
-    body.insert("agent_slug".to_string(), agent_slug);
-    body.insert("prompt".to_string(), prompt);
-    Ok(body)
 }
 
 fn build_cloud_run_body(
@@ -7315,7 +7324,7 @@ API endpoint: {endpoint}",
     // ========================================================================
 
     #[tool(
-        description = "Deploy a skill to Seren Cloud for managed hosting. Supports always_on (persistent) and cron (scheduled) modes. Leave compute_backend/runtime_kind unset, or set them to auto, for AWS-first bundle-based routing. Set compute_backend explicitly to force cloudflare_worker or daytona. Backend/runtime support: aws_container (python/javascript/typescript/rust/rust_wasm_adk), cloudflare_worker (python/javascript/typescript/rust/rust_wasm_adk), daytona (python/javascript/typescript/rust) with cron mode. Auto-routing inspects the uploaded scripts bundle itself: Python/JS/TS entrypoints, shell scripts, Linux binaries, standalone .wasm modules, and Worker JS+.wasm artifacts are all detected from files rather than SKILL.md prose. Prompt-only LLM deployments use the first-class seren-agent publisher with the managed request shape; bundle/runtime deploys use seren-cloud.",
+        description = "Deploy a code bundle to the seren-cloud publisher for managed hosting. Supports script and LLM orchestration, always_on (persistent), cron (scheduled), and job modes. Leave compute_backend/runtime_kind unset, or set them to auto, for AWS-first bundle-based routing. Set compute_backend explicitly to force cloudflare_worker or daytona. Auto-routing inspects the uploaded scripts bundle itself: Python/JS/TS entrypoints, shell scripts, Linux binaries, standalone .wasm modules, and Worker JS+.wasm artifacts are all detected from files rather than SKILL.md prose.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -7327,37 +7336,14 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<DeployCloudAgentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let is_prompt_deploy = params.code_bundle_base64.trim().is_empty()
-            && params.orchestration_mode.as_deref() == Some("llm");
-        let publisher = if is_prompt_deploy {
-            match params.publisher.as_deref().unwrap_or("seren-agent") {
-                "seren-agent" => "seren-agent",
-                other => {
-                    return Err(McpError::invalid_params(
-                        format!(
-                            "Prompt-only managed deployments must use publisher 'seren-agent', not '{}'.",
-                            other
-                        ),
-                        None,
-                    ));
-                }
-            }
-        } else {
-            match params.publisher.as_deref().unwrap_or("seren-cloud") {
-                "seren-cloud" => "seren-cloud",
-                other => {
-                    return Err(McpError::invalid_params(
-                        format!(
-                            "Bundle/runtime deployments must use publisher 'seren-cloud', not '{}'.",
-                            other
-                        ),
-                        None,
-                    ));
-                }
-            }
-        };
+        if params.code_bundle_base64.trim().is_empty() {
+            return Err(McpError::invalid_params(
+                "deploy_cloud_agent requires a non-empty code_bundle_base64. Use deploy_seren_agent for prompt-only managed agents.",
+                None,
+            ));
+        }
 
-        let url = format!("{}/publishers/{publisher}/deploy", self.api_base_url);
+        let url = format!("{}/publishers/seren-cloud/deploy", self.api_base_url);
         let mut body = serde_json::Map::new();
         body.insert("name".to_string(), serde_json::json!(params.name));
         body.insert(
@@ -7463,11 +7449,100 @@ API endpoint: {endpoint}",
             body.insert("visibility".to_string(), serde_json::json!(visibility));
         }
 
-        let body = if is_prompt_deploy {
-            convert_prompt_body_to_seren_agent_request(body)?
-        } else {
-            body
-        };
+        let result = self
+            .execute_api_json(
+                &extensions,
+                reqwest::Method::POST,
+                url,
+                Some(&serde_json::Value::Object(body)),
+            )
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Deploy a managed prompt-based agent through the first-class seren-agent publisher. This path is AWS-first, hides runtime internals, injects built-in Seren publisher tools automatically, and supports always_on or cron mode with optional backend override.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn deploy_seren_agent(
+        &self,
+        Parameters(params): Parameters<DeploySerenAgentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!("{}/publishers/seren-agent/deploy", self.api_base_url);
+        let mut body = serde_json::Map::new();
+        body.insert("name".to_string(), serde_json::json!(params.name));
+        body.insert("mode".to_string(), serde_json::json!(params.mode));
+        body.insert("prompt".to_string(), serde_json::json!(params.prompt));
+        body.insert("model_id".to_string(), serde_json::json!(params.model_id));
+
+        if let Some(agent_slug) = params.agent_slug {
+            body.insert("agent_slug".to_string(), serde_json::json!(agent_slug));
+        }
+        if let Some(cron_schedule) = params.cron_schedule {
+            body.insert(
+                "cron_schedule".to_string(),
+                serde_json::json!(cron_schedule),
+            );
+        }
+        if let Some(compute_backend) = params.compute_backend {
+            body.insert(
+                "compute_backend".to_string(),
+                serde_json::json!(compute_backend),
+            );
+        }
+        if let Some(config) = params.config {
+            body.insert("config".to_string(), config);
+        }
+        if let Some(secrets) = params.secrets {
+            body.insert("secrets".to_string(), secrets);
+        }
+        if let Some(model_config) = params.model_config {
+            body.insert("model_config".to_string(), model_config);
+        }
+        if let Some(fallback_models) = params.fallback_models {
+            body.insert(
+                "fallback_models".to_string(),
+                serde_json::json!(fallback_models),
+            );
+        }
+        if let Some(max_iterations) = params.max_iterations {
+            body.insert(
+                "max_iterations".to_string(),
+                serde_json::json!(max_iterations),
+            );
+        }
+        if let Some(max_timeout_seconds) = params.max_timeout_seconds {
+            body.insert(
+                "max_timeout_seconds".to_string(),
+                serde_json::json!(max_timeout_seconds),
+            );
+        }
+        if let Some(max_tool_output_chars) = params.max_tool_output_chars {
+            body.insert(
+                "max_tool_output_chars".to_string(),
+                serde_json::json!(max_tool_output_chars),
+            );
+        }
+        if let Some(context_budget_tokens) = params.context_budget_tokens {
+            body.insert(
+                "context_budget_tokens".to_string(),
+                serde_json::json!(context_budget_tokens),
+            );
+        }
+        if let Some(requirements) = params.requirements {
+            body.insert("requirements".to_string(), requirements);
+        }
+        if let Some(dashboard_config) = params.dashboard_config {
+            body.insert("dashboard_config".to_string(), dashboard_config);
+        }
+        if let Some(visibility) = params.visibility {
+            body.insert("visibility".to_string(), serde_json::json!(visibility));
+        }
 
         let result = self
             .execute_api_json(
