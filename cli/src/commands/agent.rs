@@ -2104,6 +2104,37 @@ pub async fn cloud_deploy_prompt(
     submit_cloud_deploy_request(deploy_publisher, body, ctx).await
 }
 
+/// Get the resolved managed seren-agent deployment detail.
+pub async fn managed_agent_get(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let http_client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/seren-agent/deployments/{}/managed",
+        ctx.api_base(),
+        deployment_id
+    );
+    let response = http_client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?;
+    let status = response.status();
+    let response_text = response
+        .text()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))?;
+    if !status.is_success() {
+        return Err(anyhow::anyhow!(
+            "Failed to get managed agent detail: {} - {}",
+            status,
+            response_text
+        ));
+    }
+    let response_body = serde_json::from_str::<serde_json::Value>(&response_text)
+        .map_err(|e| anyhow::anyhow!("Failed to parse response JSON: {}", e))?;
+    output::print_json(&response_body)?;
+    Ok(())
+}
+
 /// List reusable cloud deployment environments.
 pub async fn cloud_environment_list(ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;

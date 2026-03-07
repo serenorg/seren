@@ -1426,6 +1426,12 @@ pub struct DeployCloudAgentParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetSerenAgentDeploymentParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct DeploySerenAgentParams {
     /// Stable agent slug identifier (e.g., "btc-price-watcher")
     #[serde(default)]
@@ -7468,6 +7474,29 @@ API endpoint: {endpoint}",
                 url,
                 Some(&serde_json::Value::Object(body)),
             )
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&result)?]))
+    }
+
+    #[tool(
+        description = "Get the resolved managed deployment detail for a seren-agent deployment, including the saved prompt, template, resolved tool presets, allowed publisher operations, runtime overrides, visible config, and secret key names.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn get_seren_agent_deployment(
+        &self,
+        Parameters(params): Parameters<GetSerenAgentDeploymentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = format!(
+            "{}/publishers/seren-agent/deployments/{}/managed",
+            self.api_base_url, params.deployment_id
+        );
+        let result = self
+            .execute_api_json::<serde_json::Value>(&extensions, reqwest::Method::GET, url, None)
             .await?;
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }

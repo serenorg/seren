@@ -619,6 +619,11 @@ enum AgentAction {
         #[arg(long)]
         agent_config: Option<String>,
     },
+    /// Get the resolved managed seren-agent deployment detail
+    ManagedGet {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
     /// List reusable cloud deployment environments
     CloudEnvironmentList,
     /// Get a reusable cloud deployment environment
@@ -2962,6 +2967,9 @@ async fn main() -> anyhow::Result<()> {
                     &ctx,
                 )
                 .await?
+            }
+            AgentAction::ManagedGet { deployment_id } => {
+                commands::agent::managed_agent_get(deployment_id, &ctx).await?
             }
             AgentAction::CloudEnvironmentList => {
                 commands::agent::cloud_environment_list(&ctx).await?
