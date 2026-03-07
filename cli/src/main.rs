@@ -579,8 +579,8 @@ enum AgentAction {
         /// Optional skill slug override (defaults to a slugified form of --name)
         #[arg(long)]
         skill_slug: Option<String>,
-        /// Deployment publisher slug (`seren-cloud` for direct runtime deploys, `seren-agent` for orchestrated app deploys)
-        #[arg(long, default_value = "seren-cloud")]
+        /// Deployment publisher slug (`seren-agent` for managed prompt agents, `seren-cloud` for direct runtime deploys)
+        #[arg(long, default_value = "seren-agent")]
         publisher: String,
         /// Optional reusable execution environment ID (AWS container backend only)
         #[arg(long)]

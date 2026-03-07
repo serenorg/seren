@@ -879,18 +879,19 @@ pub async fn publish_template(
         )
     })?;
 
-    let body = seren::CreateTemplateRequest {
-        name: name.to_string(),
-        slug: slug.to_string(),
-        code: code_content,
-        language,
-        price: price.to_string(),
-        description: description.map(|s| s.to_string()),
-        dependencies: deps,
-        compute_backend: compute_backend.map(|s| s.to_string()),
-        settings_schema: None,
-        llm_config: None,
-    };
+    let body: seren::CreateTemplateRequest = serde_json::from_value(serde_json::json!({
+        "name": name,
+        "slug": slug,
+        "code": code_content,
+        "language": language,
+        "price": price,
+        "description": description,
+        "dependencies": deps,
+        "computeBackend": compute_backend,
+        "settingsSchema": serde_json::Value::Null,
+        "llmConfig": serde_json::Value::Null,
+    }))
+    .map_err(|e| anyhow::anyhow!("Failed to build template request: {}", e))?;
 
     let response = match client.publish_template(&body).await {
         Ok(response) => response,
@@ -1545,6 +1546,17 @@ fn normalize_deploy_publisher_slug(publisher_slug: Option<&str>) -> Result<&'sta
     }
 }
 
+fn normalize_prompt_deploy_publisher_slug(publisher_slug: Option<&str>) -> Result<&'static str> {
+    match publisher_slug.unwrap_or(SEREN_AGENT_SLUG) {
+        SEREN_CLOUD_SLUG => Ok(SEREN_CLOUD_SLUG),
+        SEREN_AGENT_SLUG => Ok(SEREN_AGENT_SLUG),
+        other => Err(anyhow::anyhow!(
+            "Invalid deploy publisher '{}'. Use 'seren-cloud' or 'seren-agent'.",
+            other
+        )),
+    }
+}
+
 fn resolve_skill_dir(path: &str) -> Result<std::path::PathBuf> {
     let resolved = Path::new(path);
     if resolved.is_dir() {
@@ -1876,7 +1888,7 @@ pub async fn cloud_deploy_prompt(
         model_id,
         visibility,
     } = options;
-    let deploy_publisher = normalize_deploy_publisher_slug(publisher_slug)?;
+    let deploy_publisher = normalize_prompt_deploy_publisher_slug(publisher_slug)?;
     let runtime_target = resolve_cloud_runtime_target(compute_backend, runtime_kind)?;
     let orchestration_config = load_orchestration_config(None, orchestration_config_path)?;
 

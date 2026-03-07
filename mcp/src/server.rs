@@ -1358,7 +1358,7 @@ pub struct DeployCloudAgentParams {
     pub skill_slug: String,
     /// Display name for the deployment
     pub name: String,
-    /// Optional deployment publisher ("seren-cloud" default, or "seren-agent" for orchestration)
+    /// Optional deployment publisher. Defaults to "seren-agent" for prompt-only LLM deploys and "seren-cloud" for bundle/runtime deploys.
     #[serde(default)]
     pub publisher: Option<String>,
     /// Optional reusable execution environment UUID (AWS container backend only)
@@ -7273,7 +7273,7 @@ API endpoint: {endpoint}",
     // ========================================================================
 
     #[tool(
-        description = "Deploy a skill to Seren Cloud for managed hosting. Supports always_on (persistent) and cron (scheduled) modes. Leave compute_backend/runtime_kind unset, or set them to auto, for AWS-first bundle-based routing. Set compute_backend explicitly to force cloudflare_worker or daytona. Backend/runtime support: aws_container (python/javascript/typescript/rust/rust_wasm_adk), cloudflare_worker (python/javascript/typescript/rust/rust_wasm_adk), daytona (python/javascript/typescript/rust) with cron mode. Auto-routing inspects the uploaded scripts bundle itself: Python/JS/TS entrypoints, shell scripts, Linux binaries, standalone .wasm modules, and Worker JS+.wasm artifacts are all detected from files rather than SKILL.md prose. For prompt-only LLM deployments, omit code_bundle_base64 or pass an empty string and provide orchestration_mode=llm plus system_prompt/model_id. Those runs are guided toward Seren publisher tools by default.",
+        description = "Deploy a skill to Seren Cloud for managed hosting. Supports always_on (persistent) and cron (scheduled) modes. Leave compute_backend/runtime_kind unset, or set them to auto, for AWS-first bundle-based routing. Set compute_backend explicitly to force cloudflare_worker or daytona. Backend/runtime support: aws_container (python/javascript/typescript/rust/rust_wasm_adk), cloudflare_worker (python/javascript/typescript/rust/rust_wasm_adk), daytona (python/javascript/typescript/rust) with cron mode. Auto-routing inspects the uploaded scripts bundle itself: Python/JS/TS entrypoints, shell scripts, Linux binaries, standalone .wasm modules, and Worker JS+.wasm artifacts are all detected from files rather than SKILL.md prose. For prompt-only LLM deployments, omit code_bundle_base64 or pass an empty string and provide orchestration_mode=llm plus system_prompt/model_id. Those runs default to the first-class seren-agent publisher unless you explicitly force seren-cloud, and they are guided toward Seren publisher tools by default.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -7285,8 +7285,17 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<DeployCloudAgentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let publisher = match params.publisher.as_deref().unwrap_or("seren-cloud") {
-            "seren-cloud" | "seren-agent" => params.publisher.as_deref().unwrap_or("seren-cloud"),
+        let default_publisher = if params.code_bundle_base64.trim().is_empty()
+            && params.orchestration_mode.as_deref() == Some("llm")
+        {
+            "seren-agent"
+        } else {
+            "seren-cloud"
+        };
+        let publisher = match params.publisher.as_deref().unwrap_or(default_publisher) {
+            "seren-cloud" | "seren-agent" => {
+                params.publisher.as_deref().unwrap_or(default_publisher)
+            }
             other => {
                 return Err(McpError::invalid_params(
                     format!(
