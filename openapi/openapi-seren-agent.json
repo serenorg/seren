@@ -641,6 +641,16 @@
             ],
             "description": "Optional stable slug for the agent. If omitted, derived from `name`."
           },
+          "allowed_remote_agent_origins": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional allowlist for remote A2A delegation targets.\n\nEntries may be either hostnames (for example `agents.example.com`) or\nfull origins (for example `https://agents.example.com`)."
+          },
           "approval_policy": {
             "oneOf": [
               {
@@ -1023,6 +1033,12 @@
                 "type": "string"
               },
               "allowed_publisher_operations": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "allowed_remote_agent_origins": {
                 "type": "array",
                 "items": {
                   "type": "string"
@@ -1418,6 +1434,7 @@
                 "template",
                 "approval_policy",
                 "model_policy",
+                "changed_fields",
                 "change_summary",
                 "created_at"
               ],
@@ -1432,6 +1449,12 @@
                   "$ref": "#/components/schemas/ManagedAgentRevisionChangeKind"
                 },
                 "change_summary": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "changed_fields": {
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -1527,6 +1550,12 @@
             "type": "string"
           },
           "allowed_publisher_operations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowed_remote_agent_origins": {
             "type": "array",
             "items": {
               "type": "string"
@@ -1665,6 +1694,7 @@
           "template",
           "approval_policy",
           "model_policy",
+          "changed_fields",
           "change_summary",
           "created_at"
         ],
@@ -1679,6 +1709,12 @@
             "$ref": "#/components/schemas/ManagedAgentRevisionChangeKind"
           },
           "change_summary": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "changed_fields": {
             "type": "array",
             "items": {
               "type": "string"
@@ -1840,6 +1876,12 @@
               "type": "string"
             }
           },
+          "allowed_remote_agent_origins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "approval_policy": {
             "$ref": "#/components/schemas/ManagedAgentApprovalPolicy"
           },
@@ -1992,6 +2034,16 @@
               "null"
             ],
             "description": "Updated stable slug for the agent."
+          },
+          "allowed_remote_agent_origins": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Updated allowlist for remote A2A delegation targets.\n\nEntries may be either hostnames (for example `agents.example.com`) or\nfull origins (for example `https://agents.example.com`)."
           },
           "approval_policy": {
             "oneOf": [

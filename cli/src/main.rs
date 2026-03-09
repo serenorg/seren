@@ -600,6 +600,9 @@ enum AgentAction {
         /// Managed model policy preset (fast, balanced, or deep).
         #[arg(long)]
         model_policy: Option<String>,
+        /// Allow remote A2A delegation to these hostnames or origins. Repeat or use commas.
+        #[arg(long = "allow-remote-agent-origin", value_delimiter = ',')]
+        allowed_remote_agent_origins: Vec<String>,
         /// Agent prompt. Required unless provided by --agent-config.
         #[arg(long)]
         prompt: Option<String>,
@@ -668,6 +671,9 @@ enum AgentAction {
         /// Managed model policy preset (fast, balanced, or deep)
         #[arg(long)]
         model_policy: Option<String>,
+        /// Allow remote A2A delegation to these hostnames or origins. Repeat or use commas.
+        #[arg(long = "allow-remote-agent-origin", value_delimiter = ',')]
+        allowed_remote_agent_origins: Vec<String>,
         /// Updated agent prompt
         #[arg(long)]
         prompt: Option<String>,
@@ -712,6 +718,9 @@ enum AgentAction {
         /// Managed model policy preset (fast, balanced, or deep)
         #[arg(long)]
         model_policy: Option<String>,
+        /// Allow remote A2A delegation to these hostnames or origins. Repeat or use commas.
+        #[arg(long = "allow-remote-agent-origin", value_delimiter = ',')]
+        allowed_remote_agent_origins: Vec<String>,
         /// Updated agent prompt
         #[arg(long)]
         prompt: Option<String>,
@@ -3046,6 +3055,7 @@ async fn main() -> anyhow::Result<()> {
                 tool_presets,
                 approval_policy,
                 model_policy,
+                allowed_remote_agent_origins,
                 prompt,
                 model_id,
                 visibility,
@@ -3064,6 +3074,7 @@ async fn main() -> anyhow::Result<()> {
                         tool_presets: &tool_presets,
                         approval_policy: approval_policy.as_deref(),
                         model_policy: model_policy.as_deref(),
+                        allowed_remote_agent_origins: &allowed_remote_agent_origins,
                         config_path: config.as_deref(),
                         env_path: env_file.as_deref(),
                         agent_config_path: agent_config.as_deref(),
@@ -3101,6 +3112,7 @@ async fn main() -> anyhow::Result<()> {
                 tool_presets,
                 approval_policy,
                 model_policy,
+                allowed_remote_agent_origins,
                 prompt,
                 model_id,
                 visibility,
@@ -3118,6 +3130,7 @@ async fn main() -> anyhow::Result<()> {
                         tool_presets: &tool_presets,
                         approval_policy: approval_policy.as_deref(),
                         model_policy: model_policy.as_deref(),
+                        allowed_remote_agent_origins: &allowed_remote_agent_origins,
                         config_path: config.as_deref(),
                         env_path: env_file.as_deref(),
                         agent_config_path: agent_config.as_deref(),
@@ -3138,6 +3151,7 @@ async fn main() -> anyhow::Result<()> {
                 tool_presets,
                 approval_policy,
                 model_policy,
+                allowed_remote_agent_origins,
                 prompt,
                 model_id,
                 visibility,
@@ -3155,6 +3169,7 @@ async fn main() -> anyhow::Result<()> {
                         tool_presets: &tool_presets,
                         approval_policy: approval_policy.as_deref(),
                         model_policy: model_policy.as_deref(),
+                        allowed_remote_agent_origins: &allowed_remote_agent_origins,
                         config_path: config.as_deref(),
                         env_path: env_file.as_deref(),
                         agent_config_path: agent_config.as_deref(),

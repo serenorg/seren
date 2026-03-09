@@ -1462,6 +1462,9 @@ pub struct UpdateSerenAgentDeploymentParams {
     /// Updated managed model policy preset
     #[serde(default)]
     pub model_policy: Option<String>,
+    /// Updated allowlist for remote A2A delegation targets
+    #[serde(default)]
+    pub allowed_remote_agent_origins: Option<Vec<String>>,
     /// Updated JSON config object
     #[serde(default)]
     pub config: Option<serde_json::Value>,
@@ -1510,6 +1513,7 @@ fn build_update_seren_agent_deployment_request(
         "tool_presets": params.tool_presets,
         "approval_policy": params.approval_policy,
         "model_policy": params.model_policy,
+        "allowed_remote_agent_origins": params.allowed_remote_agent_origins,
         "config": params.config,
         "secrets": params.secrets,
         "model_config": params.model_config,
@@ -1569,6 +1573,9 @@ pub struct DeploySerenAgentParams {
     /// Managed model policy preset ("fast", "balanced", or "deep")
     #[serde(default)]
     pub model_policy: Option<String>,
+    /// Allow remote A2A delegation to these hostnames or origins
+    #[serde(default)]
+    pub allowed_remote_agent_origins: Option<Vec<String>>,
     /// JSON config object
     #[serde(default)]
     pub config: Option<serde_json::Value>,
@@ -7586,7 +7593,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Get the resolved managed deployment detail for a seren-agent deployment, including the saved prompt, template, resolved tool presets, allowed publisher operations, runtime overrides, visible config, and secret key names.",
+        description = "Get the resolved managed deployment detail for a seren-agent deployment, including the saved prompt, template, resolved tool presets, allowed publisher operations, remote A2A delegation allowlist, runtime overrides, visible config, and secret key names.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -7683,7 +7690,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Update an existing managed seren-agent deployment. This edits the saved managed spec in place without exposing raw cloud runtime internals. Backend, mode, and runtime remain fixed; update prompt, template, presets, policies, config, secrets, or advanced managed runtime fields instead.",
+        description = "Update an existing managed seren-agent deployment. This edits the saved managed spec in place without exposing raw cloud runtime internals. Backend, mode, and runtime remain fixed; update prompt, template, presets, policies, remote A2A delegation allowlist, config, secrets, or advanced managed runtime fields instead.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -7734,7 +7741,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Deploy a managed prompt-based agent through the first-class seren-agent publisher. Choose the research_monitor template for read-oriented live-data work or workflow_agent for action-oriented workflows, then optionally override presets or policies. This path is AWS-first, hides runtime internals, and supports always_on or cron mode with optional backend override.",
+        description = "Deploy a managed prompt-based agent through the first-class seren-agent publisher. Choose the research_monitor template for read-oriented live-data work or workflow_agent for action-oriented workflows, then optionally override presets, policies, or a remote A2A delegation allowlist. This path is AWS-first, hides runtime internals, and supports always_on or cron mode with optional backend override.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -7782,6 +7789,12 @@ API endpoint: {endpoint}",
         }
         if let Some(model_policy) = params.model_policy {
             body.insert("model_policy".to_string(), serde_json::json!(model_policy));
+        }
+        if let Some(allowed_remote_agent_origins) = params.allowed_remote_agent_origins {
+            body.insert(
+                "allowed_remote_agent_origins".to_string(),
+                serde_json::json!(allowed_remote_agent_origins),
+            );
         }
         if let Some(config) = params.config {
             body.insert("config".to_string(), config);

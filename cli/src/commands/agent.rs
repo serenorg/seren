@@ -1511,6 +1511,7 @@ pub struct CloudDeployPromptOptions<'a> {
     pub tool_presets: &'a [String],
     pub approval_policy: Option<&'a str>,
     pub model_policy: Option<&'a str>,
+    pub allowed_remote_agent_origins: &'a [String],
     pub config_path: Option<&'a str>,
     pub env_path: Option<&'a str>,
     pub agent_config_path: Option<&'a str>,
@@ -1527,6 +1528,7 @@ pub struct ManagedAgentUpdateOptions<'a> {
     pub tool_presets: &'a [String],
     pub approval_policy: Option<&'a str>,
     pub model_policy: Option<&'a str>,
+    pub allowed_remote_agent_origins: &'a [String],
     pub config_path: Option<&'a str>,
     pub env_path: Option<&'a str>,
     pub agent_config_path: Option<&'a str>,
@@ -1565,6 +1567,7 @@ const MANAGED_AGENT_CONFIG_FIELDS: &[&str] = &[
     "tool_presets",
     "approval_policy",
     "model_policy",
+    "allowed_remote_agent_origins",
     "requirements",
     "visibility",
 ];
@@ -1743,6 +1746,12 @@ async fn submit_cloud_deploy_request(
             println!("  Runtime: {}", runtime_kind);
         }
         if let Some(managed_agent) = data.get("managed_agent") {
+            let tool_presets = json_string_list(managed_agent, "tool_presets");
+            let allowed_publisher_operations =
+                json_string_list(managed_agent, "allowed_publisher_operations");
+            let allowed_remote_agent_origins =
+                json_string_list(managed_agent, "allowed_remote_agent_origins");
+            let resolved_tools = json_string_list(managed_agent, "resolved_tools");
             if let Some(target_framework) = managed_agent
                 .get("target_framework")
                 .and_then(|v| v.as_str())
@@ -1752,19 +1761,8 @@ async fn submit_cloud_deploy_request(
             if let Some(template) = managed_agent.get("template").and_then(|v| v.as_str()) {
                 println!("  Template: {}", template);
             }
-            if let Some(tool_presets) = managed_agent
-                .get("tool_presets")
-                .and_then(|v| v.as_array())
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(|value| value.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .filter(|value| !value.is_empty())
-            {
-                println!("  Tool Presets: {}", tool_presets);
+            if !tool_presets.is_empty() {
+                println!("  Tool Presets: {}", tool_presets.join(", "));
             }
             if let Some(approval_policy) = managed_agent
                 .get("approval_policy")
@@ -1772,34 +1770,237 @@ async fn submit_cloud_deploy_request(
             {
                 println!("  Approval Policy: {}", approval_policy);
             }
-            if let Some(allowed_operations) = managed_agent
-                .get("allowed_publisher_operations")
-                .and_then(|v| v.as_array())
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(|value| value.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .filter(|value| !value.is_empty())
-            {
-                println!("  Publisher Ops: {}", allowed_operations);
+            if !allowed_publisher_operations.is_empty() {
+                println!(
+                    "  Publisher Ops: {}",
+                    allowed_publisher_operations.join(", ")
+                );
             }
             if let Some(model_policy) = managed_agent.get("model_policy").and_then(|v| v.as_str()) {
                 println!("  Model Policy: {}", model_policy);
+            }
+            if !allowed_remote_agent_origins.is_empty() {
+                println!(
+                    "  Remote Agent Origins: {}",
+                    allowed_remote_agent_origins.join(", ")
+                );
+            }
+            if !resolved_tools.is_empty() {
+                println!("  Resolved Tools: {}", resolved_tools.join(", "));
+            }
+            let capabilities = managed_capability_summary(
+                &tool_presets,
+                managed_agent
+                    .get("approval_policy")
+                    .and_then(|value| value.as_str()),
+                &allowed_remote_agent_origins,
+            );
+            if !capabilities.is_empty() {
+                println!("  Capabilities: {}", capabilities.join("; "));
             }
             if let Some(routing_reason) =
                 managed_agent.get("routing_reason").and_then(|v| v.as_str())
             {
                 println!("  Routing: {}", routing_reason);
             }
+            println!("  Next: seren agent managed-get {}", id);
+            println!(
+                "  Run:  seren agent cloud-run --deployment-id {} --message \"...\"",
+                id
+            );
         }
     } else {
         output::print_json(&result)?;
     }
 
     Ok(())
+}
+
+fn json_string_list(value: &serde_json::Value, key: &str) -> Vec<String> {
+    value
+        .get(key)
+        .and_then(|items| items.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn managed_capability_summary(
+    tool_presets: &[String],
+    approval_policy: Option<&str>,
+    allowed_remote_agent_origins: &[String],
+) -> Vec<String> {
+    let mut capabilities = vec!["Live data via Seren publishers".to_string()];
+
+    if tool_presets
+        .iter()
+        .any(|preset| preset == "publisher_actions")
+    {
+        capabilities.push("Write-capable publisher actions".to_string());
+    }
+    if tool_presets.iter().any(|preset| preset == "database") {
+        capabilities.push("Direct SerenDB queries".to_string());
+    }
+    match approval_policy {
+        Some("allow_mutations") => {
+            capabilities.push("Mutating publisher and MCP actions allowed".to_string())
+        }
+        Some("read_only") => {
+            capabilities.push("Mutating publisher and MCP actions blocked".to_string())
+        }
+        _ => {}
+    }
+    if !allowed_remote_agent_origins.is_empty() {
+        capabilities.push(format!(
+            "Remote A2A delegation to {} origin{}",
+            allowed_remote_agent_origins.len(),
+            if allowed_remote_agent_origins.len() == 1 {
+                ""
+            } else {
+                "s"
+            }
+        ));
+    }
+
+    capabilities
+}
+
+fn format_optional_string(value: Option<&serde_json::Value>) -> String {
+    match value {
+        Some(serde_json::Value::String(value)) if !value.trim().is_empty() => {
+            value.trim().to_string()
+        }
+        Some(serde_json::Value::Array(items)) if !items.is_empty() => items
+            .iter()
+            .filter_map(|item| item.as_str())
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .collect::<Vec<_>>()
+            .join(", "),
+        Some(serde_json::Value::Null) | None => "—".to_string(),
+        Some(other) => serde_json::to_string(other).unwrap_or_else(|_| "—".to_string()),
+    }
+}
+
+fn print_managed_agent_detail_table(payload: &serde_json::Value) {
+    let detail = payload.get("data").unwrap_or(payload);
+    let tool_presets = json_string_list(detail, "tool_presets");
+    let publisher_ops = json_string_list(detail, "allowed_publisher_operations");
+    let remote_agent_origins = json_string_list(detail, "allowed_remote_agent_origins");
+    let resolved_tools = json_string_list(detail, "resolved_tools");
+    let fallback_models = json_string_list(detail, "fallback_models");
+    let secret_keys = json_string_list(detail, "secret_keys");
+    let capabilities = managed_capability_summary(
+        &tool_presets,
+        detail
+            .get("approval_policy")
+            .and_then(|value| value.as_str()),
+        &remote_agent_origins,
+    );
+
+    let rows = vec![
+        (
+            "Deployment ID",
+            format_optional_string(detail.get("deployment_id")),
+        ),
+        ("Name", format_optional_string(detail.get("name"))),
+        (
+            "Agent Slug",
+            format_optional_string(detail.get("agent_slug")),
+        ),
+        ("Mode", format_optional_string(detail.get("mode"))),
+        ("Status", format_optional_string(detail.get("status"))),
+        (
+            "Backend",
+            format_optional_string(detail.get("compute_backend")),
+        ),
+        (
+            "Runtime",
+            format_optional_string(detail.get("runtime_kind")),
+        ),
+        ("Template", format_optional_string(detail.get("template"))),
+        (
+            "Approval Policy",
+            format_optional_string(detail.get("approval_policy")),
+        ),
+        (
+            "Model Policy",
+            format_optional_string(detail.get("model_policy")),
+        ),
+        (
+            "Tool Presets",
+            if tool_presets.is_empty() {
+                "—".to_string()
+            } else {
+                tool_presets.join(", ")
+            },
+        ),
+        (
+            "Publisher Ops",
+            if publisher_ops.is_empty() {
+                "—".to_string()
+            } else {
+                publisher_ops.join(", ")
+            },
+        ),
+        (
+            "Remote Agent Origins",
+            if remote_agent_origins.is_empty() {
+                "—".to_string()
+            } else {
+                remote_agent_origins.join(", ")
+            },
+        ),
+        (
+            "Resolved Tools",
+            if resolved_tools.is_empty() {
+                "—".to_string()
+            } else {
+                resolved_tools.join(", ")
+            },
+        ),
+        (
+            "Fallback Models",
+            if fallback_models.is_empty() {
+                "—".to_string()
+            } else {
+                fallback_models.join(", ")
+            },
+        ),
+        (
+            "Secret Keys",
+            if secret_keys.is_empty() {
+                "—".to_string()
+            } else {
+                secret_keys.join(", ")
+            },
+        ),
+        (
+            "Capabilities",
+            if capabilities.is_empty() {
+                "—".to_string()
+            } else {
+                capabilities.join("; ")
+            },
+        ),
+        (
+            "Visibility",
+            format_optional_string(detail.get("visibility")),
+        ),
+        (
+            "Routing Reason",
+            format_optional_string(detail.get("routing_reason")),
+        ),
+    ];
+
+    output::print_key_value_table(Some("Managed Deployment"), &rows);
 }
 
 /// Deploy a skill directory to Seren Cloud.
@@ -1988,6 +2189,7 @@ pub async fn cloud_deploy_prompt(
         tool_presets,
         approval_policy,
         model_policy,
+        allowed_remote_agent_origins,
         config_path,
         env_path,
         agent_config_path,
@@ -2084,6 +2286,12 @@ pub async fn cloud_deploy_prompt(
     {
         body.insert("model_policy".to_string(), serde_json::json!(model_policy));
     }
+    if !allowed_remote_agent_origins.is_empty() {
+        body.insert(
+            "allowed_remote_agent_origins".to_string(),
+            serde_json::json!(allowed_remote_agent_origins),
+        );
+    }
     if let Some(schedule) = cron_schedule {
         body.insert("cron_schedule".to_string(), serde_json::json!(schedule));
     }
@@ -2132,7 +2340,14 @@ pub async fn managed_agent_get(deployment_id: Uuid, ctx: &CommandContext) -> Res
             return Err(anyhow_from_seren_error("Failed to get managed agent detail", err).await);
         }
     };
-    output::print_json(&response.into_inner())?;
+    let payload = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&payload)?,
+        OutputFormat::Table => {
+            let value = serde_json::to_value(&payload)?;
+            print_managed_agent_detail_table(&value);
+        }
+    }
     Ok(())
 }
 
@@ -2167,6 +2382,7 @@ fn build_managed_agent_update_request(
         tool_presets,
         approval_policy,
         model_policy,
+        allowed_remote_agent_origins,
         config_path,
         env_path,
         agent_config_path,
@@ -2227,6 +2443,12 @@ fn build_managed_agent_update_request(
         .filter(|value| !value.is_empty())
     {
         body.insert("model_policy".to_string(), serde_json::json!(model_policy));
+    }
+    if !allowed_remote_agent_origins.is_empty() {
+        body.insert(
+            "allowed_remote_agent_origins".to_string(),
+            serde_json::json!(allowed_remote_agent_origins),
+        );
     }
     if let Some(cfg) = &config {
         body.insert("config".to_string(), cfg.clone());
