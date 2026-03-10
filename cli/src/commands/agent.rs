@@ -3000,6 +3000,70 @@ fn parse_cloud_eval_criteria(
         .map_err(|e| anyhow::anyhow!("Invalid eval criteria payload: {e}"))
 }
 
+fn parse_schedule_field(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn build_cloud_eval_set_schedule_request(
+    schedule_cron: Option<&str>,
+    schedule_timezone: Option<&str>,
+) -> Result<Option<seren::CloudEvalSetScheduleRequest>> {
+    match (
+        parse_schedule_field(schedule_cron),
+        parse_schedule_field(schedule_timezone),
+    ) {
+        (None, None) => Ok(None),
+        (Some(schedule_cron), Some(schedule_timezone)) => {
+            Ok(Some(seren::CloudEvalSetScheduleRequest {
+                schedule_cron,
+                schedule_timezone,
+            }))
+        }
+        _ => Err(anyhow::anyhow!(
+            "Provide both --schedule-cron and --schedule-timezone together.",
+        )),
+    }
+}
+
+fn resolve_cloud_eval_set_schedule_request(
+    eval_set: &seren::CloudEvalSet,
+    schedule_cron: Option<&str>,
+    schedule_timezone: Option<&str>,
+    clear_schedule: bool,
+) -> Result<Option<seren::CloudEvalSetScheduleRequest>> {
+    if clear_schedule {
+        if parse_schedule_field(schedule_cron).is_some()
+            || parse_schedule_field(schedule_timezone).is_some()
+        {
+            return Err(anyhow::anyhow!(
+                "Do not combine --clear-schedule with --schedule-cron/--schedule-timezone.",
+            ));
+        }
+        return Ok(None);
+    }
+
+    let current_cron = eval_set_schedule_string(eval_set, "schedule_cron");
+    let current_timezone = eval_set_schedule_string(eval_set, "schedule_timezone");
+    match (
+        parse_schedule_field(schedule_cron).or(current_cron),
+        parse_schedule_field(schedule_timezone).or(current_timezone),
+    ) {
+        (None, None) => Ok(None),
+        (Some(schedule_cron), Some(schedule_timezone)) => {
+            Ok(Some(seren::CloudEvalSetScheduleRequest {
+                schedule_cron,
+                schedule_timezone,
+            }))
+        }
+        _ => Err(anyhow::anyhow!(
+            "Eval set schedule requires both cron and timezone values.",
+        )),
+    }
+}
+
 fn extract_run_identifiers(response_body: &serde_json::Value) -> (Option<String>, Option<String>) {
     let data = response_body.get("data").unwrap_or(response_body);
     let run_id = data
@@ -3150,18 +3214,19 @@ fn print_cloud_eval_set_table(
     }
 
     println!(
-        "{:<38} {:<28} {:<38} {:<24}",
-        "EVAL SET ID", "NAME", "DEPLOYMENT", "UPDATED"
+        "{:<38} {:<24} {:<38} {:<24} {:<24}",
+        "EVAL SET ID", "NAME", "DEPLOYMENT", "SCHEDULE", "UPDATED"
     );
     for eval_set in eval_sets {
         println!(
-            "{:<38} {:<28} {:<38} {:<24}",
+            "{:<38} {:<24} {:<38} {:<24} {:<24}",
             eval_set.id,
-            eval_set.name,
+            truncate_for_cli(&eval_set.name, 24),
             eval_set
                 .deployment_id
                 .map(|id| id.to_string())
                 .unwrap_or_else(|| "-".to_string()),
+            truncate_for_cli(&format_eval_set_schedule_brief(eval_set), 24),
             eval_set.updated_at,
         );
     }
@@ -3300,6 +3365,51 @@ fn print_cloud_eval_set_detail(eval_set: &seren::CloudEvalSet) -> Result<()> {
         );
     }
 
+    let schedule = eval_set_schedule_json(eval_set);
+    if json_value_has_content(&schedule) {
+        println!();
+        output::print_key_value_table(
+            Some("Schedule"),
+            &[
+                (
+                    "Cron",
+                    eval_run_summary_string(&schedule, "schedule_cron")
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Timezone",
+                    eval_run_summary_string(&schedule, "schedule_timezone")
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Next Run",
+                    eval_run_summary_string(&schedule, "schedule_next_run_at")
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Last Attempted",
+                    eval_run_summary_string(&schedule, "schedule_last_attempted_at")
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Last Status",
+                    eval_run_summary_string(&schedule, "schedule_last_status")
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Last Message",
+                    eval_run_summary_string(&schedule, "schedule_last_message")
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Last Eval Run ID",
+                    eval_run_summary_string(&schedule, "schedule_last_eval_run_id")
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+            ],
+        );
+    }
+
     if json_value_has_content(&eval_set.metadata) {
         println!();
         println!("{}", "Metadata".bold());
@@ -3369,6 +3479,31 @@ fn print_cloud_eval_case_detail(eval_case: &seren::CloudEvalCase) -> Result<()> 
 
 fn eval_set_criteria_json(eval_set: &seren::CloudEvalSet) -> serde_json::Value {
     serde_json::to_value(&eval_set.criteria).unwrap_or(serde_json::Value::Null)
+}
+
+fn eval_set_schedule_json(eval_set: &seren::CloudEvalSet) -> serde_json::Value {
+    serde_json::to_value(&eval_set.schedule).unwrap_or(serde_json::Value::Null)
+}
+
+fn eval_set_schedule_string(eval_set: &seren::CloudEvalSet, key: &str) -> Option<String> {
+    eval_set_schedule_json(eval_set)
+        .as_object()?
+        .get(key)?
+        .as_str()
+        .map(ToString::to_string)
+}
+
+fn format_eval_set_schedule_brief(eval_set: &seren::CloudEvalSet) -> String {
+    match (
+        eval_set_schedule_string(eval_set, "schedule_cron"),
+        eval_set_schedule_string(eval_set, "schedule_timezone"),
+    ) {
+        (Some(schedule_cron), Some(schedule_timezone)) => {
+            format!("{schedule_cron} ({schedule_timezone})")
+        }
+        (Some(schedule_cron), None) => schedule_cron,
+        _ => "-".to_string(),
+    }
 }
 
 fn eval_run_summary_json(eval_run: &seren::CloudEvalRun) -> serde_json::Value {
@@ -3834,16 +3969,21 @@ pub async fn cloud_eval_set_create(
     criteria_file: Option<&str>,
     metadata_json: Option<&str>,
     metadata_file: Option<&str>,
+    schedule_cron: Option<&str>,
+    schedule_timezone: Option<&str>,
     ctx: &CommandContext,
 ) -> Result<()> {
     let criteria = parse_cloud_eval_criteria(criteria_json, criteria_file)?;
-    let metadata = parse_optional_metadata_object(metadata_json, metadata_file)?;
+    let metadata = parse_optional_metadata_object(metadata_json, metadata_file)?
+        .unwrap_or_else(|| serde_json::json!({}));
+    let schedule = build_cloud_eval_set_schedule_request(schedule_cron, schedule_timezone)?;
     let request = seren::CreateCloudEvalSetRequest {
         criteria: Some(criteria),
         deployment_id,
         description: description.map(ToOwned::to_owned),
-        metadata,
+        metadata: Some(metadata),
         name: name.to_string(),
+        schedule,
     };
     let client = ctx.client().await?;
     let response = client
@@ -3865,6 +4005,94 @@ pub async fn cloud_eval_set_get(eval_set_id: Uuid, ctx: &CommandContext) -> Resu
     let client = ctx.client().await?;
     let response = client
         .seren_cloud_get_eval_set(&eval_set_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => print_cloud_eval_set_detail(&response.data)?,
+    }
+
+    Ok(())
+}
+
+/// Replace a single eval set.
+#[allow(clippy::too_many_arguments)]
+pub async fn cloud_eval_set_update(
+    eval_set_id: Uuid,
+    name: Option<&str>,
+    deployment_id: Option<Uuid>,
+    clear_deployment: bool,
+    description: Option<&str>,
+    criteria_json: Option<&str>,
+    criteria_file: Option<&str>,
+    metadata_json: Option<&str>,
+    metadata_file: Option<&str>,
+    schedule_cron: Option<&str>,
+    schedule_timezone: Option<&str>,
+    clear_schedule: bool,
+    ctx: &CommandContext,
+) -> Result<()> {
+    if clear_deployment && deployment_id.is_some() {
+        return Err(anyhow::anyhow!(
+            "Do not combine --clear-deployment with --deployment-id.",
+        ));
+    }
+
+    let client = ctx.client().await?;
+    let current = client
+        .seren_cloud_get_eval_set(&eval_set_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to load current eval set: {}", e))?
+        .into_inner()
+        .data;
+
+    let criteria = if criteria_json.is_some() || criteria_file.is_some() {
+        parse_cloud_eval_criteria(criteria_json, criteria_file)?
+    } else {
+        current.criteria.clone()
+    };
+    let metadata = if metadata_json.is_some() || metadata_file.is_some() {
+        parse_optional_metadata_object(metadata_json, metadata_file)?
+            .unwrap_or_else(|| serde_json::json!({}))
+    } else {
+        current.metadata.clone()
+    };
+    let schedule = resolve_cloud_eval_set_schedule_request(
+        &current,
+        schedule_cron,
+        schedule_timezone,
+        clear_schedule,
+    )?;
+    let request = seren::UpdateCloudEvalSetRequest {
+        name: name
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+            .unwrap_or_else(|| current.name.clone()),
+        description: match description {
+            Some(value) => {
+                let trimmed = value.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            }
+            None => current.description.clone(),
+        },
+        deployment_id: if clear_deployment {
+            None
+        } else {
+            deployment_id.or(current.deployment_id)
+        },
+        criteria: Some(criteria),
+        metadata: Some(metadata),
+        schedule,
+    };
+    let response = client
+        .seren_cloud_update_eval_set(&eval_set_id, &request)
         .await
         .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
         .into_inner();

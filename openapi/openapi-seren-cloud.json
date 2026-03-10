@@ -1165,6 +1165,58 @@
             "bearer_auth": []
           }
         ]
+      },
+      "put": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Replace an eval set definition, including schedule and criteria.",
+        "operationId": "seren_cloud_update_eval_set",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Eval set ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCloudEvalSetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Eval set updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudEvalSet"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Eval set or deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
     "/eval-sets/{id}/cases": {
@@ -3190,9 +3242,82 @@
             "type": "string",
             "format": "uuid"
           },
+          "schedule": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudEvalSetSchedule"
+              }
+            ]
+          },
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "CloudEvalSetSchedule": {
+        "type": "object",
+        "description": "Scheduler state for automatically executing a seren-cloud eval set.",
+        "required": [
+          "schedule_cron",
+          "schedule_timezone",
+          "schedule_next_run_at"
+        ],
+        "properties": {
+          "schedule_cron": {
+            "type": "string"
+          },
+          "schedule_last_attempted_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "schedule_last_eval_run_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "schedule_last_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schedule_last_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schedule_next_run_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "schedule_timezone": {
+            "type": "string"
+          }
+        }
+      },
+      "CloudEvalSetScheduleRequest": {
+        "type": "object",
+        "description": "Request body for enabling or updating scheduled eval execution.",
+        "required": [
+          "schedule_cron",
+          "schedule_timezone"
+        ],
+        "properties": {
+          "schedule_cron": {
+            "type": "string"
+          },
+          "schedule_timezone": {
+            "type": "string"
           }
         }
       },
@@ -3426,6 +3551,16 @@
           "metadata": {},
           "name": {
             "type": "string"
+          },
+          "schedule": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudEvalSetScheduleRequest"
+              }
+            ]
           }
         }
       },
@@ -4380,6 +4515,16 @@
               "organization_id": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "schedule": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudEvalSetSchedule"
+                  }
+                ]
               },
               "updated_at": {
                 "type": "string",
@@ -5527,6 +5672,16 @@
                   "type": "string",
                   "format": "uuid"
                 },
+                "schedule": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CloudEvalSetSchedule"
+                    }
+                  ]
+                },
                 "updated_at": {
                   "type": "string",
                   "format": "date-time"
@@ -5979,6 +6134,45 @@
         "properties": {
           "config": {},
           "secrets": {}
+        }
+      },
+      "UpdateCloudEvalSetRequest": {
+        "type": "object",
+        "description": "Request body for replacing a seren-cloud eval set.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "criteria": {
+            "$ref": "#/components/schemas/CloudEvalCriteria"
+          },
+          "deployment_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metadata": {},
+          "name": {
+            "type": "string"
+          },
+          "schedule": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudEvalSetScheduleRequest"
+              }
+            ]
+          }
         }
       }
     }

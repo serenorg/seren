@@ -889,11 +889,55 @@ enum AgentAction {
         /// Optional path to a metadata JSON file
         #[arg(long = "metadata-file")]
         metadata_file: Option<String>,
+        /// Optional cron schedule for automatically running the eval set
+        #[arg(long = "schedule-cron")]
+        schedule_cron: Option<String>,
+        /// Optional timezone for the scheduled eval cron expression
+        #[arg(long = "schedule-timezone")]
+        schedule_timezone: Option<String>,
     },
     /// Get a single eval set
     CloudEvalSetGet {
         /// Eval set ID (UUID)
         eval_set_id: Uuid,
+    },
+    /// Update an eval set
+    CloudEvalSetUpdate {
+        /// Eval set ID (UUID)
+        eval_set_id: Uuid,
+        /// Updated eval set name
+        #[arg(long)]
+        name: Option<String>,
+        /// Updated deployment scope (UUID)
+        #[arg(long)]
+        deployment_id: Option<Uuid>,
+        /// Remove deployment scoping from the eval set
+        #[arg(long)]
+        clear_deployment: bool,
+        /// Updated description (pass empty string to clear)
+        #[arg(long)]
+        description: Option<String>,
+        /// Updated eval criteria JSON object
+        #[arg(long = "criteria")]
+        criteria_json: Option<String>,
+        /// Optional path to an eval criteria JSON file
+        #[arg(long = "criteria-file")]
+        criteria_file: Option<String>,
+        /// Updated metadata JSON object
+        #[arg(long = "metadata")]
+        metadata_json: Option<String>,
+        /// Optional path to a metadata JSON file
+        #[arg(long = "metadata-file")]
+        metadata_file: Option<String>,
+        /// Updated cron schedule for automatically running the eval set
+        #[arg(long = "schedule-cron")]
+        schedule_cron: Option<String>,
+        /// Updated timezone for the scheduled eval cron expression
+        #[arg(long = "schedule-timezone")]
+        schedule_timezone: Option<String>,
+        /// Disable scheduled execution for this eval set
+        #[arg(long)]
+        clear_schedule: bool,
     },
     /// List eval cases within a set
     CloudEvalCases {
@@ -3437,6 +3481,8 @@ async fn main() -> anyhow::Result<()> {
                 criteria_file,
                 metadata_json,
                 metadata_file,
+                schedule_cron,
+                schedule_timezone,
             } => {
                 commands::agent::cloud_eval_set_create(
                     &name,
@@ -3446,12 +3492,45 @@ async fn main() -> anyhow::Result<()> {
                     criteria_file.as_deref(),
                     metadata_json.as_deref(),
                     metadata_file.as_deref(),
+                    schedule_cron.as_deref(),
+                    schedule_timezone.as_deref(),
                     &ctx,
                 )
                 .await?
             }
             AgentAction::CloudEvalSetGet { eval_set_id } => {
                 commands::agent::cloud_eval_set_get(eval_set_id, &ctx).await?
+            }
+            AgentAction::CloudEvalSetUpdate {
+                eval_set_id,
+                name,
+                deployment_id,
+                clear_deployment,
+                description,
+                criteria_json,
+                criteria_file,
+                metadata_json,
+                metadata_file,
+                schedule_cron,
+                schedule_timezone,
+                clear_schedule,
+            } => {
+                commands::agent::cloud_eval_set_update(
+                    eval_set_id,
+                    name.as_deref(),
+                    deployment_id,
+                    clear_deployment,
+                    description.as_deref(),
+                    criteria_json.as_deref(),
+                    criteria_file.as_deref(),
+                    metadata_json.as_deref(),
+                    metadata_file.as_deref(),
+                    schedule_cron.as_deref(),
+                    schedule_timezone.as_deref(),
+                    clear_schedule,
+                    &ctx,
+                )
+                .await?
             }
             AgentAction::CloudEvalCases {
                 eval_set_id,

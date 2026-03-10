@@ -1740,12 +1740,129 @@ pub struct CreateCloudEvalSetParams {
     /// Optional metadata JSON object
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
+    /// Optional cron schedule for automatically running the eval set
+    #[serde(default)]
+    pub schedule_cron: Option<String>,
+    /// Optional timezone for the scheduled eval cron expression
+    #[serde(default)]
+    pub schedule_timezone: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CloudEvalSetIdParams {
     /// Eval set UUID
     pub eval_set_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct UpdateCloudEvalSetParams {
+    /// Eval set UUID
+    pub eval_set_id: Uuid,
+    /// Updated eval set name
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Updated deployment UUID scope
+    #[serde(default)]
+    pub deployment_id: Option<Uuid>,
+    /// Remove deployment scoping from the eval set
+    #[serde(default)]
+    pub clear_deployment: bool,
+    /// Updated description (empty string clears it)
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Updated eval criteria JSON object
+    #[serde(default)]
+    pub criteria: Option<serde_json::Value>,
+    /// Updated metadata JSON object
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+    /// Updated cron schedule for automatically running the eval set
+    #[serde(default)]
+    pub schedule_cron: Option<String>,
+    /// Updated timezone for the scheduled eval cron expression
+    #[serde(default)]
+    pub schedule_timezone: Option<String>,
+    /// Disable scheduled execution for this eval set
+    #[serde(default)]
+    pub clear_schedule: bool,
+}
+
+fn parse_schedule_field(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn build_cloud_eval_set_schedule_request(
+    schedule_cron: Option<&str>,
+    schedule_timezone: Option<&str>,
+) -> Result<Option<seren::CloudEvalSetScheduleRequest>, McpError> {
+    match (
+        parse_schedule_field(schedule_cron),
+        parse_schedule_field(schedule_timezone),
+    ) {
+        (None, None) => Ok(None),
+        (Some(schedule_cron), Some(schedule_timezone)) => {
+            Ok(Some(seren::CloudEvalSetScheduleRequest {
+                schedule_cron,
+                schedule_timezone,
+            }))
+        }
+        _ => Err(McpError::invalid_params(
+            "Provide both schedule_cron and schedule_timezone together.",
+            None,
+        )),
+    }
+}
+
+fn eval_set_schedule_json(eval_set: &seren::CloudEvalSet) -> serde_json::Value {
+    serde_json::to_value(&eval_set.schedule).unwrap_or(serde_json::Value::Null)
+}
+
+fn eval_set_schedule_string(eval_set: &seren::CloudEvalSet, key: &str) -> Option<String> {
+    eval_set_schedule_json(eval_set)
+        .as_object()?
+        .get(key)?
+        .as_str()
+        .map(ToString::to_string)
+}
+
+fn resolve_cloud_eval_set_schedule_request(
+    eval_set: &seren::CloudEvalSet,
+    schedule_cron: Option<&str>,
+    schedule_timezone: Option<&str>,
+    clear_schedule: bool,
+) -> Result<Option<seren::CloudEvalSetScheduleRequest>, McpError> {
+    if clear_schedule {
+        if parse_schedule_field(schedule_cron).is_some()
+            || parse_schedule_field(schedule_timezone).is_some()
+        {
+            return Err(McpError::invalid_params(
+                "Do not combine clear_schedule with schedule_cron or schedule_timezone.",
+                None,
+            ));
+        }
+        return Ok(None);
+    }
+
+    match (
+        parse_schedule_field(schedule_cron).or(eval_set_schedule_string(eval_set, "schedule_cron")),
+        parse_schedule_field(schedule_timezone)
+            .or(eval_set_schedule_string(eval_set, "schedule_timezone")),
+    ) {
+        (None, None) => Ok(None),
+        (Some(schedule_cron), Some(schedule_timezone)) => {
+            Ok(Some(seren::CloudEvalSetScheduleRequest {
+                schedule_cron,
+                schedule_timezone,
+            }))
+        }
+        _ => Err(McpError::invalid_params(
+            "Eval set schedule requires both cron and timezone values.",
+            None,
+        )),
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -8486,7 +8603,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Create a durable eval set for seren-cloud runs. Use deployment_id to scope the set to a specific deployment, criteria to define pass/fail thresholds, and metadata for labels or ownership data.",
+        description = "Create a durable eval set for seren-cloud runs. Use deployment_id to scope the set to a specific deployment, criteria to define pass/fail thresholds, metadata for labels or ownership data, and schedule_cron plus schedule_timezone to run the eval set automatically.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn create_cloud_eval_set(
@@ -8515,14 +8632,19 @@ API endpoint: {endpoint}",
             params.criteria.unwrap_or_else(|| serde_json::json!({})),
         )
         .map_err(|e| McpError::invalid_params(format!("Invalid criteria payload: {e}"), None))?;
+        let schedule = build_cloud_eval_set_schedule_request(
+            params.schedule_cron.as_deref(),
+            params.schedule_timezone.as_deref(),
+        )?;
 
         let api_client = self.api_client(&extensions)?;
         let request = seren::CreateCloudEvalSetRequest {
             criteria: Some(criteria),
             deployment_id: params.deployment_id,
             description: params.description,
-            metadata: params.metadata,
+            metadata: Some(params.metadata.unwrap_or_else(|| serde_json::json!({}))),
             name: params.name,
+            schedule,
         };
         let response = api_client
             .seren_cloud_create_eval_set(&request)
@@ -8544,6 +8666,102 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_get_eval_set(&params.eval_set_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Replace an existing eval set. Use clear_deployment to remove deployment scoping, or clear_schedule to disable scheduled execution.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn update_cloud_eval_set(
+        &self,
+        Parameters(params): Parameters<UpdateCloudEvalSetParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        if params.clear_deployment && params.deployment_id.is_some() {
+            return Err(McpError::invalid_params(
+                "Do not combine clear_deployment with deployment_id.",
+                None,
+            ));
+        }
+        if let Some(name) = &params.name
+            && name.trim().is_empty()
+        {
+            return Err(McpError::invalid_params(
+                "name must not be empty when provided.",
+                None,
+            ));
+        }
+        if let Some(criteria) = &params.criteria
+            && !criteria.is_object()
+        {
+            return Err(McpError::invalid_params(
+                "criteria must be a JSON object when provided.",
+                None,
+            ));
+        }
+        if let Some(metadata) = &params.metadata
+            && !metadata.is_object()
+        {
+            return Err(McpError::invalid_params(
+                "metadata must be a JSON object when provided.",
+                None,
+            ));
+        }
+
+        let api_client = self.api_client(&extensions)?;
+        let current = api_client
+            .seren_cloud_get_eval_set(&params.eval_set_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner()
+            .data;
+
+        let criteria = match params.criteria {
+            Some(criteria) => serde_json::from_value::<seren::CloudEvalCriteria>(criteria)
+                .map_err(|e| {
+                    McpError::invalid_params(format!("Invalid criteria payload: {e}"), None)
+                })?,
+            None => current.criteria.clone(),
+        };
+        let metadata = params.metadata.unwrap_or_else(|| current.metadata.clone());
+        let schedule = resolve_cloud_eval_set_schedule_request(
+            &current,
+            params.schedule_cron.as_deref(),
+            params.schedule_timezone.as_deref(),
+            params.clear_schedule,
+        )?;
+        let request = seren::UpdateCloudEvalSetRequest {
+            name: params
+                .name
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| current.name.clone()),
+            description: match params.description {
+                Some(description) => {
+                    let trimmed = description.trim();
+                    if trimmed.is_empty() {
+                        None
+                    } else {
+                        Some(trimmed.to_string())
+                    }
+                }
+                None => current.description.clone(),
+            },
+            deployment_id: if params.clear_deployment {
+                None
+            } else {
+                params.deployment_id.or(current.deployment_id)
+            },
+            criteria: Some(criteria),
+            metadata: Some(metadata),
+            schedule,
+        };
+        let response = api_client
+            .seren_cloud_update_eval_set(&params.eval_set_id, &request)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
