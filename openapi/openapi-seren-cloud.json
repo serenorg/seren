@@ -1343,6 +1343,302 @@
         ]
       }
     },
+    "/eval-sets/{id}/runs": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List eval runs within a set.",
+        "operationId": "seren_cloud_eval_runs",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Eval set ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max eval runs to return (default: 50, max: 200)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Pagination offset",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Eval runs listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_CloudEvalRun"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Eval set not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Execute an eval set against a deployment.",
+        "operationId": "seren_cloud_run_eval_set",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Eval set ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCloudEvalRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Eval run accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudEvalRun"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Eval set or deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/eval-sets/{id}/runs/{run_id}": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Get a single eval run.",
+        "operationId": "seren_cloud_get_eval_run",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Eval set ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Eval run ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Eval run details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudEvalRun"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Eval run not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/eval-sets/{id}/runs/{run_id}/results": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List case results for an eval run.",
+        "operationId": "seren_cloud_eval_run_results",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Eval set ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Eval run ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max case results to return (default: 50, max: 200)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Pagination offset",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Eval case results listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_CloudEvalCaseResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Eval run not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/eval-sets/{id}/runs/{run_id}/results/{case_id}": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Get a single case result from an eval run.",
+        "operationId": "seren_cloud_get_eval_case_result",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Eval set ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Eval run ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "case_id",
+            "in": "path",
+            "description": "Eval case ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Eval case result details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudEvalCaseResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Eval case result not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/runs": {
       "get": {
         "tags": [
@@ -2381,6 +2677,219 @@
           }
         }
       },
+      "CloudEvalCaseResult": {
+        "type": "object",
+        "description": "Per-case result row captured when running an eval set.",
+        "required": [
+          "id",
+          "eval_run_id",
+          "eval_set_id",
+          "eval_case_id",
+          "organization_id",
+          "status",
+          "expected_eval_capture",
+          "actual_eval_capture",
+          "expected_replay_events",
+          "actual_replay_events",
+          "comparison",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "actual_eval_capture": {},
+          "actual_output_sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actual_replay_events": {},
+          "actual_run_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "actual_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "comparison": {},
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deployment_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "eval_case_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "eval_run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "eval_set_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_eval_capture": {},
+          "expected_output_sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expected_replay_events": {},
+          "expected_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "metadata": {},
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "status_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CloudEvalRun": {
+        "type": "object",
+        "description": "Durable execution record for running an eval set against a deployment.",
+        "required": [
+          "id",
+          "eval_set_id",
+          "organization_id",
+          "created_by_user_id",
+          "status",
+          "total_cases",
+          "completed_cases",
+          "passed_cases",
+          "failed_cases",
+          "errored_cases",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "completed_cases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by_user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deployment_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "errored_cases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "eval_set_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "failed_cases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "metadata": {},
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "passed_cases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "status_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total_cases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "CloudEvalSet": {
         "type": "object",
         "description": "Durable grouping for reusable seren-cloud eval cases.",
@@ -2621,6 +3130,20 @@
               "type": "string"
             }
           }
+        }
+      },
+      "CreateCloudEvalRunRequest": {
+        "type": "object",
+        "description": "Request body for executing an eval set against a deployment.",
+        "properties": {
+          "deployment_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "metadata": {}
         }
       },
       "CreateCloudEvalSetRequest": {
@@ -3263,6 +3786,259 @@
                   "null"
                 ],
                 "format": "uuid"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudEvalCaseResult": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Per-case result row captured when running an eval set.",
+            "required": [
+              "id",
+              "eval_run_id",
+              "eval_set_id",
+              "eval_case_id",
+              "organization_id",
+              "status",
+              "expected_eval_capture",
+              "actual_eval_capture",
+              "expected_replay_events",
+              "actual_replay_events",
+              "comparison",
+              "metadata",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "actual_eval_capture": {},
+              "actual_output_sha256": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "actual_replay_events": {},
+              "actual_run_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "actual_status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "comparison": {},
+              "completed_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "deployment_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "eval_case_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "eval_run_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "eval_set_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "expected_eval_capture": {},
+              "expected_output_sha256": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expected_replay_events": {},
+              "expected_status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "metadata": {},
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "started_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "status": {
+                "type": "string"
+              },
+              "status_message": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudEvalRun": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Durable execution record for running an eval set against a deployment.",
+            "required": [
+              "id",
+              "eval_set_id",
+              "organization_id",
+              "created_by_user_id",
+              "status",
+              "total_cases",
+              "completed_cases",
+              "passed_cases",
+              "failed_cases",
+              "errored_cases",
+              "metadata",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "completed_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "completed_cases": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "created_by_user_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "deployment_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "errored_cases": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "eval_set_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "failed_cases": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "metadata": {},
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "passed_cases": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "started_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "status": {
+                "type": "string"
+              },
+              "status_message": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "total_cases": {
+                "type": "integer",
+                "format": "int32"
               },
               "updated_at": {
                 "type": "string",
@@ -4135,6 +4911,265 @@
                     "null"
                   ],
                   "format": "uuid"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_CloudEvalCaseResult": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Per-case result row captured when running an eval set.",
+              "required": [
+                "id",
+                "eval_run_id",
+                "eval_set_id",
+                "eval_case_id",
+                "organization_id",
+                "status",
+                "expected_eval_capture",
+                "actual_eval_capture",
+                "expected_replay_events",
+                "actual_replay_events",
+                "comparison",
+                "metadata",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "actual_eval_capture": {},
+                "actual_output_sha256": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "actual_replay_events": {},
+                "actual_run_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "actual_status": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "comparison": {},
+                "completed_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "deployment_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "eval_case_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "eval_run_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "eval_set_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "expected_eval_capture": {},
+                "expected_output_sha256": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "expected_replay_events": {},
+                "expected_status": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "metadata": {},
+                "organization_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "started_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "status_message": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_CloudEvalRun": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Durable execution record for running an eval set against a deployment.",
+              "required": [
+                "id",
+                "eval_set_id",
+                "organization_id",
+                "created_by_user_id",
+                "status",
+                "total_cases",
+                "completed_cases",
+                "passed_cases",
+                "failed_cases",
+                "errored_cases",
+                "metadata",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "completed_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "completed_cases": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "created_by_user_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "deployment_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "errored_cases": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "eval_set_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "failed_cases": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "metadata": {},
+                "organization_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "passed_cases": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "started_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "status_message": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "total_cases": {
+                  "type": "integer",
+                  "format": "int32"
                 },
                 "updated_at": {
                   "type": "string",

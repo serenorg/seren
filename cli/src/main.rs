@@ -923,6 +923,60 @@ enum AgentAction {
         #[arg(long = "metadata-file")]
         metadata_file: Option<String>,
     },
+    /// Execute an eval set against a deployment
+    CloudEvalRunCreate {
+        /// Eval set ID (UUID)
+        eval_set_id: Uuid,
+        /// Optional deployment override (required when the eval set is not deployment-scoped)
+        #[arg(long)]
+        deployment_id: Option<Uuid>,
+        /// Optional metadata JSON object
+        #[arg(long = "metadata")]
+        metadata_json: Option<String>,
+        /// Optional path to a metadata JSON file
+        #[arg(long = "metadata-file")]
+        metadata_file: Option<String>,
+    },
+    /// List eval runs within a set
+    CloudEvalRuns {
+        /// Eval set ID (UUID)
+        eval_set_id: Uuid,
+        /// Maximum eval runs to return
+        #[arg(long, default_value = "50")]
+        limit: i64,
+        /// Offset for pagination
+        #[arg(long, default_value = "0")]
+        offset: i64,
+    },
+    /// Get a single eval run within a set
+    CloudEvalRunGet {
+        /// Eval set ID (UUID)
+        eval_set_id: Uuid,
+        /// Eval run ID (UUID)
+        eval_run_id: Uuid,
+    },
+    /// List per-case results for an eval run
+    CloudEvalRunResults {
+        /// Eval set ID (UUID)
+        eval_set_id: Uuid,
+        /// Eval run ID (UUID)
+        eval_run_id: Uuid,
+        /// Maximum case results to return
+        #[arg(long, default_value = "50")]
+        limit: i64,
+        /// Offset for pagination
+        #[arg(long, default_value = "0")]
+        offset: i64,
+    },
+    /// Get a single per-case result from an eval run
+    CloudEvalResultGet {
+        /// Eval set ID (UUID)
+        eval_set_id: Uuid,
+        /// Eval run ID (UUID)
+        eval_run_id: Uuid,
+        /// Eval case ID (UUID)
+        case_id: Uuid,
+    },
     /// List artifacts emitted by a run (global path, no deployment ID required)
     CloudRunArtifacts {
         /// Run event ID (UUID)
@@ -3414,6 +3468,53 @@ async fn main() -> anyhow::Result<()> {
                     &ctx,
                 )
                 .await?
+            }
+            AgentAction::CloudEvalRunCreate {
+                eval_set_id,
+                deployment_id,
+                metadata_json,
+                metadata_file,
+            } => {
+                commands::agent::cloud_eval_run_create(
+                    eval_set_id,
+                    deployment_id,
+                    metadata_json.as_deref(),
+                    metadata_file.as_deref(),
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::CloudEvalRuns {
+                eval_set_id,
+                limit,
+                offset,
+            } => commands::agent::cloud_eval_runs(eval_set_id, limit, offset, &ctx).await?,
+            AgentAction::CloudEvalRunGet {
+                eval_set_id,
+                eval_run_id,
+            } => commands::agent::cloud_eval_run_get(eval_set_id, eval_run_id, &ctx).await?,
+            AgentAction::CloudEvalRunResults {
+                eval_set_id,
+                eval_run_id,
+                limit,
+                offset,
+            } => {
+                commands::agent::cloud_eval_run_results(
+                    eval_set_id,
+                    eval_run_id,
+                    limit,
+                    offset,
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::CloudEvalResultGet {
+                eval_set_id,
+                eval_run_id,
+                case_id,
+            } => {
+                commands::agent::cloud_eval_result_get(eval_set_id, eval_run_id, case_id, &ctx)
+                    .await?
             }
             AgentAction::CloudRunArtifacts { run_id } => {
                 commands::agent::cloud_run_artifacts(run_id, &ctx).await?

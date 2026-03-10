@@ -1780,6 +1780,62 @@ pub struct PromoteCloudRunToEvalCaseParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CreateCloudEvalRunParams {
+    /// Eval set UUID
+    pub eval_set_id: Uuid,
+    /// Optional deployment override when the eval set is not deployment-scoped
+    #[serde(default)]
+    pub deployment_id: Option<Uuid>,
+    /// Optional metadata JSON object
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudEvalRunsParams {
+    /// Eval set UUID
+    pub eval_set_id: Uuid,
+    /// Maximum eval runs to return (default 50)
+    #[serde(default = "default_cloud_runs_limit")]
+    pub limit: i64,
+    /// Offset for pagination (default 0)
+    #[serde(default)]
+    pub offset: i64,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudEvalRunIdParams {
+    /// Eval set UUID
+    pub eval_set_id: Uuid,
+    /// Eval run UUID
+    pub eval_run_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudEvalRunResultsParams {
+    /// Eval set UUID
+    pub eval_set_id: Uuid,
+    /// Eval run UUID
+    pub eval_run_id: Uuid,
+    /// Maximum results to return (default 50)
+    #[serde(default = "default_cloud_runs_limit")]
+    pub limit: i64,
+    /// Offset for pagination (default 0)
+    #[serde(default)]
+    pub offset: i64,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudEvalCaseResultIdParams {
+    /// Eval set UUID
+    pub eval_set_id: Uuid,
+    /// Eval run UUID
+    pub eval_run_id: Uuid,
+    /// Eval case UUID
+    pub case_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CloudAgentRunsParams {
     /// Deployment UUID
     pub deployment_id: Uuid,
@@ -8538,6 +8594,118 @@ API endpoint: {endpoint}",
         };
         let response = api_client
             .seren_cloud_promote_run_to_eval_case(&params.eval_set_id, &params.run_id, &request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Execute an eval set against a deployment and create durable per-case results.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn create_cloud_eval_run(
+        &self,
+        Parameters(params): Parameters<CreateCloudEvalRunParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(metadata) = &params.metadata
+            && !metadata.is_object()
+        {
+            return Err(McpError::invalid_params(
+                "metadata must be a JSON object when provided.",
+                None,
+            ));
+        }
+
+        let api_client = self.api_client(&extensions)?;
+        let request = seren::CreateCloudEvalRunRequest {
+            deployment_id: params.deployment_id,
+            metadata: params.metadata,
+        };
+        let response = api_client
+            .seren_cloud_run_eval_set(&params.eval_set_id, &request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List eval runs within an eval set.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_cloud_eval_runs(
+        &self,
+        Parameters(params): Parameters<CloudEvalRunsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_eval_runs(&params.eval_set_id, Some(params.limit), Some(params.offset))
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get a single eval run by eval set ID and eval run ID.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_cloud_eval_run(
+        &self,
+        Parameters(params): Parameters<CloudEvalRunIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_get_eval_run(&params.eval_set_id, &params.eval_run_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List per-case results for an eval run.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_cloud_eval_run_results(
+        &self,
+        Parameters(params): Parameters<CloudEvalRunResultsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_eval_run_results(
+                &params.eval_set_id,
+                &params.eval_run_id,
+                Some(params.limit),
+                Some(params.offset),
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get a single per-case result from an eval run.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_cloud_eval_case_result(
+        &self,
+        Parameters(params): Parameters<CloudEvalCaseResultIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_get_eval_case_result(
+                &params.eval_set_id,
+                &params.eval_run_id,
+                &params.case_id,
+            )
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();

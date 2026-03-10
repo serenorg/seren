@@ -3288,6 +3288,230 @@ fn print_cloud_eval_case_detail(eval_case: &seren::CloudEvalCase) -> Result<()> 
     Ok(())
 }
 
+fn print_cloud_eval_run_table(
+    eval_runs: &[seren::CloudEvalRun],
+    pagination: Option<&seren::PaginationMeta>,
+) {
+    if eval_runs.is_empty() {
+        println!("No eval runs found.");
+        return;
+    }
+
+    println!(
+        "{:<38} {:<12} {:<10} {:<10} {:<10} {:<24}",
+        "EVAL RUN ID", "STATUS", "PASSED", "FAILED", "ERRORED", "UPDATED"
+    );
+    for eval_run in eval_runs {
+        println!(
+            "{:<38} {:<12} {:<10} {:<10} {:<10} {:<24}",
+            eval_run.id,
+            eval_run.status,
+            eval_run.passed_cases,
+            eval_run.failed_cases,
+            eval_run.errored_cases,
+            eval_run.updated_at,
+        );
+    }
+
+    if let Some(pagination) = pagination {
+        println!(
+            "
+Showing {} of {} eval runs (offset {}).",
+            pagination.count, pagination.total, pagination.offset
+        );
+    }
+}
+
+fn print_cloud_eval_case_result_table(
+    results: &[seren::CloudEvalCaseResult],
+    pagination: Option<&seren::PaginationMeta>,
+) {
+    if results.is_empty() {
+        println!("No eval case results found.");
+        return;
+    }
+
+    println!(
+        "{:<38} {:<38} {:<12} {:<12} {:<12} {:<24}",
+        "CASE ID", "RUN ID", "STATUS", "EXPECTED", "ACTUAL", "UPDATED"
+    );
+    for result in results {
+        println!(
+            "{:<38} {:<38} {:<12} {:<12} {:<12} {:<24}",
+            result.eval_case_id,
+            result
+                .actual_run_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            result.status,
+            result
+                .expected_status
+                .clone()
+                .unwrap_or_else(|| "-".to_string()),
+            result
+                .actual_status
+                .clone()
+                .unwrap_or_else(|| "-".to_string()),
+            result.updated_at,
+        );
+    }
+
+    if let Some(pagination) = pagination {
+        println!(
+            "
+Showing {} of {} eval case results (offset {}).",
+            pagination.count, pagination.total, pagination.offset
+        );
+    }
+}
+
+fn print_cloud_eval_run_detail(eval_run: &seren::CloudEvalRun) -> Result<()> {
+    output::print_key_value_table(
+        Some("Eval Run"),
+        &[
+            ("Eval Run ID", eval_run.id.to_string()),
+            ("Eval Set ID", eval_run.eval_set_id.to_string()),
+            (
+                "Deployment ID",
+                eval_run
+                    .deployment_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            ("Status", eval_run.status.clone()),
+            (
+                "Status Message",
+                eval_run
+                    .status_message
+                    .clone()
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            ("Total Cases", eval_run.total_cases.to_string()),
+            ("Completed", eval_run.completed_cases.to_string()),
+            ("Passed", eval_run.passed_cases.to_string()),
+            ("Failed", eval_run.failed_cases.to_string()),
+            ("Errored", eval_run.errored_cases.to_string()),
+            (
+                "Started",
+                eval_run
+                    .started_at
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            (
+                "Completed",
+                eval_run
+                    .completed_at
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            ("Created", eval_run.created_at.to_string()),
+            ("Updated", eval_run.updated_at.to_string()),
+        ],
+    );
+
+    if json_value_has_content(&eval_run.metadata) {
+        println!();
+        println!("{}", "Metadata".bold());
+        output::print_json(&eval_run.metadata)?;
+    }
+
+    Ok(())
+}
+
+fn print_cloud_eval_case_result_detail(result: &seren::CloudEvalCaseResult) -> Result<()> {
+    output::print_key_value_table(
+        Some("Eval Case Result"),
+        &[
+            ("Eval Run ID", result.eval_run_id.to_string()),
+            ("Eval Set ID", result.eval_set_id.to_string()),
+            ("Eval Case ID", result.eval_case_id.to_string()),
+            (
+                "Deployment ID",
+                result
+                    .deployment_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            (
+                "Actual Run ID",
+                result
+                    .actual_run_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            ("Status", result.status.clone()),
+            (
+                "Status Message",
+                result
+                    .status_message
+                    .clone()
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            (
+                "Expected Status",
+                result
+                    .expected_status
+                    .clone()
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            (
+                "Actual Status",
+                result
+                    .actual_status
+                    .clone()
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            (
+                "Expected Output SHA256",
+                result
+                    .expected_output_sha256
+                    .clone()
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            (
+                "Actual Output SHA256",
+                result
+                    .actual_output_sha256
+                    .clone()
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            (
+                "Started",
+                result
+                    .started_at
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            (
+                "Completed",
+                result
+                    .completed_at
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            ("Updated", result.updated_at.to_string()),
+        ],
+    );
+
+    for (label, value) in [
+        ("Expected Eval Capture", &result.expected_eval_capture),
+        ("Actual Eval Capture", &result.actual_eval_capture),
+        ("Expected Replay Events", &result.expected_replay_events),
+        ("Actual Replay Events", &result.actual_replay_events),
+        ("Comparison", &result.comparison),
+        ("Metadata", &result.metadata),
+    ] {
+        if json_value_has_content(value) {
+            println!();
+            println!("{}", label.bold());
+            output::print_json(value)?;
+        }
+    }
+
+    Ok(())
+}
+
 /// List durable eval sets for seren-cloud runs.
 pub async fn cloud_eval_sets(
     deployment_id: Option<Uuid>,
@@ -3429,6 +3653,121 @@ pub async fn cloud_eval_case_from_run(
     match ctx.format {
         OutputFormat::Json => output::print_json(&response)?,
         OutputFormat::Table => print_cloud_eval_case_detail(&response.data)?,
+    }
+
+    Ok(())
+}
+
+pub async fn cloud_eval_run_create(
+    eval_set_id: Uuid,
+    deployment_id: Option<Uuid>,
+    metadata_json: Option<&str>,
+    metadata_file: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let metadata = parse_optional_metadata_object(metadata_json, metadata_file)?;
+    let request = seren::CreateCloudEvalRunRequest {
+        deployment_id,
+        metadata,
+    };
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_run_eval_set(&eval_set_id, &request)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => print_cloud_eval_run_detail(&response.data)?,
+    }
+
+    Ok(())
+}
+
+pub async fn cloud_eval_runs(
+    eval_set_id: Uuid,
+    limit: i64,
+    offset: i64,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_eval_runs(&eval_set_id, Some(limit), Some(offset))
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => {
+            print_cloud_eval_run_table(&response.data, response.pagination.as_ref())
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn cloud_eval_run_get(
+    eval_set_id: Uuid,
+    eval_run_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_get_eval_run(&eval_set_id, &eval_run_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => print_cloud_eval_run_detail(&response.data)?,
+    }
+
+    Ok(())
+}
+
+pub async fn cloud_eval_run_results(
+    eval_set_id: Uuid,
+    eval_run_id: Uuid,
+    limit: i64,
+    offset: i64,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_eval_run_results(&eval_set_id, &eval_run_id, Some(limit), Some(offset))
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => {
+            print_cloud_eval_case_result_table(&response.data, response.pagination.as_ref())
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn cloud_eval_result_get(
+    eval_set_id: Uuid,
+    eval_run_id: Uuid,
+    case_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_get_eval_case_result(&eval_set_id, &eval_run_id, &case_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => print_cloud_eval_case_result_detail(&response.data)?,
     }
 
     Ok(())
