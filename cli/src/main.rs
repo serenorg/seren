@@ -877,6 +877,12 @@ enum AgentAction {
         /// Optional description
         #[arg(long)]
         description: Option<String>,
+        /// Optional eval criteria JSON object
+        #[arg(long = "criteria")]
+        criteria_json: Option<String>,
+        /// Optional path to an eval criteria JSON file
+        #[arg(long = "criteria-file")]
+        criteria_file: Option<String>,
         /// Optional metadata JSON object
         #[arg(long = "metadata")]
         metadata_json: Option<String>,
@@ -3427,6 +3433,8 @@ async fn main() -> anyhow::Result<()> {
                 name,
                 deployment_id,
                 description,
+                criteria_json,
+                criteria_file,
                 metadata_json,
                 metadata_file,
             } => {
@@ -3434,6 +3442,8 @@ async fn main() -> anyhow::Result<()> {
                     &name,
                     deployment_id,
                     description.as_deref(),
+                    criteria_json.as_deref(),
+                    criteria_file.as_deref(),
                     metadata_json.as_deref(),
                     metadata_file.as_deref(),
                     &ctx,

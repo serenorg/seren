@@ -1734,6 +1734,9 @@ pub struct CreateCloudEvalSetParams {
     /// Optional description
     #[serde(default)]
     pub description: Option<String>,
+    /// Optional eval criteria JSON object
+    #[serde(default)]
+    pub criteria: Option<serde_json::Value>,
     /// Optional metadata JSON object
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
@@ -8483,7 +8486,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Create a durable eval set for seren-cloud runs. Use deployment_id to scope the set to a specific deployment and metadata for labels or ownership data.",
+        description = "Create a durable eval set for seren-cloud runs. Use deployment_id to scope the set to a specific deployment, criteria to define pass/fail thresholds, and metadata for labels or ownership data.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn create_cloud_eval_set(
@@ -8491,6 +8494,14 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CreateCloudEvalSetParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        if let Some(criteria) = &params.criteria
+            && !criteria.is_object()
+        {
+            return Err(McpError::invalid_params(
+                "criteria must be a JSON object when provided.",
+                None,
+            ));
+        }
         if let Some(metadata) = &params.metadata
             && !metadata.is_object()
         {
@@ -8500,8 +8511,14 @@ API endpoint: {endpoint}",
             ));
         }
 
+        let criteria = serde_json::from_value::<seren::CloudEvalCriteria>(
+            params.criteria.unwrap_or_else(|| serde_json::json!({})),
+        )
+        .map_err(|e| McpError::invalid_params(format!("Invalid criteria payload: {e}"), None))?;
+
         let api_client = self.api_client(&extensions)?;
         let request = seren::CreateCloudEvalSetRequest {
+            criteria: Some(criteria),
             deployment_id: params.deployment_id,
             description: params.description,
             metadata: params.metadata,

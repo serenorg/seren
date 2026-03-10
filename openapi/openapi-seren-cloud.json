@@ -2794,6 +2794,52 @@
           }
         }
       },
+      "CloudEvalCriteria": {
+        "type": "object",
+        "description": "Durable pass/fail criteria for a seren-cloud eval set.",
+        "properties": {
+          "max_errored_cases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "max_failed_cases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "max_missing_actual_eval_capture_cases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "max_missing_actual_replay_cases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "max_output_mismatches": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "max_status_mismatches": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "max_trajectory_mismatches": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "min_completion_rate": {
+            "type": "number",
+            "format": "double"
+          },
+          "min_field_match_rate": {
+            "type": "number",
+            "format": "double"
+          },
+          "min_score": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "CloudEvalRun": {
         "type": "object",
         "description": "Durable execution record for running an eval set against a deployment.",
@@ -2809,6 +2855,7 @@
           "failed_cases",
           "errored_cases",
           "summary",
+          "verdict",
           "metadata",
           "created_at",
           "updated_at"
@@ -2891,6 +2938,9 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/CloudEvalRunVerdict"
           }
         }
       },
@@ -3033,6 +3083,63 @@
           }
         }
       },
+      "CloudEvalRunVerdict": {
+        "type": "object",
+        "description": "Durable pass/fail verdict derived from an eval run and its criteria.",
+        "required": [
+          "status",
+          "criteria"
+        ],
+        "properties": {
+          "criteria": {
+            "$ref": "#/components/schemas/CloudEvalCriteria"
+          },
+          "evaluated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "failing_checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudEvalRunVerdictCheck"
+            }
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "CloudEvalRunVerdictCheck": {
+        "type": "object",
+        "description": "Individual threshold failure that contributed to an eval verdict.",
+        "required": [
+          "key",
+          "label",
+          "operator",
+          "target",
+          "actual",
+          "message"
+        ],
+        "properties": {
+          "actual": {},
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "operator": {
+            "type": "string"
+          },
+          "target": {}
+        }
+      },
       "CloudEvalSet": {
         "type": "object",
         "description": "Durable grouping for reusable seren-cloud eval cases.",
@@ -3041,6 +3148,7 @@
           "organization_id",
           "created_by_user_id",
           "name",
+          "criteria",
           "metadata",
           "created_at",
           "updated_at"
@@ -3053,6 +3161,9 @@
           "created_by_user_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "criteria": {
+            "$ref": "#/components/schemas/CloudEvalCriteria"
           },
           "deployment_id": {
             "type": [
@@ -3296,6 +3407,9 @@
           "name"
         ],
         "properties": {
+          "criteria": {
+            "$ref": "#/components/schemas/CloudEvalCriteria"
+          },
           "deployment_id": {
             "type": [
               "string",
@@ -4108,6 +4222,7 @@
               "failed_cases",
               "errored_cases",
               "summary",
+              "verdict",
               "metadata",
               "created_at",
               "updated_at"
@@ -4190,6 +4305,9 @@
               "updated_at": {
                 "type": "string",
                 "format": "date-time"
+              },
+              "verdict": {
+                "$ref": "#/components/schemas/CloudEvalRunVerdict"
               }
             }
           },
@@ -4221,6 +4339,7 @@
               "organization_id",
               "created_by_user_id",
               "name",
+              "criteria",
               "metadata",
               "created_at",
               "updated_at"
@@ -4233,6 +4352,9 @@
               "created_by_user_id": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "criteria": {
+                "$ref": "#/components/schemas/CloudEvalCriteria"
               },
               "deployment_id": {
                 "type": [
@@ -5243,6 +5365,7 @@
                 "failed_cases",
                 "errored_cases",
                 "summary",
+                "verdict",
                 "metadata",
                 "created_at",
                 "updated_at"
@@ -5325,6 +5448,9 @@
                 "updated_at": {
                   "type": "string",
                   "format": "date-time"
+                },
+                "verdict": {
+                  "$ref": "#/components/schemas/CloudEvalRunVerdict"
                 }
               }
             }
@@ -5359,6 +5485,7 @@
                 "organization_id",
                 "created_by_user_id",
                 "name",
+                "criteria",
                 "metadata",
                 "created_at",
                 "updated_at"
@@ -5371,6 +5498,9 @@
                 "created_by_user_id": {
                   "type": "string",
                   "format": "uuid"
+                },
+                "criteria": {
+                  "$ref": "#/components/schemas/CloudEvalCriteria"
                 },
                 "deployment_id": {
                   "type": [

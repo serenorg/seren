@@ -2985,6 +2985,21 @@ fn parse_optional_metadata_object(
     }
 }
 
+fn parse_cloud_eval_criteria(
+    json_body: Option<&str>,
+    json_file: Option<&str>,
+) -> Result<seren::CloudEvalCriteria> {
+    let criteria = parse_optional_json_value("--criteria", json_body, json_file)?
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !criteria.is_object() {
+        return Err(anyhow::anyhow!(
+            "--criteria/--criteria-file must contain a JSON object."
+        ));
+    }
+    serde_json::from_value(criteria)
+        .map_err(|e| anyhow::anyhow!("Invalid eval criteria payload: {e}"))
+}
+
 fn extract_run_identifiers(response_body: &serde_json::Value) -> (Option<String>, Option<String>) {
     let data = response_body.get("data").unwrap_or(response_body);
     let run_id = data
@@ -3221,6 +3236,70 @@ fn print_cloud_eval_set_detail(eval_set: &seren::CloudEvalSet) -> Result<()> {
         ],
     );
 
+    let criteria = eval_set_criteria_json(eval_set);
+    if json_value_has_content(&criteria) {
+        println!();
+        output::print_key_value_table(
+            Some("Criteria"),
+            &[
+                (
+                    "Minimum Score",
+                    format_eval_run_summary_percent(&criteria, "min_score"),
+                ),
+                (
+                    "Minimum Completion Rate",
+                    format_eval_run_summary_percent(&criteria, "min_completion_rate"),
+                ),
+                (
+                    "Maximum Failed Cases",
+                    eval_run_summary_count(&criteria, "max_failed_cases")
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Maximum Errored Cases",
+                    eval_run_summary_count(&criteria, "max_errored_cases")
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Maximum Output Mismatches",
+                    eval_run_summary_count(&criteria, "max_output_mismatches")
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Maximum Status Mismatches",
+                    eval_run_summary_count(&criteria, "max_status_mismatches")
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Maximum Trajectory Mismatches",
+                    eval_run_summary_count(&criteria, "max_trajectory_mismatches")
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Maximum Missing Eval Capture",
+                    eval_run_summary_count(&criteria, "max_missing_actual_eval_capture_cases")
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Maximum Missing Replay",
+                    eval_run_summary_count(&criteria, "max_missing_actual_replay_cases")
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Minimum Field Match Rate",
+                    format_eval_run_summary_percent(&criteria, "min_field_match_rate"),
+                ),
+            ],
+        );
+    }
+
     if json_value_has_content(&eval_set.metadata) {
         println!();
         println!("{}", "Metadata".bold());
@@ -3288,8 +3367,16 @@ fn print_cloud_eval_case_detail(eval_case: &seren::CloudEvalCase) -> Result<()> 
     Ok(())
 }
 
+fn eval_set_criteria_json(eval_set: &seren::CloudEvalSet) -> serde_json::Value {
+    serde_json::to_value(&eval_set.criteria).unwrap_or(serde_json::Value::Null)
+}
+
 fn eval_run_summary_json(eval_run: &seren::CloudEvalRun) -> serde_json::Value {
     serde_json::to_value(&eval_run.summary).unwrap_or(serde_json::Value::Null)
+}
+
+fn eval_run_verdict_json(eval_run: &seren::CloudEvalRun) -> serde_json::Value {
+    serde_json::to_value(&eval_run.verdict).unwrap_or(serde_json::Value::Null)
 }
 
 fn eval_run_summary_number(summary: &serde_json::Value, key: &str) -> Option<f64> {
@@ -3328,6 +3415,14 @@ fn format_eval_run_summary_ratio(
     }
 }
 
+fn eval_run_verdict_string(verdict: &serde_json::Value, key: &str) -> Option<String> {
+    verdict
+        .as_object()?
+        .get(key)?
+        .as_str()
+        .map(ToString::to_string)
+}
+
 fn print_cloud_eval_run_table(
     eval_runs: &[seren::CloudEvalRun],
     pagination: Option<&seren::PaginationMeta>,
@@ -3338,15 +3433,17 @@ fn print_cloud_eval_run_table(
     }
 
     println!(
-        "{:<38} {:<12} {:<8} {:<10} {:<10} {:<10} {:<24}",
-        "EVAL RUN ID", "STATUS", "SCORE", "PASSED", "FAILED", "ERRORED", "UPDATED"
+        "{:<38} {:<12} {:<10} {:<8} {:<10} {:<10} {:<10} {:<24}",
+        "EVAL RUN ID", "STATUS", "VERDICT", "SCORE", "PASSED", "FAILED", "ERRORED", "UPDATED"
     );
     for eval_run in eval_runs {
         let summary = eval_run_summary_json(eval_run);
+        let verdict = eval_run_verdict_json(eval_run);
         println!(
-            "{:<38} {:<12} {:<8} {:<10} {:<10} {:<10} {:<24}",
+            "{:<38} {:<12} {:<10} {:<8} {:<10} {:<10} {:<10} {:<24}",
             eval_run.id,
             eval_run.status,
+            eval_run_verdict_string(&verdict, "status").unwrap_or_else(|| "-".to_string()),
             format_eval_run_summary_percent(&summary, "score"),
             eval_run.passed_cases,
             eval_run.failed_cases,
@@ -3422,6 +3519,15 @@ fn print_cloud_eval_run_detail(eval_run: &seren::CloudEvalRun) -> Result<()> {
             ),
             ("Status", eval_run.status.clone()),
             (
+                "Verdict",
+                eval_run_verdict_json(eval_run)
+                    .as_object()
+                    .and_then(|object| object.get("status"))
+                    .and_then(|value| value.as_str())
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            (
                 "Status Message",
                 eval_run
                     .status_message
@@ -3453,6 +3559,7 @@ fn print_cloud_eval_run_detail(eval_run: &seren::CloudEvalRun) -> Result<()> {
     );
 
     let summary = eval_run_summary_json(eval_run);
+    let verdict = eval_run_verdict_json(eval_run);
     if json_value_has_content(&summary) {
         println!();
         output::print_key_value_table(
@@ -3542,6 +3649,52 @@ fn print_cloud_eval_run_detail(eval_run: &seren::CloudEvalRun) -> Result<()> {
             println!();
             println!("{}", "Failure Examples".bold());
             output::print_json(failure_examples)?;
+        }
+    }
+
+    if json_value_has_content(&verdict) {
+        println!();
+        output::print_key_value_table(
+            Some("Verdict"),
+            &[
+                (
+                    "Status",
+                    eval_run_verdict_string(&verdict, "status").unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Evaluated At",
+                    eval_run_verdict_string(&verdict, "evaluated_at")
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Failing Checks",
+                    verdict
+                        .as_object()
+                        .and_then(|object| object.get("failing_checks"))
+                        .and_then(|value| value.as_array())
+                        .map(|value| value.len().to_string())
+                        .unwrap_or_else(|| "0".to_string()),
+                ),
+            ],
+        );
+
+        if let Some(criteria) = verdict
+            .as_object()
+            .and_then(|object| object.get("criteria"))
+            && json_value_has_content(criteria)
+        {
+            println!();
+            println!("{}", "Verdict Criteria Snapshot".bold());
+            output::print_json(criteria)?;
+        }
+        if let Some(failing_checks) = verdict
+            .as_object()
+            .and_then(|object| object.get("failing_checks"))
+            && json_value_has_content(failing_checks)
+        {
+            println!();
+            println!("{}", "Failing Checks".bold());
+            output::print_json(failing_checks)?;
         }
     }
 
@@ -3672,16 +3825,21 @@ pub async fn cloud_eval_sets(
 }
 
 /// Create a durable eval set for seren-cloud runs.
+#[allow(clippy::too_many_arguments)]
 pub async fn cloud_eval_set_create(
     name: &str,
     deployment_id: Option<Uuid>,
     description: Option<&str>,
+    criteria_json: Option<&str>,
+    criteria_file: Option<&str>,
     metadata_json: Option<&str>,
     metadata_file: Option<&str>,
     ctx: &CommandContext,
 ) -> Result<()> {
+    let criteria = parse_cloud_eval_criteria(criteria_json, criteria_file)?;
     let metadata = parse_optional_metadata_object(metadata_json, metadata_file)?;
     let request = seren::CreateCloudEvalSetRequest {
+        criteria: Some(criteria),
         deployment_id,
         description: description.map(ToOwned::to_owned),
         metadata,
