@@ -171,6 +171,14 @@ enum ApiKeyValidationError {
     },
 }
 
+#[derive(Debug, Clone)]
+struct ResolvedOAuthIdentity {
+    user_id: uuid::Uuid,
+    client_id: String,
+    email: Option<String>,
+    refresh_token_hash: Option<String>,
+}
+
 /// Check if a token is a Seren API key (starts with "seren_" prefix).
 fn is_seren_api_key(token: &str) -> bool {
     token.starts_with(SEREN_API_KEY_PREFIX)
@@ -314,13 +322,161 @@ async fn require_oauth_auth(
         "Session ID from request"
     );
 
-    // MCP security guidance: servers that implement authorization MUST verify all inbound
-    // requests and MUST NOT use transport sessions for authentication.
-    //
-    // Require an explicit Authorization header on every request.
+    // MCP auth is per-request. Session IDs are transport state only and must not
+    // be treated as authentication credentials.
     let token = extract_bearer_token(&req).map(|t| t.to_string());
 
-    let Some(token) = token else {
+    let resolved_auth = if let Some(token) = token {
+        // Check if this is a Seren API key (starts with "seren_" prefix).
+        // API keys can be used directly against the hosted MCP without going through OAuth flow.
+        if is_seren_api_key(&token) {
+            tracing::debug!(
+                event = "oauth_auth_api_key_detected",
+                method = %method,
+                uri = %uri,
+                "Seren API key detected, using API key authentication"
+            );
+
+            // Validate the API key against Seren API (with caching)
+            match validate_api_key_cached(
+                &state.oauth_state.upstream_api_base_url,
+                &token,
+                &state.api_key_cache,
+            )
+            .await
+            {
+                Ok(user_info) => {
+                    tracing::info!(
+                        event = "oauth_auth_api_key_valid",
+                        user_id = %user_info.id,
+                        "API key authentication successful"
+                    );
+
+                    // Inject the API key directly as the upstream token
+                    if let Ok(v) = axum::http::HeaderValue::from_str(&format!("Bearer {}", token)) {
+                        req.headers_mut()
+                            .insert(axum::http::header::AUTHORIZATION, v);
+                    }
+
+                    // Inject user metadata headers
+                    if let Ok(v) = axum::http::HeaderValue::from_str(&user_info.id.to_string()) {
+                        req.headers_mut()
+                            .insert(axum::http::header::HeaderName::from_static("x-user-id"), v);
+                    }
+                    if let Ok(v) = axum::http::HeaderValue::from_str(&user_info.email) {
+                        req.headers_mut().insert(
+                            axum::http::header::HeaderName::from_static("x-user-email"),
+                            v,
+                        );
+                    }
+
+                    // Mark this as an API key session (no MCP client registration)
+                    req.headers_mut().insert(
+                        axum::http::header::HeaderName::from_static("x-auth-method"),
+                        axum::http::HeaderValue::from_static("api_key"),
+                    );
+
+                    let response = next.run(req).await;
+
+                    let response_status = response.status();
+                    if response_status.is_server_error() {
+                        tracing::error!(
+                            event = "oauth_auth_api_key_response_error",
+                            method = %method,
+                            uri = %uri,
+                            status = %response_status,
+                            user_id = %user_info.id,
+                            "Handler returned server error after API key auth"
+                        );
+                    } else {
+                        tracing::debug!(
+                            event = "oauth_auth_api_key_response",
+                            method = %method,
+                            uri = %uri,
+                            status = %response_status,
+                            "API key authenticated request completed"
+                        );
+                    }
+
+                    return response;
+                }
+                Err(ApiKeyValidationError::InvalidToken) => {
+                    tracing::warn!(
+                        event = "oauth_auth_api_key_invalid",
+                        method = %method,
+                        uri = %uri,
+                        "API key validation failed"
+                    );
+                    return state
+                        .unauthorized_response("invalid_token", "Invalid API key or token");
+                }
+                Err(ApiKeyValidationError::UpstreamError { status }) => {
+                    tracing::warn!(
+                        event = "oauth_auth_api_key_upstream_error",
+                        method = %method,
+                        uri = %uri,
+                        status = ?status,
+                        "API key validation failed due to upstream error"
+                    );
+                    return (
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                        axum::Json(serde_json::json!({
+                            "error": "server_error",
+                            "error_description": "Authentication backend unavailable",
+                        })),
+                    )
+                        .into_response();
+                }
+            }
+        }
+
+        // Token looks like a JWT - validate MCP-issued JWT (signed by this server with HS256)
+        tracing::debug!(
+            event = "oauth_auth_validating_mcp_jwt",
+            "Validating MCP-issued JWT"
+        );
+
+        let claims = match state.oauth_state.jwt_signer.validate_access_token(&token) {
+            Ok(claims) => {
+                tracing::debug!(
+                    event = "oauth_auth_jwt_valid",
+                    user_id = %claims.sub,
+                    client_id = %claims.client_id,
+                    scope = %claims.scope,
+                    "MCP JWT validated successfully"
+                );
+                claims
+            }
+            Err(e) => {
+                tracing::debug!(
+                    event = "oauth_auth_jwt_invalid",
+                    error = %e,
+                    "MCP JWT validation failed"
+                );
+                return state.unauthorized_response("invalid_token", "Token is invalid or expired");
+            }
+        };
+
+        let user_id = match claims.user_id() {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::error!(
+                    event = "oauth_auth_invalid_user_id",
+                    sub = %claims.sub,
+                    error = %e,
+                    "Invalid user_id in JWT claims"
+                );
+                return state.unauthorized_response("invalid_token", "Invalid user_id in token");
+            }
+        };
+
+        ResolvedOAuthIdentity {
+            user_id,
+            client_id: claims.client_id,
+            email: claims.email,
+            refresh_token_hash: claims.rth,
+        }
+    } else {
         tracing::warn!(
             event = "oauth_auth_no_token",
             method = %method,
@@ -331,154 +487,15 @@ async fn require_oauth_auth(
         return state.unauthorized_response("unauthorized", "Bearer token required");
     };
 
-    // Check if this is a Seren API key (starts with "seren_" prefix).
-    // API keys can be used directly against the hosted MCP without going through OAuth flow.
-    if is_seren_api_key(&token) {
-        tracing::debug!(
-            event = "oauth_auth_api_key_detected",
-            method = %method,
-            uri = %uri,
-            "Seren API key detected, using API key authentication"
-        );
-
-        // Validate the API key against Seren API (with caching)
-        match validate_api_key_cached(
-            &state.oauth_state.upstream_api_base_url,
-            &token,
-            &state.api_key_cache,
-        )
-        .await
-        {
-            Ok(user_info) => {
-                tracing::info!(
-                    event = "oauth_auth_api_key_valid",
-                    user_id = %user_info.id,
-                    "API key authentication successful"
-                );
-
-                // Inject the API key directly as the upstream token
-                if let Ok(v) = axum::http::HeaderValue::from_str(&format!("Bearer {}", token)) {
-                    req.headers_mut()
-                        .insert(axum::http::header::AUTHORIZATION, v);
-                }
-
-                // Inject user metadata headers
-                if let Ok(v) = axum::http::HeaderValue::from_str(&user_info.id.to_string()) {
-                    req.headers_mut()
-                        .insert(axum::http::header::HeaderName::from_static("x-user-id"), v);
-                }
-                if let Ok(v) = axum::http::HeaderValue::from_str(&user_info.email) {
-                    req.headers_mut().insert(
-                        axum::http::header::HeaderName::from_static("x-user-email"),
-                        v,
-                    );
-                }
-
-                // Mark this as an API key session (no MCP client registration)
-                req.headers_mut().insert(
-                    axum::http::header::HeaderName::from_static("x-auth-method"),
-                    axum::http::HeaderValue::from_static("api_key"),
-                );
-
-                let response = next.run(req).await;
-
-                let response_status = response.status();
-                if response_status.is_server_error() {
-                    tracing::error!(
-                        event = "oauth_auth_api_key_response_error",
-                        method = %method,
-                        uri = %uri,
-                        status = %response_status,
-                        user_id = %user_info.id,
-                        "Handler returned server error after API key auth"
-                    );
-                } else {
-                    tracing::debug!(
-                        event = "oauth_auth_api_key_response",
-                        method = %method,
-                        uri = %uri,
-                        status = %response_status,
-                        "API key authenticated request completed"
-                    );
-                }
-
-                return response;
-            }
-            Err(ApiKeyValidationError::InvalidToken) => {
-                tracing::warn!(
-                    event = "oauth_auth_api_key_invalid",
-                    method = %method,
-                    uri = %uri,
-                    "API key validation failed"
-                );
-                return state.unauthorized_response("invalid_token", "Invalid API key or token");
-            }
-            Err(ApiKeyValidationError::UpstreamError { status }) => {
-                tracing::warn!(
-                    event = "oauth_auth_api_key_upstream_error",
-                    method = %method,
-                    uri = %uri,
-                    status = ?status,
-                    "API key validation failed due to upstream error"
-                );
-                return (
-                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                    axum::Json(serde_json::json!({
-                        "error": "server_error",
-                        "error_description": "Authentication backend unavailable",
-                    })),
-                )
-                    .into_response();
-            }
-        }
-    }
-
-    // Token looks like a JWT - validate MCP-issued JWT (signed by this server with HS256)
-    tracing::debug!(
-        event = "oauth_auth_validating_mcp_jwt",
-        "Validating MCP-issued JWT"
-    );
-
-    let claims = match state.oauth_state.jwt_signer.validate_access_token(&token) {
-        Ok(claims) => {
-            tracing::debug!(
-                event = "oauth_auth_jwt_valid",
-                user_id = %claims.sub,
-                client_id = %claims.client_id,
-                scope = %claims.scope,
-                "MCP JWT validated successfully"
-            );
-            claims
-        }
-        Err(e) => {
-            tracing::debug!(
-                event = "oauth_auth_jwt_invalid",
-                error = %e,
-                "MCP JWT validation failed"
-            );
-            return state.unauthorized_response("invalid_token", "Token is invalid or expired");
-        }
-    };
-
-    // Get client_id from JWT claims (MCP tokens include client_id)
-    let client_id = Some(claims.client_id.clone());
-    let user_id = match claims.user_id() {
-        Ok(id) => id,
-        Err(e) => {
-            tracing::error!(
-                event = "oauth_auth_invalid_user_id",
-                sub = %claims.sub,
-                error = %e,
-                "Invalid user_id in JWT claims"
-            );
-            return state.unauthorized_response("invalid_token", "Invalid user_id in token");
-        }
-    };
+    let user_id = resolved_auth.user_id;
+    let user_id_text = user_id.to_string();
+    let client_id_value = resolved_auth.client_id.clone();
+    let client_id = Some(client_id_value.clone());
 
     // Look up upstream token for API calls (server-side only, never exposed to client).
     // New tokens include an `rth` (refresh_token_hash) claim that links directly to
     // their upstream token vault. Legacy tokens without `rth` fall back to user/client lookup.
-    let mut refresh_token = match &claims.rth {
+    let mut refresh_token = match &resolved_auth.refresh_token_hash {
         Some(token_hash) => {
             // New path: lookup by the JWT's embedded refresh_token_hash
             match state.store.get_refresh_token_by_hash(token_hash).await {
@@ -486,7 +503,7 @@ async fn require_oauth_auth(
                     tracing::debug!(
                         event = "oauth_auth_upstream_token_found_by_hash",
                         user_id = %user_id,
-                        client_id = %claims.client_id,
+                        client_id = %client_id_value,
                         token_hash = %token_hash,
                         "Found upstream token via JWT rth claim"
                     );
@@ -496,7 +513,7 @@ async fn require_oauth_auth(
                     tracing::warn!(
                         event = "oauth_auth_no_upstream_token_for_hash",
                         user_id = %user_id,
-                        client_id = %claims.client_id,
+                        client_id = %client_id_value,
                         token_hash = %token_hash,
                         "No upstream token found for JWT rth claim - session may have been revoked"
                     );
@@ -509,7 +526,7 @@ async fn require_oauth_auth(
                     tracing::error!(
                         event = "oauth_auth_upstream_token_hash_error",
                         user_id = %user_id,
-                        client_id = %claims.client_id,
+                        client_id = %client_id_value,
                         token_hash = %token_hash,
                         error = %e,
                         "Failed to look up upstream token by hash"
@@ -532,19 +549,19 @@ async fn require_oauth_auth(
             tracing::debug!(
                 event = "oauth_auth_legacy_token_lookup",
                 user_id = %user_id,
-                client_id = %claims.client_id,
+                client_id = %client_id_value,
                 "JWT missing rth claim, using legacy user/client lookup"
             );
             match state
                 .store
-                .get_refresh_token_by_user_client(user_id, &claims.client_id)
+                .get_refresh_token_by_user_client(user_id, &client_id_value)
                 .await
             {
                 Ok(Some(refresh_token)) => {
                     tracing::debug!(
                         event = "oauth_auth_upstream_token_found",
                         user_id = %user_id,
-                        client_id = %claims.client_id,
+                        client_id = %client_id_value,
                         "Found upstream token for API calls (legacy path)"
                     );
                     refresh_token
@@ -553,7 +570,7 @@ async fn require_oauth_auth(
                     tracing::warn!(
                         event = "oauth_auth_no_upstream_token",
                         user_id = %user_id,
-                        client_id = %claims.client_id,
+                        client_id = %client_id_value,
                         "No upstream token found - user may need to re-authenticate"
                     );
                     return state.unauthorized_response(
@@ -565,7 +582,7 @@ async fn require_oauth_auth(
                     tracing::error!(
                         event = "oauth_auth_upstream_token_error",
                         user_id = %user_id,
-                        client_id = %claims.client_id,
+                        client_id = %client_id_value,
                         error = %e,
                         "Failed to look up upstream token"
                     );
@@ -604,7 +621,7 @@ async fn require_oauth_auth(
                 tracing::warn!(
                     event = "oauth_auth_refresh_lock_acquire_failed",
                     user_id = %user_id,
-                    client_id = %claims.client_id,
+                    client_id = %client_id_value,
                     error = %e,
                     "Failed to acquire database connection for refresh lock"
                 );
@@ -627,7 +644,7 @@ async fn require_oauth_auth(
             tracing::warn!(
                 event = "oauth_auth_refresh_lock_failed",
                 user_id = %user_id,
-                client_id = %claims.client_id,
+                client_id = %client_id_value,
                 error = %e,
                 "Failed to acquire refresh lock"
             );
@@ -660,7 +677,7 @@ async fn require_oauth_auth(
                 tracing::warn!(
                     event = "oauth_auth_upstream_token_error",
                     user_id = %user_id,
-                    client_id = %claims.client_id,
+                    client_id = %client_id_value,
                     error = %e,
                     "Failed to look up upstream token"
                 );
@@ -683,7 +700,7 @@ async fn require_oauth_auth(
             tracing::debug!(
                 event = "oauth_auth_upstream_token_expired",
                 user_id = %user_id,
-                client_id = %claims.client_id,
+                client_id = %client_id_value,
                 "Upstream access token expired or near expiry; refreshing"
             );
 
@@ -693,7 +710,7 @@ async fn require_oauth_auth(
                     tracing::warn!(
                         event = "oauth_auth_missing_upstream_refresh_token",
                         user_id = %user_id,
-                        client_id = %claims.client_id,
+                        client_id = %client_id_value,
                         "Missing upstream refresh token"
                     );
                     lock_result = Some(state.unauthorized_response(
@@ -730,7 +747,7 @@ async fn require_oauth_auth(
                         tracing::warn!(
                             event = "oauth_auth_upstream_refresh_failed",
                             user_id = %user_id,
-                            client_id = %claims.client_id,
+                            client_id = %client_id_value,
                             error = ?e,
                             "Failed to refresh upstream token"
                         );
@@ -774,7 +791,7 @@ async fn require_oauth_auth(
                             tracing::debug!(
                                 event = "oauth_auth_upstream_token_refreshed",
                                 user_id = %user_id,
-                                client_id = %claims.client_id,
+                                client_id = %client_id_value,
                                 "Upstream token refreshed and persisted"
                             );
                             refresh_token.upstream_access_token = new_upstream_access_token;
@@ -787,7 +804,7 @@ async fn require_oauth_auth(
                             tracing::warn!(
                                 event = "oauth_auth_upstream_token_refresh_not_persisted",
                                 user_id = %user_id,
-                                client_id = %claims.client_id,
+                                client_id = %client_id_value,
                                 "Refresh token record disappeared during refresh"
                             );
                             lock_result = Some(state.unauthorized_response(
@@ -799,7 +816,7 @@ async fn require_oauth_auth(
                             tracing::warn!(
                                 event = "oauth_auth_upstream_token_persist_error",
                                 user_id = %user_id,
-                                client_id = %claims.client_id,
+                                client_id = %client_id_value,
                                 error = %e,
                                 "Failed to persist refreshed upstream token"
                             );
@@ -817,7 +834,7 @@ async fn require_oauth_auth(
             tracing::warn!(
                 event = "oauth_auth_refresh_unlock_failed",
                 user_id = %user_id,
-                client_id = %claims.client_id,
+                client_id = %client_id_value,
                 error = %e,
                 "Failed to release refresh lock"
             );
@@ -842,7 +859,7 @@ async fn require_oauth_auth(
             let store = state.store.clone();
             let token_hash = refresh_token.token_hash.clone();
             let user_id_for_log = user_id;
-            let client_id_for_log = claims.client_id.clone();
+            let client_id_for_log = client_id_value.clone();
             let session_id = session_id.clone();
             tokio::spawn(async move {
                 match store
@@ -895,12 +912,12 @@ async fn require_oauth_auth(
             .insert(axum::http::header::AUTHORIZATION, v);
     }
 
-    // Inject user metadata from JWT claims
-    if let Ok(v) = axum::http::HeaderValue::from_str(&claims.sub) {
+    // Inject user metadata from the resolved auth context.
+    if let Ok(v) = axum::http::HeaderValue::from_str(&user_id_text) {
         req.headers_mut()
             .insert(axum::http::header::HeaderName::from_static("x-user-id"), v);
     }
-    if let Some(ref email) = claims.email
+    if let Some(ref email) = resolved_auth.email
         && let Ok(v) = axum::http::HeaderValue::from_str(email)
     {
         req.headers_mut().insert(
@@ -950,7 +967,7 @@ async fn require_oauth_auth(
         event = "oauth_auth_calling_next",
         method = %req_method,
         uri = %req_uri,
-        user_id = %claims.sub,
+        user_id = %user_id,
         client_id = ?client_id,
         "Authentication successful, calling next handler"
     );
@@ -964,7 +981,7 @@ async fn require_oauth_auth(
             method = %req_method,
             uri = %req_uri,
             status = %response_status,
-            user_id = %claims.sub,
+            user_id = %user_id,
             "Handler returned server error after OAuth auth"
         );
     } else {

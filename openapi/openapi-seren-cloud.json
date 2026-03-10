@@ -1848,6 +1848,12 @@
               "null"
             ]
           },
+          "cron_timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "dashboard_config": {},
           "endpoint_url": {
             "type": [
@@ -2412,6 +2418,12 @@
                 "format": "date-time"
               },
               "cron_schedule": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cron_timezone": {
                 "type": [
                   "string",
                   "null"
@@ -3005,6 +3017,12 @@
                     "null"
                   ]
                 },
+                "cron_timezone": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "dashboard_config": {},
                 "endpoint_url": {
                   "type": [
@@ -3130,6 +3148,12 @@
             "minimum": 0
           },
           "cron_schedule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cron_timezone": {
             "type": [
               "string",
               "null"

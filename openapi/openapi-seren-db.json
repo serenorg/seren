@@ -4507,6 +4507,14 @@
             "type": "number",
             "format": "double"
           },
+          "cloud_compute_cost_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "cloud_compute_time_seconds": {
+            "type": "number",
+            "format": "double"
+          },
           "compute_time_seconds": {
             "type": "number",
             "format": "double"
@@ -4517,6 +4525,10 @@
           },
           "period_id": {
             "type": "string"
+          },
+          "serendb_compute_time_seconds": {
+            "type": "number",
+            "format": "double"
           },
           "synthetic_storage_size_bytes": {
             "type": "integer",
@@ -4536,6 +4548,14 @@
             "type": "number",
             "format": "double"
           },
+          "cloud_compute_cost_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "cloud_compute_time_seconds": {
+            "type": "number",
+            "format": "double"
+          },
           "compute_time_seconds": {
             "type": "number",
             "format": "double"
@@ -4543,6 +4563,10 @@
           "data_transfer_bytes": {
             "type": "integer",
             "format": "int64"
+          },
+          "serendb_compute_time_seconds": {
+            "type": "number",
+            "format": "double"
           },
           "synthetic_storage_size_bytes": {
             "type": "integer",

@@ -192,6 +192,41 @@ seren agent publish-template --name "My Agent" --slug my-agent \
 seren agent invoke-template --slug my-agent --input '{"query": "..."}'
 ```
 
+### Managed Agents
+
+Managed prompt-based agents run through the first-class `seren-agent` publisher. Use them when you want a hosted agent with prompt-defined behavior, publisher-backed tool presets, approval controls, revision history, and optional remote A2A delegation without shipping a code bundle.
+
+See [docs/managed-agents.md](../docs/managed-agents.md) for the full guide.
+
+```bash
+# Deploy a read-oriented managed agent
+seren agent deploy-prompt \
+  --name "BTC Watcher" \
+  --template research_monitor \
+  --tool-preset live_data,database \
+  --approval-policy read_only \
+  --model-policy balanced \
+  --model-id gpt-5 \
+  --prompt "Track BTC/USD, use Seren publishers first, and return a concise summary."
+
+# Inspect the resolved managed deployment
+seren agent managed-get <deployment-id>
+seren agent managed-revisions <deployment-id>
+
+# Preview and apply remote A2A delegation settings
+seren agent managed-preview <deployment-id> \
+  --allow-remote-agent-origin https://agents.seren.ai \
+  --allow-remote-agent-origin agents.internal
+
+seren agent managed-update <deployment-id> \
+  --allow-remote-agent-origin https://agents.seren.ai \
+  --allow-remote-agent-origin agents.internal
+
+# Invoke the deployment
+seren agent cloud-run --deployment-id <deployment-id> \
+  --message "Give me the latest BTC update."
+```
+
 ### OAuth Connections (BYOC)
 
 ```bash

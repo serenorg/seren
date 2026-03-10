@@ -547,6 +547,12 @@
               "null"
             ]
           },
+          "cron_timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "dashboard_config": {},
           "endpoint_url": {
             "type": [
@@ -691,6 +697,13 @@
               "null"
             ],
             "description": "Cron schedule expression, required when `mode` is `cron`."
+          },
+          "cron_timezone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Timezone for cron schedules. Defaults to `UTC` when omitted."
           },
           "dashboard_config": {
             "description": "Optional dashboard rendering config."
@@ -908,6 +921,12 @@
                   "null"
                 ]
               },
+              "cron_timezone": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "dashboard_config": {},
               "endpoint_url": {
                 "type": [
@@ -1060,6 +1079,12 @@
                 "minimum": 0
               },
               "cron_schedule": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cron_timezone": {
                 "type": [
                   "string",
                   "null"
@@ -1315,6 +1340,12 @@
                   "format": "date-time"
                 },
                 "cron_schedule": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "cron_timezone": {
                   "type": [
                     "string",
                     "null"
@@ -1577,6 +1608,12 @@
             "minimum": 0
           },
           "cron_schedule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cron_timezone": {
             "type": [
               "string",
               "null"
@@ -2074,6 +2111,13 @@
               "null"
             ],
             "description": "Updated cron schedule. Only valid for cron deployments."
+          },
+          "cron_timezone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Updated cron timezone. Only valid for cron deployments."
           },
           "dashboard_config": {
             "description": "Updated dashboard rendering config."

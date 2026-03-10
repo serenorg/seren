@@ -1494,6 +1494,7 @@ pub struct CloudDeployOptions<'a> {
     pub environment_id: Option<Uuid>,
     pub mode: &'a str,
     pub cron_schedule: Option<&'a str>,
+    pub cron_timezone: Option<&'a str>,
     pub compute_backend: Option<&'a str>,
     pub runtime_kind: Option<&'a str>,
     pub config_path: Option<&'a str>,
@@ -1506,6 +1507,7 @@ pub struct CloudDeployPromptOptions<'a> {
     pub agent_slug: Option<&'a str>,
     pub mode: &'a str,
     pub cron_schedule: Option<&'a str>,
+    pub cron_timezone: Option<&'a str>,
     pub compute_backend: Option<&'a str>,
     pub template: Option<&'a str>,
     pub tool_presets: &'a [String],
@@ -1524,6 +1526,7 @@ pub struct ManagedAgentUpdateOptions<'a> {
     pub name: Option<&'a str>,
     pub agent_slug: Option<&'a str>,
     pub cron_schedule: Option<&'a str>,
+    pub cron_timezone: Option<&'a str>,
     pub template: Option<&'a str>,
     pub tool_presets: &'a [String],
     pub approval_policy: Option<&'a str>,
@@ -1915,6 +1918,14 @@ fn print_managed_agent_detail_table(payload: &serde_json::Value) {
             "Agent Slug",
             format_optional_string(detail.get("agent_slug")),
         ),
+        (
+            "Cron Schedule",
+            format_optional_string(detail.get("cron_schedule")),
+        ),
+        (
+            "Cron Timezone",
+            format_optional_string(detail.get("cron_timezone")),
+        ),
         ("Mode", format_optional_string(detail.get("mode"))),
         ("Status", format_optional_string(detail.get("status"))),
         (
@@ -2015,6 +2026,7 @@ pub async fn cloud_deploy(
         environment_id,
         mode,
         cron_schedule,
+        cron_timezone,
         compute_backend,
         runtime_kind,
         config_path,
@@ -2152,6 +2164,9 @@ pub async fn cloud_deploy(
     if let Some(schedule) = cron_schedule {
         body.insert("cron_schedule".to_string(), serde_json::json!(schedule));
     }
+    if let Some(timezone) = cron_timezone {
+        body.insert("cron_timezone".to_string(), serde_json::json!(timezone));
+    }
     if let Some(environment_id) = environment_id {
         body.insert(
             "environment_id".to_string(),
@@ -2184,6 +2199,7 @@ pub async fn cloud_deploy_prompt(
         agent_slug,
         mode,
         cron_schedule,
+        cron_timezone,
         compute_backend,
         template,
         tool_presets,
@@ -2295,6 +2311,9 @@ pub async fn cloud_deploy_prompt(
     if let Some(schedule) = cron_schedule {
         body.insert("cron_schedule".to_string(), serde_json::json!(schedule));
     }
+    if let Some(timezone) = cron_timezone {
+        body.insert("cron_timezone".to_string(), serde_json::json!(timezone));
+    }
     if let Some(cfg) = &config {
         body.insert("config".to_string(), cfg.clone());
     }
@@ -2378,6 +2397,7 @@ fn build_managed_agent_update_request(
         name,
         agent_slug,
         cron_schedule,
+        cron_timezone,
         template,
         tool_presets,
         approval_policy,
@@ -2421,6 +2441,15 @@ fn build_managed_agent_update_request(
         body.insert(
             "cron_schedule".to_string(),
             serde_json::json!(cron_schedule),
+        );
+    }
+    if let Some(cron_timezone) = cron_timezone
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        body.insert(
+            "cron_timezone".to_string(),
+            serde_json::json!(cron_timezone),
         );
     }
     if let Some(template) = template.map(str::trim).filter(|value| !value.is_empty()) {

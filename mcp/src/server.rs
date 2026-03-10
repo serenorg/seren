@@ -1366,6 +1366,9 @@ pub struct DeployCloudAgentParams {
     /// Cron schedule expression (required if mode is "cron")
     #[serde(default)]
     pub cron_schedule: Option<String>,
+    /// Cron timezone as an IANA name (defaults to UTC)
+    #[serde(default)]
+    pub cron_timezone: Option<String>,
     /// Optional compute backend override ("auto", "aws_container", "cloudflare_worker", or "daytona"). Omit for AWS-first auto-routing.
     #[serde(default)]
     pub compute_backend: Option<String>,
@@ -1444,6 +1447,9 @@ pub struct UpdateSerenAgentDeploymentParams {
     /// Updated cron schedule expression (cron deployments only)
     #[serde(default)]
     pub cron_schedule: Option<String>,
+    /// Updated cron timezone (cron deployments only)
+    #[serde(default)]
+    pub cron_timezone: Option<String>,
     /// Updated main instructions for the managed agent
     #[serde(default)]
     pub prompt: Option<String>,
@@ -1507,6 +1513,7 @@ fn build_update_seren_agent_deployment_request(
         "agent_slug": params.agent_slug,
         "name": params.name,
         "cron_schedule": params.cron_schedule,
+        "cron_timezone": params.cron_timezone,
         "prompt": params.prompt,
         "model_id": params.model_id,
         "template": params.template,
@@ -1554,6 +1561,9 @@ pub struct DeploySerenAgentParams {
     /// Cron schedule expression (required if mode is "cron")
     #[serde(default)]
     pub cron_schedule: Option<String>,
+    /// Cron timezone as an IANA name (defaults to UTC)
+    #[serde(default)]
+    pub cron_timezone: Option<String>,
     /// Main instructions for the managed agent
     pub prompt: String,
     /// Model identifier
@@ -7508,6 +7518,12 @@ API endpoint: {endpoint}",
                 serde_json::json!(cron_schedule),
             );
         }
+        if let Some(cron_timezone) = params.cron_timezone {
+            body.insert(
+                "cron_timezone".to_string(),
+                serde_json::json!(cron_timezone),
+            );
+        }
         if let Some(requirements_txt) = params.requirements_txt {
             body.insert(
                 "requirements_txt".to_string(),
@@ -7767,6 +7783,12 @@ API endpoint: {endpoint}",
             body.insert(
                 "cron_schedule".to_string(),
                 serde_json::json!(cron_schedule),
+            );
+        }
+        if let Some(cron_timezone) = params.cron_timezone {
+            body.insert(
+                "cron_timezone".to_string(),
+                serde_json::json!(cron_timezone),
             );
         }
         if let Some(compute_backend) = params.compute_backend {

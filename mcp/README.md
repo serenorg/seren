@@ -150,6 +150,41 @@ Once configured, you can ask Claude to:
 - "Run this SQL query on my database: SELECT * FROM users LIMIT 10"
 - "Run a prepaid API request against a store publisher"
 
+### Managed Agent Tools
+
+The MCP server also exposes first-class tools for managed `seren-agent` deployments. Use these when you want prompt-defined cloud agents without uploading a code bundle.
+
+See [docs/managed-agents.md](../docs/managed-agents.md) for the full model and CLI equivalents.
+
+- `deploy_seren_agent` deploys a managed prompt-based agent
+- `get_seren_agent_deployment` returns the resolved deployment detail
+- `list_seren_agent_deployment_revisions` shows immutable revision history
+- `preview_seren_agent_deployment_update` returns a resolved diff before mutation
+- `update_seren_agent_deployment` applies the managed update
+- `preview_seren_agent_deployment_rollback` previews a rollback diff
+- `rollback_seren_agent_deployment` reverts to a prior revision
+
+Example `deploy_seren_agent` parameters:
+
+```json
+{
+  "name": "Ops Router",
+  "mode": "always_on",
+  "template": "workflow_agent",
+  "tool_presets": ["live_data", "publisher_actions"],
+  "approval_policy": "allow_mutations",
+  "model_policy": "balanced",
+  "prompt": "Triage requests, use Seren publishers first, and delegate to approved remote agents when appropriate.",
+  "model_id": "gpt-5",
+  "allowed_remote_agent_origins": [
+    "https://agents.seren.ai",
+    "agents.internal"
+  ]
+}
+```
+
+`allowed_remote_agent_origins` is optional. Leave it unset to disable remote A2A delegation entirely.
+
 ### Store Prepaid Tools
 
 Use prepaid balance (fiat/Stripe) for store access:

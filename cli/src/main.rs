@@ -555,6 +555,9 @@ enum AgentAction {
         /// Cron schedule expression (required if mode is "cron")
         #[arg(long)]
         cron_schedule: Option<String>,
+        /// Cron timezone as an IANA name (defaults to UTC)
+        #[arg(long)]
+        cron_timezone: Option<String>,
         /// Optional compute backend override (auto, aws_container, cloudflare_worker, or daytona). Omit for AWS-first auto-routing.
         #[arg(long)]
         compute_backend: Option<String>,
@@ -585,6 +588,9 @@ enum AgentAction {
         /// Cron schedule expression (required if mode is "cron")
         #[arg(long)]
         cron_schedule: Option<String>,
+        /// Cron timezone as an IANA name (defaults to UTC)
+        #[arg(long)]
+        cron_timezone: Option<String>,
         /// Optional compute backend override (auto, aws_container, cloudflare_worker, or daytona). Omit for AWS-first managed routing.
         #[arg(long)]
         compute_backend: Option<String>,
@@ -659,6 +665,9 @@ enum AgentAction {
         /// Updated cron schedule (cron deployments only)
         #[arg(long)]
         cron_schedule: Option<String>,
+        /// Updated cron timezone (cron deployments only)
+        #[arg(long)]
+        cron_timezone: Option<String>,
         /// Managed template override
         #[arg(long)]
         template: Option<String>,
@@ -706,6 +715,9 @@ enum AgentAction {
         /// Updated cron schedule (cron deployments only)
         #[arg(long)]
         cron_schedule: Option<String>,
+        /// Updated cron timezone (cron deployments only)
+        #[arg(long)]
+        cron_timezone: Option<String>,
         /// Managed template override
         #[arg(long)]
         template: Option<String>,
@@ -3021,6 +3033,7 @@ async fn main() -> anyhow::Result<()> {
                 environment_id,
                 mode,
                 cron_schedule,
+                cron_timezone,
                 compute_backend,
                 runtime_kind,
                 config,
@@ -3035,6 +3048,7 @@ async fn main() -> anyhow::Result<()> {
                         environment_id,
                         mode: &mode,
                         cron_schedule: cron_schedule.as_deref(),
+                        cron_timezone: cron_timezone.as_deref(),
                         compute_backend: compute_backend.as_deref(),
                         runtime_kind: runtime_kind.as_deref(),
                         config_path: config.as_deref(),
@@ -3050,6 +3064,7 @@ async fn main() -> anyhow::Result<()> {
                 agent_slug,
                 mode,
                 cron_schedule,
+                cron_timezone,
                 compute_backend,
                 template,
                 tool_presets,
@@ -3069,6 +3084,7 @@ async fn main() -> anyhow::Result<()> {
                         agent_slug: agent_slug.as_deref(),
                         mode: &mode,
                         cron_schedule: cron_schedule.as_deref(),
+                        cron_timezone: cron_timezone.as_deref(),
                         compute_backend: compute_backend.as_deref(),
                         template: template.as_deref(),
                         tool_presets: &tool_presets,
@@ -3108,6 +3124,7 @@ async fn main() -> anyhow::Result<()> {
                 name,
                 agent_slug,
                 cron_schedule,
+                cron_timezone,
                 template,
                 tool_presets,
                 approval_policy,
@@ -3126,6 +3143,7 @@ async fn main() -> anyhow::Result<()> {
                         name: name.as_deref(),
                         agent_slug: agent_slug.as_deref(),
                         cron_schedule: cron_schedule.as_deref(),
+                        cron_timezone: cron_timezone.as_deref(),
                         template: template.as_deref(),
                         tool_presets: &tool_presets,
                         approval_policy: approval_policy.as_deref(),
@@ -3147,6 +3165,7 @@ async fn main() -> anyhow::Result<()> {
                 name,
                 agent_slug,
                 cron_schedule,
+                cron_timezone,
                 template,
                 tool_presets,
                 approval_policy,
@@ -3165,6 +3184,7 @@ async fn main() -> anyhow::Result<()> {
                         name: name.as_deref(),
                         agent_slug: agent_slug.as_deref(),
                         cron_schedule: cron_schedule.as_deref(),
+                        cron_timezone: cron_timezone.as_deref(),
                         template: template.as_deref(),
                         tool_presets: &tool_presets,
                         approval_policy: approval_policy.as_deref(),
