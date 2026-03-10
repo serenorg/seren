@@ -558,6 +558,12 @@ enum AgentAction {
         /// Cron timezone as an IANA name (defaults to UTC)
         #[arg(long)]
         cron_timezone: Option<String>,
+        /// Optional eval set ID that must have a fresh passing verdict before runs are allowed
+        #[arg(long)]
+        eval_gate_set_id: Option<Uuid>,
+        /// Freshness window in seconds for the eval gate (required with --eval-gate-set-id)
+        #[arg(long)]
+        eval_gate_max_age_seconds: Option<i32>,
         /// Optional compute backend override (auto, aws_container, cloudflare_worker, or daytona). Omit for AWS-first auto-routing.
         #[arg(long)]
         compute_backend: Option<String>,
@@ -1152,6 +1158,15 @@ enum AgentAction {
         /// Path to .env secrets file
         #[arg(long, name = "env")]
         env_file: Option<String>,
+        /// Optional eval set ID that must have a fresh passing verdict before runs are allowed
+        #[arg(long)]
+        eval_gate_set_id: Option<Uuid>,
+        /// Freshness window in seconds for the eval gate (required with --eval-gate-set-id)
+        #[arg(long)]
+        eval_gate_max_age_seconds: Option<i32>,
+        /// Remove the eval gate from the deployment
+        #[arg(long, default_value_t = false)]
+        clear_eval_gate: bool,
     },
 
     // =========================================================================
@@ -3214,6 +3229,8 @@ async fn main() -> anyhow::Result<()> {
                 mode,
                 cron_schedule,
                 cron_timezone,
+                eval_gate_set_id,
+                eval_gate_max_age_seconds,
                 compute_backend,
                 runtime_kind,
                 config,
@@ -3229,6 +3246,8 @@ async fn main() -> anyhow::Result<()> {
                         mode: &mode,
                         cron_schedule: cron_schedule.as_deref(),
                         cron_timezone: cron_timezone.as_deref(),
+                        eval_gate_set_id,
+                        eval_gate_max_age_seconds,
                         compute_backend: compute_backend.as_deref(),
                         runtime_kind: runtime_kind.as_deref(),
                         config_path: config.as_deref(),
@@ -3701,11 +3720,17 @@ async fn main() -> anyhow::Result<()> {
                 deployment_id,
                 config,
                 env_file,
+                eval_gate_set_id,
+                eval_gate_max_age_seconds,
+                clear_eval_gate,
             } => {
                 commands::agent::cloud_update_config(
                     deployment_id,
                     config.as_deref(),
                     env_file.as_deref(),
+                    eval_gate_set_id,
+                    eval_gate_max_age_seconds,
+                    clear_eval_gate,
                     &ctx,
                 )
                 .await?

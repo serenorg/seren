@@ -1369,6 +1369,12 @@ pub struct DeployCloudAgentParams {
     /// Cron timezone as an IANA name (defaults to UTC)
     #[serde(default)]
     pub cron_timezone: Option<String>,
+    /// Optional eval set ID that must have a fresh passing verdict before runs are allowed
+    #[serde(default)]
+    pub eval_gate_set_id: Option<Uuid>,
+    /// Freshness window in seconds for the eval gate (required with eval_gate_set_id)
+    #[serde(default)]
+    pub eval_gate_max_age_seconds: Option<i32>,
     /// Optional compute backend override ("auto", "aws_container", "cloudflare_worker", or "daytona"). Omit for AWS-first auto-routing.
     #[serde(default)]
     pub compute_backend: Option<String>,
@@ -2100,6 +2106,15 @@ pub struct CloudUpdateConfigParams {
     /// JSON secrets object (key-value pairs) to update
     #[serde(default)]
     pub secrets: Option<serde_json::Value>,
+    /// Optional eval set ID that must have a fresh passing verdict before runs are allowed
+    #[serde(default)]
+    pub eval_gate_set_id: Option<Uuid>,
+    /// Freshness window in seconds for the eval gate (required with eval_gate_set_id)
+    #[serde(default)]
+    pub eval_gate_max_age_seconds: Option<i32>,
+    /// Remove the eval gate from the deployment
+    #[serde(default)]
+    pub clear_eval_gate: bool,
 }
 
 // ============================================================================
@@ -7776,6 +7791,18 @@ API endpoint: {endpoint}",
                 serde_json::json!(cron_timezone),
             );
         }
+        if let Some(eval_gate_set_id) = params.eval_gate_set_id {
+            body.insert(
+                "eval_gate_set_id".to_string(),
+                serde_json::json!(eval_gate_set_id),
+            );
+        }
+        if let Some(eval_gate_max_age_seconds) = params.eval_gate_max_age_seconds {
+            body.insert(
+                "eval_gate_max_age_seconds".to_string(),
+                serde_json::json!(eval_gate_max_age_seconds),
+            );
+        }
         if let Some(requirements_txt) = params.requirements_txt {
             body.insert(
                 "requirements_txt".to_string(),
@@ -8984,7 +9011,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Update config and/or secrets for a cloud agent deployment without redeploying code. Provide config (JSON object) and/or secrets (JSON key-value pairs).",
+        description = "Update config, secrets, and/or the deployment eval gate for a cloud agent without redeploying code. Provide config (JSON object), secrets (JSON key-value pairs), eval_gate_set_id plus eval_gate_max_age_seconds, or clear_eval_gate.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -8996,9 +9023,14 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CloudUpdateConfigParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        if params.config.is_none() && params.secrets.is_none() {
+        if params.config.is_none()
+            && params.secrets.is_none()
+            && params.eval_gate_set_id.is_none()
+            && params.eval_gate_max_age_seconds.is_none()
+            && !params.clear_eval_gate
+        {
             return Err(McpError::invalid_params(
-                "At least one of config or secrets must be provided.",
+                "Provide config, secrets, eval_gate_set_id plus eval_gate_max_age_seconds, or clear_eval_gate.",
                 None,
             ));
         }
@@ -9006,13 +9038,16 @@ API endpoint: {endpoint}",
         let request = seren::UpdateCloudDeploymentRequest {
             config: params.config,
             secrets: params.secrets,
+            eval_gate_set_id: params.eval_gate_set_id,
+            eval_gate_max_age_seconds: params.eval_gate_max_age_seconds,
+            clear_eval_gate: Some(params.clear_eval_gate),
         };
         api_client
             .seren_cloud_update_config(&params.deployment_id, &request)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![Content::text(format!(
-            "Configuration updated for deployment {}.",
+            "Deployment settings updated for {}.",
             params.deployment_id
         ))]))
     }

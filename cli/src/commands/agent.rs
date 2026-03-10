@@ -1495,6 +1495,8 @@ pub struct CloudDeployOptions<'a> {
     pub mode: &'a str,
     pub cron_schedule: Option<&'a str>,
     pub cron_timezone: Option<&'a str>,
+    pub eval_gate_set_id: Option<Uuid>,
+    pub eval_gate_max_age_seconds: Option<i32>,
     pub compute_backend: Option<&'a str>,
     pub runtime_kind: Option<&'a str>,
     pub config_path: Option<&'a str>,
@@ -1748,6 +1750,20 @@ async fn submit_cloud_deploy_request(
         if let Some(runtime_kind) = data.get("runtime_kind").and_then(|v| v.as_str()) {
             println!("  Runtime: {}", runtime_kind);
         }
+        if let Some(eval_gate_set_id) = data.get("eval_gate_set_id").and_then(|v| v.as_str()) {
+            println!("  Eval Gate Set: {}", eval_gate_set_id);
+        }
+        if let Some(eval_gate_max_age_seconds) = data
+            .get("eval_gate_max_age_seconds")
+            .and_then(|v| v.as_i64())
+        {
+            println!("  Eval Gate Window: {}s", eval_gate_max_age_seconds);
+        }
+        if let Some(eval_gate_status) = data.get("eval_gate_status")
+            && let Some(state) = eval_gate_status.get("state").and_then(|v| v.as_str())
+        {
+            println!("  Eval Gate Status: {}", state);
+        }
         if let Some(managed_agent) = data.get("managed_agent") {
             let tool_presets = json_string_list(managed_agent, "tool_presets");
             let allowed_publisher_operations =
@@ -1892,6 +1908,94 @@ fn format_optional_string(value: Option<&serde_json::Value>) -> String {
     }
 }
 
+fn format_eval_gate_brief(detail: &serde_json::Value) -> String {
+    let Some(eval_gate_set_id) = detail.get("eval_gate_set_id").and_then(|v| v.as_str()) else {
+        return "—".to_string();
+    };
+    let short_id = eval_gate_set_id
+        .split('-')
+        .next()
+        .unwrap_or(eval_gate_set_id);
+    let max_age = detail
+        .get("eval_gate_max_age_seconds")
+        .and_then(|v| v.as_i64())
+        .map(|value| format!("{value}s"))
+        .unwrap_or_else(|| "?".to_string());
+    let state = detail
+        .get("eval_gate_status")
+        .and_then(|status| status.get("state"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    format!("{short_id} / {max_age} / {state}")
+}
+
+fn print_cloud_deployment_detail_table(payload: &serde_json::Value) {
+    let detail = payload.get("data").unwrap_or(payload);
+    output::print_key_value_table(
+        Some("Deployment"),
+        &[
+            ("Deployment ID", format_optional_string(detail.get("id"))),
+            ("Name", format_optional_string(detail.get("name"))),
+            (
+                "Skill Slug",
+                format_optional_string(detail.get("skill_slug")),
+            ),
+            ("Mode", format_optional_string(detail.get("mode"))),
+            ("Status", format_optional_string(detail.get("status"))),
+            (
+                "Backend",
+                format_optional_string(detail.get("compute_backend")),
+            ),
+            (
+                "Runtime",
+                format_optional_string(detail.get("runtime_kind")),
+            ),
+            (
+                "Cron Schedule",
+                format_optional_string(detail.get("cron_schedule")),
+            ),
+            (
+                "Cron Timezone",
+                format_optional_string(detail.get("cron_timezone")),
+            ),
+            (
+                "Eval Gate Set",
+                format_optional_string(detail.get("eval_gate_set_id")),
+            ),
+            (
+                "Eval Gate Max Age",
+                detail
+                    .get("eval_gate_max_age_seconds")
+                    .and_then(|v| v.as_i64())
+                    .map(|value| format!("{value}s"))
+                    .unwrap_or_else(|| "—".to_string()),
+            ),
+            (
+                "Eval Gate Status",
+                detail
+                    .get("eval_gate_status")
+                    .and_then(|status| status.get("state"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| "—".to_string()),
+            ),
+            (
+                "Eval Gate Message",
+                detail
+                    .get("eval_gate_status")
+                    .and_then(|status| status.get("message"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| "—".to_string()),
+            ),
+            (
+                "Endpoint URL",
+                format_optional_string(detail.get("endpoint_url")),
+            ),
+        ],
+    );
+}
+
 fn print_managed_agent_detail_table(payload: &serde_json::Value) {
     let detail = payload.get("data").unwrap_or(payload);
     let tool_presets = json_string_list(detail, "tool_presets");
@@ -2027,6 +2131,8 @@ pub async fn cloud_deploy(
         mode,
         cron_schedule,
         cron_timezone,
+        eval_gate_set_id,
+        eval_gate_max_age_seconds,
         compute_backend,
         runtime_kind,
         config_path,
@@ -2166,6 +2272,18 @@ pub async fn cloud_deploy(
     }
     if let Some(timezone) = cron_timezone {
         body.insert("cron_timezone".to_string(), serde_json::json!(timezone));
+    }
+    if let Some(eval_gate_set_id) = eval_gate_set_id {
+        body.insert(
+            "eval_gate_set_id".to_string(),
+            serde_json::json!(eval_gate_set_id),
+        );
+    }
+    if let Some(eval_gate_max_age_seconds) = eval_gate_max_age_seconds {
+        body.insert(
+            "eval_gate_max_age_seconds".to_string(),
+            serde_json::json!(eval_gate_max_age_seconds),
+        );
     }
     if let Some(environment_id) = environment_id {
         body.insert(
@@ -2789,13 +2907,13 @@ pub async fn cloud_list(ctx: &CommandContext) -> Result<()> {
         return Ok(());
     }
     println!(
-        "{:<38} {:<24} {:<18} {:<14} {:<12} {:<10}",
-        "ID", "SKILL", "BACKEND", "RUNTIME", "MODE", "STATUS"
+        "{:<38} {:<24} {:<18} {:<14} {:<12} {:<10} {:<24}",
+        "ID", "SKILL", "BACKEND", "RUNTIME", "MODE", "STATUS", "EVAL GATE"
     );
     for d in deployments {
         let d_json = serde_json::to_value(d)?;
         println!(
-            "{:<38} {:<24} {:<18} {:<14} {:<12} {:<10}",
+            "{:<38} {:<24} {:<18} {:<14} {:<12} {:<10} {:<24}",
             d_json.get("id").and_then(|v| v.as_str()).unwrap_or("-"),
             d_json
                 .get("skill_slug")
@@ -2811,6 +2929,7 @@ pub async fn cloud_list(ctx: &CommandContext) -> Result<()> {
                 .unwrap_or("-"),
             d_json.get("mode").and_then(|v| v.as_str()).unwrap_or("-"),
             d_json.get("status").and_then(|v| v.as_str()).unwrap_or("-"),
+            format_eval_gate_brief(&d_json),
         );
     }
 
@@ -2825,7 +2944,13 @@ pub async fn cloud_status(deployment_id: Uuid, ctx: &CommandContext) -> Result<(
         .await
         .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
         .into_inner();
-    output::print_json(&response)?;
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => {
+            let value = serde_json::to_value(&response)?;
+            print_cloud_deployment_detail_table(&value);
+        }
+    }
     Ok(())
 }
 
@@ -4905,11 +5030,19 @@ pub async fn cloud_update_config(
     deployment_id: Uuid,
     config_path: Option<&str>,
     env_path: Option<&str>,
+    eval_gate_set_id: Option<Uuid>,
+    eval_gate_max_age_seconds: Option<i32>,
+    clear_eval_gate: bool,
     ctx: &CommandContext,
 ) -> Result<()> {
-    if config_path.is_none() && env_path.is_none() {
+    if config_path.is_none()
+        && env_path.is_none()
+        && eval_gate_set_id.is_none()
+        && eval_gate_max_age_seconds.is_none()
+        && !clear_eval_gate
+    {
         return Err(anyhow::anyhow!(
-            "At least one of --config or --env must be provided."
+            "Provide at least one of --config, --env, --eval-gate-set-id, --eval-gate-max-age-seconds, or --clear-eval-gate."
         ));
     }
 
@@ -4939,6 +5072,9 @@ pub async fn cloud_update_config(
     let request = seren::UpdateCloudDeploymentRequest {
         config: body.remove("config"),
         secrets: body.remove("secrets"),
+        eval_gate_set_id,
+        eval_gate_max_age_seconds,
+        clear_eval_gate: Some(clear_eval_gate),
     };
     client
         .seren_cloud_update_config(&deployment_id, &request)
@@ -4946,7 +5082,7 @@ pub async fn cloud_update_config(
         .map_err(|e| anyhow::anyhow!("Failed: {}", e))?;
 
     println!(
-        "{} Config updated for deployment {}.",
+        "{} Deployment settings updated for {}.",
         "✓".green(),
         deployment_id
     );

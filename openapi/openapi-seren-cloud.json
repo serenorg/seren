@@ -2168,6 +2168,80 @@
           }
         }
       },
+      "CloudDeploymentEvalGateStatus": {
+        "type": "object",
+        "description": "Computed evaluation gate status for a deployment.",
+        "required": [
+          "state",
+          "blocking",
+          "message",
+          "eval_gate_set_id",
+          "eval_gate_max_age_seconds",
+          "checked_at"
+        ],
+        "properties": {
+          "blocking": {
+            "type": "boolean"
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "eval_gate_max_age_seconds": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "eval_gate_set_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fresh_until": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "latest_eval_run_completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "latest_eval_run_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "latest_eval_run_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "latest_verdict_passed": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "latest_verdict_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
       "CloudDeploymentMode": {
         "type": "string",
         "description": "Cloud deployment execution mode.",
@@ -2590,6 +2664,30 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "eval_gate_max_age_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "eval_gate_set_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "eval_gate_status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentEvalGateStatus"
+              }
             ]
           },
           "id": {
@@ -4028,6 +4126,30 @@
                   "null"
                 ]
               },
+              "eval_gate_max_age_seconds": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32"
+              },
+              "eval_gate_set_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "eval_gate_status": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudDeploymentEvalGateStatus"
+                  }
+                ]
+              },
               "id": {
                 "type": "string",
                 "format": "uuid"
@@ -5172,6 +5294,30 @@
                     "null"
                   ]
                 },
+                "eval_gate_max_age_seconds": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int32"
+                },
+                "eval_gate_set_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "eval_gate_status": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CloudDeploymentEvalGateStatus"
+                    }
+                  ]
+                },
                 "id": {
                   "type": "string",
                   "format": "uuid"
@@ -5757,6 +5903,20 @@
             ],
             "format": "uuid"
           },
+          "eval_gate_max_age_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "eval_gate_set_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "fallback_models": {
             "type": [
               "array",
@@ -6132,7 +6292,24 @@
         "type": "object",
         "description": "Request body for updating config/secrets without redeploying.",
         "properties": {
+          "clear_eval_gate": {
+            "type": "boolean"
+          },
           "config": {},
+          "eval_gate_max_age_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "eval_gate_set_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "secrets": {}
         }
       },
