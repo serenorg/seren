@@ -8327,43 +8327,13 @@ API endpoint: {endpoint}",
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let baseline_detail = api_client
-            .seren_cloud_run_detail(&params.baseline_run_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
-        let candidate_detail = api_client
-            .seren_cloud_run_detail(&params.candidate_run_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
-        let baseline_artifacts = api_client
-            .seren_cloud_run_artifacts(&params.baseline_run_id, None, None)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
-        let candidate_artifacts = api_client
-            .seren_cloud_run_artifacts(&params.candidate_run_id, None, None)
+        let response = api_client
+            .seren_cloud_run_compare(&params.baseline_run_id, &params.candidate_run_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
 
-        let baseline_detail = serde_json::to_value(&baseline_detail)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let candidate_detail = serde_json::to_value(&candidate_detail)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let baseline_artifacts = serde_json::to_value(&baseline_artifacts)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let candidate_artifacts = serde_json::to_value(&candidate_artifacts)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let comparison = seren::compare_cloud_run_replays(
-            &baseline_detail,
-            &candidate_detail,
-            Some(&baseline_artifacts),
-            Some(&candidate_artifacts),
-        );
-
-        Ok(CallToolResult::success(vec![json_content(&comparison)?]))
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(

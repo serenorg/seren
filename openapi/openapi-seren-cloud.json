@@ -1285,6 +1285,57 @@
         ]
       }
     },
+    "/runs/{run_id}/compare/{compare_run_id}": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Compare two run replay/eval captures by ID (cross-agent).",
+        "operationId": "seren_cloud_run_compare",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Baseline run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "compare_run_id",
+            "in": "path",
+            "description": "Candidate run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replay comparison summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudRunReplayComparison"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/runs/{run_id}/stream": {
       "get": {
         "tags": [
@@ -1931,6 +1982,138 @@
           }
         }
       },
+      "CloudRunReplayComparison": {
+        "type": "object",
+        "description": "Comparison summary between two run replay captures.",
+        "required": [
+          "baseline_run_id",
+          "candidate_run_id",
+          "baseline_deployment_id",
+          "candidate_deployment_id",
+          "baseline_status",
+          "candidate_status",
+          "baseline_eval_capture_present",
+          "candidate_eval_capture_present",
+          "baseline_replay_artifact_present",
+          "candidate_replay_artifact_present",
+          "overall_match",
+          "field_matches"
+        ],
+        "properties": {
+          "baseline_deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "baseline_eval_capture_present": {
+            "type": "boolean"
+          },
+          "baseline_replay_artifact_present": {
+            "type": "boolean"
+          },
+          "baseline_run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "baseline_status": {
+            "type": "string"
+          },
+          "candidate_deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "candidate_eval_capture_present": {
+            "type": "boolean"
+          },
+          "candidate_replay_artifact_present": {
+            "type": "boolean"
+          },
+          "candidate_run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "candidate_status": {
+            "type": "string"
+          },
+          "field_matches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudRunReplayFieldComparison"
+            }
+          },
+          "first_event_mismatch": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudRunReplayEventMismatch"
+              }
+            ]
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "overall_match": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CloudRunReplayEventMismatch": {
+        "type": "object",
+        "description": "The first structured replay event that differs between two runs.",
+        "required": [
+          "index",
+          "baseline",
+          "candidate"
+        ],
+        "properties": {
+          "baseline": {},
+          "baseline_kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "candidate": {},
+          "candidate_kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "index": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "CloudRunReplayFieldComparison": {
+        "type": "object",
+        "description": "Field-level replay/eval summary comparison between two runs.",
+        "required": [
+          "field",
+          "label",
+          "baseline",
+          "candidate",
+          "matches"
+        ],
+        "properties": {
+          "baseline": {},
+          "candidate": {},
+          "field": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "matches": {
+            "type": "boolean"
+          }
+        }
+      },
       "CloudRunStreamCloseResponse": {
         "type": "object",
         "description": "Response payload for explicitly closing an active run stream session.",
@@ -2503,6 +2686,105 @@
               "visibility": {
                 "type": "string",
                 "description": "Visibility mode: \"open\" (default) or \"opaque\" (hides internals from non-owners)."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudRunReplayComparison": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Comparison summary between two run replay captures.",
+            "required": [
+              "baseline_run_id",
+              "candidate_run_id",
+              "baseline_deployment_id",
+              "candidate_deployment_id",
+              "baseline_status",
+              "candidate_status",
+              "baseline_eval_capture_present",
+              "candidate_eval_capture_present",
+              "baseline_replay_artifact_present",
+              "candidate_replay_artifact_present",
+              "overall_match",
+              "field_matches"
+            ],
+            "properties": {
+              "baseline_deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "baseline_eval_capture_present": {
+                "type": "boolean"
+              },
+              "baseline_replay_artifact_present": {
+                "type": "boolean"
+              },
+              "baseline_run_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "baseline_status": {
+                "type": "string"
+              },
+              "candidate_deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "candidate_eval_capture_present": {
+                "type": "boolean"
+              },
+              "candidate_replay_artifact_present": {
+                "type": "boolean"
+              },
+              "candidate_run_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "candidate_status": {
+                "type": "string"
+              },
+              "field_matches": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CloudRunReplayFieldComparison"
+                }
+              },
+              "first_event_mismatch": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudRunReplayEventMismatch"
+                  }
+                ]
+              },
+              "notes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "overall_match": {
+                "type": "boolean"
               }
             }
           },

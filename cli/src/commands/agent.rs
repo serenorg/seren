@@ -3058,42 +3058,15 @@ pub async fn cloud_run_compare(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
-
-    let baseline_detail = client
-        .seren_cloud_run_detail(&baseline_run_id)
+    let response = client
+        .seren_cloud_run_compare(&baseline_run_id, &candidate_run_id)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to fetch baseline run: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
         .into_inner();
-    let candidate_detail = client
-        .seren_cloud_run_detail(&candidate_run_id)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to fetch candidate run: {}", e))?
-        .into_inner();
-    let baseline_artifacts = client
-        .seren_cloud_run_artifacts(&baseline_run_id, None, None)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to fetch baseline run artifacts: {}", e))?
-        .into_inner();
-    let candidate_artifacts = client
-        .seren_cloud_run_artifacts(&candidate_run_id, None, None)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to fetch candidate run artifacts: {}", e))?
-        .into_inner();
-
-    let baseline_detail = serde_json::to_value(&baseline_detail)?;
-    let candidate_detail = serde_json::to_value(&candidate_detail)?;
-    let baseline_artifacts = serde_json::to_value(&baseline_artifacts)?;
-    let candidate_artifacts = serde_json::to_value(&candidate_artifacts)?;
-    let comparison = seren::compare_cloud_run_replays(
-        &baseline_detail,
-        &candidate_detail,
-        Some(&baseline_artifacts),
-        Some(&candidate_artifacts),
-    );
 
     match ctx.format {
-        OutputFormat::Json => output::print_json(&comparison)?,
-        OutputFormat::Table => output::print_cloud_run_replay_comparison(&comparison)?,
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => output::print_cloud_run_replay_comparison(&response.data)?,
     }
 
     Ok(())

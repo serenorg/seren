@@ -86,25 +86,20 @@ pub fn print_list_table<T: std::fmt::Display>(title: Option<&str>, header: &str,
 pub fn print_cloud_run_replay_comparison(
     comparison: &seren::CloudRunReplayComparison,
 ) -> anyhow::Result<()> {
-    let mut summary = Vec::new();
-    if let Some(run_id) = &comparison.baseline_run_id {
-        summary.push(("Baseline Run ID", run_id.clone()));
-    }
-    if let Some(run_id) = &comparison.candidate_run_id {
-        summary.push(("Candidate Run ID", run_id.clone()));
-    }
-    if let Some(deployment_id) = &comparison.baseline_deployment_id {
-        summary.push(("Baseline Deployment ID", deployment_id.clone()));
-    }
-    if let Some(deployment_id) = &comparison.candidate_deployment_id {
-        summary.push(("Candidate Deployment ID", deployment_id.clone()));
-    }
-    if let Some(status) = &comparison.baseline_status {
-        summary.push(("Baseline Status", status.clone()));
-    }
-    if let Some(status) = &comparison.candidate_status {
-        summary.push(("Candidate Status", status.clone()));
-    }
+    let mut summary = vec![
+        ("Baseline Run ID", comparison.baseline_run_id.to_string()),
+        ("Candidate Run ID", comparison.candidate_run_id.to_string()),
+        (
+            "Baseline Deployment ID",
+            comparison.baseline_deployment_id.to_string(),
+        ),
+        (
+            "Candidate Deployment ID",
+            comparison.candidate_deployment_id.to_string(),
+        ),
+        ("Baseline Status", comparison.baseline_status.clone()),
+        ("Candidate Status", comparison.candidate_status.clone()),
+    ];
     summary.push((
         "Overall Match",
         if comparison.overall_match {
