@@ -847,6 +847,13 @@ enum AgentAction {
         /// Run event ID (UUID)
         run_id: Uuid,
     },
+    /// Compare replay/eval captures for two runs by run ID
+    CloudRunCompare {
+        /// Baseline run event ID (UUID)
+        baseline_run_id: Uuid,
+        /// Candidate run event ID (UUID)
+        candidate_run_id: Uuid,
+    },
     /// List artifacts emitted by a run (global path, no deployment ID required)
     CloudRunArtifacts {
         /// Run event ID (UUID)
@@ -3281,6 +3288,12 @@ async fn main() -> anyhow::Result<()> {
             }
             AgentAction::CloudRunById { run_id } => {
                 commands::agent::cloud_run_by_id(run_id, &ctx).await?
+            }
+            AgentAction::CloudRunCompare {
+                baseline_run_id,
+                candidate_run_id,
+            } => {
+                commands::agent::cloud_run_compare(baseline_run_id, candidate_run_id, &ctx).await?
             }
             AgentAction::CloudRunArtifacts { run_id } => {
                 commands::agent::cloud_run_artifacts(run_id, &ctx).await?

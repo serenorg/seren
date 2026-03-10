@@ -83,6 +83,140 @@ pub fn print_list_table<T: std::fmt::Display>(title: Option<&str>, header: &str,
     println!("{table}");
 }
 
+pub fn print_cloud_run_replay_comparison(
+    comparison: &seren::CloudRunReplayComparison,
+) -> anyhow::Result<()> {
+    let mut summary = Vec::new();
+    if let Some(run_id) = &comparison.baseline_run_id {
+        summary.push(("Baseline Run ID", run_id.clone()));
+    }
+    if let Some(run_id) = &comparison.candidate_run_id {
+        summary.push(("Candidate Run ID", run_id.clone()));
+    }
+    if let Some(deployment_id) = &comparison.baseline_deployment_id {
+        summary.push(("Baseline Deployment ID", deployment_id.clone()));
+    }
+    if let Some(deployment_id) = &comparison.candidate_deployment_id {
+        summary.push(("Candidate Deployment ID", deployment_id.clone()));
+    }
+    if let Some(status) = &comparison.baseline_status {
+        summary.push(("Baseline Status", status.clone()));
+    }
+    if let Some(status) = &comparison.candidate_status {
+        summary.push(("Candidate Status", status.clone()));
+    }
+    summary.push((
+        "Overall Match",
+        if comparison.overall_match {
+            "yes".green().to_string()
+        } else {
+            "no".red().to_string()
+        },
+    ));
+    summary.push((
+        "Baseline Eval Capture",
+        if comparison.baseline_eval_capture_present {
+            "present".to_string()
+        } else {
+            "missing".to_string()
+        },
+    ));
+    summary.push((
+        "Candidate Eval Capture",
+        if comparison.candidate_eval_capture_present {
+            "present".to_string()
+        } else {
+            "missing".to_string()
+        },
+    ));
+    summary.push((
+        "Baseline Replay Artifact",
+        if comparison.baseline_replay_artifact_present {
+            "present".to_string()
+        } else {
+            "missing".to_string()
+        },
+    ));
+    summary.push((
+        "Candidate Replay Artifact",
+        if comparison.candidate_replay_artifact_present {
+            "present".to_string()
+        } else {
+            "missing".to_string()
+        },
+    ));
+    print_key_value_table(Some("Replay Comparison"), &summary);
+
+    if !comparison.field_matches.is_empty() {
+        println!();
+        println!("{}", "Summary Fields".bold());
+        let mut table = Table::new();
+        table
+            .load_preset(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic);
+        table.set_header(vec![
+            Cell::new("Field").fg(Color::Green),
+            Cell::new("Match").fg(Color::Green),
+            Cell::new("Baseline").fg(Color::Green),
+            Cell::new("Candidate").fg(Color::Green),
+        ]);
+        for field in &comparison.field_matches {
+            table.add_row(vec![
+                Cell::new(&field.label),
+                Cell::new(if field.matches { "yes" } else { "no" }).fg(if field.matches {
+                    Color::Green
+                } else {
+                    Color::Red
+                }),
+                Cell::new(render_json_value(&field.baseline)),
+                Cell::new(render_json_value(&field.candidate)),
+            ]);
+        }
+        println!("{table}");
+    }
+
+    if let Some(mismatch) = &comparison.first_event_mismatch {
+        println!();
+        print_key_value_table(
+            Some("First Event Mismatch"),
+            &[
+                ("Index", mismatch.index.to_string()),
+                (
+                    "Baseline Kind",
+                    mismatch
+                        .baseline_kind
+                        .clone()
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Candidate Kind",
+                    mismatch
+                        .candidate_kind
+                        .clone()
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                ("Baseline Event", render_json_value(&mismatch.baseline)),
+                ("Candidate Event", render_json_value(&mismatch.candidate)),
+            ],
+        );
+    }
+
+    if !comparison.notes.is_empty() {
+        println!();
+        print_list_table(Some("Notes"), "Note", &comparison.notes);
+    }
+
+    Ok(())
+}
+
+fn render_json_value(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null => "-".to_string(),
+        serde_json::Value::String(raw) => raw.clone(),
+        other => serde_json::to_string(other).unwrap_or_else(|_| other.to_string()),
+    }
+}
+
 pub fn print_projects_table(projects: &[seren::Project]) {
     if projects.is_empty() {
         println!("No projects found");
