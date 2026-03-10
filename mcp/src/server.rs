@@ -1456,6 +1456,15 @@ pub struct UpdateSerenAgentDeploymentParams {
     /// Updated cron timezone (cron deployments only)
     #[serde(default)]
     pub cron_timezone: Option<String>,
+    /// Updated eval set ID that gates execution
+    #[serde(default)]
+    pub eval_gate_set_id: Option<Uuid>,
+    /// Updated eval gate freshness window in seconds
+    #[serde(default)]
+    pub eval_gate_max_age_seconds: Option<i32>,
+    /// Clear any existing eval gate configuration
+    #[serde(default)]
+    pub clear_eval_gate: bool,
     /// Updated main instructions for the managed agent
     #[serde(default)]
     pub prompt: Option<String>,
@@ -1520,6 +1529,9 @@ fn build_update_seren_agent_deployment_request(
         "name": params.name,
         "cron_schedule": params.cron_schedule,
         "cron_timezone": params.cron_timezone,
+        "eval_gate_set_id": params.eval_gate_set_id,
+        "eval_gate_max_age_seconds": params.eval_gate_max_age_seconds,
+        "clear_eval_gate": params.clear_eval_gate,
         "prompt": params.prompt,
         "model_id": params.model_id,
         "template": params.template,
@@ -1570,6 +1582,12 @@ pub struct DeploySerenAgentParams {
     /// Cron timezone as an IANA name (defaults to UTC)
     #[serde(default)]
     pub cron_timezone: Option<String>,
+    /// Optional eval set ID that must have a fresh passing verdict before runs are allowed
+    #[serde(default)]
+    pub eval_gate_set_id: Option<Uuid>,
+    /// Freshness window in seconds for the eval gate (required with eval_gate_set_id)
+    #[serde(default)]
+    pub eval_gate_max_age_seconds: Option<i32>,
     /// Main instructions for the managed agent
     pub prompt: String,
     /// Model identifier
@@ -7934,7 +7952,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Preview an existing managed seren-agent deployment update before applying it. This returns the current resolved managed spec, the proposed resolved spec, and the changed fields so callers can inspect the diff before mutation.",
+        description = "Preview an existing managed seren-agent deployment update before applying it. This returns the current resolved managed spec, the proposed resolved spec, and the changed fields so callers can inspect the diff before mutation, including eval-gate changes.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -7985,7 +8003,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Update an existing managed seren-agent deployment. This edits the saved managed spec in place without exposing raw cloud runtime internals. Backend, mode, and runtime remain fixed; update prompt, template, presets, policies, remote A2A delegation allowlist, config, secrets, or advanced managed runtime fields instead.",
+        description = "Update an existing managed seren-agent deployment. This edits the saved managed spec in place without exposing raw cloud runtime internals. Backend, mode, and runtime remain fixed; update prompt, template, presets, policies, eval gates, remote A2A delegation allowlist, config, secrets, or advanced managed runtime fields instead.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -8036,7 +8054,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Deploy a managed prompt-based agent through the first-class seren-agent publisher. Choose the research_monitor template for read-oriented live-data work or workflow_agent for action-oriented workflows, then optionally override presets, policies, or a remote A2A delegation allowlist. This path is AWS-first, hides runtime internals, and supports always_on or cron mode with optional backend override.",
+        description = "Deploy a managed prompt-based agent through the first-class seren-agent publisher. Choose the research_monitor template for read-oriented live-data work or workflow_agent for action-oriented workflows, then optionally override presets, policies, an eval gate, or a remote A2A delegation allowlist. This path is AWS-first, hides runtime internals, and supports always_on or cron mode with optional backend override.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -8074,6 +8092,18 @@ API endpoint: {endpoint}",
             body.insert(
                 "compute_backend".to_string(),
                 serde_json::json!(compute_backend),
+            );
+        }
+        if let Some(eval_gate_set_id) = params.eval_gate_set_id {
+            body.insert(
+                "eval_gate_set_id".to_string(),
+                serde_json::json!(eval_gate_set_id),
+            );
+        }
+        if let Some(eval_gate_max_age_seconds) = params.eval_gate_max_age_seconds {
+            body.insert(
+                "eval_gate_max_age_seconds".to_string(),
+                serde_json::json!(eval_gate_max_age_seconds),
             );
         }
         if let Some(template) = params.template {

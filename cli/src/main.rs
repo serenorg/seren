@@ -597,6 +597,12 @@ enum AgentAction {
         /// Cron timezone as an IANA name (defaults to UTC)
         #[arg(long)]
         cron_timezone: Option<String>,
+        /// Optional eval set ID that must have a fresh passing verdict before runs are allowed
+        #[arg(long)]
+        eval_gate_set_id: Option<Uuid>,
+        /// Freshness window in seconds for the eval gate (required with --eval-gate-set-id)
+        #[arg(long)]
+        eval_gate_max_age_seconds: Option<i32>,
         /// Optional compute backend override (auto, aws_container, cloudflare_worker, or daytona). Omit for AWS-first managed routing.
         #[arg(long)]
         compute_backend: Option<String>,
@@ -674,6 +680,15 @@ enum AgentAction {
         /// Updated cron timezone (cron deployments only)
         #[arg(long)]
         cron_timezone: Option<String>,
+        /// Updated eval set ID that gates execution
+        #[arg(long)]
+        eval_gate_set_id: Option<Uuid>,
+        /// Updated eval gate freshness window in seconds
+        #[arg(long)]
+        eval_gate_max_age_seconds: Option<i32>,
+        /// Clear the eval gate entirely
+        #[arg(long)]
+        clear_eval_gate: bool,
         /// Managed template override
         #[arg(long)]
         template: Option<String>,
@@ -724,6 +739,15 @@ enum AgentAction {
         /// Updated cron timezone (cron deployments only)
         #[arg(long)]
         cron_timezone: Option<String>,
+        /// Updated eval set ID that gates execution
+        #[arg(long)]
+        eval_gate_set_id: Option<Uuid>,
+        /// Updated eval gate freshness window in seconds
+        #[arg(long)]
+        eval_gate_max_age_seconds: Option<i32>,
+        /// Clear the eval gate entirely
+        #[arg(long)]
+        clear_eval_gate: bool,
         /// Managed template override
         #[arg(long)]
         template: Option<String>,
@@ -3264,6 +3288,8 @@ async fn main() -> anyhow::Result<()> {
                 mode,
                 cron_schedule,
                 cron_timezone,
+                eval_gate_set_id,
+                eval_gate_max_age_seconds,
                 compute_backend,
                 template,
                 tool_presets,
@@ -3284,6 +3310,8 @@ async fn main() -> anyhow::Result<()> {
                         mode: &mode,
                         cron_schedule: cron_schedule.as_deref(),
                         cron_timezone: cron_timezone.as_deref(),
+                        eval_gate_set_id,
+                        eval_gate_max_age_seconds,
                         compute_backend: compute_backend.as_deref(),
                         template: template.as_deref(),
                         tool_presets: &tool_presets,
@@ -3324,6 +3352,9 @@ async fn main() -> anyhow::Result<()> {
                 agent_slug,
                 cron_schedule,
                 cron_timezone,
+                eval_gate_set_id,
+                eval_gate_max_age_seconds,
+                clear_eval_gate,
                 template,
                 tool_presets,
                 approval_policy,
@@ -3343,6 +3374,9 @@ async fn main() -> anyhow::Result<()> {
                         agent_slug: agent_slug.as_deref(),
                         cron_schedule: cron_schedule.as_deref(),
                         cron_timezone: cron_timezone.as_deref(),
+                        eval_gate_set_id,
+                        eval_gate_max_age_seconds,
+                        clear_eval_gate,
                         template: template.as_deref(),
                         tool_presets: &tool_presets,
                         approval_policy: approval_policy.as_deref(),
@@ -3365,6 +3399,9 @@ async fn main() -> anyhow::Result<()> {
                 agent_slug,
                 cron_schedule,
                 cron_timezone,
+                eval_gate_set_id,
+                eval_gate_max_age_seconds,
+                clear_eval_gate,
                 template,
                 tool_presets,
                 approval_policy,
@@ -3384,6 +3421,9 @@ async fn main() -> anyhow::Result<()> {
                         agent_slug: agent_slug.as_deref(),
                         cron_schedule: cron_schedule.as_deref(),
                         cron_timezone: cron_timezone.as_deref(),
+                        eval_gate_set_id,
+                        eval_gate_max_age_seconds,
+                        clear_eval_gate,
                         template: template.as_deref(),
                         tool_presets: &tool_presets,
                         approval_policy: approval_policy.as_deref(),

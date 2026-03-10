@@ -1510,6 +1510,8 @@ pub struct CloudDeployPromptOptions<'a> {
     pub mode: &'a str,
     pub cron_schedule: Option<&'a str>,
     pub cron_timezone: Option<&'a str>,
+    pub eval_gate_set_id: Option<Uuid>,
+    pub eval_gate_max_age_seconds: Option<i32>,
     pub compute_backend: Option<&'a str>,
     pub template: Option<&'a str>,
     pub tool_presets: &'a [String],
@@ -1529,6 +1531,9 @@ pub struct ManagedAgentUpdateOptions<'a> {
     pub agent_slug: Option<&'a str>,
     pub cron_schedule: Option<&'a str>,
     pub cron_timezone: Option<&'a str>,
+    pub eval_gate_set_id: Option<Uuid>,
+    pub eval_gate_max_age_seconds: Option<i32>,
+    pub clear_eval_gate: bool,
     pub template: Option<&'a str>,
     pub tool_presets: &'a [String],
     pub approval_policy: Option<&'a str>,
@@ -2030,6 +2035,20 @@ fn print_managed_agent_detail_table(payload: &serde_json::Value) {
             "Cron Timezone",
             format_optional_string(detail.get("cron_timezone")),
         ),
+        (
+            "Eval Gate Set",
+            format_optional_string(detail.get("eval_gate_set_id")),
+        ),
+        (
+            "Eval Gate Window",
+            match detail
+                .get("eval_gate_max_age_seconds")
+                .and_then(|value| value.as_i64())
+            {
+                Some(value) => format!("{}s", value),
+                None => "—".to_string(),
+            },
+        ),
         ("Mode", format_optional_string(detail.get("mode"))),
         ("Status", format_optional_string(detail.get("status"))),
         (
@@ -2318,6 +2337,8 @@ pub async fn cloud_deploy_prompt(
         mode,
         cron_schedule,
         cron_timezone,
+        eval_gate_set_id,
+        eval_gate_max_age_seconds,
         compute_backend,
         template,
         tool_presets,
@@ -2432,6 +2453,18 @@ pub async fn cloud_deploy_prompt(
     if let Some(timezone) = cron_timezone {
         body.insert("cron_timezone".to_string(), serde_json::json!(timezone));
     }
+    if let Some(eval_gate_set_id) = eval_gate_set_id {
+        body.insert(
+            "eval_gate_set_id".to_string(),
+            serde_json::json!(eval_gate_set_id),
+        );
+    }
+    if let Some(eval_gate_max_age_seconds) = eval_gate_max_age_seconds {
+        body.insert(
+            "eval_gate_max_age_seconds".to_string(),
+            serde_json::json!(eval_gate_max_age_seconds),
+        );
+    }
     if let Some(cfg) = &config {
         body.insert("config".to_string(), cfg.clone());
     }
@@ -2516,6 +2549,9 @@ fn build_managed_agent_update_request(
         agent_slug,
         cron_schedule,
         cron_timezone,
+        eval_gate_set_id,
+        eval_gate_max_age_seconds,
+        clear_eval_gate,
         template,
         tool_presets,
         approval_policy,
@@ -2569,6 +2605,21 @@ fn build_managed_agent_update_request(
             "cron_timezone".to_string(),
             serde_json::json!(cron_timezone),
         );
+    }
+    if let Some(eval_gate_set_id) = eval_gate_set_id {
+        body.insert(
+            "eval_gate_set_id".to_string(),
+            serde_json::json!(eval_gate_set_id),
+        );
+    }
+    if let Some(eval_gate_max_age_seconds) = eval_gate_max_age_seconds {
+        body.insert(
+            "eval_gate_max_age_seconds".to_string(),
+            serde_json::json!(eval_gate_max_age_seconds),
+        );
+    }
+    if clear_eval_gate {
+        body.insert("clear_eval_gate".to_string(), serde_json::json!(true));
     }
     if let Some(template) = template.map(str::trim).filter(|value| !value.is_empty()) {
         body.insert("template".to_string(), serde_json::json!(template));
