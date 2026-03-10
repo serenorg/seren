@@ -3044,7 +3044,10 @@ pub async fn cloud_run_by_id(run_id: Uuid, ctx: &CommandContext) -> Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
         .into_inner();
-    output::print_json(&response)?;
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => print_cloud_run_detail_response(&response)?,
+    }
     Ok(())
 }
 
@@ -3358,8 +3361,188 @@ pub async fn cloud_run_get(deployment_id: Uuid, run_id: Uuid, ctx: &CommandConte
         .await
         .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
         .into_inner();
-    output::print_json(&response)?;
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => print_cloud_run_detail_response(&response)?,
+    }
     Ok(())
+}
+
+fn print_cloud_run_detail_response<T: serde::Serialize>(response: &T) -> Result<()> {
+    let envelope = serde_json::to_value(response)?;
+    let run = envelope.get("data").unwrap_or(&envelope);
+    let Some(run_obj) = run.as_object() else {
+        output::print_json(response)?;
+        return Ok(());
+    };
+
+    let mut summary = Vec::new();
+    push_json_row(&mut summary, "Run ID", run_obj.get("id"));
+    push_json_row(&mut summary, "Deployment ID", run_obj.get("deployment_id"));
+    push_json_row(&mut summary, "Status", run_obj.get("status"));
+    push_json_row(
+        &mut summary,
+        "Status Message",
+        run_obj.get("status_message"),
+    );
+    push_json_row(&mut summary, "Stop Reason", run_obj.get("stop_reason"));
+    push_json_row(&mut summary, "Execution ID", run_obj.get("execution_id"));
+    push_json_row(&mut summary, "Backend", run_obj.get("compute_backend"));
+    push_json_row(&mut summary, "Source", run_obj.get("source"));
+    push_json_row(&mut summary, "Started", run_obj.get("started_at"));
+    push_json_row(&mut summary, "Completed", run_obj.get("completed_at"));
+    push_json_row(
+        &mut summary,
+        "Duration (ms)",
+        run_obj.get("execution_time_ms"),
+    );
+    push_json_row(
+        &mut summary,
+        "Billed (ms)",
+        run_obj.get("billed_duration_ms"),
+    );
+    push_json_row(
+        &mut summary,
+        "Compute Cost (USD)",
+        run_obj.get("compute_cost_usd"),
+    );
+    push_json_row(
+        &mut summary,
+        "Input Tokens",
+        run_obj.get("inference_input_tokens"),
+    );
+    push_json_row(
+        &mut summary,
+        "Output Tokens",
+        run_obj.get("inference_output_tokens"),
+    );
+    push_json_row(
+        &mut summary,
+        "Inference Cost (USD)",
+        run_obj.get("inference_cost_usd"),
+    );
+    push_json_row(&mut summary, "Session ID", run_obj.get("session_id"));
+    push_json_row(&mut summary, "Session URL", run_obj.get("session_url"));
+    push_json_row(
+        &mut summary,
+        "Conversation ID",
+        run_obj.get("conversation_id"),
+    );
+
+    output::print_key_value_table(Some("Run Summary"), &summary);
+
+    let trace_rows = metadata_section_rows(
+        run_obj,
+        "trace_context",
+        &[
+            ("Request ID", "request_id"),
+            ("Phase", "phase"),
+            ("Job", "job_name"),
+            ("Script", "script_name"),
+            ("Sandbox", "sandbox_id"),
+            ("Orchestrator Run", "orchestrator_run_id"),
+            ("Wakeup ID", "managed_wakeup_request_id"),
+            ("Wakeup Source", "managed_wakeup_source"),
+            ("Wakeup Reason", "managed_wakeup_reason"),
+        ],
+    );
+    if !trace_rows.is_empty() {
+        println!();
+        output::print_key_value_table(Some("Trace Context"), &trace_rows);
+    }
+
+    let provenance_rows = metadata_section_rows(
+        run_obj,
+        "provenance",
+        &[
+            ("Output Bytes", "output_bytes"),
+            ("Event Count", "output_events_count"),
+            ("Event Bytes", "output_events_bytes"),
+            ("Output SHA256", "output_sha256"),
+            ("Events SHA256", "output_events_sha256"),
+            ("Kinds", "output_events_kind_counts"),
+        ],
+    );
+    if !provenance_rows.is_empty() {
+        println!();
+        output::print_key_value_table(Some("Output Capture"), &provenance_rows);
+    }
+
+    Ok(())
+}
+
+fn metadata_section_rows(
+    run: &serde_json::Map<String, serde_json::Value>,
+    section: &str,
+    fields: &[(&'static str, &'static str)],
+) -> Vec<(&'static str, String)> {
+    let Some(section_obj) = run
+        .get("metadata")
+        .and_then(|value| value.get(section))
+        .and_then(serde_json::Value::as_object)
+    else {
+        return Vec::new();
+    };
+
+    let mut rows = Vec::new();
+    for (label, key) in fields {
+        if let Some(value) = section_obj.get(*key).and_then(json_value_to_string) {
+            rows.push((*label, value));
+        }
+    }
+    rows
+}
+
+fn push_json_row(
+    rows: &mut Vec<(&'static str, String)>,
+    label: &'static str,
+    value: Option<&serde_json::Value>,
+) {
+    if let Some(value) = value.and_then(json_value_to_string) {
+        rows.push((label, value));
+    }
+}
+
+fn json_value_to_string(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        serde_json::Value::Number(number) => Some(number.to_string()),
+        serde_json::Value::Bool(flag) => Some(flag.to_string()),
+        serde_json::Value::Array(items) => {
+            let rendered = items
+                .iter()
+                .filter_map(json_value_to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if rendered.is_empty() {
+                None
+            } else {
+                Some(rendered)
+            }
+        }
+        serde_json::Value::Object(object) => {
+            let rendered = object
+                .iter()
+                .filter_map(|(key, value)| {
+                    json_value_to_string(value).map(|value| format!("{key}={value}"))
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            if rendered.is_empty() {
+                None
+            } else {
+                Some(rendered)
+            }
+        }
+    }
 }
 
 /// List all runs across all cloud agent deployments.
