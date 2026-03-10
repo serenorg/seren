@@ -3288,6 +3288,46 @@ fn print_cloud_eval_case_detail(eval_case: &seren::CloudEvalCase) -> Result<()> 
     Ok(())
 }
 
+fn eval_run_summary_json(eval_run: &seren::CloudEvalRun) -> serde_json::Value {
+    serde_json::to_value(&eval_run.summary).unwrap_or(serde_json::Value::Null)
+}
+
+fn eval_run_summary_number(summary: &serde_json::Value, key: &str) -> Option<f64> {
+    summary.as_object()?.get(key)?.as_f64()
+}
+
+fn eval_run_summary_count(summary: &serde_json::Value, key: &str) -> Option<i64> {
+    summary.as_object()?.get(key)?.as_i64()
+}
+
+fn eval_run_summary_string(summary: &serde_json::Value, key: &str) -> Option<String> {
+    summary
+        .as_object()?
+        .get(key)?
+        .as_str()
+        .map(ToString::to_string)
+}
+
+fn format_eval_run_summary_percent(summary: &serde_json::Value, key: &str) -> String {
+    eval_run_summary_number(summary, key)
+        .map(|value| format!("{:.1}%", value * 100.0))
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn format_eval_run_summary_ratio(
+    summary: &serde_json::Value,
+    mismatch_key: &str,
+    checked_key: &str,
+) -> String {
+    match (
+        eval_run_summary_count(summary, mismatch_key),
+        eval_run_summary_count(summary, checked_key),
+    ) {
+        (Some(mismatches), Some(checked)) => format!("{mismatches}/{checked}"),
+        _ => "-".to_string(),
+    }
+}
+
 fn print_cloud_eval_run_table(
     eval_runs: &[seren::CloudEvalRun],
     pagination: Option<&seren::PaginationMeta>,
@@ -3298,14 +3338,16 @@ fn print_cloud_eval_run_table(
     }
 
     println!(
-        "{:<38} {:<12} {:<10} {:<10} {:<10} {:<24}",
-        "EVAL RUN ID", "STATUS", "PASSED", "FAILED", "ERRORED", "UPDATED"
+        "{:<38} {:<12} {:<8} {:<10} {:<10} {:<10} {:<24}",
+        "EVAL RUN ID", "STATUS", "SCORE", "PASSED", "FAILED", "ERRORED", "UPDATED"
     );
     for eval_run in eval_runs {
+        let summary = eval_run_summary_json(eval_run);
         println!(
-            "{:<38} {:<12} {:<10} {:<10} {:<10} {:<24}",
+            "{:<38} {:<12} {:<8} {:<10} {:<10} {:<10} {:<24}",
             eval_run.id,
             eval_run.status,
+            format_eval_run_summary_percent(&summary, "score"),
             eval_run.passed_cases,
             eval_run.failed_cases,
             eval_run.errored_cases,
@@ -3409,6 +3451,99 @@ fn print_cloud_eval_run_detail(eval_run: &seren::CloudEvalRun) -> Result<()> {
             ("Updated", eval_run.updated_at.to_string()),
         ],
     );
+
+    let summary = eval_run_summary_json(eval_run);
+    if json_value_has_content(&summary) {
+        println!();
+        output::print_key_value_table(
+            Some("Summary"),
+            &[
+                ("Score", format_eval_run_summary_percent(&summary, "score")),
+                (
+                    "Pass Rate",
+                    format_eval_run_summary_percent(&summary, "pass_rate"),
+                ),
+                (
+                    "Completion Rate",
+                    format_eval_run_summary_percent(&summary, "completion_rate"),
+                ),
+                (
+                    "Compared Cases",
+                    eval_run_summary_count(&summary, "compared_cases")
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Output Drift",
+                    format_eval_run_summary_ratio(
+                        &summary,
+                        "output_mismatches",
+                        "output_checked_cases",
+                    ),
+                ),
+                (
+                    "Status Drift",
+                    format_eval_run_summary_ratio(
+                        &summary,
+                        "status_mismatches",
+                        "status_checked_cases",
+                    ),
+                ),
+                (
+                    "Trajectory Drift",
+                    format_eval_run_summary_ratio(
+                        &summary,
+                        "trajectory_mismatches",
+                        "trajectory_checked_cases",
+                    ),
+                ),
+                (
+                    "Missing Eval Capture",
+                    eval_run_summary_count(&summary, "missing_actual_eval_capture_cases")
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Missing Replay",
+                    eval_run_summary_count(&summary, "missing_actual_replay_cases")
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "Field Drift",
+                    format_eval_run_summary_ratio(
+                        &summary,
+                        "field_mismatches",
+                        "field_comparisons",
+                    ),
+                ),
+                (
+                    "Field Match Rate",
+                    format_eval_run_summary_percent(&summary, "field_match_rate"),
+                ),
+                (
+                    "First Failed Case",
+                    eval_run_summary_string(&summary, "first_failed_case_id")
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                (
+                    "First Errored Case",
+                    eval_run_summary_string(&summary, "first_errored_case_id")
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+            ],
+        );
+
+        if let Some(failure_examples) = summary
+            .as_object()
+            .and_then(|object| object.get("failure_examples"))
+            && json_value_has_content(failure_examples)
+        {
+            println!();
+            println!("{}", "Failure Examples".bold());
+            output::print_json(failure_examples)?;
+        }
+    }
 
     if json_value_has_content(&eval_run.metadata) {
         println!();

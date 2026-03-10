@@ -2808,6 +2808,7 @@
           "passed_cases",
           "failed_cases",
           "errored_cases",
+          "summary",
           "metadata",
           "created_at",
           "updated_at"
@@ -2880,6 +2881,9 @@
               "null"
             ]
           },
+          "summary": {
+            "$ref": "#/components/schemas/CloudEvalRunSummary"
+          },
           "total_cases": {
             "type": "integer",
             "format": "int32"
@@ -2887,6 +2891,145 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "CloudEvalRunFailureExample": {
+        "type": "object",
+        "description": "Representative failures attached to an eval run summary.",
+        "required": [
+          "eval_case_id",
+          "status"
+        ],
+        "properties": {
+          "actual_run_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "case_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "eval_case_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "CloudEvalRunSummary": {
+        "type": "object",
+        "description": "Roll-up summary for an eval run.",
+        "required": [
+          "score",
+          "pass_rate",
+          "completion_rate",
+          "compared_cases",
+          "output_checked_cases",
+          "output_mismatches",
+          "status_checked_cases",
+          "status_mismatches",
+          "trajectory_checked_cases",
+          "trajectory_mismatches",
+          "missing_actual_eval_capture_cases",
+          "missing_actual_replay_cases",
+          "field_comparisons",
+          "field_mismatches",
+          "field_match_rate"
+        ],
+        "properties": {
+          "compared_cases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "completion_rate": {
+            "type": "number",
+            "format": "double"
+          },
+          "failure_examples": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudEvalRunFailureExample"
+            }
+          },
+          "field_comparisons": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "field_match_rate": {
+            "type": "number",
+            "format": "double"
+          },
+          "field_mismatches": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "first_errored_case_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "first_failed_case_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "missing_actual_eval_capture_cases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "missing_actual_replay_cases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "output_checked_cases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "output_mismatches": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pass_rate": {
+            "type": "number",
+            "format": "double"
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          },
+          "status_checked_cases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status_mismatches": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "trajectory_checked_cases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "trajectory_mismatches": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -3964,6 +4107,7 @@
               "passed_cases",
               "failed_cases",
               "errored_cases",
+              "summary",
               "metadata",
               "created_at",
               "updated_at"
@@ -4035,6 +4179,9 @@
                   "string",
                   "null"
                 ]
+              },
+              "summary": {
+                "$ref": "#/components/schemas/CloudEvalRunSummary"
               },
               "total_cases": {
                 "type": "integer",
@@ -5095,6 +5242,7 @@
                 "passed_cases",
                 "failed_cases",
                 "errored_cases",
+                "summary",
                 "metadata",
                 "created_at",
                 "updated_at"
@@ -5166,6 +5314,9 @@
                     "string",
                     "null"
                   ]
+                },
+                "summary": {
+                  "$ref": "#/components/schemas/CloudEvalRunSummary"
                 },
                 "total_cases": {
                   "type": "integer",
