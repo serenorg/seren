@@ -8205,7 +8205,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Get details of a specific run event for a cloud agent deployment, including output, structured events, trace_context, and output provenance.",
+        description = "Get details of a specific run event for a cloud agent deployment, including output, structured events, trace_context, output provenance, and eval_capture trajectory summaries.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn get_cloud_agent_run(
@@ -8292,7 +8292,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Get details of a run event by run ID (global path, no deployment ID required), including trace_context and output provenance.",
+        description = "Get details of a run event by run ID (global path, no deployment ID required), including trace_context, output provenance, and eval_capture trajectory summaries.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn get_cloud_run_by_id(

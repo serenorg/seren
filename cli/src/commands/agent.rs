@@ -3468,6 +3468,28 @@ fn print_cloud_run_detail_response<T: serde::Serialize>(response: &T) -> Result<
         output::print_key_value_table(Some("Output Capture"), &provenance_rows);
     }
 
+    let eval_capture_rows = metadata_section_rows(
+        run_obj,
+        "eval_capture",
+        &[
+            ("Event Count", "event_count"),
+            ("Trajectory", "trajectory"),
+            ("Tool Calls", "tool_call_sequence"),
+            ("Workflow States", "workflow_states"),
+            ("Text Segments", "text_segment_count"),
+            ("Thinking Segments", "thinking_segment_count"),
+            ("Tool Results", "tool_result_count"),
+            ("Tool Result Errors", "tool_result_error_count"),
+            ("Errors", "error_count"),
+            ("Final Text SHA256", "final_text_sha256"),
+            ("Final Text Bytes", "final_text_bytes"),
+        ],
+    );
+    if !eval_capture_rows.is_empty() {
+        println!();
+        output::print_key_value_table(Some("Eval Capture"), &eval_capture_rows);
+    }
+
     Ok(())
 }
 
