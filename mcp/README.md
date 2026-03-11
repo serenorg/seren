@@ -185,6 +185,25 @@ Example `deploy_seren_agent` parameters:
 
 `allowed_remote_agent_origins` is optional. Leave it unset to disable remote A2A delegation entirely.
 
+Example `update_seren_agent_deployment` parameters for an eval gate:
+
+```json
+{
+  "deployment_id": "dep_123",
+  "eval_gate_set_id": "8c74c3cb-9fd0-45d7-972c-3ca0fe5b8b88",
+  "eval_gate_max_age_seconds": 86400
+}
+```
+
+Clear the gate:
+
+```json
+{
+  "deployment_id": "dep_123",
+  "clear_eval_gate": true
+}
+```
+
 ### Store Prepaid Tools
 
 Use prepaid balance (fiat/Stripe) for store access:

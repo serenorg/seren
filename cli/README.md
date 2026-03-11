@@ -222,6 +222,17 @@ seren agent managed-update <deployment-id> \
   --allow-remote-agent-origin https://agents.seren.ai \
   --allow-remote-agent-origin agents.internal
 
+# Preview, apply, or clear an eval gate
+seren agent managed-preview <deployment-id> \
+  --eval-gate-set-id <eval-set-id> \
+  --eval-gate-max-age-seconds 86400
+
+seren agent managed-update <deployment-id> \
+  --eval-gate-set-id <eval-set-id> \
+  --eval-gate-max-age-seconds 86400
+
+seren agent managed-update <deployment-id> --clear-eval-gate
+
 # Invoke the deployment
 seren agent cloud-run --deployment-id <deployment-id> \
   --message "Give me the latest BTC update."
