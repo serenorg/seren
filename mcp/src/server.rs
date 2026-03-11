@@ -9,6 +9,7 @@
 //! variable to enable local wallet signing for x402 payments. This allows AI
 //! agents to make crypto payments without relying on the managed wallet API.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -2581,6 +2582,31 @@ struct CallPublisherErrorContext<'a, T: Serialize> {
     body: Option<&'a T>,
     agent_metadata: &'a AgentMetadata,
     return_text: bool,
+}
+
+fn normalize_api_request_body(
+    body: Option<&serde_json::Value>,
+) -> Option<Cow<'_, serde_json::Value>> {
+    let body = body?;
+
+    match body {
+        // Some MCP clients hand nested JSON arguments to us as a pre-stringified
+        // object/array. Forward the parsed document so upstream API publishers
+        // receive JSON, not a JSON string literal.
+        serde_json::Value::String(raw) => {
+            let trimmed = raw.trim();
+            if !matches!(trimmed.chars().next(), Some('{') | Some('[')) {
+                return Some(Cow::Borrowed(body));
+            }
+
+            match serde_json::from_str::<serde_json::Value>(trimmed) {
+                Ok(parsed @ serde_json::Value::Object(_))
+                | Ok(parsed @ serde_json::Value::Array(_)) => Some(Cow::Owned(parsed)),
+                _ => Some(Cow::Borrowed(body)),
+            }
+        }
+        _ => Some(Cow::Borrowed(body)),
+    }
 }
 
 fn extract_agent_metadata_from_extensions(extensions: &Extensions) -> AgentMetadata {
@@ -5394,7 +5420,8 @@ Examples:
         agent_metadata: &AgentMetadata,
         return_text: bool,
     ) -> Result<CallToolResult, McpError> {
-        let body = params.body.as_ref();
+        let normalized_body = normalize_api_request_body(params.body.as_ref());
+        let body = normalized_body.as_deref();
         // Keep wildcard proxy calls manual for now:
         // we need dynamic HTTP methods, request-scoped passthrough headers, and
         // per-call x-request-id support that generated OpenAPI methods do not expose.
@@ -9561,6 +9588,54 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), reqwest::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn call_publisher_api_unwraps_stringified_json_body() {
+        use wiremock::matchers::{body_json, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/publishers/test-publisher/echo"))
+            .and(header("Authorization", "Bearer test-key"))
+            .and(body_json(serde_json::json!({
+                "hello": "world",
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ok": true,
+            })))
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let extensions = extensions_with_headers(&[]);
+        let params = CallPublisherParams {
+            publisher: "test-publisher".to_string(),
+            query: None,
+            database: None,
+            method: Some("POST".to_string()),
+            path: Some("/echo".to_string()),
+            headers: None,
+            body: Some(serde_json::Value::String(
+                r#"{"hello":"world"}"#.to_string(),
+            )),
+            tool: None,
+            tool_args: None,
+            resource_uri: None,
+            response_format: None,
+            request_id: None,
+            confirm: false,
+            x402_payment: None,
+        };
+
+        let result = server
+            .call_publisher_api(&params, &extensions, &AgentMetadata::default(), false)
+            .await
+            .unwrap();
+
+        assert!(!result.is_error.unwrap_or(false));
     }
 
     #[tokio::test]
