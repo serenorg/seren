@@ -4056,6 +4056,8 @@ impl SerenMcpServer {
                     None,
                 )
             })?)?;
+        let native_balance = format_decimal_units(&native_balance_wei, 18);
+        let usdc_balance = format_decimal_units(&usdc_balance_raw, 6);
 
         Ok(serde_json::json!({
             "address": address,
@@ -4064,14 +4066,14 @@ impl SerenMcpServer {
             "native": {
                 "asset_symbol": BASE_NATIVE_ASSET_SYMBOL,
                 "balance_wei": native_balance_wei,
-                "balance": format_decimal_units(&native_balance_wei, 18),
+                "balance": native_balance,
             },
             "usdc": {
                 "asset_symbol": "USDC",
                 "contract_address": BASE_USDC_ADDRESS,
                 "balance_raw": usdc_balance_raw,
-                "balance": format_decimal_units(&usdc_balance_raw, 6),
-                "balance_usd": format_decimal_units(&usdc_balance_raw, 6),
+                "balance": usdc_balance.clone(),
+                "balance_usd": usdc_balance,
             }
         }))
     }
@@ -9863,7 +9865,7 @@ mod tests {
         assert_eq!(
             status,
             serde_json::json!({
-                "address": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+                "address": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
                 "network": "base",
                 "chain_id": 8453,
                 "native": {
