@@ -3904,9 +3904,19 @@ async fn main() -> anyhow::Result<()> {
 mod tests {
     use super::*;
 
+    fn parse_cli_with_large_stack(args: Vec<&'static str>) -> Cli {
+        std::thread::Builder::new()
+            .name("cli-parse-test".to_string())
+            .stack_size(8 * 1024 * 1024)
+            .spawn(move || Cli::try_parse_from(args).expect("cli parse should succeed"))
+            .expect("failed to spawn parser thread")
+            .join()
+            .expect("parser thread panicked")
+    }
+
     #[test]
     fn role_reset_password_accepts_no_password_flag() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli_with_large_stack(vec![
             "seren",
             "roles",
             "--project-id",
@@ -3916,8 +3926,7 @@ mod tests {
             "reset-password",
             "--id",
             "33333333-3333-3333-3333-333333333333",
-        ])
-        .expect("cli parse should succeed without --password");
+        ]);
 
         match cli.command {
             Commands::Roles {
@@ -3930,7 +3939,7 @@ mod tests {
 
     #[test]
     fn role_reset_password_still_accepts_deprecated_password_flag() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli_with_large_stack(vec![
             "seren",
             "roles",
             "--project-id",
@@ -3942,8 +3951,7 @@ mod tests {
             "33333333-3333-3333-3333-333333333333",
             "--password",
             "legacy-value",
-        ])
-        .expect("cli parse should keep backward compatibility for --password");
+        ]);
 
         match cli.command {
             Commands::Roles {
