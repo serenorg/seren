@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use alloy::primitives::U256;
 use base64::Engine;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
@@ -2301,14 +2302,21 @@ const QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 /// Marketplace and publisher endpoints can be slower than basic project operations.
 const API_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// Timeout duration for blockchain RPC calls (10 seconds).
-const RPC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// Timeout duration for local on-chain balance queries.
+const ONCHAIN_RPC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// Maximum number of retries for transient errors.
 const MAX_RETRIES: u32 = 2;
 
 /// Base delay for exponential backoff (doubles each retry).
 const RETRY_BASE_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
+
+const BASE_CHAIN_ID: u64 = 8453;
+const BASE_NETWORK_NAME: &str = "base";
+const BASE_NATIVE_ASSET_SYMBOL: &str = "ETH";
+const BASE_USDC_ADDRESS: &str = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+const DEFAULT_BASE_RPC_URL: &str = "https://mainnet.base.org";
+const ERC20_BALANCE_OF_SELECTOR: &str = "70a08231";
 
 fn x402_proxy_payment_header_name(x402_payment: &str) -> Result<&'static str, McpError> {
     let decoded = base64::engine::general_purpose::STANDARD
@@ -2435,6 +2443,54 @@ fn format_payment_required_body(status: reqwest::StatusCode, body_text: &str) ->
         "Payment required ({status}). {}",
         truncate_for_client(body_text, 1200)
     )
+}
+
+fn format_decimal_units(raw: &str, decimals: usize) -> String {
+    let digits = raw.trim_start_matches('0');
+    if digits.is_empty() {
+        return "0".to_string();
+    }
+
+    if decimals == 0 {
+        return digits.to_string();
+    }
+
+    if digits.len() <= decimals {
+        let fractional = format!("{}{}", "0".repeat(decimals - digits.len()), digits);
+        return format!("0.{}", fractional.trim_end_matches('0'));
+    }
+
+    let split_at = digits.len() - decimals;
+    let whole = &digits[..split_at];
+    let fractional = digits[split_at..].trim_end_matches('0');
+    if fractional.is_empty() {
+        whole.to_string()
+    } else {
+        format!("{whole}.{fractional}")
+    }
+}
+
+fn parse_rpc_quantity_to_decimal(value: &str) -> Result<String, McpError> {
+    let hex_value = value.trim().trim_start_matches("0x");
+    if hex_value.is_empty() {
+        return Ok("0".to_string());
+    }
+
+    let normalized = if hex_value.len().is_multiple_of(2) {
+        hex_value.to_string()
+    } else {
+        format!("0{hex_value}")
+    };
+
+    let bytes = hex::decode(&normalized).map_err(|e| {
+        McpError::internal_error(format!("Invalid hex quantity from RPC: {e}"), None)
+    })?;
+    Ok(U256::from_be_slice(&bytes).to_string())
+}
+
+fn erc20_balance_of_call_data(address: &str) -> String {
+    let normalized = address.trim().trim_start_matches("0x");
+    format!("{ERC20_BALANCE_OF_SELECTOR}{normalized:0>64}")
 }
 
 /// Format a payment-required error for the payment proxy pattern.
@@ -3903,6 +3959,123 @@ impl SerenMcpServer {
             .and_then(|raw| i64::try_from(raw).ok())
     }
 
+    fn base_rpc_url() -> String {
+        std::env::var("BASE_RPC_URL").unwrap_or_else(|_| DEFAULT_BASE_RPC_URL.to_string())
+    }
+
+    async fn execute_json_rpc(
+        &self,
+        rpc_url: &str,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, McpError> {
+        let response = self
+            .http_client
+            .post(rpc_url)
+            .timeout(ONCHAIN_RPC_TIMEOUT)
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": method,
+                "params": params,
+            }))
+            .send()
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("On-chain RPC request failed: {e}"), None)
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(McpError::internal_error(
+                format!(
+                    "On-chain RPC failed ({}): {}",
+                    status,
+                    truncate_for_client(&body, 500)
+                ),
+                None,
+            ));
+        }
+
+        let body: serde_json::Value = response.json().await.map_err(|e| {
+            McpError::internal_error(format!("Invalid on-chain RPC response: {e}"), None)
+        })?;
+
+        if let Some(error) = body.get("error") {
+            return Err(McpError::internal_error(
+                format!("On-chain RPC returned error: {error}"),
+                None,
+            ));
+        }
+
+        body.get("result").cloned().ok_or_else(|| {
+            McpError::internal_error("On-chain RPC response missing result".to_string(), None)
+        })
+    }
+
+    async fn fetch_onchain_wallet_status(
+        &self,
+        rpc_url: &str,
+        wallet: &PrivateKeyWallet,
+    ) -> Result<serde_json::Value, McpError> {
+        let address = wallet.address().to_string();
+
+        let native_balance_hex = self
+            .execute_json_rpc(
+                rpc_url,
+                "eth_getBalance",
+                serde_json::json!([address.clone(), "latest"]),
+            )
+            .await?;
+        let native_balance_wei =
+            parse_rpc_quantity_to_decimal(native_balance_hex.as_str().ok_or_else(|| {
+                McpError::internal_error(
+                    "On-chain RPC returned non-string eth_getBalance result".to_string(),
+                    None,
+                )
+            })?)?;
+
+        let usdc_balance_hex = self
+            .execute_json_rpc(
+                rpc_url,
+                "eth_call",
+                serde_json::json!([
+                    {
+                        "to": BASE_USDC_ADDRESS,
+                        "data": erc20_balance_of_call_data(&address),
+                    },
+                    "latest"
+                ]),
+            )
+            .await?;
+        let usdc_balance_raw =
+            parse_rpc_quantity_to_decimal(usdc_balance_hex.as_str().ok_or_else(|| {
+                McpError::internal_error(
+                    "On-chain RPC returned non-string eth_call result".to_string(),
+                    None,
+                )
+            })?)?;
+
+        Ok(serde_json::json!({
+            "address": address,
+            "network": BASE_NETWORK_NAME,
+            "chain_id": BASE_CHAIN_ID,
+            "native": {
+                "asset_symbol": BASE_NATIVE_ASSET_SYMBOL,
+                "balance_wei": native_balance_wei,
+                "balance": format_decimal_units(&native_balance_wei, 18),
+            },
+            "usdc": {
+                "asset_symbol": "USDC",
+                "contract_address": BASE_USDC_ADDRESS,
+                "balance_raw": usdc_balance_raw,
+                "balance": format_decimal_units(&usdc_balance_raw, 6),
+                "balance_usd": format_decimal_units(&usdc_balance_raw, 6),
+            }
+        }))
+    }
+
     #[tool(
         description = "List all Seren projects accessible to the authenticated user",
         annotations(read_only_hint = true, open_world_hint = false)
@@ -5094,59 +5267,17 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Get your complete wallet status including SerenBucks balance and on-chain USDC balance (if local wallet configured). Use this to check payment capabilities before executing paid queries or API calls.",
+        description = "Get your wallet balance and SerenBucks funding breakdown.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn get_wallet_status(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
-        // Get SerenBucks balance
         let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
-        let prepaid_balance = api_client
+        let balance = api_client
             .get_wallet_balance()
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-
-        // Check if local wallet is configured and query on-chain balance
-        let has_local_wallet = self.wallet.is_some();
-        let (local_wallet_address, onchain_usdc_balance) = if let Some(wallet) = &self.wallet {
-            let address = wallet.address();
-            // Wrap RPC call in timeout to prevent blocking on slow/unresponsive Base network
-            let balance = tokio::time::timeout(RPC_TIMEOUT, query_usdc_balance(address))
-                .await
-                .ok()
-                .and_then(|r| r.ok());
-            (Some(address.to_string()), balance)
-        } else {
-            (None, None)
-        };
-
-        // Build combined status response
-        let status = serde_json::json!({
-            "serenbucks": {
-                "balance_usd": prepaid_balance.data.balance_usd,
-                "funded_balance_usd": prepaid_balance.data.funded_balance_usd,
-                "currency": "USD",
-                "description": "SerenBucks for API calls and database queries"
-            },
-            "local_wallet": {
-                "configured": has_local_wallet,
-                "address": local_wallet_address,
-                "network": if has_local_wallet { "Base (eip155:8453)" } else { "N/A" },
-                "usdc_balance": onchain_usdc_balance,
-                "usdc_contract": if has_local_wallet { BASE_USDC_ADDRESS } else { "N/A" },
-                "description": if has_local_wallet {
-                    "Local wallet available for x402 crypto payments on Base network"
-                } else {
-                    "Set WALLET_PRIVATE_KEY to enable crypto payments"
-                }
-            },
-            "payment_methods": {
-                "serenbucks": true,
-                "x402_crypto": has_local_wallet
-            }
-        });
-
-        Ok(CallToolResult::success(vec![json_content(&status)?]))
+        Ok(CallToolResult::success(vec![json_content(&balance)?]))
     }
 
     #[tool(
@@ -5192,18 +5323,7 @@ impl SerenMcpServer {
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
 
-        // Format a helpful response with the checkout URL
-        let data = &deposit.data;
-        let response = serde_json::json!({
-            "deposit_id": data.deposit_id,
-            "checkout_url": data.checkout_url,
-            "amount_usd": data.amount_usd,
-            "bonus_usd": data.bonus_usd,
-            "total_usd": data.total_usd,
-            "instructions": "Open the checkout_url in a browser to complete payment. SerenBucks will be added to your balance automatically after payment succeeds."
-        });
-
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        Ok(CallToolResult::success(vec![json_content(&deposit)?]))
     }
 
     // NOTE: User geographic routing tools (list_user_routing, get_user_routing,
@@ -6173,6 +6293,25 @@ API endpoint: {endpoint}",
             }
         });
         Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get the configured local wallet's on-chain status on Base, including address, ETH balance, and USDC balance.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_onchain_wallet_status(&self) -> Result<CallToolResult, McpError> {
+        let wallet = self.wallet.as_ref().ok_or_else(|| {
+            McpError::invalid_request(
+                "Local wallet not configured. Set WALLET_PRIVATE_KEY environment variable."
+                    .to_string(),
+                None,
+            )
+        })?;
+
+        let status = self
+            .fetch_onchain_wallet_status(&Self::base_rpc_url(), wallet)
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&status)?]))
     }
 
     #[tool(
@@ -7727,17 +7866,7 @@ API endpoint: {endpoint}",
             Err(e) => return Err(McpError::internal_error(e.to_string(), None)),
         };
 
-        let result: serde_json::Value = result_json;
-
-        let tools = result.get("tools").and_then(|t| t.as_array());
-        let tool_count = tools.map(|t| t.len()).unwrap_or(0);
-        let response = serde_json::json!({
-            "publisher": params.publisher,
-            "tools": result.get("tools").unwrap_or(&serde_json::Value::Array(vec![])),
-            "tool_count": tool_count,
-        });
-
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        Ok(CallToolResult::success(vec![json_content(&result_json)?]))
     }
     #[tool(
         description = "List resources available on an MCP publisher. MCP publishers can expose resources (like files, data sources) that can be read. Use this to discover what resources an MCP publisher provides.",
@@ -7794,17 +7923,7 @@ API endpoint: {endpoint}",
             Err(e) => return Err(McpError::internal_error(e.to_string(), None)),
         };
 
-        let result: serde_json::Value = result_json;
-
-        let resources = result.get("resources").and_then(|r| r.as_array());
-        let resource_count = resources.map(|r| r.len()).unwrap_or(0);
-        let response = serde_json::json!({
-            "publisher": params.publisher,
-            "resources": result.get("resources").unwrap_or(&serde_json::Value::Array(vec![])),
-            "resource_count": resource_count,
-        });
-
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        Ok(CallToolResult::success(vec![json_content(&result_json)?]))
     }
 
     // ========================================================================
@@ -9258,67 +9377,6 @@ API endpoint: {endpoint}",
 }
 
 // ============================================================================
-// On-chain Balance Query
-// ============================================================================
-
-/// Base mainnet USDC contract address
-const BASE_USDC_ADDRESS: &str = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
-/// Base mainnet RPC URL
-const BASE_RPC_URL: &str = "https://mainnet.base.org";
-
-/// Query USDC balance on Base network
-async fn query_usdc_balance(wallet_address: alloy::primitives::Address) -> Result<String, String> {
-    use alloy::providers::ProviderBuilder;
-    use alloy::sol;
-
-    // Define ERC20 balanceOf interface
-    sol! {
-        #[sol(rpc)]
-        interface IERC20 {
-            function balanceOf(address account) external view returns (uint256);
-        }
-    }
-
-    // Create provider using connect_http (alloy v1.0+ API)
-    let rpc_url: reqwest::Url = BASE_RPC_URL
-        .parse()
-        .map_err(|e| format!("Invalid RPC URL: {}", e))?;
-    let provider = ProviderBuilder::new().connect_http(rpc_url);
-
-    // Parse USDC contract address
-    let usdc_address: alloy::primitives::Address = BASE_USDC_ADDRESS
-        .parse()
-        .map_err(|e| format!("Invalid USDC address: {}", e))?;
-
-    // Create contract instance and call balanceOf
-    let contract = IERC20::new(usdc_address, provider);
-    let balance = contract
-        .balanceOf(wallet_address)
-        .call()
-        .await
-        .map_err(|e| format!("RPC call failed: {}", e))?;
-
-    // Convert atomic units (6 decimals) to decimal string
-    let atomic_str = balance.to_string();
-    let decimal_balance = atomic_to_decimal(&atomic_str, 6);
-    Ok(decimal_balance)
-}
-
-/// Convert atomic units to decimal string (e.g., 1000000 -> "1" for 6 decimals)
-fn atomic_to_decimal(atomic: &str, decimals: usize) -> String {
-    let padded = format!("{:0>width$}", atomic, width = decimals + 1);
-    let (whole, fraction) = padded.split_at(padded.len() - decimals);
-    let whole = whole.trim_start_matches('0');
-    let whole = if whole.is_empty() { "0" } else { whole };
-    let fraction = fraction.trim_end_matches('0');
-    if fraction.is_empty() {
-        whole.to_string()
-    } else {
-        format!("{}.{}", whole, fraction)
-    }
-}
-
-// ============================================================================
 // Server Handler Implementation
 // ============================================================================
 
@@ -9385,7 +9443,7 @@ impl ServerHandler for SerenMcpServer {
 When Seren MCP is connected, follow these priorities:
 1. BEFORE using WebSearch or WebFetch → Call suggest_for_task() to check if a Seren publisher can do it better (e.g., Firecrawl for web scraping, Perplexity for AI search)
 2. BEFORE saying "I cannot do X" → Check if a Seren publisher can help via suggest_for_task()
-3. When user asks about costs or payments → Call get_wallet_status() to show SerenBucks and crypto balances
+3. When user asks about costs or payments → Call get_wallet_status() for SerenBucks and get_onchain_wallet_status() for local wallet balances when relevant
 4. For web scraping tasks → Use call_publisher with Firecrawl (e.g., call_publisher(publisher: "firecrawl-serenai", path: "/scrape", body: {url: "..."}))
 5. For AI-powered research → Use call_publisher with Perplexity (e.g., call_publisher(publisher: "perplexity-serenai", body: {query: "..."}))
 6. For database queries → Use call_publisher with query parameter (e.g., call_publisher(publisher: "my-db", query: "SELECT ..."))"#
@@ -9491,6 +9549,14 @@ mod tests {
 
         let too_large = "a".repeat(1_000_001);
         assert!(validate_sql_query(&too_large).is_err());
+    }
+
+    #[test]
+    fn format_decimal_units_trims_trailing_zeroes() {
+        assert_eq!(format_decimal_units("1000000000000000000", 18), "1");
+        assert_eq!(format_decimal_units("2500000", 6), "2.5");
+        assert_eq!(format_decimal_units("1", 6), "0.000001");
+        assert_eq!(format_decimal_units("0", 6), "0");
     }
 
     #[test]
@@ -9735,6 +9801,85 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), reqwest::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn fetch_onchain_wallet_status_reads_base_eth_and_usdc_balances() {
+        use wiremock::matchers::{body_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let rpc = MockServer::start().await;
+        let server = SerenMcpServer::new("test-key", "https://api.serendb.com").unwrap();
+        let wallet = PrivateKeyWallet::from_env_or_key(Some(
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80".into(),
+        ))
+        .unwrap()
+        .unwrap();
+        let address = wallet.address().to_string();
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "eth_getBalance",
+                "params": [address.clone(), "latest"],
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": "0xde0b6b3a7640000",
+            })))
+            .mount(&rpc)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "eth_call",
+                "params": [
+                    {
+                        "to": BASE_USDC_ADDRESS,
+                        "data": erc20_balance_of_call_data(&address),
+                    },
+                    "latest"
+                ],
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": "0x1e8480",
+            })))
+            .mount(&rpc)
+            .await;
+
+        let status = server
+            .fetch_onchain_wallet_status(&rpc.uri(), &wallet)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            status,
+            serde_json::json!({
+                "address": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+                "network": "base",
+                "chain_id": 8453,
+                "native": {
+                    "asset_symbol": "ETH",
+                    "balance_wei": "1000000000000000000",
+                    "balance": "1",
+                },
+                "usdc": {
+                    "asset_symbol": "USDC",
+                    "contract_address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                    "balance_raw": "2000000",
+                    "balance": "2",
+                    "balance_usd": "2",
+                }
+            })
+        );
     }
 
     #[tokio::test]
