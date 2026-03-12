@@ -1729,6 +1729,28 @@ pub struct CloudRunIdParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudPendingApprovalsParams {
+    /// Maximum awaiting-approval runs to return
+    #[serde(default = "default_cloud_runs_limit")]
+    pub limit: i64,
+    /// Offset for pagination
+    #[serde(default)]
+    pub offset: i64,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudDeploymentPendingApprovalsParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Maximum awaiting-approval runs to return
+    #[serde(default = "default_cloud_runs_limit")]
+    pub limit: i64,
+    /// Offset for pagination
+    #[serde(default)]
+    pub offset: i64,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CompareCloudRunsParams {
     /// Baseline run event UUID
     pub baseline_run_id: Uuid,
@@ -2125,6 +2147,18 @@ pub struct CloudUpdateConfigParams {
     /// JSON secrets object (key-value pairs) to update
     #[serde(default)]
     pub secrets: Option<serde_json::Value>,
+    /// Optional alert webhook policy JSON object
+    #[serde(default)]
+    pub alert_policy: Option<serde_json::Value>,
+    /// Remove the deployment alert policy
+    #[serde(default)]
+    pub clear_alert_policy: bool,
+    /// Optional network policy JSON object
+    #[serde(default)]
+    pub network_policy: Option<serde_json::Value>,
+    /// Remove the deployment network policy
+    #[serde(default)]
+    pub clear_network_policy: bool,
     /// Optional eval set ID that must have a fresh passing verdict before runs are allowed
     #[serde(default)]
     pub eval_gate_set_id: Option<Uuid>,
@@ -8628,6 +8662,97 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "List all seren-cloud runs currently awaiting approval across the organization.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_pending_cloud_approvals(
+        &self,
+        Parameters(params): Parameters<CloudPendingApprovalsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_pending_approvals(
+                None,
+                None,
+                Some(params.limit),
+                Some(params.offset),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List seren-cloud runs currently awaiting approval for a specific deployment.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_deployment_pending_cloud_approvals(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentPendingApprovalsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_deployment_pending_approvals(
+                &params.deployment_id,
+                None,
+                None,
+                Some(params.limit),
+                Some(params.offset),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get the current pending approvals for a seren-cloud run by run ID.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_cloud_run_pending_approvals(
+        &self,
+        Parameters(params): Parameters<CloudRunIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_run_pending_approvals(&params.run_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get the current pending approvals for a seren-cloud run within a deployment.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_deployment_cloud_run_pending_approvals(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentRunParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_deployment_run_pending_approvals(&params.deployment_id, &params.run_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
         description = "Get details of a run event by run ID (global path, no deployment ID required), including trace_context, output provenance, and eval_capture trajectory summaries.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
@@ -9068,7 +9193,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Update config, secrets, and/or the deployment eval gate for a cloud agent without redeploying code. Provide config (JSON object), secrets (JSON key-value pairs), eval_gate_set_id plus eval_gate_max_age_seconds, or clear_eval_gate.",
+        description = "Update config, secrets, alert_policy, network_policy, and/or the deployment eval gate for a cloud agent without redeploying code. Provide JSON objects for config/secrets/alert_policy/network_policy, eval_gate_set_id plus eval_gate_max_age_seconds, or the clear_* flags.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -9082,22 +9207,44 @@ API endpoint: {endpoint}",
     ) -> Result<CallToolResult, McpError> {
         if params.config.is_none()
             && params.secrets.is_none()
+            && params.alert_policy.is_none()
+            && !params.clear_alert_policy
+            && params.network_policy.is_none()
+            && !params.clear_network_policy
             && params.eval_gate_set_id.is_none()
             && params.eval_gate_max_age_seconds.is_none()
             && !params.clear_eval_gate
         {
             return Err(McpError::invalid_params(
-                "Provide config, secrets, eval_gate_set_id plus eval_gate_max_age_seconds, or clear_eval_gate.",
+                "Provide config, secrets, alert_policy, clear_alert_policy, network_policy, clear_network_policy, eval_gate_set_id plus eval_gate_max_age_seconds, or clear_eval_gate.",
                 None,
             ));
         }
         let api_client = self.api_client(&extensions)?;
+        let alert_policy = params
+            .alert_policy
+            .map(serde_json::from_value::<seren::CloudDeploymentAlertPolicy>)
+            .transpose()
+            .map_err(|e| {
+                McpError::invalid_params(format!("Invalid alert_policy payload: {e}"), None)
+            })?;
+        let network_policy = params
+            .network_policy
+            .map(serde_json::from_value::<seren::CloudDeploymentNetworkPolicy>)
+            .transpose()
+            .map_err(|e| {
+                McpError::invalid_params(format!("Invalid network_policy payload: {e}"), None)
+            })?;
         let request = seren::UpdateCloudDeploymentRequest {
+            alert_policy,
+            clear_alert_policy: Some(params.clear_alert_policy),
+            clear_network_policy: Some(params.clear_network_policy),
             config: params.config,
-            secrets: params.secrets,
-            eval_gate_set_id: params.eval_gate_set_id,
-            eval_gate_max_age_seconds: params.eval_gate_max_age_seconds,
             clear_eval_gate: Some(params.clear_eval_gate),
+            eval_gate_max_age_seconds: params.eval_gate_max_age_seconds,
+            eval_gate_set_id: params.eval_gate_set_id,
+            network_policy,
+            secrets: params.secrets,
         };
         api_client
             .seren_cloud_update_config(&params.deployment_id, &request)

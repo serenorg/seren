@@ -1160,6 +1160,38 @@ enum AgentAction {
         #[arg(long)]
         q: Option<String>,
     },
+    /// List all runs currently awaiting approval across the organization
+    CloudPendingApprovals {
+        /// Maximum runs to return
+        #[arg(long, default_value = "50")]
+        limit: i64,
+        /// Offset for pagination
+        #[arg(long, default_value = "0")]
+        offset: i64,
+    },
+    /// List runs currently awaiting approval for a specific deployment
+    CloudDeploymentPendingApprovals {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Maximum runs to return
+        #[arg(long, default_value = "50")]
+        limit: i64,
+        /// Offset for pagination
+        #[arg(long, default_value = "0")]
+        offset: i64,
+    },
+    /// Get the latest pending approvals for a run by run ID
+    CloudRunPendingApprovals {
+        /// Run event ID (UUID)
+        run_id: Uuid,
+    },
+    /// Get the latest pending approvals for a run within a deployment
+    CloudDeploymentRunPendingApprovals {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Run event ID (UUID)
+        run_id: Uuid,
+    },
     /// Cancel a queued/running run event for a cloud deployment
     CloudRunCancel {
         /// Deployment ID (UUID)
@@ -1182,6 +1214,18 @@ enum AgentAction {
         /// Path to .env secrets file
         #[arg(long, name = "env")]
         env_file: Option<String>,
+        /// Path to alert_policy JSON
+        #[arg(long)]
+        alert_policy: Option<String>,
+        /// Remove the deployment alert policy
+        #[arg(long, default_value_t = false)]
+        clear_alert_policy: bool,
+        /// Path to network_policy JSON
+        #[arg(long)]
+        network_policy: Option<String>,
+        /// Remove the deployment network policy
+        #[arg(long, default_value_t = false)]
+        clear_network_policy: bool,
         /// Optional eval set ID that must have a fresh passing verdict before runs are allowed
         #[arg(long)]
         eval_gate_set_id: Option<Uuid>,
@@ -3749,6 +3793,32 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
+            AgentAction::CloudPendingApprovals { limit, offset } => {
+                commands::agent::cloud_pending_approvals(limit, offset, &ctx).await?
+            }
+            AgentAction::CloudDeploymentPendingApprovals {
+                deployment_id,
+                limit,
+                offset,
+            } => {
+                commands::agent::cloud_deployment_pending_approvals(
+                    deployment_id,
+                    limit,
+                    offset,
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::CloudRunPendingApprovals { run_id } => {
+                commands::agent::cloud_run_pending_approvals(run_id, &ctx).await?
+            }
+            AgentAction::CloudDeploymentRunPendingApprovals {
+                deployment_id,
+                run_id,
+            } => {
+                commands::agent::cloud_deployment_run_pending_approvals(deployment_id, run_id, &ctx)
+                    .await?
+            }
             AgentAction::CloudRunCancel {
                 deployment_id,
                 run_id,
@@ -3760,17 +3830,27 @@ async fn main() -> anyhow::Result<()> {
                 deployment_id,
                 config,
                 env_file,
+                alert_policy,
+                clear_alert_policy,
+                network_policy,
+                clear_network_policy,
                 eval_gate_set_id,
                 eval_gate_max_age_seconds,
                 clear_eval_gate,
             } => {
                 commands::agent::cloud_update_config(
                     deployment_id,
-                    config.as_deref(),
-                    env_file.as_deref(),
-                    eval_gate_set_id,
-                    eval_gate_max_age_seconds,
-                    clear_eval_gate,
+                    commands::agent::CloudUpdateConfigOptions {
+                        config_path: config.as_deref(),
+                        env_path: env_file.as_deref(),
+                        alert_policy_path: alert_policy.as_deref(),
+                        clear_alert_policy,
+                        network_policy_path: network_policy.as_deref(),
+                        clear_network_policy,
+                        eval_gate_set_id,
+                        eval_gate_max_age_seconds,
+                        clear_eval_gate,
+                    },
                     &ctx,
                 )
                 .await?

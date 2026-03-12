@@ -5060,6 +5060,212 @@ pub async fn cloud_all_runs(
     Ok(())
 }
 
+pub async fn cloud_pending_approvals(limit: i64, offset: i64, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_pending_approvals(
+            None,
+            None,
+            Some(limit),
+            Some(offset),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => print_pending_approval_runs_table(&response, None)?,
+    }
+
+    Ok(())
+}
+
+pub async fn cloud_deployment_pending_approvals(
+    deployment_id: Uuid,
+    limit: i64,
+    offset: i64,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_deployment_pending_approvals(
+            &deployment_id,
+            None,
+            None,
+            Some(limit),
+            Some(offset),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => print_pending_approval_runs_table(&response, Some(deployment_id))?,
+    }
+
+    Ok(())
+}
+
+pub async fn cloud_run_pending_approvals(run_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_run_pending_approvals(&run_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => print_run_pending_approvals_response(&response)?,
+    }
+
+    Ok(())
+}
+
+pub async fn cloud_deployment_run_pending_approvals(
+    deployment_id: Uuid,
+    run_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_deployment_run_pending_approvals(&deployment_id, &run_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => print_run_pending_approvals_response(&response)?,
+    }
+
+    Ok(())
+}
+
+fn print_pending_approval_runs_table<T: serde::Serialize>(
+    response: &T,
+    deployment_scope: Option<Uuid>,
+) -> Result<()> {
+    let envelope = serde_json::to_value(response)?;
+    let Some(runs) = envelope.get("data").and_then(|value| value.as_array()) else {
+        output::print_json(response)?;
+        return Ok(());
+    };
+
+    if runs.is_empty() {
+        match deployment_scope {
+            Some(deployment_id) => {
+                println!(
+                    "No pending approvals found for deployment {}.",
+                    deployment_id
+                );
+            }
+            None => println!("No pending approvals found."),
+        }
+        return Ok(());
+    }
+
+    println!(
+        "{:<38} {:<38} {:<18} {:<8} {:<28}",
+        "RUN ID", "DEPLOYMENT ID", "STATUS", "COUNT", "TOOLS"
+    );
+    for run in runs {
+        let approvals = run
+            .get("pending_approvals")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let tools = approvals
+            .iter()
+            .filter_map(|approval| approval.get("tool").and_then(|value| value.as_str()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!(
+            "{:<38} {:<38} {:<18} {:<8} {:<28}",
+            run.get("run_id")
+                .and_then(|value| value.as_str())
+                .unwrap_or("-"),
+            run.get("deployment_id")
+                .and_then(|value| value.as_str())
+                .unwrap_or("-"),
+            run.get("status")
+                .and_then(|value| value.as_str())
+                .unwrap_or("-"),
+            approvals.len(),
+            truncate_for_cli(&tools, 28),
+        );
+    }
+
+    Ok(())
+}
+
+fn print_run_pending_approvals_response<T: serde::Serialize>(response: &T) -> Result<()> {
+    let envelope = serde_json::to_value(response)?;
+    let data = envelope.get("data").unwrap_or(&envelope);
+    let Some(run_obj) = data.as_object() else {
+        output::print_json(response)?;
+        return Ok(());
+    };
+
+    let mut summary = Vec::new();
+    push_json_row(&mut summary, "Run ID", run_obj.get("run_id"));
+    push_json_row(&mut summary, "Status", run_obj.get("status"));
+    output::print_key_value_table(Some("Pending Approval State"), &summary);
+
+    let approvals = run_obj
+        .get("pending_approvals")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if approvals.is_empty() {
+        println!();
+        println!("No pending approvals.");
+        return Ok(());
+    }
+
+    println!();
+    println!(
+        "{:<38} {:<24} {:<20} {:<32}",
+        "APPROVAL ID", "TOOL", "CALL ID", "REASON"
+    );
+    for approval in approvals {
+        println!(
+            "{:<38} {:<24} {:<20} {:<32}",
+            approval
+                .get("id")
+                .and_then(|value| value.as_str())
+                .unwrap_or("-"),
+            approval
+                .get("tool")
+                .and_then(|value| value.as_str())
+                .unwrap_or("-"),
+            approval
+                .get("function_call_id")
+                .and_then(|value| value.as_str())
+                .unwrap_or("-"),
+            truncate_for_cli(
+                approval
+                    .get("reason")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("-"),
+                32,
+            ),
+        );
+    }
+
+    Ok(())
+}
+
 /// Cancel a queued/running run event.
 pub async fn cloud_run_cancel(
     deployment_id: Uuid,
@@ -5076,56 +5282,72 @@ pub async fn cloud_run_cancel(
     Ok(())
 }
 
+pub struct CloudUpdateConfigOptions<'a> {
+    pub config_path: Option<&'a str>,
+    pub env_path: Option<&'a str>,
+    pub alert_policy_path: Option<&'a str>,
+    pub clear_alert_policy: bool,
+    pub network_policy_path: Option<&'a str>,
+    pub clear_network_policy: bool,
+    pub eval_gate_set_id: Option<Uuid>,
+    pub eval_gate_max_age_seconds: Option<i32>,
+    pub clear_eval_gate: bool,
+}
+
 /// Update config and/or secrets for a cloud agent without redeploying.
 pub async fn cloud_update_config(
     deployment_id: Uuid,
-    config_path: Option<&str>,
-    env_path: Option<&str>,
-    eval_gate_set_id: Option<Uuid>,
-    eval_gate_max_age_seconds: Option<i32>,
-    clear_eval_gate: bool,
+    options: CloudUpdateConfigOptions<'_>,
     ctx: &CommandContext,
 ) -> Result<()> {
-    if config_path.is_none()
-        && env_path.is_none()
-        && eval_gate_set_id.is_none()
-        && eval_gate_max_age_seconds.is_none()
-        && !clear_eval_gate
+    if options.config_path.is_none()
+        && options.env_path.is_none()
+        && options.alert_policy_path.is_none()
+        && !options.clear_alert_policy
+        && options.network_policy_path.is_none()
+        && !options.clear_network_policy
+        && options.eval_gate_set_id.is_none()
+        && options.eval_gate_max_age_seconds.is_none()
+        && !options.clear_eval_gate
     {
         return Err(anyhow::anyhow!(
-            "Provide at least one of --config, --env, --eval-gate-set-id, --eval-gate-max-age-seconds, or --clear-eval-gate."
+            "Provide at least one of --config, --env, --alert-policy, --clear-alert-policy, --network-policy, --clear-network-policy, --eval-gate-set-id, --eval-gate-max-age-seconds, or --clear-eval-gate."
         ));
     }
 
-    let config: Option<serde_json::Value> = if let Some(p) = config_path {
-        let content = std::fs::read_to_string(p)
-            .map_err(|e| anyhow::anyhow!("Failed to read config file '{}': {}", p, e))?;
-        Some(serde_json::from_str(&content)?)
-    } else {
-        None
-    };
+    let config = options.config_path.map(parse_json_file).transpose()?;
 
-    let secrets: Option<serde_json::Value> = if let Some(p) = env_path {
+    let secrets: Option<serde_json::Value> = if let Some(p) = options.env_path {
         Some(parse_env_file(p)?)
     } else {
         None
     };
-
-    let mut body = serde_json::Map::new();
-    if let Some(cfg) = config {
-        body.insert("config".to_string(), cfg);
-    }
-    if let Some(sec) = secrets {
-        body.insert("secrets".to_string(), sec);
-    }
+    let alert_policy = options
+        .alert_policy_path
+        .map(parse_json_file)
+        .transpose()?
+        .map(serde_json::from_value::<seren::CloudDeploymentAlertPolicy>)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("Invalid alert policy: {}", e))?;
+    let network_policy = options
+        .network_policy_path
+        .map(parse_json_file)
+        .transpose()?
+        .map(serde_json::from_value::<seren::CloudDeploymentNetworkPolicy>)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("Invalid network policy: {}", e))?;
 
     let client = ctx.client().await?;
     let request = seren::UpdateCloudDeploymentRequest {
-        config: body.remove("config"),
-        secrets: body.remove("secrets"),
-        eval_gate_set_id,
-        eval_gate_max_age_seconds,
-        clear_eval_gate: Some(clear_eval_gate),
+        alert_policy,
+        clear_alert_policy: Some(options.clear_alert_policy),
+        config,
+        clear_network_policy: Some(options.clear_network_policy),
+        secrets,
+        eval_gate_set_id: options.eval_gate_set_id,
+        eval_gate_max_age_seconds: options.eval_gate_max_age_seconds,
+        clear_eval_gate: Some(options.clear_eval_gate),
+        network_policy,
     };
     client
         .seren_cloud_update_config(&deployment_id, &request)
@@ -5539,4 +5761,10 @@ fn parse_env_file(path: &str) -> Result<serde_json::Value> {
         }
     }
     Ok(serde_json::Value::Object(map))
+}
+
+fn parse_json_file(path: &str) -> Result<serde_json::Value> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("Failed to read JSON file '{}': {}", path, e))?;
+    serde_json::from_str(&content).map_err(|e| anyhow::anyhow!("Invalid JSON in '{}': {}", path, e))
 }

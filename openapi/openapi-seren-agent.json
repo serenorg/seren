@@ -470,6 +470,38 @@
           }
         }
       },
+      "CloudDeploymentAlertEvent": {
+        "type": "string",
+        "description": "Run-status event that can trigger a deployment alert webhook.",
+        "enum": [
+          "awaiting_approval",
+          "failed",
+          "blocked",
+          "timeout",
+          "completed",
+          "cancelled"
+        ]
+      },
+      "CloudDeploymentAlertPolicy": {
+        "type": "object",
+        "description": "Deployment-level operator alert policy.",
+        "required": [
+          "webhook_secret_key"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudDeploymentAlertEvent"
+            },
+            "description": "Run events that should trigger the webhook."
+          },
+          "webhook_secret_key": {
+            "type": "string",
+            "description": "Secret key whose value is the destination webhook URL."
+          }
+        }
+      },
       "CloudDeploymentComputeBackend": {
         "type": "string",
         "description": "Cloud deployment compute backend target.",
@@ -562,6 +594,23 @@
           "job"
         ]
       },
+      "CloudDeploymentNetworkPolicy": {
+        "type": "object",
+        "description": "Deployment-level outbound network restrictions for sandboxed execution backends.",
+        "properties": {
+          "allow_list": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Explicit IPv4 CIDR ranges allowed for outbound access."
+          },
+          "block_all": {
+            "type": "boolean",
+            "description": "When true, block all outbound network access from the deployment runtime."
+          }
+        }
+      },
       "CloudDeploymentRuntimeKind": {
         "type": "string",
         "description": "Cloud deployment runtime kind (language/runtime format).",
@@ -605,6 +654,16 @@
           "updated_at"
         ],
         "properties": {
+          "alert_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentAlertPolicy"
+              }
+            ]
+          },
           "code_bundle_hash": {
             "type": "string"
           },
@@ -697,6 +756,16 @@
           "name": {
             "type": "string"
           },
+          "network_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy"
+              }
+            ]
+          },
           "orchestration_mode": {
             "$ref": "#/components/schemas/OrchestrationMode"
           },
@@ -732,10 +801,8 @@
         "type": "object",
         "description": "Managed deploy request for the `seren-agent` first-class publisher.",
         "required": [
-          "name",
           "mode",
-          "prompt",
-          "model_id"
+          "prompt"
         ],
         "properties": {
           "agent_slug": {
@@ -744,6 +811,17 @@
               "null"
             ],
             "description": "Optional stable slug for the agent. If omitted, derived from `name`."
+          },
+          "alert_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentAlertPolicy",
+                "description": "Optional alert webhook policy."
+              }
+            ]
           },
           "allowed_remote_agent_origins": {
             "type": [
@@ -850,6 +928,15 @@
             "description": "Optional maximum wall-clock timeout per run in seconds.",
             "minimum": 0
           },
+          "max_tool_calls_per_run": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Optional total tool-call budget per run.",
+            "minimum": 0
+          },
           "max_tool_output_chars": {
             "type": [
               "integer",
@@ -867,8 +954,11 @@
             "description": "Additional model parameters."
           },
           "model_id": {
-            "type": "string",
-            "description": "Model identifier (for example `anthropic/claude-sonnet-4-20250514`)."
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Model identifier (for example `anthropic/claude-sonnet-4-20250514`). Defaults to `anthropic/claude-sonnet-4-20250514` when omitted."
           },
           "model_policy": {
             "oneOf": [
@@ -882,8 +972,22 @@
             ]
           },
           "name": {
-            "type": "string",
-            "description": "Human-readable agent name."
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Human-readable agent name. Auto-generated when omitted."
+          },
+          "network_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy",
+                "description": "Optional outbound network restrictions for supported sandboxes."
+              }
+            ]
           },
           "prompt": {
             "type": "string",
@@ -901,6 +1005,17 @@
           },
           "secrets": {
             "description": "JSON secrets object."
+          },
+          "side_effect_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SideEffectPolicy",
+                "description": "Deployment-level safety controls for mutating built-in publisher calls."
+              }
+            ]
           },
           "template": {
             "oneOf": [
@@ -1019,6 +1134,16 @@
               "updated_at"
             ],
             "properties": {
+              "alert_policy": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudDeploymentAlertPolicy"
+                  }
+                ]
+              },
               "code_bundle_hash": {
                 "type": "string"
               },
@@ -1111,6 +1236,16 @@
               "name": {
                 "type": "string"
               },
+              "network_policy": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy"
+                  }
+                ]
+              },
               "orchestration_mode": {
                 "$ref": "#/components/schemas/OrchestrationMode"
               },
@@ -1188,6 +1323,16 @@
             "properties": {
               "agent_slug": {
                 "type": "string"
+              },
+              "alert_policy": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudDeploymentAlertPolicy"
+                  }
+                ]
               },
               "allowed_publisher_operations": {
                 "type": "array",
@@ -1272,6 +1417,14 @@
                 "format": "int32",
                 "minimum": 0
               },
+              "max_tool_calls_per_run": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
               "max_tool_output_chars": {
                 "type": [
                   "integer",
@@ -1292,6 +1445,16 @@
               },
               "name": {
                 "type": "string"
+              },
+              "network_policy": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy"
+                  }
+                ]
               },
               "prompt": {
                 "type": [
@@ -1322,6 +1485,16 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "side_effect_policy": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SideEffectPolicy"
+                  }
+                ]
               },
               "status": {
                 "$ref": "#/components/schemas/CloudDeploymentStatus"
@@ -1481,6 +1654,16 @@
                 "updated_at"
               ],
               "properties": {
+                "alert_policy": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CloudDeploymentAlertPolicy"
+                    }
+                  ]
+                },
                 "code_bundle_hash": {
                   "type": "string"
                 },
@@ -1572,6 +1755,16 @@
                 },
                 "name": {
                   "type": "string"
+                },
+                "network_policy": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy"
+                    }
+                  ]
                 },
                 "orchestration_mode": {
                   "$ref": "#/components/schemas/OrchestrationMode"
@@ -1756,6 +1949,16 @@
           "agent_slug": {
             "type": "string"
           },
+          "alert_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentAlertPolicy"
+              }
+            ]
+          },
           "allowed_publisher_operations": {
             "type": "array",
             "items": {
@@ -1839,6 +2042,14 @@
             "format": "int32",
             "minimum": 0
           },
+          "max_tool_calls_per_run": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "max_tool_output_chars": {
             "type": [
               "integer",
@@ -1859,6 +2070,16 @@
           },
           "name": {
             "type": "string"
+          },
+          "network_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy"
+              }
+            ]
           },
           "prompt": {
             "type": [
@@ -1889,6 +2110,16 @@
             "items": {
               "type": "string"
             }
+          },
+          "side_effect_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SideEffectPolicy"
+              }
+            ]
           },
           "status": {
             "$ref": "#/components/schemas/CloudDeploymentStatus"
@@ -2251,6 +2482,31 @@
         },
         "additionalProperties": false
       },
+      "SideEffectPolicy": {
+        "type": "object",
+        "description": "Deployment-level safety controls for mutating built-in publisher calls.",
+        "properties": {
+          "max_mutating_calls_per_run": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_seconds_between_mutating_calls": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "require_idempotency_key": {
+            "type": "boolean"
+          }
+        }
+      },
       "UpdateSerenAgentDeploymentRequest": {
         "type": "object",
         "description": "Partial update request for an existing managed `seren-agent` deployment.",
@@ -2261,6 +2517,17 @@
               "null"
             ],
             "description": "Updated stable slug for the agent."
+          },
+          "alert_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentAlertPolicy",
+                "description": "Updated alert webhook policy."
+              }
+            ]
           },
           "allowed_remote_agent_origins": {
             "type": [
@@ -2283,9 +2550,17 @@
               }
             ]
           },
+          "clear_alert_policy": {
+            "type": "boolean",
+            "description": "Clear any existing alert policy."
+          },
           "clear_eval_gate": {
             "type": "boolean",
             "description": "Clear any existing eval gate configuration."
+          },
+          "clear_network_policy": {
+            "type": "boolean",
+            "description": "Clear any existing outbound network restrictions."
           },
           "config": {
             "description": "Updated JSON config object."
@@ -2360,6 +2635,15 @@
             "description": "Updated run timeout in seconds.",
             "minimum": 0
           },
+          "max_tool_calls_per_run": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Updated total tool-call budget per run.",
+            "minimum": 0
+          },
           "max_tool_output_chars": {
             "type": [
               "integer",
@@ -2397,6 +2681,17 @@
             ],
             "description": "Updated human-readable agent name."
           },
+          "network_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy",
+                "description": "Updated outbound network restrictions for supported sandboxes."
+              }
+            ]
+          },
           "prompt": {
             "type": [
               "string",
@@ -2416,6 +2711,16 @@
           },
           "secrets": {
             "description": "Updated JSON secrets object."
+          },
+          "side_effect_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SideEffectPolicy"
+              }
+            ]
           },
           "template": {
             "oneOf": [

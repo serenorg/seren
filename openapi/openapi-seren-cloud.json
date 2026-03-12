@@ -18,6 +18,151 @@
     }
   ],
   "paths": {
+    "/audit": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List tamper-evident audit entries for seren-cloud.",
+        "operationId": "seren_cloud_list_audit_entries",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max audit entries to return (default: 50, max: 200)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Pagination offset",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "description": "Filter by exact audit action",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Case-insensitive search across action, actor, and details",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit entries listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_AuditEntry"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/audit/verify": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Verify the tamper-evident audit chain.",
+        "operationId": "seren_cloud_verify_audit",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max audit entries to verify in sequence order (default: 10000, max: 100000)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit verification result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_VerificationResult"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/audit/{entry_id}": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Get a single tamper-evident audit entry.",
+        "operationId": "seren_cloud_get_audit_entry",
+        "parameters": [
+          {
+            "name": "entry_id",
+            "in": "path",
+            "description": "Audit entry ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit entry details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_AuditEntry"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Audit entry not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deploy": {
       "post": {
         "tags": [
@@ -211,6 +356,85 @@
         ]
       }
     },
+    "/deployments/{id}/audit": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List tamper-evident audit entries scoped to a deployment.",
+        "operationId": "seren_cloud_deployment_audit",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max audit entries to return (default: 50, max: 200)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Pagination offset",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "description": "Filter by exact audit action",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Case-insensitive search across action, actor, and details",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deployment audit entries listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_AuditEntry"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/logs": {
       "get": {
         "tags": [
@@ -235,6 +459,121 @@
             "description": "Logs retrieved",
             "content": {
               "text/plain": {}
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/pending_approvals": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List awaiting-approval runs for a deployment.",
+        "operationId": "seren_cloud_deployment_pending_approvals",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max runs to return (default: 50, max: 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Pagination offset (default: 0)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "compute_backend",
+            "in": "query",
+            "description": "Filter by compute backend (aws_container, cloudflare_worker, daytona)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "description": "Filter by run source (api, cli, scheduler, ui, system, unknown)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "has_artifacts",
+            "in": "query",
+            "description": "Filter runs by artifact existence",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "started_after",
+            "in": "query",
+            "description": "Filter runs started at/after RFC3339 timestamp",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "started_before",
+            "in": "query",
+            "description": "Filter runs started at/before RFC3339 timestamp",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Case-insensitive search across execution_id, status, source, run_name, output, metadata",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Awaiting-approval runs listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_CloudPendingApprovalRun"
+                }
+              }
             }
           },
           "404": {
@@ -289,7 +628,7 @@
           {
             "name": "status",
             "in": "query",
-            "description": "Repeat or comma-separate statuses: queued, running, completed, failed, cancelled, timeout, blocked, error",
+            "description": "Repeat or comma-separate statuses: queued, running, awaiting_approval, completed, failed, cancelled, timeout, blocked, error",
             "required": false,
             "schema": {
               "type": "string"
@@ -597,6 +936,206 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DataResponse_CloudDeploymentRunEvent"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/runs/{run_id}/evals": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List eval records linked to a specific deployment run.",
+        "operationId": "seren_cloud_deployment_run_evals",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Eval records linked to the run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudRunEvalsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/runs/{run_id}/events": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List structured output events emitted by a specific deployment run.",
+        "operationId": "seren_cloud_deployment_run_events",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max events to return (default: 100, max: 500)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Pagination offset (default: 0)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "Filter by event kind (text, thinking, tool_call_started, tool_call_completed, tool_audit, workflow, error, unknown)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "query",
+            "description": "Filter by tool/output item ID",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Case-insensitive search across event type, kind, item ID, and payload",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run output events listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_CloudRunOutputEventEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/runs/{run_id}/pending_approvals": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List current pending approvals for a specific deployment run.",
+        "operationId": "seren_cloud_deployment_run_pending_approvals",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current pending approvals for the run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudRunPendingApprovalsResponse"
                 }
               }
             }
@@ -1691,6 +2230,111 @@
         ]
       }
     },
+    "/pending_approvals": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List awaiting-approval runs across all deployments for the organization.",
+        "operationId": "seren_cloud_pending_approvals",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max runs to return (default: 50, max: 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Pagination offset (default: 0)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "compute_backend",
+            "in": "query",
+            "description": "Filter by compute backend (aws_container, cloudflare_worker, daytona)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "description": "Filter by run source (api, cli, scheduler, ui, system, unknown)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "has_artifacts",
+            "in": "query",
+            "description": "Filter runs by artifact existence",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "started_after",
+            "in": "query",
+            "description": "Filter runs started at/after RFC3339 timestamp",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "started_before",
+            "in": "query",
+            "description": "Filter runs started at/before RFC3339 timestamp",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Case-insensitive search across execution_id, status, source, run_name, output, metadata",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Awaiting-approval runs listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_CloudPendingApprovalRun"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/runs": {
       "get": {
         "tags": [
@@ -1722,7 +2366,7 @@
           {
             "name": "status",
             "in": "query",
-            "description": "Repeat or comma-separate statuses: queued, running, completed, failed, cancelled, timeout, blocked, error",
+            "description": "Repeat or comma-separate statuses: queued, running, awaiting_approval, completed, failed, cancelled, timeout, blocked, error",
             "required": false,
             "schema": {
               "type": "string"
@@ -1907,6 +2551,85 @@
         ]
       }
     },
+    "/runs/{run_id}/audit": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List tamper-evident audit entries scoped to a run.",
+        "operationId": "seren_cloud_run_audit",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max audit entries to return (default: 50, max: 200)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Pagination offset",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "description": "Filter by exact audit action",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Case-insensitive search across action, actor, and details",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run audit entries listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_AuditEntry"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Run event not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/runs/{run_id}/cancel": {
       "post": {
         "tags": [
@@ -1984,6 +2707,176 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DataResponse_CloudRunReplayComparison"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/runs/{run_id}/evals": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List eval records linked to a run event.",
+        "operationId": "seren_cloud_run_evals",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Eval records linked to the run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudRunEvalsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/runs/{run_id}/events": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List structured output events emitted by a run event.",
+        "operationId": "seren_cloud_run_events",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max events to return (default: 100, max: 500)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Pagination offset (default: 0)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "Filter by event kind (text, thinking, tool_call_started, tool_call_completed, tool_audit, workflow, error, unknown)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "query",
+            "description": "Filter by tool/output item ID",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Case-insensitive search across event type, kind, item ID, and payload",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run output events listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_CloudRunOutputEventEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/runs/{run_id}/pending_approvals": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List current pending approvals for a run event.",
+        "operationId": "seren_cloud_run_pending_approvals",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run event ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current pending approvals for the run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudRunPendingApprovalsResponse"
                 }
               }
             }
@@ -2087,6 +2980,66 @@
   },
   "components": {
     "schemas": {
+      "AuditEntry": {
+        "type": "object",
+        "description": "A single audit trail entry.",
+        "required": [
+          "id",
+          "organization_id",
+          "sequence_number",
+          "action",
+          "actor",
+          "details",
+          "entry_hash",
+          "prev_hash",
+          "created_at"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "details": {},
+          "entry_hash": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invocation_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "prev_hash": {
+            "type": "string"
+          },
+          "publisher_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "sequence_number": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "CloudDeploymentActionStatusResponse": {
         "type": "object",
         "description": "Generic status payload used by cloud deployment lifecycle endpoints.",
@@ -2096,6 +3049,38 @@
         "properties": {
           "status": {
             "type": "string"
+          }
+        }
+      },
+      "CloudDeploymentAlertEvent": {
+        "type": "string",
+        "description": "Run-status event that can trigger a deployment alert webhook.",
+        "enum": [
+          "awaiting_approval",
+          "failed",
+          "blocked",
+          "timeout",
+          "completed",
+          "cancelled"
+        ]
+      },
+      "CloudDeploymentAlertPolicy": {
+        "type": "object",
+        "description": "Deployment-level operator alert policy.",
+        "required": [
+          "webhook_secret_key"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudDeploymentAlertEvent"
+            },
+            "description": "Run events that should trigger the webhook."
+          },
+          "webhook_secret_key": {
+            "type": "string",
+            "description": "Secret key whose value is the destination webhook URL."
           }
         }
       },
@@ -2250,6 +3235,23 @@
           "cron",
           "job"
         ]
+      },
+      "CloudDeploymentNetworkPolicy": {
+        "type": "object",
+        "description": "Deployment-level outbound network restrictions for sandboxed execution backends.",
+        "properties": {
+          "allow_list": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Explicit IPv4 CIDR ranges allowed for outbound access."
+          },
+          "block_all": {
+            "type": "boolean",
+            "description": "When true, block all outbound network access from the deployment runtime."
+          }
+        }
       },
       "CloudDeploymentRunArtifact": {
         "type": "object",
@@ -2624,6 +3626,16 @@
           "updated_at"
         ],
         "properties": {
+          "alert_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentAlertPolicy"
+              }
+            ]
+          },
           "code_bundle_hash": {
             "type": "string"
           },
@@ -2715,6 +3727,16 @@
           },
           "name": {
             "type": "string"
+          },
+          "network_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy"
+              }
+            ]
           },
           "orchestration_mode": {
             "$ref": "#/components/schemas/OrchestrationMode"
@@ -3419,6 +4441,399 @@
           }
         }
       },
+      "CloudPendingApprovalRun": {
+        "type": "object",
+        "description": "Awaiting-approval run entry returned by the approval inbox endpoints.",
+        "required": [
+          "run_id",
+          "deployment_id",
+          "execution_id",
+          "compute_backend",
+          "source",
+          "status",
+          "started_at",
+          "updated_at"
+        ],
+        "properties": {
+          "compute_backend": {
+            "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "execution_id": {
+            "type": "string"
+          },
+          "pending_approvals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudRunPendingApproval"
+            }
+          },
+          "run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "run_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "status_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CloudRunEvalsResponse": {
+        "type": "object",
+        "description": "Eval records linked to a run, either as the promoted source or as an actual replay target.",
+        "required": [
+          "run_id"
+        ],
+        "properties": {
+          "actual_eval_case_results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudEvalCaseResult"
+            }
+          },
+          "run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source_eval_cases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudEvalCase"
+            }
+          }
+        }
+      },
+      "CloudRunOutputEvent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Plain text output from the agent.",
+            "required": [
+              "text",
+              "type"
+            ],
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "text"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "LLM thinking/reasoning block (collapsible in UI).",
+            "required": [
+              "text",
+              "type"
+            ],
+            "properties": {
+              "duration_ms": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32"
+              },
+              "text": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "thinking"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Tool invocation by the agent.",
+            "required": [
+              "id",
+              "name",
+              "type"
+            ],
+            "properties": {
+              "arguments": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "tool_call"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Result returned from a tool invocation.",
+            "required": [
+              "id",
+              "content",
+              "is_error",
+              "type"
+            ],
+            "properties": {
+              "content": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "is_error": {
+                "type": "boolean"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "tool_result"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Audit trail entry for a tool invocation that should be logged but not blocked.",
+            "required": [
+              "id",
+              "tool",
+              "reason",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "tool": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "tool_audit"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Workflow/checkpoint marker for resumable runs.",
+            "required": [
+              "state",
+              "type"
+            ],
+            "properties": {
+              "checkpoint_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "details": {},
+              "state": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "workflow"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "An error that occurred during execution.",
+            "required": [
+              "message",
+              "type"
+            ],
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "A single event in the structured output trace.\n\nMatches the seren-desktop `WorkerEvent` model for consistency.\nStored as a JSON array in `output_events`."
+      },
+      "CloudRunOutputEventEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CloudRunOutputEvent"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "content_index": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              },
+              "event_type": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "item_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudRunOutputEventKind"
+                  }
+                ]
+              },
+              "output_index": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              },
+              "sequence_number": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              }
+            }
+          }
+        ],
+        "description": "Envelope carrying structured output event metadata."
+      },
+      "CloudRunOutputEventKind": {
+        "type": "string",
+        "description": "Canonical taxonomy for structured run output events.",
+        "enum": [
+          "text",
+          "thinking",
+          "tool_call_started",
+          "tool_call_completed",
+          "tool_audit",
+          "workflow",
+          "error",
+          "unknown"
+        ]
+      },
+      "CloudRunPendingApproval": {
+        "type": "object",
+        "description": "Pending approval attached to an `awaiting_approval` run.",
+        "required": [
+          "id",
+          "tool"
+        ],
+        "properties": {
+          "args": {},
+          "function_call_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tool": {
+            "type": "string"
+          }
+        }
+      },
+      "CloudRunPendingApprovalsResponse": {
+        "type": "object",
+        "description": "Current approval state for a run.",
+        "required": [
+          "run_id",
+          "status"
+        ],
+        "properties": {
+          "pending_approvals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudRunPendingApproval"
+            }
+          },
+          "run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
       "CloudRunReplayComparison": {
         "type": "object",
         "description": "Comparison summary between two run replay captures.",
@@ -3657,6 +5072,86 @@
               },
               {
                 "$ref": "#/components/schemas/CloudEvalSetScheduleRequest"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_AuditEntry": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A single audit trail entry.",
+            "required": [
+              "id",
+              "organization_id",
+              "sequence_number",
+              "action",
+              "actor",
+              "details",
+              "entry_hash",
+              "prev_hash",
+              "created_at"
+            ],
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "actor": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "details": {},
+              "entry_hash": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "invocation_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "prev_hash": {
+                "type": "string"
+              },
+              "publisher_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "sequence_number": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
               }
             ]
           }
@@ -4084,6 +5579,16 @@
               "updated_at"
             ],
             "properties": {
+              "alert_policy": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudDeploymentAlertPolicy"
+                  }
+                ]
+              },
               "code_bundle_hash": {
                 "type": "string"
               },
@@ -4175,6 +5680,16 @@
               },
               "name": {
                 "type": "string"
+              },
+              "network_policy": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy"
+                  }
+                ]
               },
               "orchestration_mode": {
                 "$ref": "#/components/schemas/OrchestrationMode"
@@ -4667,6 +6182,94 @@
           }
         }
       },
+      "DataResponse_CloudRunEvalsResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Eval records linked to a run, either as the promoted source or as an actual replay target.",
+            "required": [
+              "run_id"
+            ],
+            "properties": {
+              "actual_eval_case_results": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CloudEvalCaseResult"
+                }
+              },
+              "run_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "source_eval_cases": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CloudEvalCase"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudRunPendingApprovalsResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Current approval state for a run.",
+            "required": [
+              "run_id",
+              "status"
+            ],
+            "properties": {
+              "pending_approvals": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CloudRunPendingApproval"
+                }
+              },
+              "run_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "status": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_CloudRunReplayComparison": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -4850,6 +6453,89 @@
               },
               "total_cost_usd": {
                 "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_AuditEntry": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A single audit trail entry.",
+              "required": [
+                "id",
+                "organization_id",
+                "sequence_number",
+                "action",
+                "actor",
+                "details",
+                "entry_hash",
+                "prev_hash",
+                "created_at"
+              ],
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "details": {},
+                "entry_hash": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invocation_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "organization_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "prev_hash": {
+                  "type": "string"
+                },
+                "publisher_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "sequence_number": {
+                  "type": "integer",
+                  "format": "int64"
+                }
               }
             }
           },
@@ -5252,6 +6938,16 @@
                 "updated_at"
               ],
               "properties": {
+                "alert_policy": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CloudDeploymentAlertPolicy"
+                    }
+                  ]
+                },
                 "code_bundle_hash": {
                   "type": "string"
                 },
@@ -5343,6 +7039,16 @@
                 },
                 "name": {
                   "type": "string"
+                },
+                "network_policy": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy"
+                    }
+                  ]
                 },
                 "orchestration_mode": {
                   "$ref": "#/components/schemas/OrchestrationMode"
@@ -5848,16 +7554,241 @@
           }
         }
       },
+      "DataResponse_Vec_CloudPendingApprovalRun": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Awaiting-approval run entry returned by the approval inbox endpoints.",
+              "required": [
+                "run_id",
+                "deployment_id",
+                "execution_id",
+                "compute_backend",
+                "source",
+                "status",
+                "started_at",
+                "updated_at"
+              ],
+              "properties": {
+                "compute_backend": {
+                  "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
+                },
+                "deployment_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "execution_id": {
+                  "type": "string"
+                },
+                "pending_approvals": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CloudRunPendingApproval"
+                  }
+                },
+                "run_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "run_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source": {
+                  "type": "string"
+                },
+                "started_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "status_message": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_CloudRunOutputEventEnvelope": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/CloudRunOutputEvent"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "content_index": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "format": "int64"
+                    },
+                    "event_type": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "item_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "kind": {
+                      "oneOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "$ref": "#/components/schemas/CloudRunOutputEventKind"
+                        }
+                      ]
+                    },
+                    "output_index": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "format": "int64"
+                    },
+                    "sequence_number": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "format": "int64"
+                    }
+                  }
+                }
+              ],
+              "description": "Envelope carrying structured output event metadata."
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_VerificationResult": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Result of verifying the audit chain integrity.",
+            "required": [
+              "verified",
+              "entries_checked"
+            ],
+            "properties": {
+              "entries_checked": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "first_invalid_sequence": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              },
+              "verified": {
+                "type": "boolean"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DeployRequest": {
         "type": "object",
         "description": "JSON body for the deploy endpoint (base64-encoded code bundle).",
         "required": [
-          "name",
           "skill_slug",
           "mode",
           "code_bundle_base64"
         ],
         "properties": {
+          "alert_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentAlertPolicy",
+                "description": "Deployment-level alert webhook routing policy."
+              }
+            ]
+          },
           "code_bundle_base64": {
             "type": "string",
             "description": "Base64-encoded tar.gz of the scripts/ directory."
@@ -5945,6 +7876,15 @@
             "description": "Max wall-clock seconds per run (overrides SEREN_MAX_TIMEOUT env var in orchestrator).",
             "minimum": 0
           },
+          "max_tool_calls_per_run": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Max total tool calls allowed in a single run before the runtime stops.",
+            "minimum": 0
+          },
           "max_tool_output_chars": {
             "type": [
               "integer",
@@ -5968,7 +7908,21 @@
             "description": "Model identifier (e.g. \"anthropic/claude-sonnet-4-20250514\")."
           },
           "name": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "network_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy",
+                "description": "Deployment-level outbound network restrictions for supported sandboxes."
+              }
+            ]
           },
           "orchestration_mode": {
             "type": [
@@ -6002,6 +7956,17 @@
           },
           "secrets": {
             "description": "JSON secrets object (key-value pairs, will be encrypted at rest)."
+          },
+          "side_effect_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SideEffectPolicy",
+                "description": "Deployment-level safety controls for mutating built-in publisher calls."
+              }
+            ]
           },
           "skill_slug": {
             "type": "string"
@@ -6249,6 +8214,31 @@
           }
         }
       },
+      "SideEffectPolicy": {
+        "type": "object",
+        "description": "Deployment-level safety controls for mutating built-in publisher calls.",
+        "properties": {
+          "max_mutating_calls_per_run": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_seconds_between_mutating_calls": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "require_idempotency_key": {
+            "type": "boolean"
+          }
+        }
+      },
       "UpdateCloudDeploymentEnvironmentRequest": {
         "type": "object",
         "description": "Request body for updating a reusable execution environment.",
@@ -6292,7 +8282,23 @@
         "type": "object",
         "description": "Request body for updating config/secrets without redeploying.",
         "properties": {
+          "alert_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentAlertPolicy"
+              }
+            ]
+          },
+          "clear_alert_policy": {
+            "type": "boolean"
+          },
           "clear_eval_gate": {
+            "type": "boolean"
+          },
+          "clear_network_policy": {
             "type": "boolean"
           },
           "config": {},
@@ -6309,6 +8315,16 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "network_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy"
+              }
+            ]
           },
           "secrets": {}
         }
@@ -6349,6 +8365,37 @@
                 "$ref": "#/components/schemas/CloudEvalSetScheduleRequest"
               }
             ]
+          }
+        }
+      },
+      "VerificationResult": {
+        "type": "object",
+        "description": "Result of verifying the audit chain integrity.",
+        "required": [
+          "verified",
+          "entries_checked"
+        ],
+        "properties": {
+          "entries_checked": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "first_invalid_sequence": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "verified": {
+            "type": "boolean"
           }
         }
       }
