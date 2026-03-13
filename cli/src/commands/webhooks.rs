@@ -204,7 +204,7 @@ pub async fn list_deliveries(org_id: &str, webhook_id: &str, ctx: &CommandContex
     let deliveries = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&deliveries)?,
-        OutputFormat::Table => output::print_webhook_deliveries_table(&deliveries),
+        OutputFormat::Table => output::print_webhook_deliveries_table(&deliveries.data),
     }
 
     Ok(())
@@ -224,7 +224,7 @@ pub async fn list_event_types(ctx: &CommandContext) -> Result<()> {
         OutputFormat::Table => output::print_list_table(
             Some("Available Webhook Event Types"),
             "Event Type",
-            &event_types,
+            &event_types.data,
         ),
     }
 

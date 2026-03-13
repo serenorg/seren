@@ -2489,12 +2489,6 @@ pub async fn cloud_deploy_prompt(
             "Managed agent deployments require --prompt or an agent config containing prompt."
         ));
     }
-    if !body.contains_key("model_id") {
-        return Err(anyhow::anyhow!(
-            "Managed agent deployments require --model-id or an agent config containing model_id."
-        ));
-    }
-
     submit_cloud_deploy_request(deploy_publisher, body, ctx).await
 }
 

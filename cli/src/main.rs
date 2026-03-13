@@ -606,25 +606,29 @@ enum AgentAction {
         /// Optional compute backend override (auto, aws_container, cloudflare_worker, or daytona). Omit for AWS-first managed routing.
         #[arg(long)]
         compute_backend: Option<String>,
-        /// Managed template. Use research_monitor for read-oriented live-data agents or workflow_agent for write-capable workflow agents.
-        #[arg(long)]
+        /// Agent style. Use research_monitor for read-oriented live-data work or workflow_agent for action-oriented workflows.
+        #[arg(long, visible_alias = "agent-style")]
         template: Option<String>,
-        /// Managed tool preset list. Use live_data for publisher-backed data access, publisher_actions for write-capable publisher actions, and database for direct SerenDB queries.
-        #[arg(long = "tool-preset", value_delimiter = ',')]
+        /// Capability list. Use live_data for publisher-backed data access, publisher_actions for write-capable publisher actions, and database for direct SerenDB queries.
+        #[arg(
+            long = "tool-preset",
+            visible_alias = "capability",
+            value_delimiter = ','
+        )]
         tool_presets: Vec<String>,
-        /// Managed approval policy (read_only or allow_mutations).
-        #[arg(long)]
+        /// Access mode (read_only or allow_mutations).
+        #[arg(long, visible_alias = "access-mode")]
         approval_policy: Option<String>,
-        /// Managed model policy preset (fast, balanced, or deep).
-        #[arg(long)]
+        /// Performance profile (fast, balanced, or deep).
+        #[arg(long, visible_alias = "performance-profile")]
         model_policy: Option<String>,
         /// Allow remote A2A delegation to these hostnames or origins. Repeat or use commas.
         #[arg(long = "allow-remote-agent-origin", value_delimiter = ',')]
         allowed_remote_agent_origins: Vec<String>,
-        /// Agent prompt. Required unless provided by --agent-config.
+        /// Agent prompt written in plain language. Required unless provided by --agent-config.
         #[arg(long)]
         prompt: Option<String>,
-        /// Optional model ID. Required unless provided by --agent-config.
+        /// Optional model ID. Omit to use the platform default.
         #[arg(long = "model-id")]
         model_id: Option<String>,
         /// Optional visibility mode (open or opaque)
@@ -689,17 +693,21 @@ enum AgentAction {
         /// Clear the eval gate entirely
         #[arg(long)]
         clear_eval_gate: bool,
-        /// Managed template override
-        #[arg(long)]
+        /// Agent style override
+        #[arg(long, visible_alias = "agent-style")]
         template: Option<String>,
-        /// Managed tool preset list
-        #[arg(long = "tool-preset", value_delimiter = ',')]
+        /// Capability list
+        #[arg(
+            long = "tool-preset",
+            visible_alias = "capability",
+            value_delimiter = ','
+        )]
         tool_presets: Vec<String>,
-        /// Managed approval policy (read_only or allow_mutations)
-        #[arg(long)]
+        /// Access mode (read_only or allow_mutations)
+        #[arg(long, visible_alias = "access-mode")]
         approval_policy: Option<String>,
-        /// Managed model policy preset (fast, balanced, or deep)
-        #[arg(long)]
+        /// Performance profile (fast, balanced, or deep)
+        #[arg(long, visible_alias = "performance-profile")]
         model_policy: Option<String>,
         /// Allow remote A2A delegation to these hostnames or origins. Repeat or use commas.
         #[arg(long = "allow-remote-agent-origin", value_delimiter = ',')]
@@ -748,17 +756,21 @@ enum AgentAction {
         /// Clear the eval gate entirely
         #[arg(long)]
         clear_eval_gate: bool,
-        /// Managed template override
-        #[arg(long)]
+        /// Agent style override
+        #[arg(long, visible_alias = "agent-style")]
         template: Option<String>,
-        /// Managed tool preset list
-        #[arg(long = "tool-preset", value_delimiter = ',')]
+        /// Capability list
+        #[arg(
+            long = "tool-preset",
+            visible_alias = "capability",
+            value_delimiter = ','
+        )]
         tool_presets: Vec<String>,
-        /// Managed approval policy (read_only or allow_mutations)
-        #[arg(long)]
+        /// Access mode (read_only or allow_mutations)
+        #[arg(long, visible_alias = "access-mode")]
         approval_policy: Option<String>,
-        /// Managed model policy preset (fast, balanced, or deep)
-        #[arg(long)]
+        /// Performance profile (fast, balanced, or deep)
+        #[arg(long, visible_alias = "performance-profile")]
         model_policy: Option<String>,
         /// Allow remote A2A delegation to these hostnames or origins. Repeat or use commas.
         #[arg(long = "allow-remote-agent-origin", value_delimiter = ',')]

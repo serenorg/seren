@@ -15,7 +15,7 @@ pub async fn list(ctx: &CommandContext) -> Result<()> {
     let sessions = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&sessions)?,
-        OutputFormat::Table => output::print_sessions_table(&sessions),
+        OutputFormat::Table => output::print_sessions_table(&sessions.data),
     }
 
     Ok(())

@@ -186,7 +186,7 @@ pub async fn list_permissions(ctx: &CommandContext) -> Result<()> {
     let permissions = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&permissions)?,
-        OutputFormat::Table => output::print_permissions_table(&permissions),
+        OutputFormat::Table => output::print_permissions_table(&permissions.data),
     }
 
     Ok(())
@@ -206,7 +206,7 @@ pub async fn my_permissions(org_id: &str, ctx: &CommandContext) -> Result<()> {
     match ctx.format {
         OutputFormat::Json => output::print_json(&permissions)?,
         OutputFormat::Table => {
-            output::print_list_table(Some("Your Permissions"), "Permission", &permissions)
+            output::print_list_table(Some("Your Permissions"), "Permission", &permissions.data)
         }
     }
 

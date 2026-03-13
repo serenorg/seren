@@ -1473,18 +1473,30 @@ pub struct UpdateSerenAgentDeploymentParams {
     /// Updated model identifier
     #[serde(default)]
     pub model_id: Option<String>,
-    /// Updated managed template
+    /// Updated agent style (`research_monitor` or `workflow_agent`)
     #[serde(default)]
     pub template: Option<String>,
-    /// Updated managed tool presets
+    /// Alias for `template` with more product-oriented wording
+    #[serde(default)]
+    pub agent_style: Option<String>,
+    /// Updated capability list (`live_data`, `publisher_actions`, `database`)
     #[serde(default)]
     pub tool_presets: Option<Vec<String>>,
-    /// Updated managed approval policy
+    /// Alias for `tool_presets`
+    #[serde(default)]
+    pub capabilities: Option<Vec<String>>,
+    /// Updated access mode (`read_only` or `allow_mutations`)
     #[serde(default)]
     pub approval_policy: Option<String>,
-    /// Updated managed model policy preset
+    /// Alias for `approval_policy`
+    #[serde(default)]
+    pub access_mode: Option<String>,
+    /// Updated performance profile (`fast`, `balanced`, or `deep`)
     #[serde(default)]
     pub model_policy: Option<String>,
+    /// Alias for `model_policy`
+    #[serde(default)]
+    pub performance_profile: Option<String>,
     /// Updated allowlist for remote A2A delegation targets
     #[serde(default)]
     pub allowed_remote_agent_origins: Option<Vec<String>>,
@@ -1500,18 +1512,9 @@ pub struct UpdateSerenAgentDeploymentParams {
     /// Updated optional fallback model list
     #[serde(default)]
     pub fallback_models: Option<Vec<String>>,
-    /// Updated optional maximum LLM loop iterations
-    #[serde(default)]
-    pub max_iterations: Option<i32>,
     /// Updated optional maximum wall-clock timeout per run in seconds
     #[serde(default)]
     pub max_timeout_seconds: Option<i32>,
-    /// Updated optional maximum tool output size in characters
-    #[serde(default)]
-    pub max_tool_output_chars: Option<i32>,
-    /// Updated optional cumulative context token budget
-    #[serde(default)]
-    pub context_budget_tokens: Option<i32>,
     /// Updated optional deployment requirements validated at deploy time
     #[serde(default)]
     pub requirements: Option<serde_json::Value>,
@@ -1523,9 +1526,68 @@ pub struct UpdateSerenAgentDeploymentParams {
     pub visibility: Option<String>,
 }
 
+fn resolve_guided_string_alias(
+    raw: Option<&String>,
+    alias: Option<&String>,
+    raw_label: &str,
+    alias_label: &str,
+) -> Result<Option<String>, McpError> {
+    match (raw, alias) {
+        (Some(raw), Some(alias)) if raw.trim() != alias.trim() => Err(McpError::invalid_params(
+            format!("Provide either {raw_label} or {alias_label}, or use matching values."),
+            None,
+        )),
+        (Some(raw), _) => Ok(Some(raw.trim().to_string())),
+        (None, Some(alias)) => Ok(Some(alias.trim().to_string())),
+        (None, None) => Ok(None),
+    }
+}
+
+fn resolve_guided_list_alias(
+    raw: Option<&Vec<String>>,
+    alias: Option<&Vec<String>>,
+    raw_label: &str,
+    alias_label: &str,
+) -> Result<Option<Vec<String>>, McpError> {
+    match (raw, alias) {
+        (Some(raw), Some(alias)) if raw != alias => Err(McpError::invalid_params(
+            format!("Provide either {raw_label} or {alias_label}, or use matching values."),
+            None,
+        )),
+        (Some(raw), _) => Ok(Some(raw.clone())),
+        (None, Some(alias)) => Ok(Some(alias.clone())),
+        (None, None) => Ok(None),
+    }
+}
+
 fn build_update_seren_agent_deployment_request(
     params: &UpdateSerenAgentDeploymentParams,
 ) -> Result<seren::UpdateSerenAgentDeploymentRequest, McpError> {
+    let template = resolve_guided_string_alias(
+        params.template.as_ref(),
+        params.agent_style.as_ref(),
+        "template",
+        "agent_style",
+    )?;
+    let tool_presets = resolve_guided_list_alias(
+        params.tool_presets.as_ref(),
+        params.capabilities.as_ref(),
+        "tool_presets",
+        "capabilities",
+    )?;
+    let approval_policy = resolve_guided_string_alias(
+        params.approval_policy.as_ref(),
+        params.access_mode.as_ref(),
+        "approval_policy",
+        "access_mode",
+    )?;
+    let model_policy = resolve_guided_string_alias(
+        params.model_policy.as_ref(),
+        params.performance_profile.as_ref(),
+        "model_policy",
+        "performance_profile",
+    )?;
+
     serde_json::from_value(serde_json::json!({
         "agent_slug": params.agent_slug,
         "name": params.name,
@@ -1536,19 +1598,16 @@ fn build_update_seren_agent_deployment_request(
         "clear_eval_gate": params.clear_eval_gate,
         "prompt": params.prompt,
         "model_id": params.model_id,
-        "template": params.template,
-        "tool_presets": params.tool_presets,
-        "approval_policy": params.approval_policy,
-        "model_policy": params.model_policy,
+        "template": template,
+        "tool_presets": tool_presets,
+        "approval_policy": approval_policy,
+        "model_policy": model_policy,
         "allowed_remote_agent_origins": params.allowed_remote_agent_origins,
         "config": params.config,
         "secrets": params.secrets,
         "model_config": params.model_config,
         "fallback_models": params.fallback_models,
-        "max_iterations": params.max_iterations,
         "max_timeout_seconds": params.max_timeout_seconds,
-        "max_tool_output_chars": params.max_tool_output_chars,
-        "context_budget_tokens": params.context_budget_tokens,
         "requirements": params.requirements,
         "dashboard_config": params.dashboard_config,
         "visibility": params.visibility,
@@ -1592,23 +1651,36 @@ pub struct DeploySerenAgentParams {
     pub eval_gate_max_age_seconds: Option<i32>,
     /// Main instructions for the managed agent
     pub prompt: String,
-    /// Model identifier
-    pub model_id: String,
+    /// Optional model identifier. Omit to use the platform default.
+    #[serde(default)]
+    pub model_id: Option<String>,
     /// Optional compute backend override ("aws_container", "cloudflare_worker", or "daytona"). Omit for AWS-first managed routing.
     #[serde(default)]
     pub compute_backend: Option<String>,
-    /// Managed template ("research_monitor" or "workflow_agent")
+    /// Agent style (`research_monitor` or `workflow_agent`)
     #[serde(default)]
     pub template: Option<String>,
-    /// Managed tool presets ("live_data", "publisher_actions", and/or "database")
+    /// Alias for `template` with more product-oriented wording
+    #[serde(default)]
+    pub agent_style: Option<String>,
+    /// Capability list (`live_data`, `publisher_actions`, and/or `database`)
     #[serde(default)]
     pub tool_presets: Option<Vec<String>>,
-    /// Managed approval policy ("read_only" or "allow_mutations")
+    /// Alias for `tool_presets`
+    #[serde(default)]
+    pub capabilities: Option<Vec<String>>,
+    /// Access mode (`read_only` or `allow_mutations`)
     #[serde(default)]
     pub approval_policy: Option<String>,
-    /// Managed model policy preset ("fast", "balanced", or "deep")
+    /// Alias for `approval_policy`
+    #[serde(default)]
+    pub access_mode: Option<String>,
+    /// Performance profile (`fast`, `balanced`, or `deep`)
     #[serde(default)]
     pub model_policy: Option<String>,
+    /// Alias for `model_policy`
+    #[serde(default)]
+    pub performance_profile: Option<String>,
     /// Allow remote A2A delegation to these hostnames or origins
     #[serde(default)]
     pub allowed_remote_agent_origins: Option<Vec<String>>,
@@ -1624,18 +1696,9 @@ pub struct DeploySerenAgentParams {
     /// Optional fallback model list for transient failures
     #[serde(default)]
     pub fallback_models: Option<Vec<String>>,
-    /// Optional maximum LLM loop iterations
-    #[serde(default)]
-    pub max_iterations: Option<i32>,
     /// Optional maximum wall-clock timeout per run in seconds
     #[serde(default)]
     pub max_timeout_seconds: Option<i32>,
-    /// Optional maximum tool output size in characters
-    #[serde(default)]
-    pub max_tool_output_chars: Option<i32>,
-    /// Optional cumulative context token budget
-    #[serde(default)]
-    pub context_budget_tokens: Option<i32>,
     /// Optional deployment requirements validated at deploy time
     #[serde(default)]
     pub requirements: Option<serde_json::Value>,
@@ -8185,7 +8248,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Update an existing managed seren-agent deployment. This edits the saved managed spec in place without exposing raw cloud runtime internals. Backend, mode, and runtime remain fixed; update prompt, template, presets, policies, eval gates, remote A2A delegation allowlist, config, secrets, or advanced managed runtime fields instead.",
+        description = "Update an existing managed seren-agent deployment. Use prompt plus optional agent_style, capabilities, access_mode, and performance_profile for the common path, or send the advanced fields when you need eval gates, remote delegation, fallback models, config, secrets, or timeouts.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -8236,7 +8299,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Deploy a managed prompt-based agent through the first-class seren-agent publisher. Choose the research_monitor template for read-oriented live-data work or workflow_agent for action-oriented workflows, then optionally override presets, policies, an eval gate, or a remote A2A delegation allowlist. This path is AWS-first, hides runtime internals, and supports always_on or cron mode with optional backend override.",
+        description = "Deploy a managed prompt-based agent through the first-class seren-agent publisher. The simplest inputs are name, mode, prompt, plus optional agent_style, capabilities, access_mode, and performance_profile. Advanced fields still exist for eval gates, remote delegation, fallback models, config, secrets, and timeouts. This path is AWS-first and hides raw runtime internals.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -8249,14 +8312,40 @@ API endpoint: {endpoint}",
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let url = format!("{}/publishers/seren-agent/deploy", self.api_base_url);
+        let template = resolve_guided_string_alias(
+            params.template.as_ref(),
+            params.agent_style.as_ref(),
+            "template",
+            "agent_style",
+        )?;
+        let tool_presets = resolve_guided_list_alias(
+            params.tool_presets.as_ref(),
+            params.capabilities.as_ref(),
+            "tool_presets",
+            "capabilities",
+        )?;
+        let approval_policy = resolve_guided_string_alias(
+            params.approval_policy.as_ref(),
+            params.access_mode.as_ref(),
+            "approval_policy",
+            "access_mode",
+        )?;
+        let model_policy = resolve_guided_string_alias(
+            params.model_policy.as_ref(),
+            params.performance_profile.as_ref(),
+            "model_policy",
+            "performance_profile",
+        )?;
         let mut body = serde_json::Map::new();
         body.insert("name".to_string(), serde_json::json!(params.name));
         body.insert("mode".to_string(), serde_json::json!(params.mode));
         body.insert("prompt".to_string(), serde_json::json!(params.prompt));
-        body.insert("model_id".to_string(), serde_json::json!(params.model_id));
 
         if let Some(agent_slug) = params.agent_slug {
             body.insert("agent_slug".to_string(), serde_json::json!(agent_slug));
+        }
+        if let Some(model_id) = params.model_id {
+            body.insert("model_id".to_string(), serde_json::json!(model_id));
         }
         if let Some(cron_schedule) = params.cron_schedule {
             body.insert(
@@ -8288,19 +8377,19 @@ API endpoint: {endpoint}",
                 serde_json::json!(eval_gate_max_age_seconds),
             );
         }
-        if let Some(template) = params.template {
+        if let Some(template) = template {
             body.insert("template".to_string(), serde_json::json!(template));
         }
-        if let Some(tool_presets) = params.tool_presets {
+        if let Some(tool_presets) = tool_presets {
             body.insert("tool_presets".to_string(), serde_json::json!(tool_presets));
         }
-        if let Some(approval_policy) = params.approval_policy {
+        if let Some(approval_policy) = approval_policy {
             body.insert(
                 "approval_policy".to_string(),
                 serde_json::json!(approval_policy),
             );
         }
-        if let Some(model_policy) = params.model_policy {
+        if let Some(model_policy) = model_policy {
             body.insert("model_policy".to_string(), serde_json::json!(model_policy));
         }
         if let Some(allowed_remote_agent_origins) = params.allowed_remote_agent_origins {
@@ -8324,28 +8413,10 @@ API endpoint: {endpoint}",
                 serde_json::json!(fallback_models),
             );
         }
-        if let Some(max_iterations) = params.max_iterations {
-            body.insert(
-                "max_iterations".to_string(),
-                serde_json::json!(max_iterations),
-            );
-        }
         if let Some(max_timeout_seconds) = params.max_timeout_seconds {
             body.insert(
                 "max_timeout_seconds".to_string(),
                 serde_json::json!(max_timeout_seconds),
-            );
-        }
-        if let Some(max_tool_output_chars) = params.max_tool_output_chars {
-            body.insert(
-                "max_tool_output_chars".to_string(),
-                serde_json::json!(max_tool_output_chars),
-            );
-        }
-        if let Some(context_budget_tokens) = params.context_budget_tokens {
-            body.insert(
-                "context_budget_tokens".to_string(),
-                serde_json::json!(context_budget_tokens),
             );
         }
         if let Some(requirements) = params.requirements {

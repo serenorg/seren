@@ -22,7 +22,7 @@ pub async fn endpoint_list(
     let endpoints = response.into_inner();
     match ctx.format {
         OutputFormat::Json => output::print_json(&endpoints)?,
-        OutputFormat::Table => output::print_org_vpc_endpoints_table(&endpoints),
+        OutputFormat::Table => output::print_org_vpc_endpoints_table(&endpoints.data),
     }
 
     Ok(())
