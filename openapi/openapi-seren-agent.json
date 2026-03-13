@@ -858,15 +858,6 @@
           "config": {
             "description": "JSON config object."
           },
-          "context_budget_tokens": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Optional cumulative context token budget.",
-            "minimum": 0
-          },
           "cron_schedule": {
             "type": [
               "string",
@@ -910,15 +901,6 @@
             },
             "description": "Optional fallback model list for transient failures."
           },
-          "max_iterations": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Optional maximum LLM loop iterations.",
-            "minimum": 0
-          },
           "max_timeout_seconds": {
             "type": [
               "integer",
@@ -935,15 +917,6 @@
             ],
             "format": "int32",
             "description": "Optional total tool-call budget per run.",
-            "minimum": 0
-          },
-          "max_tool_output_chars": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Optional maximum tool output size in characters.",
             "minimum": 0
           },
           "mode": {
@@ -2565,15 +2538,6 @@
           "config": {
             "description": "Updated JSON config object."
           },
-          "context_budget_tokens": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Updated cumulative context token budget.",
-            "minimum": 0
-          },
           "cron_schedule": {
             "type": [
               "string",
@@ -2617,15 +2581,6 @@
             },
             "description": "Updated fallback model list."
           },
-          "max_iterations": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Updated maximum LLM loop iterations.",
-            "minimum": 0
-          },
           "max_timeout_seconds": {
             "type": [
               "integer",
@@ -2642,15 +2597,6 @@
             ],
             "format": "int32",
             "description": "Updated total tool-call budget per run.",
-            "minimum": 0
-          },
-          "max_tool_output_chars": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Updated maximum tool output size in characters.",
             "minimum": 0
           },
           "model_config": {
