@@ -1,4 +1,4 @@
-use std::{fs, path::Path};
+use std::{collections::HashMap, fs, path::Path};
 
 use anyhow::Result;
 use base64::Engine;
@@ -55,6 +55,48 @@ fn truncate_for_cli(value: &str, max_chars: usize) -> String {
         return truncated;
     }
     format!("{truncated}... (truncated)")
+}
+
+fn build_deployment_name_map(deployments: &[serde_json::Value]) -> HashMap<String, String> {
+    deployments
+        .iter()
+        .filter_map(|deployment| {
+            let deployment_id = deployment.get("id").and_then(|value| value.as_str())?;
+            let deployment_name = deployment
+                .get("name")
+                .and_then(|value| value.as_str())
+                .or_else(|| {
+                    deployment
+                        .get("skill_slug")
+                        .and_then(|value| value.as_str())
+                })
+                .unwrap_or(deployment_id);
+            Some((deployment_id.to_string(), deployment_name.to_string()))
+        })
+        .collect()
+}
+
+fn enrich_with_deployment_name(
+    entries: &[serde_json::Value],
+    deployment_names: &HashMap<String, String>,
+) -> Vec<serde_json::Value> {
+    entries
+        .iter()
+        .map(|entry| {
+            let mut entry = entry.clone();
+            if let Some(object) = entry.as_object_mut()
+                && let Some(deployment_id) =
+                    object.get("deployment_id").and_then(|value| value.as_str())
+                && let Some(name) = deployment_names.get(deployment_id)
+            {
+                object.insert(
+                    "deployment_name".to_string(),
+                    serde_json::Value::String(name.clone()),
+                );
+            }
+            entry
+        })
+        .collect()
 }
 
 async fn format_payment_required_response(response: reqwest::Response) -> String {
@@ -3041,6 +3083,9 @@ pub async fn cloud_overview(
         .and_then(|value| value.as_array())
         .cloned()
         .unwrap_or_default();
+    let deployment_names = build_deployment_name_map(&deployments);
+    let recent_runs = enrich_with_deployment_name(&recent_runs, &deployment_names);
+    let pending_approvals = enrich_with_deployment_name(&pending_approvals, &deployment_names);
 
     let summary = serde_json::json!({
         "deployment_count": deployments.len(),
@@ -3128,7 +3173,8 @@ pub async fn cloud_overview(
 
     println!();
     println!("Pending Approvals");
-    print_pending_approval_runs_table(&pending_approvals_response, None)?;
+    let pending_approvals_envelope = serde_json::json!({ "data": pending_approvals });
+    print_pending_approval_runs_table(&pending_approvals_envelope, None)?;
 
     Ok(())
 }
@@ -5261,7 +5307,7 @@ fn print_pending_approval_runs_table<T: serde::Serialize>(
 
     println!(
         "{:<38} {:<38} {:<18} {:<8} {:<28}",
-        "RUN ID", "DEPLOYMENT ID", "STATUS", "COUNT", "TOOLS"
+        "RUN ID", "DEPLOYMENT", "STATUS", "COUNT", "TOOLS"
     );
     for run in runs {
         let approvals = run
@@ -5279,8 +5325,9 @@ fn print_pending_approval_runs_table<T: serde::Serialize>(
             run.get("run_id")
                 .and_then(|value| value.as_str())
                 .unwrap_or("-"),
-            run.get("deployment_id")
+            run.get("deployment_name")
                 .and_then(|value| value.as_str())
+                .or_else(|| run.get("deployment_id").and_then(|value| value.as_str()))
                 .unwrap_or("-"),
             run.get("status")
                 .and_then(|value| value.as_str())
@@ -5306,15 +5353,16 @@ fn print_cloud_run_rows(
     if include_deployment {
         println!(
             "{:<38} {:<38} {:<14} {:<10} {:<10} {:<24}",
-            "RUN ID", "DEPLOYMENT ID", "STATUS", "TIME(ms)", "COST", "STARTED"
+            "RUN ID", "DEPLOYMENT", "STATUS", "TIME(ms)", "COST", "STARTED"
         );
         for execution in runs {
             println!(
                 "{:<38} {:<38} {:<14} {:<10} {:<10} {:<24}",
                 execution.get("id").and_then(|v| v.as_str()).unwrap_or("-"),
                 execution
-                    .get("deployment_id")
+                    .get("deployment_name")
                     .and_then(|v| v.as_str())
+                    .or_else(|| execution.get("deployment_id").and_then(|v| v.as_str()))
                     .unwrap_or("-"),
                 execution
                     .get("status")

@@ -2148,6 +2148,48 @@ fn default_cloud_overview_limit() -> i64 {
     8
 }
 
+fn build_deployment_name_map(deployments: &[serde_json::Value]) -> HashMap<String, String> {
+    deployments
+        .iter()
+        .filter_map(|deployment| {
+            let deployment_id = deployment.get("id").and_then(|value| value.as_str())?;
+            let deployment_name = deployment
+                .get("name")
+                .and_then(|value| value.as_str())
+                .or_else(|| {
+                    deployment
+                        .get("skill_slug")
+                        .and_then(|value| value.as_str())
+                })
+                .unwrap_or(deployment_id);
+            Some((deployment_id.to_string(), deployment_name.to_string()))
+        })
+        .collect()
+}
+
+fn enrich_with_deployment_name(
+    entries: &[serde_json::Value],
+    deployment_names: &HashMap<String, String>,
+) -> Vec<serde_json::Value> {
+    entries
+        .iter()
+        .map(|entry| {
+            let mut entry = entry.clone();
+            if let Some(object) = entry.as_object_mut()
+                && let Some(deployment_id) =
+                    object.get("deployment_id").and_then(|value| value.as_str())
+                && let Some(name) = deployment_names.get(deployment_id)
+            {
+                object.insert(
+                    "deployment_name".to_string(),
+                    serde_json::Value::String(name.clone()),
+                );
+            }
+            entry
+        })
+        .collect()
+}
+
 fn build_cloud_run_body(
     message: Option<&str>,
     run_id: Option<&str>,
@@ -8652,6 +8694,10 @@ API endpoint: {endpoint}",
             .and_then(|value| value.as_array())
             .cloned()
             .unwrap_or_default();
+        let deployment_names = build_deployment_name_map(&deployments_data);
+        let recent_runs_data = enrich_with_deployment_name(&recent_runs_data, &deployment_names);
+        let pending_approvals_data =
+            enrich_with_deployment_name(&pending_approvals_data, &deployment_names);
 
         let payload = serde_json::json!({
             "summary": {
