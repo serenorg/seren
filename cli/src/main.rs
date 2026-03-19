@@ -3986,4 +3986,31 @@ mod tests {
             _ => panic!("unexpected command parsed"),
         }
     }
+
+    #[test]
+    fn cloud_overview_accepts_custom_limits() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "cloud-overview",
+            "--runs-limit",
+            "12",
+            "--approvals-limit",
+            "6",
+        ]);
+
+        match cli.command {
+            Commands::Agent { action, .. } => match *action {
+                AgentAction::CloudOverview {
+                    runs_limit,
+                    approvals_limit,
+                } => {
+                    assert_eq!(runs_limit, 12);
+                    assert_eq!(approvals_limit, 6);
+                }
+                _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
 }

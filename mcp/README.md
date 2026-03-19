@@ -164,6 +164,30 @@ See [docs/managed-agents.md](../docs/managed-agents.md) for the full model and C
 - `preview_seren_agent_deployment_rollback` previews a rollback diff
 - `rollback_seren_agent_deployment` reverts to a prior revision
 
+### Cloud Activity Tools
+
+Use these tools when you want an organization-wide operator view before drilling into one deployment.
+
+- `get_cloud_overview` returns deployment counts, recent runs, and pending approvals in one response
+- `list_all_cloud_runs` returns the global run feed across all deployments
+- `list_pending_cloud_approvals` returns the global approval inbox
+- `list_cloud_agents` returns the deployment inventory
+
+Example `get_cloud_overview` parameters:
+
+```json
+{
+  "runs_limit": 8,
+  "approvals_limit": 8
+}
+```
+
+Typical workflow:
+
+1. Call `get_cloud_overview` to see whether anything is stuck or awaiting approval.
+2. Use `list_pending_cloud_approvals` to inspect the approval queue in more detail.
+3. Use `get_cloud_agent_run` or `get_cloud_agent_deployment` once you know which run or deployment needs attention.
+
 Example `deploy_seren_agent` parameters:
 
 ```json

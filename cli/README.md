@@ -236,6 +236,33 @@ seren agent managed-update <deployment-id> --clear-eval-gate
 # Invoke the deployment
 seren agent cloud-run --deployment-id <deployment-id> \
   --message "Give me the latest BTC update."
+
+# See the org-wide activity overview
+seren agent cloud-overview
+seren agent cloud-overview --runs-limit 12 --approvals-limit 6
+
+# Pull the same activity feed as JSON for automation
+seren -o json agent cloud-all-runs --limit 20
+seren -o json agent cloud-pending-approvals --limit 20
+```
+
+### Cloud Activity
+
+```bash
+# Deployment inventory
+seren agent cloud-list
+seren -o json agent cloud-list
+
+# Org-wide summary: deployments, recent runs, pending approvals
+seren agent cloud-overview
+
+# Global activity feeds
+seren agent cloud-all-runs --limit 20 --status running,awaiting_approval
+seren agent cloud-pending-approvals --limit 20
+
+# Deployment-scoped activity feeds
+seren agent cloud-runs --deployment-id <deployment-id> --limit 20
+seren agent cloud-deployment-pending-approvals --deployment-id <deployment-id>
 ```
 
 ### OAuth Connections (BYOC)
@@ -384,6 +411,7 @@ seren set-context clear
 seren projects list                # table output (default)
 seren projects list --format json  # JSON output
 seren -o json projects list        # short form
+seren -o json agent cloud-overview # machine-readable activity summary
 ```
 
 ## Environment Variables

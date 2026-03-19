@@ -10475,4 +10475,43 @@ mod tests {
         assert!(headers.get("x-agent-software-id").is_none());
         assert!(headers.get("x-agent-software-version").is_none());
     }
+
+    #[test]
+    fn build_deployment_name_map_prefers_name_then_skill_slug() {
+        let deployments = vec![
+            serde_json::json!({
+                "id": "dep-1",
+                "name": "Ops Router",
+                "skill_slug": "ops-router"
+            }),
+            serde_json::json!({
+                "id": "dep-2",
+                "skill_slug": "btc-watcher"
+            }),
+        ];
+
+        let map = super::build_deployment_name_map(&deployments);
+        assert_eq!(map.get("dep-1").map(String::as_str), Some("Ops Router"));
+        assert_eq!(map.get("dep-2").map(String::as_str), Some("btc-watcher"));
+    }
+
+    #[test]
+    fn enrich_data_envelope_with_deployment_names_adds_deployment_name_field() {
+        let deployment_names = HashMap::from([("dep-123".to_string(), "BTC Watcher".to_string())]);
+        let envelope = serde_json::json!({
+            "data": [
+                {
+                    "run_id": "run-1",
+                    "deployment_id": "dep-123",
+                    "status": "awaiting_approval"
+                }
+            ]
+        });
+
+        let enriched =
+            super::enrich_data_envelope_with_deployment_names(&envelope, &deployment_names);
+        let first = &enriched["data"][0];
+        assert_eq!(first["deployment_name"], "BTC Watcher");
+        assert_eq!(first["deployment_id"], "dep-123");
+    }
 }
