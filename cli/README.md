@@ -429,8 +429,7 @@ seren -o json agent cloud overview # machine-readable activity summary
 ## Configuration
 
 Config files are stored in:
-- macOS: `~/Library/Application Support/seren/`
-- Linux: `~/.config/seren/`
+- macOS/Linux: `$XDG_CONFIG_HOME/seren/` with `~/.config/seren/` as the fallback
 - Windows: `%APPDATA%\seren\`
 
 ## Support
