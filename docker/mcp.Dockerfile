@@ -23,8 +23,8 @@ COPY api ./api
 COPY cli ./cli
 COPY mcp ./mcp
 
-# Build release binary
-RUN cargo build --release --package seren-mcp --features telemetry
+# Build the unified CLI binary with hosted telemetry support
+RUN cargo build --release --package seren-cli --features telemetry
 
 # ---------- Runtime ----------
 FROM debian:trixie-slim
@@ -44,7 +44,7 @@ RUN useradd -m -u 1000 seren && \
     chown -R seren:seren /app
 
 # Copy binary from builder
-COPY --from=builder /app/target/release/seren-mcp /usr/local/bin/seren-mcp
+COPY --from=builder /app/target/release/seren /usr/local/bin/seren
 
 USER seren
 
@@ -56,4 +56,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -sf http://localhost:${PORT}/health || exit 1
 
-CMD ["seren-mcp", "start:oauth"]
+CMD ["seren", "mcp", "start:server"]

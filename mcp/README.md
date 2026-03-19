@@ -29,22 +29,24 @@ Run the MCP server locally if you need full control or are developing:
 # Build/install from source
 git clone https://github.com/serenorg/seren.git
 cd seren
-cargo install --path mcp
+cargo install --path cli
 
 # Or install directly from Git (no clone)
-cargo install --git https://github.com/serenorg/seren.git --package seren-mcp
+cargo install --git https://github.com/serenorg/seren.git --package seren-cli
 ```
 
 #### Docker
 
 ```bash
-# Run the MCP server (HTTP mode)
+# Run the hosted MCP server image
 docker run -p 8080:8080 ghcr.io/serenorg/seren-mcp:latest
 
 # With environment configuration
 docker run -p 8080:8080 \
-  -e API_KEY="seren_..." \
-  -e AUTH_TOKEN="..." \
+  -e DATABASE_URL="postgres://..." \
+  -e PUBLIC_URL="https://mcp.example.com" \
+  -e JWT_SECRET="replace-with-32-byte-secret" \
+  -e OAUTH_TOKEN_ENCRYPTION_KEYS="replace-with-32-byte-secret" \
   ghcr.io/serenorg/seren-mcp:latest
 ```
 
@@ -61,11 +63,11 @@ Download pre-built binaries from GitHub Releases (tagged versions): https://gith
 | `API_URL` | SerenAI API base URL | `https://api.serendb.com` |
 | `API_KEY` | SerenAI API key (for `start`/`start:http`) | Required |
 | `AUTH_TOKEN` | Auth token for `start:http` (bearer) | Required for `start:http` |
-| `DATABASE_URL` | Postgres URL for OAuth token storage | Required for `start:oauth` |
-| `PUBLIC_URL` | Public base URL of this server | Required for `start:oauth` |
+| `DATABASE_URL` | Postgres URL for OAuth token storage | Required for `start:server` |
+| `PUBLIC_URL` | Public base URL of this server | Required for `start:server` |
 | `JWT_SECRET` | HS256 secret for signing MCP access tokens (min 32 bytes) | Required unless `JWT_SECRETS` is set |
 | `JWT_SECRETS` | Comma-separated HS256 secrets (first signs; all validate for rotation) | Optional |
-| `OAUTH_TOKEN_ENCRYPTION_KEYS` | Comma-separated keys for encrypting upstream OAuth tokens at rest (first is primary; others allow rotation). Use a single value for one key. | Required for `start:oauth` |
+| `OAUTH_TOKEN_ENCRYPTION_KEYS` | Comma-separated keys for encrypting upstream OAuth tokens at rest (first is primary; others allow rotation). Use a single value for one key. | Required for `start:server` |
 | `OAUTH_REDIRECT_URL` | Public URL for OAuth browser redirects | Defaults to `API_URL` |
 | `UPSTREAM_TIMEOUT_SECS` | Timeout for upstream API requests | `15` |
 | `UPSTREAM_CONNECT_TIMEOUT_SECS` | Connect timeout for upstream API | `5` |
@@ -114,11 +116,11 @@ If you need to run the MCP server locally (for development or offline use):
 **Using the Claude CLI:**
 
 ```bash
-# If you have seren-mcp installed globally
-claude mcp add seren seren-mcp start
+# With the unified CLI binary
+claude mcp add seren seren mcp start
 
 # With custom API key
-claude mcp add seren seren-mcp start --env API_KEY=seren_...
+claude mcp add seren seren mcp start --env API_KEY=seren_...
 ```
 
 **Manual configuration:**
@@ -127,8 +129,8 @@ claude mcp add seren seren-mcp start --env API_KEY=seren_...
 {
   "mcpServers": {
     "seren": {
-      "command": "seren-mcp",
-      "args": ["start"],
+      "command": "seren",
+      "args": ["mcp", "start"],
       "env": {
         "API_KEY": "seren_..."
       }
@@ -276,7 +278,7 @@ For advanced users who want to pay for store data using cryptocurrency, you can 
 **Security notes:**
 
 - Only use x402 local signing with the local MCP server (`start` mode)
-- The hosted server (`start:oauth`) disables local wallet for security
+- The hosted server (`start:server`) disables local wallet for security
 - Your private key is never logged, even in debug mode
 - Consider using a separate wallet with limited funds for x402 payments
 
@@ -284,19 +286,19 @@ For advanced users who want to pay for store data using cryptocurrency, you can 
 
 ```bash
 # Start in stdio mode (Claude Desktop / local)
-seren-mcp start
+seren mcp start
 
 # Start in HTTP mode with simple bearer auth
-seren-mcp start:http
+seren mcp start:http
 
 # Start in HTTP mode with OAuth 2.1 (hosted)
-seren-mcp start:oauth
+seren mcp start:server
 
 # Show help
-seren-mcp --help
+seren mcp --help
 
 # Show version
-seren-mcp --version
+seren --version
 ```
 
 ## Running Against a Local API
@@ -335,7 +337,7 @@ export HOST=0.0.0.0
 export PORT=3100
 
 # Start with OAuth
-seren-mcp start:oauth
+seren mcp start:server
 ```
 
 **Add to Claude Code:**
@@ -371,12 +373,12 @@ If you have an API key from your local API, you can run in stdio mode without ne
 
 ```bash
 # Add globally (available in all projects)
-claude mcp add --scope user seren-local seren-mcp start \
+claude mcp add --scope user seren-local seren mcp start \
   --env API_KEY=your-api-key \
   --env API_URL=http://localhost:8080
 
 # Or add to current project only
-claude mcp add --scope project seren-local seren-mcp start \
+claude mcp add --scope project seren-local seren mcp start \
   --env API_KEY=your-api-key \
   --env API_URL=http://localhost:8080
 ```
@@ -387,8 +389,8 @@ Or manually in your config:
 {
   "mcpServers": {
     "seren-local": {
-      "command": "seren-mcp",
-      "args": ["start"],
+      "command": "seren",
+      "args": ["mcp", "start"],
       "env": {
         "API_KEY": "your-api-key",
         "API_URL": "http://localhost:8080"
@@ -405,7 +407,7 @@ Or manually in your config:
   "mcpServers": {
     "seren-local": {
       "command": "cargo",
-      "args": ["run", "--package", "seren-mcp", "--", "start"],
+      "args": ["run", "--package", "seren-cli", "--", "mcp", "start"],
       "cwd": "/path/to/seren",
       "env": {
         "API_KEY": "your-api-key",
@@ -426,7 +428,7 @@ export API_URL=http://localhost:8080
 export AUTH_TOKEN=your-bearer-token
 export PORT=3100
 
-seren-mcp start:http
+seren mcp start:http
 ```
 
 **Claude Code configuration:**
@@ -454,11 +456,11 @@ seren-mcp start:http
 git clone https://github.com/serenorg/seren.git
 cd seren
 
-# Build the MCP server
-cargo build --release --package seren-mcp
+# Build the unified CLI binary
+cargo build --release --package seren-cli
 
 # Run locally
-./target/release/seren-mcp start:http
+./target/release/seren mcp start:http
 ```
 
 ### Building Docker Image
@@ -467,14 +469,20 @@ cargo build --release --package seren-mcp
 # Build from repository root
 docker build -f docker/mcp.Dockerfile -t seren-mcp .
 
-# Run the container
-docker run -p 8080:8080 seren-mcp
+# Run the hosted container
+docker run -p 8080:8080 \
+  -e DATABASE_URL="postgres://..." \
+  -e PUBLIC_URL="https://mcp.example.com" \
+  -e JWT_SECRET="replace-with-32-byte-secret" \
+  -e OAUTH_TOKEN_ENCRYPTION_KEYS="replace-with-32-byte-secret" \
+  seren-mcp
 ```
 
 ### Running Tests
 
 ```bash
 cargo test --package seren-mcp
+cargo test --package seren-cli
 ```
 
 ### Building with Telemetry (Production)
@@ -482,7 +490,7 @@ cargo test --package seren-mcp
 For hosted deployments with OpenTelemetry support:
 
 ```bash
-cargo build --release --package seren-mcp --features telemetry
+cargo build --release --package seren-cli --features telemetry
 ```
 
 ## Architecture

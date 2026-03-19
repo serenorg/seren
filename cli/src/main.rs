@@ -227,6 +227,11 @@ enum Commands {
         #[command(subcommand)]
         action: OAuthAction,
     },
+    /// Start the Seren MCP server
+    Mcp {
+        #[command(subcommand)]
+        action: McpAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -832,6 +837,19 @@ enum AgentAction {
         /// Task ID (UUID)
         task_id: String,
     },
+}
+
+#[derive(Subcommand)]
+enum McpAction {
+    /// Start the local stdio MCP server
+    #[command(name = "start")]
+    Start,
+    /// Start the streamable HTTP MCP server with static bearer auth
+    #[command(name = "start:http")]
+    StartHttp,
+    /// Start the hosted MCP server with OAuth 2.1
+    #[command(name = "start:server", alias = "start:oauth")]
+    StartServer,
 }
 
 #[derive(Subcommand)]
@@ -3614,6 +3632,11 @@ async fn main() -> anyhow::Result<()> {
                 commands::replication::delete_slot(&project_id, &branch_id, &slot_id, &ctx).await?
             }
         },
+        Commands::Mcp { action } => match action {
+            McpAction::Start => seren_mcp::run(seren_mcp::McpMode::Stdio).await?,
+            McpAction::StartHttp => seren_mcp::run(seren_mcp::McpMode::Http).await?,
+            McpAction::StartServer => seren_mcp::run(seren_mcp::McpMode::Server).await?,
+        },
         Commands::Agent { action } => match *action {
             AgentAction::ListPublishers => commands::agent::list_publishers(&ctx).await?,
             AgentAction::GetPublisher { publisher } => {
@@ -4202,6 +4225,32 @@ mod tests {
                     _ => panic!("unexpected cloud action parsed"),
                 },
                 _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn mcp_start_server_accepts_primary_name() {
+        let cli = parse_cli_with_large_stack(vec!["seren", "mcp", "start:server"]);
+
+        match cli.command {
+            Commands::Mcp { action } => match action {
+                McpAction::StartServer => {}
+                _ => panic!("unexpected mcp action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn mcp_start_server_accepts_legacy_alias() {
+        let cli = parse_cli_with_large_stack(vec!["seren", "mcp", "start:oauth"]);
+
+        match cli.command {
+            Commands::Mcp { action } => match action {
+                McpAction::StartServer => {}
+                _ => panic!("unexpected mcp action parsed"),
             },
             _ => panic!("unexpected command parsed"),
         }

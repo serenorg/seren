@@ -11,8 +11,13 @@ repository = "https://github.com/seren/seren-cli"
 name = "seren"
 path = "src/main.rs"
 
+[features]
+default = []
+telemetry = ["seren-mcp/telemetry"]
+
 [dependencies]
 seren = { path = "../api" }
+seren-mcp = { path = "../mcp" }
 tokio = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }

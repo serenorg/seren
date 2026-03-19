@@ -5009,6 +5009,7 @@ dependencies = [
  "serde",
  "serde_json",
  "seren",
+ "seren-mcp",
  "tar",
  "tokio",
  "toml",

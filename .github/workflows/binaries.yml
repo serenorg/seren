@@ -73,15 +73,13 @@ jobs:
               --release \
               --locked \
               --target "${{ matrix.target }}" \
-              -p seren-cli \
-              -p seren-mcp
+              -p seren-cli
           else
             cargo build \
               --release \
               --locked \
               --target "${{ matrix.target }}" \
-              -p seren-cli \
-              -p seren-mcp
+              -p seren-cli
           fi
 
       - name: Prepare archive (macOS/Linux)
@@ -96,7 +94,6 @@ jobs:
           cp LICENSE "$out/"
 
           cp "target/${{ matrix.target }}/release/seren" "$out/"
-          cp "target/${{ matrix.target }}/release/seren-mcp" "$out/"
 
           archive="dist/seren-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
           tar -czf "$archive" -C dist "$(basename "$out")"
@@ -122,7 +119,6 @@ jobs:
 
           Copy-Item "LICENSE" $out
           Copy-Item "target/${{ matrix.target }}/release/seren.exe" $out
-          Copy-Item "target/${{ matrix.target }}/release/seren-mcp.exe" $out
 
           $archive = "dist/seren-${{ github.ref_name }}-${{ matrix.target }}.zip"
           if (Test-Path $archive) { Remove-Item -Force $archive }

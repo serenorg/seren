@@ -40,12 +40,12 @@ impl Config {
                 })?;
                 AuthConfig::ApiKey(key)
             }
-            "start:oauth" => {
+            "start:server" | "start:oauth" => {
                 let database_url = std::env::var("DATABASE_URL").map_err(|_| {
-                    McpError::Config("DATABASE_URL required for start:oauth mode".into())
+                    McpError::Config("DATABASE_URL required for start:server mode".into())
                 })?;
                 let public_url = std::env::var("PUBLIC_URL").map_err(|_| {
-                    McpError::Config("PUBLIC_URL required for start:oauth mode".into())
+                    McpError::Config("PUBLIC_URL required for start:server mode".into())
                 })?;
 
                 AuthConfig::OAuth {
@@ -102,15 +102,15 @@ mod tests {
     }
 
     #[test]
-    fn start_oauth_requires_oauth_env_vars() {
+    fn start_server_requires_database_env_vars() {
         temp_env::with_vars_unset(["DATABASE_URL", "PUBLIC_URL"], || {
-            let res = Config::from_env_for_command("start:oauth");
+            let res = Config::from_env_for_command("start:server");
             assert!(matches!(res, Err(McpError::Config(_))));
         });
     }
 
     #[test]
-    fn start_oauth_builds_oauth_config() {
+    fn start_server_builds_oauth_config() {
         temp_env::with_vars(
             [
                 ("DATABASE_URL", Some("postgres://localhost/test")),
@@ -118,7 +118,7 @@ mod tests {
                 ("API_URL", Some("https://example.com")),
             ],
             || {
-                let cfg = Config::from_env_for_command("start:oauth").unwrap();
+                let cfg = Config::from_env_for_command("start:server").unwrap();
                 match cfg.auth {
                     AuthConfig::OAuth {
                         database_url,
@@ -132,6 +132,20 @@ mod tests {
                     _ => panic!("expected OAuth config"),
                 }
                 assert_eq!(cfg.api_base_url, "https://example.com");
+            },
+        );
+    }
+
+    #[test]
+    fn start_oauth_legacy_alias_still_builds_oauth_config() {
+        temp_env::with_vars(
+            [
+                ("DATABASE_URL", Some("postgres://localhost/test")),
+                ("PUBLIC_URL", Some("https://mcp.serendb.com")),
+            ],
+            || {
+                let cfg = Config::from_env_for_command("start:oauth").unwrap();
+                assert!(matches!(cfg.auth, AuthConfig::OAuth { .. }));
             },
         );
     }
