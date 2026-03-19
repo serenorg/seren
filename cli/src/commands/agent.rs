@@ -3004,36 +3004,41 @@ pub async fn cloud_list(ctx: &CommandContext) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
         .into_inner();
 
-    let deployments = &response.data;
-    if deployments.is_empty() {
-        println!("No cloud deployments found.");
-        return Ok(());
-    }
-    println!(
-        "{:<38} {:<24} {:<18} {:<14} {:<12} {:<10} {:<24}",
-        "ID", "SKILL", "BACKEND", "RUNTIME", "MODE", "STATUS", "EVAL GATE"
-    );
-    for d in deployments {
-        let d_json = serde_json::to_value(d)?;
-        println!(
-            "{:<38} {:<24} {:<18} {:<14} {:<12} {:<10} {:<24}",
-            d_json.get("id").and_then(|v| v.as_str()).unwrap_or("-"),
-            d_json
-                .get("skill_slug")
-                .and_then(|v| v.as_str())
-                .unwrap_or("-"),
-            d_json
-                .get("compute_backend")
-                .and_then(|v| v.as_str())
-                .unwrap_or("-"),
-            d_json
-                .get("runtime_kind")
-                .and_then(|v| v.as_str())
-                .unwrap_or("-"),
-            d_json.get("mode").and_then(|v| v.as_str()).unwrap_or("-"),
-            d_json.get("status").and_then(|v| v.as_str()).unwrap_or("-"),
-            format_eval_gate_brief(&d_json),
-        );
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => {
+            let deployments = &response.data;
+            if deployments.is_empty() {
+                println!("No cloud deployments found.");
+                return Ok(());
+            }
+            println!(
+                "{:<38} {:<24} {:<18} {:<14} {:<12} {:<10} {:<24}",
+                "ID", "SKILL", "BACKEND", "RUNTIME", "MODE", "STATUS", "EVAL GATE"
+            );
+            for d in deployments {
+                let d_json = serde_json::to_value(d)?;
+                println!(
+                    "{:<38} {:<24} {:<18} {:<14} {:<12} {:<10} {:<24}",
+                    d_json.get("id").and_then(|v| v.as_str()).unwrap_or("-"),
+                    d_json
+                        .get("skill_slug")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-"),
+                    d_json
+                        .get("compute_backend")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-"),
+                    d_json
+                        .get("runtime_kind")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-"),
+                    d_json.get("mode").and_then(|v| v.as_str()).unwrap_or("-"),
+                    d_json.get("status").and_then(|v| v.as_str()).unwrap_or("-"),
+                    format_eval_gate_brief(&d_json),
+                );
+            }
+        }
     }
 
     Ok(())
@@ -4939,6 +4944,11 @@ pub async fn cloud_runs(
         .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
         .into_inner();
 
+    if matches!(ctx.format, OutputFormat::Json) {
+        output::print_json(&response)?;
+        return Ok(());
+    }
+
     let data = serde_json::to_value(&response)?;
     if let Some(runs) = data.get("data").and_then(|d| d.as_array()) {
         print_cloud_run_rows(
@@ -5210,12 +5220,19 @@ pub async fn cloud_all_runs(
         .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
         .into_inner();
 
-    let data = serde_json::to_value(&response)?;
-    if let Some(runs) = data.get("data").and_then(|d| d.as_array()) {
-        let enriched_runs = enrich_with_deployment_name(runs, &deployment_names);
-        print_cloud_run_rows(&enriched_runs, true, "No runs found.")?;
+    let enriched_response = enrich_data_envelope_with_deployment_names(
+        &serde_json::to_value(&response)?,
+        &deployment_names,
+    );
+    if matches!(ctx.format, OutputFormat::Json) {
+        output::print_json(&enriched_response)?;
+        return Ok(());
+    }
+
+    if let Some(runs) = enriched_response.get("data").and_then(|d| d.as_array()) {
+        print_cloud_run_rows(runs, true, "No runs found.")?;
     } else {
-        output::print_json(&response)?;
+        output::print_json(&enriched_response)?;
     }
 
     Ok(())
