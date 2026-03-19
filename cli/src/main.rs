@@ -92,12 +92,11 @@ enum Commands {
         #[command(subcommand)]
         action: DatabaseAction,
     },
-    /// List all databases across all projects with human-readable project and branch names
-    #[command(name = "list-all-databases")]
-    ListAllDatabases {
-        /// Optional project ID to filter databases to a specific project
-        #[arg(long)]
-        project_id: Option<String>,
+    /// Manage databases across projects
+    #[command(name = "database")]
+    Database {
+        #[command(subcommand)]
+        action: GlobalDatabaseAction,
     },
     /// Manage roles
     Roles {
@@ -799,480 +798,6 @@ enum AgentAction {
         #[command(subcommand)]
         action: Box<AgentCloudAction>,
     },
-    /// List reusable cloud deployment environments
-    CloudEnvironmentList,
-    /// Get a reusable cloud deployment environment
-    CloudEnvironmentGet {
-        /// Environment ID (UUID)
-        environment_id: Uuid,
-    },
-    /// Create a reusable cloud deployment environment
-    CloudEnvironmentCreate {
-        /// Environment display name
-        #[arg(long)]
-        name: String,
-        /// Docker image reference
-        #[arg(long)]
-        docker_image: String,
-        /// Optional description
-        #[arg(long)]
-        description: Option<String>,
-        /// Setup command to run before agent start (repeatable)
-        #[arg(long = "setup-command")]
-        setup_commands: Vec<String>,
-        /// Mark as default environment for the organization
-        #[arg(long, default_value_t = false)]
-        is_default: bool,
-    },
-    /// Update a reusable cloud deployment environment
-    CloudEnvironmentUpdate {
-        /// Environment ID (UUID)
-        environment_id: Uuid,
-        /// New environment name
-        #[arg(long)]
-        name: Option<String>,
-        /// New description
-        #[arg(long)]
-        description: Option<String>,
-        /// New Docker image reference
-        #[arg(long)]
-        docker_image: Option<String>,
-        /// Setup command list replacement (repeatable)
-        #[arg(long = "setup-command")]
-        setup_commands: Vec<String>,
-        /// Clear setup commands to an empty list
-        #[arg(long)]
-        clear_setup_commands: bool,
-        /// Set/unset default environment
-        #[arg(long)]
-        is_default: Option<bool>,
-    },
-    /// Delete a reusable cloud deployment environment
-    CloudEnvironmentDelete {
-        /// Environment ID (UUID)
-        environment_id: Uuid,
-    },
-    /// List cloud agent deployments
-    CloudList,
-    /// Show organization-wide cloud deployment counts, recent runs, and pending approvals
-    CloudOverview {
-        /// Maximum recent runs to include
-        #[arg(long, default_value = "8")]
-        runs_limit: i64,
-        /// Maximum pending-approval runs to include
-        #[arg(long, default_value = "8")]
-        approvals_limit: i64,
-    },
-    /// Get status of a cloud agent deployment
-    CloudStatus {
-        /// Deployment ID (UUID)
-        deployment_id: Uuid,
-    },
-    /// Start a stopped always-on cloud agent
-    CloudStart {
-        /// Deployment ID (UUID)
-        deployment_id: Uuid,
-    },
-    /// Stop a running always-on cloud agent
-    CloudStop {
-        /// Deployment ID (UUID)
-        deployment_id: Uuid,
-    },
-    /// Trigger a run for a cloud agent (always_on proxies request; cron/daytona enqueue one-shot execution)
-    CloudRun {
-        /// Deployment ID (UUID)
-        deployment_id: Uuid,
-        /// Optional run message payload (recommended for llm orchestrated deployments)
-        #[arg(long)]
-        message: Option<String>,
-        /// Optional raw JSON request body to forward to the deployment
-        #[arg(long = "json")]
-        json_body: Option<String>,
-        /// Optional path to a JSON file to forward as the request body
-        #[arg(long = "json-file")]
-        json_file: Option<String>,
-        /// Optional run identifier (useful for resumable orchestrations)
-        #[arg(long)]
-        run_id: Option<String>,
-        /// Request async execution for always_on deployments (returns run_id + execution_id)
-        #[arg(long = "async")]
-        async_run: bool,
-    },
-    /// Get details of a run by run ID (global path, no deployment ID required)
-    CloudRunById {
-        /// Run event ID (UUID)
-        run_id: Uuid,
-    },
-    /// Compare replay/eval captures for two runs by run ID
-    CloudRunCompare {
-        /// Baseline run event ID (UUID)
-        baseline_run_id: Uuid,
-        /// Candidate run event ID (UUID)
-        candidate_run_id: Uuid,
-    },
-    /// List durable eval sets for seren-cloud runs
-    CloudEvalSets {
-        /// Optional deployment scope (UUID)
-        #[arg(long)]
-        deployment_id: Option<Uuid>,
-        /// Maximum eval sets to return
-        #[arg(long, default_value = "50")]
-        limit: i64,
-        /// Offset for pagination
-        #[arg(long, default_value = "0")]
-        offset: i64,
-    },
-    /// Create a durable eval set for seren-cloud runs
-    CloudEvalSetCreate {
-        /// Eval set name
-        #[arg(long)]
-        name: String,
-        /// Optional deployment scope (UUID)
-        #[arg(long)]
-        deployment_id: Option<Uuid>,
-        /// Optional description
-        #[arg(long)]
-        description: Option<String>,
-        /// Optional eval criteria JSON object
-        #[arg(long = "criteria")]
-        criteria_json: Option<String>,
-        /// Optional path to an eval criteria JSON file
-        #[arg(long = "criteria-file")]
-        criteria_file: Option<String>,
-        /// Optional metadata JSON object
-        #[arg(long = "metadata")]
-        metadata_json: Option<String>,
-        /// Optional path to a metadata JSON file
-        #[arg(long = "metadata-file")]
-        metadata_file: Option<String>,
-        /// Optional cron schedule for automatically running the eval set
-        #[arg(long = "schedule-cron")]
-        schedule_cron: Option<String>,
-        /// Optional timezone for the scheduled eval cron expression
-        #[arg(long = "schedule-timezone")]
-        schedule_timezone: Option<String>,
-    },
-    /// Get a single eval set
-    CloudEvalSetGet {
-        /// Eval set ID (UUID)
-        eval_set_id: Uuid,
-    },
-    /// Update an eval set
-    CloudEvalSetUpdate {
-        /// Eval set ID (UUID)
-        eval_set_id: Uuid,
-        /// Updated eval set name
-        #[arg(long)]
-        name: Option<String>,
-        /// Updated deployment scope (UUID)
-        #[arg(long)]
-        deployment_id: Option<Uuid>,
-        /// Remove deployment scoping from the eval set
-        #[arg(long)]
-        clear_deployment: bool,
-        /// Updated description (pass empty string to clear)
-        #[arg(long)]
-        description: Option<String>,
-        /// Updated eval criteria JSON object
-        #[arg(long = "criteria")]
-        criteria_json: Option<String>,
-        /// Optional path to an eval criteria JSON file
-        #[arg(long = "criteria-file")]
-        criteria_file: Option<String>,
-        /// Updated metadata JSON object
-        #[arg(long = "metadata")]
-        metadata_json: Option<String>,
-        /// Optional path to a metadata JSON file
-        #[arg(long = "metadata-file")]
-        metadata_file: Option<String>,
-        /// Updated cron schedule for automatically running the eval set
-        #[arg(long = "schedule-cron")]
-        schedule_cron: Option<String>,
-        /// Updated timezone for the scheduled eval cron expression
-        #[arg(long = "schedule-timezone")]
-        schedule_timezone: Option<String>,
-        /// Disable scheduled execution for this eval set
-        #[arg(long)]
-        clear_schedule: bool,
-    },
-    /// List eval cases within a set
-    CloudEvalCases {
-        /// Eval set ID (UUID)
-        eval_set_id: Uuid,
-        /// Maximum eval cases to return
-        #[arg(long, default_value = "50")]
-        limit: i64,
-        /// Offset for pagination
-        #[arg(long, default_value = "0")]
-        offset: i64,
-    },
-    /// Get a single eval case within a set
-    CloudEvalCaseGet {
-        /// Eval set ID (UUID)
-        eval_set_id: Uuid,
-        /// Eval case ID (UUID)
-        case_id: Uuid,
-    },
-    /// Promote a terminal run into a durable eval case
-    CloudEvalCaseFromRun {
-        /// Eval set ID (UUID)
-        eval_set_id: Uuid,
-        /// Source run ID (UUID)
-        run_id: Uuid,
-        /// Optional eval case name override
-        #[arg(long)]
-        name: Option<String>,
-        /// Optional metadata JSON object merged onto the generated case metadata
-        #[arg(long = "metadata")]
-        metadata_json: Option<String>,
-        /// Optional path to a metadata JSON file
-        #[arg(long = "metadata-file")]
-        metadata_file: Option<String>,
-    },
-    /// Execute an eval set against a deployment
-    CloudEvalRunCreate {
-        /// Eval set ID (UUID)
-        eval_set_id: Uuid,
-        /// Optional deployment override (required when the eval set is not deployment-scoped)
-        #[arg(long)]
-        deployment_id: Option<Uuid>,
-        /// Optional metadata JSON object
-        #[arg(long = "metadata")]
-        metadata_json: Option<String>,
-        /// Optional path to a metadata JSON file
-        #[arg(long = "metadata-file")]
-        metadata_file: Option<String>,
-    },
-    /// List eval runs within a set
-    CloudEvalRuns {
-        /// Eval set ID (UUID)
-        eval_set_id: Uuid,
-        /// Maximum eval runs to return
-        #[arg(long, default_value = "50")]
-        limit: i64,
-        /// Offset for pagination
-        #[arg(long, default_value = "0")]
-        offset: i64,
-    },
-    /// Get a single eval run within a set
-    CloudEvalRunGet {
-        /// Eval set ID (UUID)
-        eval_set_id: Uuid,
-        /// Eval run ID (UUID)
-        eval_run_id: Uuid,
-    },
-    /// List per-case results for an eval run
-    CloudEvalRunResults {
-        /// Eval set ID (UUID)
-        eval_set_id: Uuid,
-        /// Eval run ID (UUID)
-        eval_run_id: Uuid,
-        /// Maximum case results to return
-        #[arg(long, default_value = "50")]
-        limit: i64,
-        /// Offset for pagination
-        #[arg(long, default_value = "0")]
-        offset: i64,
-    },
-    /// Get a single per-case result from an eval run
-    CloudEvalResultGet {
-        /// Eval set ID (UUID)
-        eval_set_id: Uuid,
-        /// Eval run ID (UUID)
-        eval_run_id: Uuid,
-        /// Eval case ID (UUID)
-        case_id: Uuid,
-    },
-    /// List artifacts emitted by a run (global path, no deployment ID required)
-    CloudRunArtifacts {
-        /// Run event ID (UUID)
-        run_id: Uuid,
-    },
-    /// Stream run events over SSE, with optional session resume headers
-    CloudRunStream {
-        /// Run event ID (UUID)
-        run_id: Uuid,
-        /// Optional stream session ID to resume/reattach an existing stream session
-        #[arg(long)]
-        session_id: Option<String>,
-        /// Optional Last-Event-ID header for SSE replay/resume
-        #[arg(long)]
-        last_event_id: Option<String>,
-    },
-    /// Close an active run stream session by run ID and session ID
-    CloudRunStreamClose {
-        /// Run event ID (UUID)
-        run_id: Uuid,
-        /// Stream session ID returned by cloud-run-stream
-        #[arg(long)]
-        session_id: String,
-    },
-    /// Get logs from a running cloud agent
-    CloudLogs {
-        /// Deployment ID (UUID)
-        deployment_id: Uuid,
-    },
-    /// Destroy a cloud agent deployment
-    CloudDestroy {
-        /// Deployment ID (UUID)
-        deployment_id: Uuid,
-    },
-    /// List run history for a cloud agent deployment
-    CloudRuns {
-        /// Deployment ID (UUID)
-        deployment_id: Uuid,
-        /// Maximum runs to return
-        #[arg(long, default_value = "50")]
-        limit: i64,
-        /// Offset for pagination
-        #[arg(long, default_value = "0")]
-        offset: i64,
-        /// Filter by run status (repeat or comma-separate)
-        #[arg(long, value_delimiter = ',', num_args = 1..)]
-        status: Vec<String>,
-        /// Filter by compute backend (aws_container, cloudflare_worker, daytona)
-        #[arg(long)]
-        compute_backend: Option<String>,
-        /// Filter by run source (api, cli, scheduler, ui, system, unknown)
-        #[arg(long)]
-        source: Option<String>,
-        /// Only include runs that emitted artifacts
-        #[arg(long)]
-        has_artifacts: bool,
-        /// Filter runs with started_at >= RFC3339 timestamp
-        #[arg(long)]
-        started_after: Option<String>,
-        /// Filter runs with started_at <= RFC3339 timestamp
-        #[arg(long)]
-        started_before: Option<String>,
-        /// Search query across execution ID/status/output/metadata
-        #[arg(long)]
-        q: Option<String>,
-    },
-    /// Get details of a specific run event
-    CloudRunGet {
-        /// Deployment ID (UUID)
-        deployment_id: Uuid,
-        /// Run event ID (UUID)
-        run_id: Uuid,
-    },
-    /// List all runs across all cloud agent deployments
-    CloudAllRuns {
-        /// Maximum runs to return
-        #[arg(long, default_value = "50")]
-        limit: i64,
-        /// Offset for pagination
-        #[arg(long, default_value = "0")]
-        offset: i64,
-        /// Filter by run status (repeat or comma-separate)
-        #[arg(long, value_delimiter = ',', num_args = 1..)]
-        status: Vec<String>,
-        /// Filter by compute backend (aws_container, cloudflare_worker, daytona)
-        #[arg(long)]
-        compute_backend: Option<String>,
-        /// Filter by run source (api, cli, scheduler, ui, system, unknown)
-        #[arg(long)]
-        source: Option<String>,
-        /// Only include runs that emitted artifacts
-        #[arg(long)]
-        has_artifacts: bool,
-        /// Filter runs with started_at >= RFC3339 timestamp
-        #[arg(long)]
-        started_after: Option<String>,
-        /// Filter runs with started_at <= RFC3339 timestamp
-        #[arg(long)]
-        started_before: Option<String>,
-        /// Search query across execution ID/status/output/metadata
-        #[arg(long)]
-        q: Option<String>,
-    },
-    /// List all runs currently awaiting approval across the organization
-    CloudPendingApprovals {
-        /// Maximum runs to return
-        #[arg(long, default_value = "50")]
-        limit: i64,
-        /// Offset for pagination
-        #[arg(long, default_value = "0")]
-        offset: i64,
-    },
-    /// List runs currently awaiting approval for a specific deployment
-    CloudDeploymentPendingApprovals {
-        /// Deployment ID (UUID)
-        deployment_id: Uuid,
-        /// Maximum runs to return
-        #[arg(long, default_value = "50")]
-        limit: i64,
-        /// Offset for pagination
-        #[arg(long, default_value = "0")]
-        offset: i64,
-    },
-    /// Get the latest pending approvals for a run by run ID
-    CloudRunPendingApprovals {
-        /// Run event ID (UUID)
-        run_id: Uuid,
-    },
-    /// Get the latest pending approvals for a run within a deployment
-    CloudDeploymentRunPendingApprovals {
-        /// Deployment ID (UUID)
-        deployment_id: Uuid,
-        /// Run event ID (UUID)
-        run_id: Uuid,
-    },
-    /// Approve all current pending approvals for a run and resume it
-    CloudRunApprove {
-        /// Run event ID (UUID)
-        run_id: Uuid,
-    },
-    /// Reject all current pending approvals for a run and resume it
-    CloudRunReject {
-        /// Run event ID (UUID)
-        run_id: Uuid,
-    },
-    /// Cancel a queued/running run event for a cloud deployment
-    CloudRunCancel {
-        /// Deployment ID (UUID)
-        deployment_id: Uuid,
-        /// Run event ID (UUID)
-        run_id: Uuid,
-    },
-    /// Cancel a queued/running run by run ID (global path, no deployment ID required)
-    CloudRunCancelById {
-        /// Run event ID (UUID)
-        run_id: Uuid,
-    },
-    /// Update config and/or secrets for a cloud agent without redeploying
-    CloudUpdateConfig {
-        /// Deployment ID (UUID)
-        deployment_id: Uuid,
-        /// Path to config.json
-        #[arg(long)]
-        config: Option<String>,
-        /// Path to .env secrets file
-        #[arg(long, name = "env")]
-        env_file: Option<String>,
-        /// Path to alert_policy JSON
-        #[arg(long)]
-        alert_policy: Option<String>,
-        /// Remove the deployment alert policy
-        #[arg(long, default_value_t = false)]
-        clear_alert_policy: bool,
-        /// Path to network_policy JSON
-        #[arg(long)]
-        network_policy: Option<String>,
-        /// Remove the deployment network policy
-        #[arg(long, default_value_t = false)]
-        clear_network_policy: bool,
-        /// Optional eval set ID that must have a fresh passing verdict before runs are allowed
-        #[arg(long)]
-        eval_gate_set_id: Option<Uuid>,
-        /// Freshness window in seconds for the eval gate (required with --eval-gate-set-id)
-        #[arg(long)]
-        eval_gate_max_age_seconds: Option<i32>,
-        /// Remove the eval gate from the deployment
-        #[arg(long, default_value_t = false)]
-        clear_eval_gate: bool,
-    },
-
     // =========================================================================
     // Agent Task Commands
     // =========================================================================
@@ -2311,6 +1836,16 @@ enum DatabaseAction {
 }
 
 #[derive(Subcommand)]
+enum GlobalDatabaseAction {
+    /// List databases across projects
+    List {
+        /// Optional project ID to filter databases to a specific project
+        #[arg(long)]
+        project_id: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
 enum RoleAction {
     /// List all roles
     List,
@@ -2330,10 +1865,6 @@ enum RoleAction {
         /// Role ID
         #[arg(long)]
         id: String,
-
-        /// Deprecated: ignored. Password is generated by the server.
-        #[arg(long, hide = true)]
-        password: Option<String>,
     },
     /// Reveal the current password for a role
     RevealPassword {
@@ -3675,9 +3206,11 @@ async fn main() -> anyhow::Result<()> {
                 commands::databases::delete(&project_id, &branch_id, &id, &ctx).await?
             }
         },
-        Commands::ListAllDatabases { project_id } => {
-            commands::databases::list_all(project_id.as_deref(), &ctx).await?
-        }
+        Commands::Database { action } => match action {
+            GlobalDatabaseAction::List { project_id } => {
+                commands::databases::list_all(project_id.as_deref(), &ctx).await?
+            }
+        },
         Commands::Roles {
             project_id,
             branch_id,
@@ -3690,15 +3223,8 @@ async fn main() -> anyhow::Result<()> {
             RoleAction::Delete { id } => {
                 commands::roles::delete(&project_id, &branch_id, &id, &ctx).await?
             }
-            RoleAction::ResetPassword { id, password } => {
-                commands::roles::reset_password(
-                    &project_id,
-                    &branch_id,
-                    &id,
-                    password.as_deref(),
-                    &ctx,
-                )
-                .await?
+            RoleAction::ResetPassword { id } => {
+                commands::roles::reset_password(&project_id, &branch_id, &id, &ctx).await?
             }
             RoleAction::RevealPassword { name } => {
                 commands::roles::reveal_password(&project_id, &branch_id, &name, &ctx).await?
@@ -4430,387 +3956,6 @@ async fn main() -> anyhow::Result<()> {
                 .await?
             }
             AgentAction::Cloud { action } => execute_agent_cloud_action(*action, &ctx).await?,
-            AgentAction::CloudEnvironmentList => {
-                commands::agent::cloud_environment_list(&ctx).await?
-            }
-            AgentAction::CloudEnvironmentGet { environment_id } => {
-                commands::agent::cloud_environment_get(environment_id, &ctx).await?
-            }
-            AgentAction::CloudEnvironmentCreate {
-                name,
-                docker_image,
-                description,
-                setup_commands,
-                is_default,
-            } => {
-                commands::agent::cloud_environment_create(
-                    &name,
-                    &docker_image,
-                    commands::agent::CloudEnvironmentCreateOptions {
-                        description: description.as_deref(),
-                        setup_commands: &setup_commands,
-                        is_default,
-                    },
-                    &ctx,
-                )
-                .await?
-            }
-            AgentAction::CloudEnvironmentUpdate {
-                environment_id,
-                name,
-                description,
-                docker_image,
-                setup_commands,
-                clear_setup_commands,
-                is_default,
-            } => {
-                commands::agent::cloud_environment_update(
-                    environment_id,
-                    name.as_deref(),
-                    description.as_deref(),
-                    docker_image.as_deref(),
-                    &setup_commands,
-                    clear_setup_commands,
-                    is_default,
-                    &ctx,
-                )
-                .await?
-            }
-            AgentAction::CloudEnvironmentDelete { environment_id } => {
-                commands::agent::cloud_environment_delete(environment_id, &ctx).await?
-            }
-            AgentAction::CloudList => commands::agent::cloud_list(&ctx).await?,
-            AgentAction::CloudOverview {
-                runs_limit,
-                approvals_limit,
-            } => commands::agent::cloud_overview(runs_limit, approvals_limit, &ctx).await?,
-            AgentAction::CloudStatus { deployment_id } => {
-                commands::agent::cloud_status(deployment_id, &ctx).await?
-            }
-            AgentAction::CloudStart { deployment_id } => {
-                commands::agent::cloud_start(deployment_id, &ctx).await?
-            }
-            AgentAction::CloudStop { deployment_id } => {
-                commands::agent::cloud_stop(deployment_id, &ctx).await?
-            }
-            AgentAction::CloudRun {
-                deployment_id,
-                message,
-                json_body,
-                json_file,
-                run_id,
-                async_run,
-            } => {
-                commands::agent::cloud_run(
-                    deployment_id,
-                    message.as_deref(),
-                    json_body.as_deref(),
-                    json_file.as_deref(),
-                    run_id.as_deref(),
-                    async_run,
-                    &ctx,
-                )
-                .await?
-            }
-            AgentAction::CloudRunById { run_id } => {
-                commands::agent::cloud_run_by_id(run_id, &ctx).await?
-            }
-            AgentAction::CloudRunCompare {
-                baseline_run_id,
-                candidate_run_id,
-            } => {
-                commands::agent::cloud_run_compare(baseline_run_id, candidate_run_id, &ctx).await?
-            }
-            AgentAction::CloudEvalSets {
-                deployment_id,
-                limit,
-                offset,
-            } => commands::agent::cloud_eval_sets(deployment_id, limit, offset, &ctx).await?,
-            AgentAction::CloudEvalSetCreate {
-                name,
-                deployment_id,
-                description,
-                criteria_json,
-                criteria_file,
-                metadata_json,
-                metadata_file,
-                schedule_cron,
-                schedule_timezone,
-            } => {
-                commands::agent::cloud_eval_set_create(
-                    &name,
-                    deployment_id,
-                    description.as_deref(),
-                    criteria_json.as_deref(),
-                    criteria_file.as_deref(),
-                    metadata_json.as_deref(),
-                    metadata_file.as_deref(),
-                    schedule_cron.as_deref(),
-                    schedule_timezone.as_deref(),
-                    &ctx,
-                )
-                .await?
-            }
-            AgentAction::CloudEvalSetGet { eval_set_id } => {
-                commands::agent::cloud_eval_set_get(eval_set_id, &ctx).await?
-            }
-            AgentAction::CloudEvalSetUpdate {
-                eval_set_id,
-                name,
-                deployment_id,
-                clear_deployment,
-                description,
-                criteria_json,
-                criteria_file,
-                metadata_json,
-                metadata_file,
-                schedule_cron,
-                schedule_timezone,
-                clear_schedule,
-            } => {
-                commands::agent::cloud_eval_set_update(
-                    eval_set_id,
-                    name.as_deref(),
-                    deployment_id,
-                    clear_deployment,
-                    description.as_deref(),
-                    criteria_json.as_deref(),
-                    criteria_file.as_deref(),
-                    metadata_json.as_deref(),
-                    metadata_file.as_deref(),
-                    schedule_cron.as_deref(),
-                    schedule_timezone.as_deref(),
-                    clear_schedule,
-                    &ctx,
-                )
-                .await?
-            }
-            AgentAction::CloudEvalCases {
-                eval_set_id,
-                limit,
-                offset,
-            } => commands::agent::cloud_eval_cases(eval_set_id, limit, offset, &ctx).await?,
-            AgentAction::CloudEvalCaseGet {
-                eval_set_id,
-                case_id,
-            } => commands::agent::cloud_eval_case_get(eval_set_id, case_id, &ctx).await?,
-            AgentAction::CloudEvalCaseFromRun {
-                eval_set_id,
-                run_id,
-                name,
-                metadata_json,
-                metadata_file,
-            } => {
-                commands::agent::cloud_eval_case_from_run(
-                    eval_set_id,
-                    run_id,
-                    name.as_deref(),
-                    metadata_json.as_deref(),
-                    metadata_file.as_deref(),
-                    &ctx,
-                )
-                .await?
-            }
-            AgentAction::CloudEvalRunCreate {
-                eval_set_id,
-                deployment_id,
-                metadata_json,
-                metadata_file,
-            } => {
-                commands::agent::cloud_eval_run_create(
-                    eval_set_id,
-                    deployment_id,
-                    metadata_json.as_deref(),
-                    metadata_file.as_deref(),
-                    &ctx,
-                )
-                .await?
-            }
-            AgentAction::CloudEvalRuns {
-                eval_set_id,
-                limit,
-                offset,
-            } => commands::agent::cloud_eval_runs(eval_set_id, limit, offset, &ctx).await?,
-            AgentAction::CloudEvalRunGet {
-                eval_set_id,
-                eval_run_id,
-            } => commands::agent::cloud_eval_run_get(eval_set_id, eval_run_id, &ctx).await?,
-            AgentAction::CloudEvalRunResults {
-                eval_set_id,
-                eval_run_id,
-                limit,
-                offset,
-            } => {
-                commands::agent::cloud_eval_run_results(
-                    eval_set_id,
-                    eval_run_id,
-                    limit,
-                    offset,
-                    &ctx,
-                )
-                .await?
-            }
-            AgentAction::CloudEvalResultGet {
-                eval_set_id,
-                eval_run_id,
-                case_id,
-            } => {
-                commands::agent::cloud_eval_result_get(eval_set_id, eval_run_id, case_id, &ctx)
-                    .await?
-            }
-            AgentAction::CloudRunArtifacts { run_id } => {
-                commands::agent::cloud_run_artifacts(run_id, &ctx).await?
-            }
-            AgentAction::CloudRunStream {
-                run_id,
-                session_id,
-                last_event_id,
-            } => {
-                commands::agent::cloud_run_stream(
-                    run_id,
-                    session_id.as_deref(),
-                    last_event_id.as_deref(),
-                    &ctx,
-                )
-                .await?
-            }
-            AgentAction::CloudRunStreamClose { run_id, session_id } => {
-                commands::agent::cloud_run_stream_close(run_id, &session_id, &ctx).await?
-            }
-            AgentAction::CloudLogs { deployment_id } => {
-                commands::agent::cloud_logs(deployment_id, &ctx).await?
-            }
-            AgentAction::CloudDestroy { deployment_id } => {
-                commands::agent::cloud_destroy(deployment_id, &ctx).await?
-            }
-            AgentAction::CloudRuns {
-                deployment_id,
-                limit,
-                offset,
-                status,
-                compute_backend,
-                source,
-                has_artifacts,
-                started_after,
-                started_before,
-                q,
-            } => {
-                commands::agent::cloud_runs(
-                    deployment_id,
-                    limit,
-                    offset,
-                    commands::agent::CloudRunQueryOptions {
-                        statuses: &status,
-                        compute_backend: compute_backend.as_deref(),
-                        source: source.as_deref(),
-                        has_artifacts: if has_artifacts { Some(true) } else { None },
-                        started_after: started_after.as_deref(),
-                        started_before: started_before.as_deref(),
-                        q: q.as_deref(),
-                    },
-                    &ctx,
-                )
-                .await?
-            }
-            AgentAction::CloudRunGet {
-                deployment_id,
-                run_id,
-            } => commands::agent::cloud_run_get(deployment_id, run_id, &ctx).await?,
-            AgentAction::CloudAllRuns {
-                limit,
-                offset,
-                status,
-                compute_backend,
-                source,
-                has_artifacts,
-                started_after,
-                started_before,
-                q,
-            } => {
-                commands::agent::cloud_all_runs(
-                    limit,
-                    offset,
-                    commands::agent::CloudRunQueryOptions {
-                        statuses: &status,
-                        compute_backend: compute_backend.as_deref(),
-                        source: source.as_deref(),
-                        has_artifacts: if has_artifacts { Some(true) } else { None },
-                        started_after: started_after.as_deref(),
-                        started_before: started_before.as_deref(),
-                        q: q.as_deref(),
-                    },
-                    &ctx,
-                )
-                .await?
-            }
-            AgentAction::CloudPendingApprovals { limit, offset } => {
-                commands::agent::cloud_pending_approvals(limit, offset, &ctx).await?
-            }
-            AgentAction::CloudDeploymentPendingApprovals {
-                deployment_id,
-                limit,
-                offset,
-            } => {
-                commands::agent::cloud_deployment_pending_approvals(
-                    deployment_id,
-                    limit,
-                    offset,
-                    &ctx,
-                )
-                .await?
-            }
-            AgentAction::CloudRunPendingApprovals { run_id } => {
-                commands::agent::cloud_run_pending_approvals(run_id, &ctx).await?
-            }
-            AgentAction::CloudDeploymentRunPendingApprovals {
-                deployment_id,
-                run_id,
-            } => {
-                commands::agent::cloud_deployment_run_pending_approvals(deployment_id, run_id, &ctx)
-                    .await?
-            }
-            AgentAction::CloudRunApprove { run_id } => {
-                commands::agent::cloud_run_approve(run_id, &ctx).await?
-            }
-            AgentAction::CloudRunReject { run_id } => {
-                commands::agent::cloud_run_reject(run_id, &ctx).await?
-            }
-            AgentAction::CloudRunCancel {
-                deployment_id,
-                run_id,
-            } => commands::agent::cloud_run_cancel(deployment_id, run_id, &ctx).await?,
-            AgentAction::CloudRunCancelById { run_id } => {
-                commands::agent::cloud_run_cancel_by_id(run_id, &ctx).await?
-            }
-            AgentAction::CloudUpdateConfig {
-                deployment_id,
-                config,
-                env_file,
-                alert_policy,
-                clear_alert_policy,
-                network_policy,
-                clear_network_policy,
-                eval_gate_set_id,
-                eval_gate_max_age_seconds,
-                clear_eval_gate,
-            } => {
-                commands::agent::cloud_update_config(
-                    deployment_id,
-                    commands::agent::CloudUpdateConfigOptions {
-                        config_path: config.as_deref(),
-                        env_path: env_file.as_deref(),
-                        alert_policy_path: alert_policy.as_deref(),
-                        clear_alert_policy,
-                        network_policy_path: network_policy.as_deref(),
-                        clear_network_policy,
-                        eval_gate_set_id,
-                        eval_gate_max_age_seconds,
-                        clear_eval_gate,
-                    },
-                    &ctx,
-                )
-                .await?
-            }
             AgentAction::TasksList {
                 org_id,
                 limit,
@@ -4886,34 +4031,9 @@ mod tests {
 
         match cli.command {
             Commands::Roles {
-                action: RoleAction::ResetPassword { password, .. },
+                action: RoleAction::ResetPassword { .. },
                 ..
-            } => assert!(password.is_none()),
-            _ => panic!("unexpected command parsed"),
-        }
-    }
-
-    #[test]
-    fn role_reset_password_still_accepts_deprecated_password_flag() {
-        let cli = parse_cli_with_large_stack(vec![
-            "seren",
-            "roles",
-            "--project-id",
-            "11111111-1111-1111-1111-111111111111",
-            "--branch-id",
-            "22222222-2222-2222-2222-222222222222",
-            "reset-password",
-            "--id",
-            "33333333-3333-3333-3333-333333333333",
-            "--password",
-            "legacy-value",
-        ]);
-
-        match cli.command {
-            Commands::Roles {
-                action: RoleAction::ResetPassword { password, .. },
-                ..
-            } => assert_eq!(password.as_deref(), Some("legacy-value")),
+            } => {}
             _ => panic!("unexpected command parsed"),
         }
     }
@@ -4944,6 +4064,29 @@ mod tests {
                     _ => panic!("unexpected cloud action parsed"),
                 },
                 _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn database_list_accepts_grouped_command() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "database",
+            "list",
+            "--project-id",
+            "11111111-1111-1111-1111-111111111111",
+        ]);
+
+        match cli.command {
+            Commands::Database { action } => match action {
+                GlobalDatabaseAction::List { project_id } => {
+                    assert_eq!(
+                        project_id.as_deref(),
+                        Some("11111111-1111-1111-1111-111111111111")
+                    );
+                }
             },
             _ => panic!("unexpected command parsed"),
         }
@@ -5058,52 +4201,6 @@ mod tests {
                     },
                     _ => panic!("unexpected cloud action parsed"),
                 },
-                _ => panic!("unexpected agent action parsed"),
-            },
-            _ => panic!("unexpected command parsed"),
-        }
-    }
-
-    #[test]
-    fn cloud_run_approve_parses_run_id() {
-        let cli = parse_cli_with_large_stack(vec![
-            "seren",
-            "agent",
-            "cloud-run-approve",
-            "11111111-1111-1111-1111-111111111111",
-        ]);
-
-        match cli.command {
-            Commands::Agent { action, .. } => match *action {
-                AgentAction::CloudRunApprove { run_id } => {
-                    assert_eq!(
-                        run_id,
-                        Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap()
-                    );
-                }
-                _ => panic!("unexpected agent action parsed"),
-            },
-            _ => panic!("unexpected command parsed"),
-        }
-    }
-
-    #[test]
-    fn cloud_run_reject_parses_run_id() {
-        let cli = parse_cli_with_large_stack(vec![
-            "seren",
-            "agent",
-            "cloud-run-reject",
-            "22222222-2222-2222-2222-222222222222",
-        ]);
-
-        match cli.command {
-            Commands::Agent { action, .. } => match *action {
-                AgentAction::CloudRunReject { run_id } => {
-                    assert_eq!(
-                        run_id,
-                        Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap()
-                    );
-                }
                 _ => panic!("unexpected agent action parsed"),
             },
             _ => panic!("unexpected command parsed"),

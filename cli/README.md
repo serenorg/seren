@@ -115,8 +115,8 @@ seren databases --project-id <id> --branch-id <id> create --name mydb
 seren databases --project-id <id> --branch-id <id> delete <db-id>
 
 # List all databases across projects
-seren list-all-databases
-seren list-all-databases --project-id <id>
+seren database list
+seren database list --project-id <id>
 
 # Roles
 seren roles --project-id <id> --branch-id <id> list
