@@ -1803,6 +1803,16 @@ pub struct CloudPendingApprovalsParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudOverviewParams {
+    /// Maximum recent runs to include
+    #[serde(default = "default_cloud_overview_limit")]
+    pub runs_limit: i64,
+    /// Maximum pending-approval runs to include
+    #[serde(default = "default_cloud_overview_limit")]
+    pub approvals_limit: i64,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CloudDeploymentPendingApprovalsParams {
     /// Deployment UUID
     pub deployment_id: Uuid,
@@ -2132,6 +2142,10 @@ pub struct CloudAllRunsParams {
 
 fn default_cloud_runs_limit() -> i64 {
     50
+}
+
+fn default_cloud_overview_limit() -> i64 {
+    8
 }
 
 fn build_cloud_run_body(
@@ -8570,6 +8584,98 @@ API endpoint: {endpoint}",
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get an organization-wide seren-cloud overview with deployment counts, recent runs, and pending approvals.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_cloud_overview(
+        &self,
+        Parameters(params): Parameters<CloudOverviewParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let deployments = api_client
+            .seren_cloud_list_deployments()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        let recent_runs = api_client
+            .seren_cloud_runs(
+                None,
+                None,
+                Some(params.runs_limit),
+                Some(0),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        let pending_approvals = api_client
+            .seren_cloud_pending_approvals(
+                None,
+                None,
+                Some(params.approvals_limit),
+                Some(0),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+
+        let deployments_value = serde_json::to_value(&deployments)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let deployments_data = deployments_value
+            .get("data")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let recent_runs_value = serde_json::to_value(&recent_runs)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let recent_runs_data = recent_runs_value
+            .get("data")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let pending_approvals_value = serde_json::to_value(&pending_approvals)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let pending_approvals_data = pending_approvals_value
+            .get("data")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let payload = serde_json::json!({
+            "summary": {
+                "deployment_count": deployments_data.len(),
+                "running_count": deployments_data
+                    .iter()
+                    .filter(|deployment| deployment.get("status").and_then(|value| value.as_str()) == Some("running"))
+                    .count(),
+                "managed_count": deployments_data
+                    .iter()
+                    .filter(|deployment| !deployment.get("managed_agent").unwrap_or(&serde_json::Value::Null).is_null())
+                    .count(),
+                "cron_count": deployments_data
+                    .iter()
+                    .filter(|deployment| deployment.get("mode").and_then(|value| value.as_str()) == Some("cron"))
+                    .count(),
+                "recent_runs_loaded": recent_runs_data.len(),
+                "pending_approvals_loaded": pending_approvals_data.len(),
+            },
+            "recent_runs": recent_runs_data,
+            "pending_approvals": pending_approvals_data,
+        });
+
+        Ok(CallToolResult::success(vec![json_content(&payload)?]))
     }
 
     #[tool(

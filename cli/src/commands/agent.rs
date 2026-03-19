@@ -2981,6 +2981,158 @@ pub async fn cloud_list(ctx: &CommandContext) -> Result<()> {
     Ok(())
 }
 
+/// Show an organization-wide cloud overview with deployment counts, recent runs, and pending approvals.
+pub async fn cloud_overview(
+    runs_limit: i64,
+    approvals_limit: i64,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let deployments_response = client
+        .seren_cloud_list_deployments()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to load deployments: {}", e))?
+        .into_inner();
+    let recent_runs_response = client
+        .seren_cloud_runs(
+            None,
+            None,
+            Some(runs_limit),
+            Some(0),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to load recent runs: {}", e))?
+        .into_inner();
+    let pending_approvals_response = client
+        .seren_cloud_pending_approvals(
+            None,
+            None,
+            Some(approvals_limit),
+            Some(0),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to load pending approvals: {}", e))?
+        .into_inner();
+
+    let deployments_value = serde_json::to_value(&deployments_response)?;
+    let deployments = deployments_value
+        .get("data")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let recent_runs_value = serde_json::to_value(&recent_runs_response)?;
+    let recent_runs = recent_runs_value
+        .get("data")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let pending_approvals_value = serde_json::to_value(&pending_approvals_response)?;
+    let pending_approvals = pending_approvals_value
+        .get("data")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let summary = serde_json::json!({
+        "deployment_count": deployments.len(),
+        "running_count": deployments
+            .iter()
+            .filter(|deployment| deployment.get("status").and_then(|value| value.as_str()) == Some("running"))
+            .count(),
+        "managed_count": deployments
+            .iter()
+            .filter(|deployment| !deployment.get("managed_agent").unwrap_or(&serde_json::Value::Null).is_null())
+            .count(),
+        "cron_count": deployments
+            .iter()
+            .filter(|deployment| deployment.get("mode").and_then(|value| value.as_str()) == Some("cron"))
+            .count(),
+        "recent_runs_loaded": recent_runs.len(),
+        "pending_approvals_loaded": pending_approvals.len(),
+    });
+
+    if matches!(ctx.format, OutputFormat::Json) {
+        let payload = serde_json::json!({
+            "summary": summary,
+            "recent_runs": recent_runs,
+            "pending_approvals": pending_approvals,
+        });
+        output::print_json(&payload)?;
+        return Ok(());
+    }
+
+    let summary_rows = vec![
+        (
+            "Deployments",
+            summary
+                .get("deployment_count")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0)
+                .to_string(),
+        ),
+        (
+            "Running",
+            summary
+                .get("running_count")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0)
+                .to_string(),
+        ),
+        (
+            "Managed",
+            summary
+                .get("managed_count")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0)
+                .to_string(),
+        ),
+        (
+            "Cron",
+            summary
+                .get("cron_count")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0)
+                .to_string(),
+        ),
+        (
+            "Recent Runs Loaded",
+            summary
+                .get("recent_runs_loaded")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0)
+                .to_string(),
+        ),
+        (
+            "Pending Approvals",
+            summary
+                .get("pending_approvals_loaded")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0)
+                .to_string(),
+        ),
+    ];
+    output::print_key_value_table(Some("Cloud Overview"), &summary_rows);
+
+    println!();
+    println!("Recent Runs");
+    print_cloud_run_rows(&recent_runs, true, "No recent runs found.")?;
+
+    println!();
+    println!("Pending Approvals");
+    print_pending_approval_runs_table(&pending_approvals_response, None)?;
+
+    Ok(())
+}
+
 /// Get status of a cloud agent deployment.
 pub async fn cloud_status(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
@@ -4727,38 +4879,11 @@ pub async fn cloud_runs(
 
     let data = serde_json::to_value(&response)?;
     if let Some(runs) = data.get("data").and_then(|d| d.as_array()) {
-        if runs.is_empty() {
-            println!("No runs found for deployment {}.", deployment_id);
-            return Ok(());
-        }
-        println!(
-            "{:<38} {:<14} {:<10} {:<10} {:<24}",
-            "RUN ID", "STATUS", "TIME(ms)", "COST", "STARTED"
-        );
-        for execution in runs {
-            println!(
-                "{:<38} {:<14} {:<10} {:<10} {:<24}",
-                execution.get("id").and_then(|v| v.as_str()).unwrap_or("-"),
-                execution
-                    .get("status")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-"),
-                execution
-                    .get("execution_time_ms")
-                    .and_then(|v| v.as_i64())
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "-".to_string()),
-                execution
-                    .get("compute_cost_usd")
-                    .and_then(|v| v.as_str())
-                    .map(|v| format!("${v}"))
-                    .unwrap_or_else(|| "-".to_string()),
-                execution
-                    .get("started_at")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-"),
-            );
-        }
+        print_cloud_run_rows(
+            runs,
+            false,
+            &format!("No runs found for deployment {}.", deployment_id),
+        )?;
     } else {
         output::print_json(&response)?;
     }
@@ -5011,42 +5136,7 @@ pub async fn cloud_all_runs(
 
     let data = serde_json::to_value(&response)?;
     if let Some(runs) = data.get("data").and_then(|d| d.as_array()) {
-        if runs.is_empty() {
-            println!("No runs found.");
-            return Ok(());
-        }
-        println!(
-            "{:<38} {:<38} {:<14} {:<10} {:<10} {:<24}",
-            "RUN ID", "DEPLOYMENT ID", "STATUS", "TIME(ms)", "COST", "STARTED"
-        );
-        for execution in runs {
-            println!(
-                "{:<38} {:<38} {:<14} {:<10} {:<10} {:<24}",
-                execution.get("id").and_then(|v| v.as_str()).unwrap_or("-"),
-                execution
-                    .get("deployment_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-"),
-                execution
-                    .get("status")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-"),
-                execution
-                    .get("execution_time_ms")
-                    .and_then(|v| v.as_i64())
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "-".to_string()),
-                execution
-                    .get("compute_cost_usd")
-                    .and_then(|v| v.as_str())
-                    .map(|v| format!("${v}"))
-                    .unwrap_or_else(|| "-".to_string()),
-                execution
-                    .get("started_at")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-"),
-            );
-        }
+        print_cloud_run_rows(runs, true, "No runs found.")?;
     } else {
         output::print_json(&response)?;
     }
@@ -5198,6 +5288,83 @@ fn print_pending_approval_runs_table<T: serde::Serialize>(
             approvals.len(),
             truncate_for_cli(&tools, 28),
         );
+    }
+
+    Ok(())
+}
+
+fn print_cloud_run_rows(
+    runs: &[serde_json::Value],
+    include_deployment: bool,
+    empty_message: &str,
+) -> Result<()> {
+    if runs.is_empty() {
+        println!("{empty_message}");
+        return Ok(());
+    }
+
+    if include_deployment {
+        println!(
+            "{:<38} {:<38} {:<14} {:<10} {:<10} {:<24}",
+            "RUN ID", "DEPLOYMENT ID", "STATUS", "TIME(ms)", "COST", "STARTED"
+        );
+        for execution in runs {
+            println!(
+                "{:<38} {:<38} {:<14} {:<10} {:<10} {:<24}",
+                execution.get("id").and_then(|v| v.as_str()).unwrap_or("-"),
+                execution
+                    .get("deployment_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("-"),
+                execution
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("-"),
+                execution
+                    .get("execution_time_ms")
+                    .and_then(|v| v.as_i64())
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                execution
+                    .get("compute_cost_usd")
+                    .and_then(|v| v.as_str())
+                    .map(|v| format!("${v}"))
+                    .unwrap_or_else(|| "-".to_string()),
+                execution
+                    .get("started_at")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("-"),
+            );
+        }
+    } else {
+        println!(
+            "{:<38} {:<14} {:<10} {:<10} {:<24}",
+            "RUN ID", "STATUS", "TIME(ms)", "COST", "STARTED"
+        );
+        for execution in runs {
+            println!(
+                "{:<38} {:<14} {:<10} {:<10} {:<24}",
+                execution.get("id").and_then(|v| v.as_str()).unwrap_or("-"),
+                execution
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("-"),
+                execution
+                    .get("execution_time_ms")
+                    .and_then(|v| v.as_i64())
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                execution
+                    .get("compute_cost_usd")
+                    .and_then(|v| v.as_str())
+                    .map(|v| format!("${v}"))
+                    .unwrap_or_else(|| "-".to_string()),
+                execution
+                    .get("started_at")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("-"),
+            );
+        }
     }
 
     Ok(())

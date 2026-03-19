@@ -849,6 +849,15 @@ enum AgentAction {
     },
     /// List cloud agent deployments
     CloudList,
+    /// Show organization-wide cloud deployment counts, recent runs, and pending approvals
+    CloudOverview {
+        /// Maximum recent runs to include
+        #[arg(long, default_value = "8")]
+        runs_limit: i64,
+        /// Maximum pending-approval runs to include
+        #[arg(long, default_value = "8")]
+        approvals_limit: i64,
+    },
     /// Get status of a cloud agent deployment
     CloudStatus {
         /// Deployment ID (UUID)
@@ -3546,6 +3555,10 @@ async fn main() -> anyhow::Result<()> {
                 commands::agent::cloud_environment_delete(environment_id, &ctx).await?
             }
             AgentAction::CloudList => commands::agent::cloud_list(&ctx).await?,
+            AgentAction::CloudOverview {
+                runs_limit,
+                approvals_limit,
+            } => commands::agent::cloud_overview(runs_limit, approvals_limit, &ctx).await?,
             AgentAction::CloudStatus { deployment_id } => {
                 commands::agent::cloud_status(deployment_id, &ctx).await?
             }
