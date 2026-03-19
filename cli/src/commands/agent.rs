@@ -3668,7 +3668,7 @@ async fn resolve_cloud_run_pending_approvals(
             println!("  Run ID: {}", resumed_run_id.bold());
             println!("  Execution ID: {}", execution_id.bold());
             println!(
-                "  Check status: seren agent cloud-run-get {} {}",
+                "  Check status: seren agent cloud run get --deployment-id {} {}",
                 deployment_id, resumed_run_id
             );
         }
@@ -3753,7 +3753,7 @@ pub async fn cloud_run(
             println!("  Run ID: {}", run_id.bold());
             println!("  Execution ID: {}", execution_id.bold());
             println!(
-                "  Check status: seren agent cloud-run-get {} {}",
+                "  Check status: seren agent cloud run get --deployment-id {} {}",
                 deployment_id, run_id
             );
         }
@@ -4996,7 +4996,7 @@ pub async fn cloud_run_stream(
         eprintln!(
             "{}",
             format!(
-                "Close session: seren agent cloud-run-stream-close {} --session-id {}",
+                "Close session: seren agent cloud run stream-close {} --session-id {}",
                 run_id, server_session_id
             )
             .dimmed()

@@ -234,40 +234,40 @@ seren agent managed-update <deployment-id> \
 seren agent managed-update <deployment-id> --clear-eval-gate
 
 # Invoke the deployment
-seren agent cloud-run --deployment-id <deployment-id> \
+seren agent cloud run start --deployment-id <deployment-id> \
   --message "Give me the latest BTC update."
 
 # See the org-wide activity overview
-seren agent cloud-overview
-seren agent cloud-overview --runs-limit 12 --approvals-limit 6
+seren agent cloud overview
+seren agent cloud overview --runs-limit 12 --approvals-limit 6
 
 # Pull the same activity feed as JSON for automation
-seren -o json agent cloud-all-runs --limit 20
-seren -o json agent cloud-pending-approvals --limit 20
+seren -o json agent cloud runs list --limit 20
+seren -o json agent cloud approvals list --limit 20
 ```
 
 ### Cloud Activity
 
 ```bash
 # Deployment inventory
-seren agent cloud-list
-seren -o json agent cloud-list
+seren agent cloud deployment list
+seren -o json agent cloud deployment list
 
 # Org-wide summary: deployments, recent runs, pending approvals
-seren agent cloud-overview
+seren agent cloud overview
 
 # Global activity feeds
-seren agent cloud-all-runs --limit 20 --status running,awaiting_approval
-seren agent cloud-pending-approvals --limit 20
+seren agent cloud runs list --limit 20 --status running,awaiting_approval
+seren agent cloud approvals list --limit 20
 
 # Deployment-scoped activity feeds
-seren agent cloud-runs --deployment-id <deployment-id> --limit 20
-seren agent cloud-deployment-pending-approvals --deployment-id <deployment-id>
+seren agent cloud runs list --deployment-id <deployment-id> --limit 20
+seren agent cloud approvals list --deployment-id <deployment-id>
 
 # Resolve a blocked run inline
-seren agent cloud-run-pending-approvals <run-id>
-seren agent cloud-run-approve <run-id>
-seren agent cloud-run-reject <run-id>
+seren agent cloud run pending-approvals <run-id>
+seren agent cloud run approve <run-id>
+seren agent cloud run reject <run-id>
 ```
 
 ### OAuth Connections (BYOC)
@@ -416,7 +416,7 @@ seren set-context clear
 seren projects list                # table output (default)
 seren projects list --format json  # JSON output
 seren -o json projects list        # short form
-seren -o json agent cloud-overview # machine-readable activity summary
+seren -o json agent cloud overview # machine-readable activity summary
 ```
 
 ## Environment Variables
