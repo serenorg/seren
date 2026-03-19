@@ -2190,6 +2190,66 @@ fn enrich_with_deployment_name(
         .collect()
 }
 
+fn extract_cloud_run_deployment_id(response: &serde_json::Value) -> Result<String, McpError> {
+    let data = response.get("data").unwrap_or(response);
+    data.get("deployment_id")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .ok_or_else(|| {
+            McpError::internal_error(
+                "Run detail response did not include deployment_id.".to_string(),
+                None,
+            )
+        })
+}
+
+fn build_cloud_approval_resume_payload(
+    approval_state: &serde_json::Value,
+    decision: &str,
+) -> Result<Option<serde_json::Value>, McpError> {
+    let data = approval_state.get("data").unwrap_or(approval_state);
+    let status = data
+        .get("status")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let approvals = data
+        .get("pending_approvals")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    if status != "awaiting_approval" || approvals.is_empty() {
+        return Ok(None);
+    }
+
+    let checkpoint_id = data
+        .get("checkpoint_id")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            McpError::internal_error(
+                "Run is awaiting approval but no checkpoint_id was returned.".to_string(),
+                None,
+            )
+        })?;
+
+    let approval_decisions = approvals
+        .into_iter()
+        .filter_map(|approval| {
+            approval
+                .get("id")
+                .and_then(|value| value.as_str())
+                .map(|id| serde_json::json!({ "id": id, "decision": decision }))
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Some(serde_json::json!({
+        "resume_checkpoint_id": checkpoint_id,
+        "approval_decisions": approval_decisions,
+    })))
+}
+
 fn enrich_data_envelope_with_deployment_names(
     envelope: &serde_json::Value,
     deployment_names: &HashMap<String, String>,
@@ -3355,6 +3415,111 @@ impl SerenMcpServer {
         resp.json::<serde_json::Value>()
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))
+    }
+
+    async fn resolve_cloud_run_pending_approvals(
+        &self,
+        extensions: &Extensions,
+        run_id: Uuid,
+        decision: &str,
+    ) -> Result<CallToolResult, McpError> {
+        let run_detail = self
+            .execute_api_json::<serde_json::Value>(
+                extensions,
+                reqwest::Method::GET,
+                format!(
+                    "{}/publishers/seren-cloud/runs/{}",
+                    self.api_base_url.trim_end_matches('/'),
+                    run_id
+                ),
+                None,
+            )
+            .await?;
+        let deployment_id = extract_cloud_run_deployment_id(&run_detail)?;
+
+        let approval_state = self
+            .execute_api_json::<serde_json::Value>(
+                extensions,
+                reqwest::Method::GET,
+                format!(
+                    "{}/publishers/seren-cloud/runs/{}/pending_approvals",
+                    self.api_base_url.trim_end_matches('/'),
+                    run_id
+                ),
+                None,
+            )
+            .await?;
+
+        let maybe_body = build_cloud_approval_resume_payload(&approval_state, decision)?;
+        if maybe_body.is_none() {
+            let payload = serde_json::json!({
+                "resolved": false,
+                "decision": decision,
+                "run_id": run_id,
+                "deployment_id": deployment_id,
+                "approval_state": approval_state,
+                "message": "This run is not currently awaiting approval.",
+            });
+            return Ok(CallToolResult::success(vec![
+                Content::text(format!(
+                    "Run {} is not currently awaiting approval.",
+                    run_id
+                )),
+                json_content(&payload)?,
+            ]));
+        }
+
+        let body = maybe_body.unwrap_or_default();
+        let response_json = self
+            .execute_api_json(
+                extensions,
+                reqwest::Method::POST,
+                format!(
+                    "{}/publishers/seren-cloud/deployments/{}/runs",
+                    self.api_base_url.trim_end_matches('/'),
+                    deployment_id
+                ),
+                Some(&body),
+            )
+            .await?;
+        let data = response_json.get("data").unwrap_or(&response_json);
+        let resumed_run_id = data
+            .get("run_id")
+            .or_else(|| data.get("id"))
+            .and_then(|value| value.as_str());
+        let execution_id = data.get("execution_id").and_then(|value| value.as_str());
+
+        let action_label = if decision == "approve" {
+            "Approved"
+        } else {
+            "Rejected"
+        };
+        let mut content = Vec::new();
+        if let (Some(resumed_run_id), Some(execution_id)) = (resumed_run_id, execution_id) {
+            content.push(Content::text(format!(
+                "{} pending approvals for run {} and resumed deployment {}.\nrun_id: {}\nexecution_id: {}",
+                action_label, run_id, deployment_id, resumed_run_id, execution_id
+            )));
+        } else if let Some(resumed_run_id) = resumed_run_id {
+            content.push(Content::text(format!(
+                "{} pending approvals for run {} and resumed deployment {} (run_id: {}).",
+                action_label, run_id, deployment_id, resumed_run_id
+            )));
+        } else {
+            content.push(Content::text(format!(
+                "{} pending approvals for run {} and resumed deployment {}.",
+                action_label, run_id, deployment_id
+            )));
+        }
+        let payload = serde_json::json!({
+            "resolved": true,
+            "decision": decision,
+            "run_id": run_id,
+            "deployment_id": deployment_id,
+            "response": response_json,
+        });
+        content.push(json_content(&payload)?);
+        Ok(CallToolResult::success(content))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -9137,6 +9302,36 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "Approve all current pending approvals for a seren-cloud run by run ID and resume it.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn approve_cloud_run_pending_approvals(
+        &self,
+        Parameters(params): Parameters<CloudRunIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        self.resolve_cloud_run_pending_approvals(&extensions, params.run_id, "approve")
+            .await
+    }
+
+    #[tool(
+        description = "Reject all current pending approvals for a seren-cloud run by run ID and resume it.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn reject_cloud_run_pending_approvals(
+        &self,
+        Parameters(params): Parameters<CloudRunIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        self.resolve_cloud_run_pending_approvals(&extensions, params.run_id, "reject")
+            .await
+    }
+
+    #[tool(
         description = "Get the current pending approvals for a seren-cloud run within a deployment.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
@@ -10513,5 +10708,41 @@ mod tests {
         let first = &enriched["data"][0];
         assert_eq!(first["deployment_name"], "BTC Watcher");
         assert_eq!(first["deployment_id"], "dep-123");
+    }
+
+    #[test]
+    fn build_cloud_approval_resume_payload_returns_none_without_pending_approvals() {
+        let approval_state = serde_json::json!({
+            "data": {
+                "status": "completed",
+                "pending_approvals": []
+            }
+        });
+
+        let payload =
+            super::build_cloud_approval_resume_payload(&approval_state, "approve").unwrap();
+        assert!(payload.is_none());
+    }
+
+    #[test]
+    fn build_cloud_approval_resume_payload_includes_checkpoint_and_decisions() {
+        let approval_state = serde_json::json!({
+            "data": {
+                "status": "awaiting_approval",
+                "checkpoint_id": "chk_123",
+                "pending_approvals": [
+                    { "id": "approval-1", "tool": "shell" },
+                    { "id": "approval-2", "tool": "browser" }
+                ]
+            }
+        });
+
+        let payload = super::build_cloud_approval_resume_payload(&approval_state, "reject")
+            .unwrap()
+            .unwrap();
+        assert_eq!(payload["resume_checkpoint_id"], "chk_123");
+        assert_eq!(payload["approval_decisions"][0]["id"], "approval-1");
+        assert_eq!(payload["approval_decisions"][0]["decision"], "reject");
+        assert_eq!(payload["approval_decisions"][1]["id"], "approval-2");
     }
 }

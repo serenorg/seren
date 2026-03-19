@@ -3467,6 +3467,238 @@ fn extract_run_identifiers(response_body: &serde_json::Value) -> (Option<String>
     (run_id, execution_id)
 }
 
+fn extract_run_deployment_id(response_body: &serde_json::Value) -> Result<Uuid> {
+    let data = response_body.get("data").unwrap_or(response_body);
+    let deployment_id = data
+        .get("deployment_id")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Run detail response did not include deployment_id."))?;
+    Uuid::parse_str(deployment_id)
+        .map_err(|e| anyhow::anyhow!("Invalid deployment_id in run detail response: {}", e))
+}
+
+fn build_cloud_approval_resume_payload(
+    approval_state: &serde_json::Value,
+    decision: &str,
+) -> Result<Option<serde_json::Value>> {
+    let data = approval_state.get("data").unwrap_or(approval_state);
+    let status = data
+        .get("status")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let approvals = data
+        .get("pending_approvals")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    if status != "awaiting_approval" || approvals.is_empty() {
+        return Ok(None);
+    }
+
+    let checkpoint_id = data
+        .get("checkpoint_id")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!("Run is awaiting approval but no checkpoint_id was returned.")
+        })?;
+
+    let approval_decisions = approvals
+        .into_iter()
+        .filter_map(|approval| {
+            approval
+                .get("id")
+                .and_then(|value| value.as_str())
+                .map(|id| serde_json::json!({ "id": id, "decision": decision }))
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Some(serde_json::json!({
+        "resume_checkpoint_id": checkpoint_id,
+        "approval_decisions": approval_decisions,
+    })))
+}
+
+async fn fetch_cloud_json(
+    ctx: &CommandContext,
+    url: String,
+    error_context: &str,
+) -> Result<serde_json::Value> {
+    let http_client = ctx.http_client().await?;
+    let response = http_client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("{error_context}: {e}"))?;
+    let status = response.status();
+    let response_text = response
+        .text()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read API response body: {}", e))?;
+    if !status.is_success() {
+        return Err(anyhow::anyhow!(
+            "{error_context}: {status} - {response_text}",
+        ));
+    }
+    if response_text.trim().is_empty() {
+        return Ok(serde_json::Value::Null);
+    }
+    serde_json::from_str::<serde_json::Value>(&response_text)
+        .map_err(|e| anyhow::anyhow!("Failed to parse API response: {}", e))
+}
+
+/// Approve all pending approvals for a run and resume it.
+pub async fn cloud_run_approve(run_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    resolve_cloud_run_pending_approvals(run_id, "approve", ctx).await
+}
+
+/// Reject all pending approvals for a run and resume it.
+pub async fn cloud_run_reject(run_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    resolve_cloud_run_pending_approvals(run_id, "reject", ctx).await
+}
+
+async fn resolve_cloud_run_pending_approvals(
+    run_id: Uuid,
+    decision: &str,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let run_detail = fetch_cloud_json(
+        ctx,
+        format!("{}/publishers/seren-cloud/runs/{}", ctx.api_base(), run_id),
+        "Failed to load run detail",
+    )
+    .await?;
+    let deployment_id = extract_run_deployment_id(&run_detail)?;
+
+    let approval_state = fetch_cloud_json(
+        ctx,
+        format!(
+            "{}/publishers/seren-cloud/runs/{}/pending_approvals",
+            ctx.api_base(),
+            run_id
+        ),
+        "Failed to load pending approvals",
+    )
+    .await?;
+
+    let maybe_body = build_cloud_approval_resume_payload(&approval_state, decision)?;
+    if maybe_body.is_none() {
+        let payload = serde_json::json!({
+            "resolved": false,
+            "decision": decision,
+            "run_id": run_id,
+            "deployment_id": deployment_id,
+            "approval_state": approval_state,
+            "message": "This run is not currently awaiting approval.",
+        });
+        match ctx.format {
+            OutputFormat::Json => output::print_json(&payload)?,
+            OutputFormat::Table => {
+                println!(
+                    "{} Run {} is not currently awaiting approval.",
+                    "•".cyan(),
+                    run_id
+                );
+            }
+        }
+        return Ok(());
+    }
+
+    let body = maybe_body.unwrap_or_default();
+    let http_client = ctx.http_client().await?;
+    let url = format!(
+        "{}/publishers/seren-cloud/deployments/{}/runs",
+        ctx.api_base(),
+        deployment_id
+    );
+    let response = http_client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to resume run: {}", e))?;
+    let status = response.status();
+    let response_text = response
+        .text()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read run response body: {}", e))?;
+    if !status.is_success() {
+        return Err(anyhow::anyhow!(
+            "Failed to resume run: {} - {}",
+            status,
+            response_text
+        ));
+    }
+
+    let response_body = if response_text.trim().is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::from_str::<serde_json::Value>(&response_text)
+            .unwrap_or_else(|_| serde_json::json!({ "data": response_text }))
+    };
+
+    if matches!(ctx.format, OutputFormat::Json) {
+        let payload = serde_json::json!({
+            "resolved": true,
+            "decision": decision,
+            "run_id": run_id,
+            "deployment_id": deployment_id,
+            "response": response_body,
+        });
+        output::print_json(&payload)?;
+        return Ok(());
+    }
+
+    let (resumed_run_id, execution_id) = extract_run_identifiers(&response_body);
+    let action_label = if decision == "approve" {
+        "Approved"
+    } else {
+        "Rejected"
+    };
+    match (resumed_run_id, execution_id) {
+        (Some(resumed_run_id), Some(execution_id)) => {
+            println!(
+                "{} {} pending approvals for run {} and resumed deployment {}.",
+                "✓".green(),
+                action_label,
+                run_id,
+                deployment_id
+            );
+            println!("  Run ID: {}", resumed_run_id.bold());
+            println!("  Execution ID: {}", execution_id.bold());
+            println!(
+                "  Check status: seren agent cloud-run-get {} {}",
+                deployment_id, resumed_run_id
+            );
+        }
+        (Some(resumed_run_id), None) => {
+            println!(
+                "{} {} pending approvals for run {} and resumed deployment {} (run_id: {}).",
+                "✓".green(),
+                action_label,
+                run_id,
+                deployment_id,
+                resumed_run_id.bold()
+            );
+        }
+        _ => {
+            println!(
+                "{} {} pending approvals for run {} and resumed deployment {}.",
+                "✓".green(),
+                action_label,
+                run_id,
+                deployment_id
+            );
+            if !response_body.is_null() {
+                output::print_json(&response_body)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Trigger a one-shot run of a cloud agent.
 pub async fn cloud_run(
     deployment_id: Uuid,
@@ -6084,5 +6316,40 @@ mod tests {
         let first = &enriched["data"][0];
         assert_eq!(first["deployment_name"], "BTC Watcher");
         assert_eq!(first["deployment_id"], "dep-123");
+    }
+
+    #[test]
+    fn build_cloud_approval_resume_payload_returns_none_without_pending_approvals() {
+        let approval_state = serde_json::json!({
+            "data": {
+                "status": "completed",
+                "pending_approvals": []
+            }
+        });
+
+        let payload = build_cloud_approval_resume_payload(&approval_state, "approve").unwrap();
+        assert!(payload.is_none());
+    }
+
+    #[test]
+    fn build_cloud_approval_resume_payload_includes_checkpoint_and_decisions() {
+        let approval_state = serde_json::json!({
+            "data": {
+                "status": "awaiting_approval",
+                "checkpoint_id": "chk_123",
+                "pending_approvals": [
+                    { "id": "approval-1", "tool": "shell" },
+                    { "id": "approval-2", "tool": "browser" }
+                ]
+            }
+        });
+
+        let payload = build_cloud_approval_resume_payload(&approval_state, "reject")
+            .unwrap()
+            .unwrap();
+        assert_eq!(payload["resume_checkpoint_id"], "chk_123");
+        assert_eq!(payload["approval_decisions"][0]["id"], "approval-1");
+        assert_eq!(payload["approval_decisions"][0]["decision"], "reject");
+        assert_eq!(payload["approval_decisions"][1]["id"], "approval-2");
     }
 }

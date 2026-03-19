@@ -263,6 +263,11 @@ seren agent cloud-pending-approvals --limit 20
 # Deployment-scoped activity feeds
 seren agent cloud-runs --deployment-id <deployment-id> --limit 20
 seren agent cloud-deployment-pending-approvals --deployment-id <deployment-id>
+
+# Resolve a blocked run inline
+seren agent cloud-run-pending-approvals <run-id>
+seren agent cloud-run-approve <run-id>
+seren agent cloud-run-reject <run-id>
 ```
 
 ### OAuth Connections (BYOC)

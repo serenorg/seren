@@ -1213,6 +1213,16 @@ enum AgentAction {
         /// Run event ID (UUID)
         run_id: Uuid,
     },
+    /// Approve all current pending approvals for a run and resume it
+    CloudRunApprove {
+        /// Run event ID (UUID)
+        run_id: Uuid,
+    },
+    /// Reject all current pending approvals for a run and resume it
+    CloudRunReject {
+        /// Run event ID (UUID)
+        run_id: Uuid,
+    },
     /// Cancel a queued/running run event for a cloud deployment
     CloudRunCancel {
         /// Deployment ID (UUID)
@@ -3844,6 +3854,12 @@ async fn main() -> anyhow::Result<()> {
                 commands::agent::cloud_deployment_run_pending_approvals(deployment_id, run_id, &ctx)
                     .await?
             }
+            AgentAction::CloudRunApprove { run_id } => {
+                commands::agent::cloud_run_approve(run_id, &ctx).await?
+            }
+            AgentAction::CloudRunReject { run_id } => {
+                commands::agent::cloud_run_reject(run_id, &ctx).await?
+            }
             AgentAction::CloudRunCancel {
                 deployment_id,
                 run_id,
@@ -4007,6 +4023,52 @@ mod tests {
                 } => {
                     assert_eq!(runs_limit, 12);
                     assert_eq!(approvals_limit, 6);
+                }
+                _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn cloud_run_approve_parses_run_id() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "cloud-run-approve",
+            "11111111-1111-1111-1111-111111111111",
+        ]);
+
+        match cli.command {
+            Commands::Agent { action, .. } => match *action {
+                AgentAction::CloudRunApprove { run_id } => {
+                    assert_eq!(
+                        run_id,
+                        Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap()
+                    );
+                }
+                _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn cloud_run_reject_parses_run_id() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "cloud-run-reject",
+            "22222222-2222-2222-2222-222222222222",
+        ]);
+
+        match cli.command {
+            Commands::Agent { action, .. } => match *action {
+                AgentAction::CloudRunReject { run_id } => {
+                    assert_eq!(
+                        run_id,
+                        Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap()
+                    );
                 }
                 _ => panic!("unexpected agent action parsed"),
             },
