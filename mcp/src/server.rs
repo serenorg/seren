@@ -2190,6 +2190,22 @@ fn enrich_with_deployment_name(
         .collect()
 }
 
+fn enrich_data_envelope_with_deployment_names(
+    envelope: &serde_json::Value,
+    deployment_names: &HashMap<String, String>,
+) -> serde_json::Value {
+    let mut envelope = envelope.clone();
+    if let Some(object) = envelope.as_object_mut()
+        && let Some(entries) = object.get("data").and_then(|value| value.as_array())
+    {
+        object.insert(
+            "data".to_string(),
+            serde_json::Value::Array(enrich_with_deployment_name(entries, deployment_names)),
+        );
+    }
+    envelope
+}
+
 fn build_cloud_run_body(
     message: Option<&str>,
     run_id: Option<&str>,
@@ -8982,6 +8998,20 @@ API endpoint: {endpoint}",
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
+        let deployments = api_client
+            .seren_cloud_list_deployments()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        let deployments_value = serde_json::to_value(&deployments)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let deployment_names = build_deployment_name_map(
+            &deployments_value
+                .get("data")
+                .and_then(|value| value.as_array())
+                .cloned()
+                .unwrap_or_default(),
+        );
         let status_str = params.status.join(",");
         let response = api_client
             .seren_cloud_runs(
@@ -9002,7 +9032,14 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let enriched_response = enrich_data_envelope_with_deployment_names(
+            &serde_json::to_value(&response)
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?,
+            &deployment_names,
+        );
+        Ok(CallToolResult::success(vec![json_content(
+            &enriched_response,
+        )?]))
     }
 
     #[tool(
@@ -9015,6 +9052,20 @@ API endpoint: {endpoint}",
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
+        let deployments = api_client
+            .seren_cloud_list_deployments()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        let deployments_value = serde_json::to_value(&deployments)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let deployment_names = build_deployment_name_map(
+            &deployments_value
+                .get("data")
+                .and_then(|value| value.as_array())
+                .cloned()
+                .unwrap_or_default(),
+        );
         let response = api_client
             .seren_cloud_pending_approvals(
                 None,
@@ -9029,7 +9080,14 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let enriched_response = enrich_data_envelope_with_deployment_names(
+            &serde_json::to_value(&response)
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?,
+            &deployment_names,
+        );
+        Ok(CallToolResult::success(vec![json_content(
+            &enriched_response,
+        )?]))
     }
 
     #[tool(

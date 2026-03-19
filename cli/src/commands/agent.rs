@@ -99,6 +99,22 @@ fn enrich_with_deployment_name(
         .collect()
 }
 
+fn enrich_data_envelope_with_deployment_names(
+    envelope: &serde_json::Value,
+    deployment_names: &HashMap<String, String>,
+) -> serde_json::Value {
+    let mut envelope = envelope.clone();
+    if let Some(object) = envelope.as_object_mut()
+        && let Some(entries) = object.get("data").and_then(|value| value.as_array())
+    {
+        object.insert(
+            "data".to_string(),
+            serde_json::Value::Array(enrich_with_deployment_name(entries, deployment_names)),
+        );
+    }
+    envelope
+}
+
 async fn format_payment_required_response(response: reqwest::Response) -> String {
     let status = response.status();
     let body_text = response.text().await.unwrap_or_default();
@@ -5164,6 +5180,20 @@ pub async fn cloud_all_runs(
     } else {
         Some(options.statuses.join(","))
     };
+    let deployments_value = serde_json::to_value(
+        client
+            .seren_cloud_list_deployments()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to load deployments: {}", e))?
+            .into_inner(),
+    )?;
+    let deployment_names = build_deployment_name_map(
+        &deployments_value
+            .get("data")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default(),
+    );
     let response = client
         .seren_cloud_runs(
             options.compute_backend,
@@ -5182,7 +5212,8 @@ pub async fn cloud_all_runs(
 
     let data = serde_json::to_value(&response)?;
     if let Some(runs) = data.get("data").and_then(|d| d.as_array()) {
-        print_cloud_run_rows(runs, true, "No runs found.")?;
+        let enriched_runs = enrich_with_deployment_name(runs, &deployment_names);
+        print_cloud_run_rows(&enriched_runs, true, "No runs found.")?;
     } else {
         output::print_json(&response)?;
     }
@@ -5192,6 +5223,20 @@ pub async fn cloud_all_runs(
 
 pub async fn cloud_pending_approvals(limit: i64, offset: i64, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
+    let deployments_value = serde_json::to_value(
+        client
+            .seren_cloud_list_deployments()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to load deployments: {}", e))?
+            .into_inner(),
+    )?;
+    let deployment_names = build_deployment_name_map(
+        &deployments_value
+            .get("data")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default(),
+    );
     let response = client
         .seren_cloud_pending_approvals(
             None,
@@ -5206,10 +5251,14 @@ pub async fn cloud_pending_approvals(limit: i64, offset: i64, ctx: &CommandConte
         .await
         .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
         .into_inner();
+    let enriched_response = enrich_data_envelope_with_deployment_names(
+        &serde_json::to_value(&response)?,
+        &deployment_names,
+    );
 
     match ctx.format {
-        OutputFormat::Json => output::print_json(&response)?,
-        OutputFormat::Table => print_pending_approval_runs_table(&response, None)?,
+        OutputFormat::Json => output::print_json(&enriched_response)?,
+        OutputFormat::Table => print_pending_approval_runs_table(&enriched_response, None)?,
     }
 
     Ok(())
