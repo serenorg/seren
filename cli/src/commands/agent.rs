@@ -1784,20 +1784,32 @@ async fn submit_cloud_deploy_request(
     body: serde_json::Map<String, serde_json::Value>,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let http_client = ctx.http_client().await?;
-    let url = format!("{}/publishers/{deploy_publisher}/deploy", ctx.api_base());
-    let response = http_client
-        .post(&url)
-        .json(&serde_json::Value::Object(body))
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
-    let status = response.status();
-    if !status.is_success() && status.as_u16() != 202 {
-        let body = response.text().await.unwrap_or_default();
-        return Err(anyhow::anyhow!("Deploy failed: {} - {}", status, body));
-    }
-    let result: serde_json::Value = response.json().await?;
+    let client = ctx.client().await?;
+    let result = match deploy_publisher {
+        SEREN_CLOUD_SLUG => {
+            let request: seren::DeployRequest =
+                serde_json::from_value(serde_json::Value::Object(body))
+                    .map_err(|e| anyhow::anyhow!("Failed to build cloud deploy request: {}", e))?;
+            match client.seren_cloud_deploy(&request).await {
+                Ok(response) => response.into_inner(),
+                Err(e) => return Err(anyhow_from_seren_error("Deploy failed", e).await),
+            }
+        }
+        SEREN_AGENT_SLUG => {
+            let request: seren::CreateSerenAgentDeploymentRequest =
+                serde_json::from_value(serde_json::Value::Object(body)).map_err(|e| {
+                    anyhow::anyhow!("Failed to build managed deploy request: {}", e)
+                })?;
+            match client.seren_agent_deploy(&request).await {
+                Ok(response) => response.into_inner(),
+                Err(e) => return Err(anyhow_from_seren_error("Deploy failed", e).await),
+            }
+        }
+        other => {
+            return Err(anyhow::anyhow!("Unsupported deploy publisher '{}'.", other));
+        }
+    };
+    let result = serde_json::to_value(&result)?;
     if let Some(data) = result.get("data") {
         let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("?");
         let deploy_status = data.get("status").and_then(|v| v.as_str()).unwrap_or("?");
@@ -3467,16 +3479,6 @@ fn extract_run_identifiers(response_body: &serde_json::Value) -> (Option<String>
     (run_id, execution_id)
 }
 
-fn extract_run_deployment_id(response_body: &serde_json::Value) -> Result<Uuid> {
-    let data = response_body.get("data").unwrap_or(response_body);
-    let deployment_id = data
-        .get("deployment_id")
-        .and_then(|value| value.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Run detail response did not include deployment_id."))?;
-    Uuid::parse_str(deployment_id)
-        .map_err(|e| anyhow::anyhow!("Invalid deployment_id in run detail response: {}", e))
-}
-
 fn build_cloud_approval_resume_payload(
     approval_state: &serde_json::Value,
     decision: &str,
@@ -3520,34 +3522,6 @@ fn build_cloud_approval_resume_payload(
     })))
 }
 
-async fn fetch_cloud_json(
-    ctx: &CommandContext,
-    url: String,
-    error_context: &str,
-) -> Result<serde_json::Value> {
-    let http_client = ctx.http_client().await?;
-    let response = http_client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("{error_context}: {e}"))?;
-    let status = response.status();
-    let response_text = response
-        .text()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to read API response body: {}", e))?;
-    if !status.is_success() {
-        return Err(anyhow::anyhow!(
-            "{error_context}: {status} - {response_text}",
-        ));
-    }
-    if response_text.trim().is_empty() {
-        return Ok(serde_json::Value::Null);
-    }
-    serde_json::from_str::<serde_json::Value>(&response_text)
-        .map_err(|e| anyhow::anyhow!("Failed to parse API response: {}", e))
-}
-
 /// Approve all pending approvals for a run and resume it.
 pub async fn cloud_run_approve(run_id: Uuid, ctx: &CommandContext) -> Result<()> {
     resolve_cloud_run_pending_approvals(run_id, "approve", ctx).await
@@ -3563,33 +3537,29 @@ async fn resolve_cloud_run_pending_approvals(
     decision: &str,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let run_detail = fetch_cloud_json(
-        ctx,
-        format!("{}/publishers/seren-cloud/runs/{}", ctx.api_base(), run_id),
-        "Failed to load run detail",
-    )
-    .await?;
-    let deployment_id = extract_run_deployment_id(&run_detail)?;
+    let client = ctx.client().await?;
+    let run_detail = match client.seren_cloud_run_detail(&run_id).await {
+        Ok(response) => response.into_inner(),
+        Err(e) => return Err(anyhow_from_seren_error("Failed to load run detail", e).await),
+    };
+    let deployment_id = run_detail.data.deployment_id;
 
-    let approval_state = fetch_cloud_json(
-        ctx,
-        format!(
-            "{}/publishers/seren-cloud/runs/{}/pending_approvals",
-            ctx.api_base(),
-            run_id
-        ),
-        "Failed to load pending approvals",
-    )
-    .await?;
+    let approval_state = match client.seren_cloud_run_pending_approvals(&run_id).await {
+        Ok(response) => response.into_inner(),
+        Err(e) => {
+            return Err(anyhow_from_seren_error("Failed to load pending approvals", e).await);
+        }
+    };
+    let approval_state_json = serde_json::to_value(&approval_state)?;
 
-    let maybe_body = build_cloud_approval_resume_payload(&approval_state, decision)?;
+    let maybe_body = build_cloud_approval_resume_payload(&approval_state_json, decision)?;
     if maybe_body.is_none() {
         let payload = serde_json::json!({
             "resolved": false,
             "decision": decision,
             "run_id": run_id,
             "deployment_id": deployment_id,
-            "approval_state": approval_state,
+            "approval_state": approval_state_json,
             "message": "This run is not currently awaiting approval.",
         });
         match ctx.format {
@@ -3605,37 +3575,12 @@ async fn resolve_cloud_run_pending_approvals(
         return Ok(());
     }
 
-    let body = maybe_body.unwrap_or_default();
-    let http_client = ctx.http_client().await?;
-    let url = format!(
-        "{}/publishers/seren-cloud/deployments/{}/runs",
-        ctx.api_base(),
-        deployment_id
-    );
-    let response = http_client
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to resume run: {}", e))?;
-    let status = response.status();
-    let response_text = response
-        .text()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to read run response body: {}", e))?;
-    if !status.is_success() {
-        return Err(anyhow::anyhow!(
-            "Failed to resume run: {} - {}",
-            status,
-            response_text
-        ));
-    }
-
-    let response_body = if response_text.trim().is_empty() {
-        serde_json::Value::Null
-    } else {
-        serde_json::from_str::<serde_json::Value>(&response_text)
-            .unwrap_or_else(|_| serde_json::json!({ "data": response_text }))
+    let body: seren::CloudDeploymentRunRequest =
+        serde_json::from_value(maybe_body.unwrap_or_default())
+            .map_err(|e| anyhow::anyhow!("Failed to build approval resume payload: {}", e))?;
+    let response_body = match client.seren_cloud_run(&deployment_id, &body).await {
+        Ok(response) => response.into_inner(),
+        Err(e) => return Err(anyhow_from_seren_error("Failed to resume run", e).await),
     };
 
     if matches!(ctx.format, OutputFormat::Json) {
@@ -3650,7 +3595,8 @@ async fn resolve_cloud_run_pending_approvals(
         return Ok(());
     }
 
-    let (resumed_run_id, execution_id) = extract_run_identifiers(&response_body);
+    let response_json = serde_json::to_value(&response_body)?;
+    let (resumed_run_id, execution_id) = extract_run_identifiers(&response_json);
     let action_label = if decision == "approve" {
         "Approved"
     } else {
@@ -3690,8 +3636,8 @@ async fn resolve_cloud_run_pending_approvals(
                 run_id,
                 deployment_id
             );
-            if !response_body.is_null() {
-                output::print_json(&response_body)?;
+            if !response_json.is_null() {
+                output::print_json(&response_json)?;
             }
         }
     }
@@ -3709,39 +3655,17 @@ pub async fn cloud_run(
     async_run: bool,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let payload = build_cloud_run_payload(message, json_body, json_file, run_id, async_run)?;
-    let body = payload.unwrap_or(serde_json::json!({}));
-    let http_client = ctx.http_client().await?;
-    let url = format!(
-        "{}/publishers/seren-cloud/deployments/{}/runs",
-        ctx.api_base(),
-        deployment_id
-    );
-    let response = http_client
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?;
-    let status = response.status();
-    let response_text = response
-        .text()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to read run response body: {}", e))?;
-    if !status.is_success() {
-        return Err(anyhow::anyhow!(
-            "Failed to trigger run: {} - {}",
-            status,
-            response_text
-        ));
-    }
-    let response_body = if response_text.trim().is_empty() {
-        serde_json::Value::Null
-    } else {
-        serde_json::from_str::<serde_json::Value>(&response_text)
-            .unwrap_or_else(|_| serde_json::json!({ "data": response_text }))
+    let payload = build_cloud_run_payload(message, json_body, json_file, run_id, async_run)?
+        .unwrap_or_else(|| serde_json::json!({}));
+    let body: seren::CloudDeploymentRunRequest = serde_json::from_value(payload)
+        .map_err(|e| anyhow::anyhow!("Failed to build run payload: {}", e))?;
+    let client = ctx.client().await?;
+    let response_body = match client.seren_cloud_run(&deployment_id, &body).await {
+        Ok(response) => response.into_inner(),
+        Err(e) => return Err(anyhow_from_seren_error("Failed to trigger run", e).await),
     };
-    let (run_id, execution_id) = extract_run_identifiers(&response_body);
+    let response_json = serde_json::to_value(&response_body)?;
+    let (run_id, execution_id) = extract_run_identifiers(&response_json);
 
     match (run_id, execution_id) {
         (Some(run_id), Some(execution_id)) => {
@@ -3771,8 +3695,8 @@ pub async fn cloud_run(
                 "✓".green(),
                 deployment_id
             );
-            if !response_body.is_null() {
-                output::print_json(&response_body)?;
+            if !response_json.is_null() {
+                output::print_json(&response_json)?;
             }
         }
     }

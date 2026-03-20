@@ -2190,20 +2190,6 @@ fn enrich_with_deployment_name(
         .collect()
 }
 
-fn extract_cloud_run_deployment_id(response: &serde_json::Value) -> Result<String, McpError> {
-    let data = response.get("data").unwrap_or(response);
-    data.get("deployment_id")
-        .and_then(|value| value.as_str())
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string)
-        .ok_or_else(|| {
-            McpError::internal_error(
-                "Run detail response did not include deployment_id.".to_string(),
-                None,
-            )
-        })
-}
-
 fn build_cloud_approval_resume_payload(
     approval_state: &serde_json::Value,
     decision: &str,
@@ -3423,41 +3409,29 @@ impl SerenMcpServer {
         run_id: Uuid,
         decision: &str,
     ) -> Result<CallToolResult, McpError> {
-        let run_detail = self
-            .execute_api_json::<serde_json::Value>(
-                extensions,
-                reqwest::Method::GET,
-                format!(
-                    "{}/publishers/seren-cloud/runs/{}",
-                    self.api_base_url.trim_end_matches('/'),
-                    run_id
-                ),
-                None,
-            )
-            .await?;
-        let deployment_id = extract_cloud_run_deployment_id(&run_detail)?;
+        let api_client = self.api_client(extensions)?;
+        let run_detail = api_client
+            .seren_cloud_run_detail(&run_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let deployment_id = run_detail.into_inner().data.deployment_id;
 
-        let approval_state = self
-            .execute_api_json::<serde_json::Value>(
-                extensions,
-                reqwest::Method::GET,
-                format!(
-                    "{}/publishers/seren-cloud/runs/{}/pending_approvals",
-                    self.api_base_url.trim_end_matches('/'),
-                    run_id
-                ),
-                None,
-            )
-            .await?;
+        let approval_state = api_client
+            .seren_cloud_run_pending_approvals(&run_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let approval_state = approval_state.into_inner();
+        let approval_state_json = serde_json::to_value(&approval_state)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let maybe_body = build_cloud_approval_resume_payload(&approval_state, decision)?;
+        let maybe_body = build_cloud_approval_resume_payload(&approval_state_json, decision)?;
         if maybe_body.is_none() {
             let payload = serde_json::json!({
                 "resolved": false,
                 "decision": decision,
                 "run_id": run_id,
                 "deployment_id": deployment_id,
-                "approval_state": approval_state,
+                "approval_state": approval_state_json,
                 "message": "This run is not currently awaiting approval.",
             });
             return Ok(CallToolResult::success(vec![
@@ -3469,20 +3443,17 @@ impl SerenMcpServer {
             ]));
         }
 
-        let body = maybe_body.unwrap_or_default();
-        let response_json = self
-            .execute_api_json(
-                extensions,
-                reqwest::Method::POST,
-                format!(
-                    "{}/publishers/seren-cloud/deployments/{}/runs",
-                    self.api_base_url.trim_end_matches('/'),
-                    deployment_id
-                ),
-                Some(&body),
-            )
-            .await?;
-        let data = response_json.get("data").unwrap_or(&response_json);
+        let body: seren::CloudDeploymentRunRequest =
+            serde_json::from_value(maybe_body.unwrap_or_default())
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let response_json = api_client
+            .seren_cloud_run(&deployment_id, &body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let response_json = response_json.into_inner();
+        let data = serde_json::to_value(&response_json)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let data = data.get("data").cloned().unwrap_or(data);
         let resumed_run_id = data
             .get("run_id")
             .or_else(|| data.get("id"))
@@ -8978,16 +8949,18 @@ API endpoint: {endpoint}",
             params.payload.as_ref(),
             params.async_run,
         )?;
-        let body = body.unwrap_or(serde_json::json!({}));
-        let url = format!(
-            "{}/publishers/seren-cloud/deployments/{}/runs",
-            self.api_base_url.trim_end_matches('/'),
-            params.deployment_id
-        );
-        let response_json = self
-            .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body))
-            .await?;
-        let data = response_json.get("data").unwrap_or(&response_json);
+        let body: seren::CloudDeploymentRunRequest =
+            serde_json::from_value(body.unwrap_or_else(|| serde_json::json!({})))
+                .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        let api_client = self.api_client(&extensions)?;
+        let response_json = api_client
+            .seren_cloud_run(&params.deployment_id, &body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let response_json = response_json.into_inner();
+        let data = serde_json::to_value(&response_json)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let data = data.get("data").cloned().unwrap_or(data);
         let run_id = data
             .get("run_id")
             .or_else(|| data.get("id"))

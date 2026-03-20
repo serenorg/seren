@@ -3560,6 +3560,16 @@
         "type": "object",
         "description": "Request body for triggering a cloud deployment run.\n\nAdditional JSON fields are allowed and forwarded to the runtime.",
         "properties": {
+          "approval_decisions": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CloudRunApprovalDecision"
+            },
+            "description": "Approval decisions used when resuming a run awaiting approval."
+          },
           "async": {
             "type": [
               "boolean",
@@ -3580,6 +3590,13 @@
               "null"
             ],
             "description": "Optional client-provided run identifier (used by some orchestrators)."
+          },
+          "resume_checkpoint_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Checkpoint identifier used when resuming an awaiting-approval run."
           }
         }
       },
@@ -4782,6 +4799,21 @@
           "unknown"
         ]
       },
+      "CloudRunApprovalDecision": {
+        "type": "object",
+        "required": [
+          "decision",
+          "id"
+        ],
+        "properties": {
+          "decision": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        }
+      },
       "CloudRunPendingApproval": {
         "type": "object",
         "description": "Pending approval attached to an `awaiting_approval` run.",
@@ -4819,6 +4851,12 @@
           "status"
         ],
         "properties": {
+          "checkpoint_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "pending_approvals": {
             "type": "array",
             "items": {
