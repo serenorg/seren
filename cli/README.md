@@ -246,6 +246,11 @@ seren -o json agent cloud runs list --limit 20
 seren -o json agent cloud approvals list --limit 20
 ```
 
+Advanced managed-agent deploys can also use `--agent-config <path>` to supply raw `tool_definitions`. Each tool definition may include:
+
+- `timeout_override_seconds`
+- `max_output_bytes`
+
 ### Cloud Activity
 
 ```bash
