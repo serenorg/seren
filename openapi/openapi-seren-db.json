@@ -3037,7 +3037,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DataResponse_Value"
+                  "$ref": "#/components/schemas/DataResponse_Vec_DatabaseWithContext"
                 }
               }
             }
@@ -6569,6 +6569,32 @@
           }
         }
       },
+      "DataResponse_Vec_DatabaseWithContext": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseWithContext"
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_Vec_Branch": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -7854,6 +7880,64 @@
           "slots_count": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "DatabaseWithContext": {
+        "type": "object",
+        "description": "Database with full project and branch context for cross-project listing",
+        "required": [
+          "id",
+          "name",
+          "project_id",
+          "project_name",
+          "branch_id",
+          "branch_name",
+          "is_default_branch",
+          "created_at"
+        ],
+        "properties": {
+          "branch_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Branch ID"
+          },
+          "branch_name": {
+            "type": "string",
+            "description": "Human-readable branch name"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Database ID"
+          },
+          "is_default_branch": {
+            "type": "boolean",
+            "description": "Whether this is the project's default branch"
+          },
+          "name": {
+            "type": "string",
+            "description": "Database name"
+          },
+          "owner_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Database owner role name"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Project ID"
+          },
+          "project_name": {
+            "type": "string",
+            "description": "Human-readable project name"
           }
         }
       },
