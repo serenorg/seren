@@ -331,61 +331,12 @@ pub async fn create_publisher(
 ) -> Result<()> {
     let client = ctx.client().await?;
 
-    // Convert publisher_category string to enum
-    let publisher_category_enum = {
-        let normalized = publisher_category.trim().to_ascii_lowercase();
-        match normalized.as_str() {
-            "database" => seren::PublisherCategory::Database,
-            "integration" => seren::PublisherCategory::Integration,
-            "compute" => seren::PublisherCategory::Compute,
-            other => {
-                return Err(anyhow::anyhow!(
-                    "Invalid publisher_category '{}'. Expected one of: database, integration, compute",
-                    other
-                ));
-            }
-        }
-    };
-
-    // Convert database_type string to enum
-    let database_type_enum = match database_type {
-        None => None,
-        Some(raw) => {
-            let normalized = raw.trim().to_ascii_lowercase();
-            let parsed = match normalized.as_str() {
-                "serendb" => seren::DatabaseType::Serendb,
-                "neon" => seren::DatabaseType::Neon,
-                "supabase" => seren::DatabaseType::Supabase,
-                "mongodb" => seren::DatabaseType::Mongodb,
-                other => {
-                    return Err(anyhow::anyhow!(
-                        "Invalid database_type '{}'. Expected one of: serendb, neon, supabase, mongodb",
-                        other
-                    ));
-                }
-            };
-            Some(parsed)
-        }
-    };
-
-    // Convert integration_type string to enum
-    let integration_type_enum = match integration_type {
-        None => None,
-        Some(raw) => {
-            let normalized = raw.trim().to_ascii_lowercase();
-            let parsed = match normalized.as_str() {
-                "api" => seren::IntegrationType::Api,
-                "mcp" => seren::IntegrationType::Mcp,
-                other => {
-                    return Err(anyhow::anyhow!(
-                        "Invalid integration_type '{}'. Expected one of: api, mcp",
-                        other
-                    ));
-                }
-            };
-            Some(parsed)
-        }
-    };
+    let publisher_category_enum =
+        seren::parse_publisher_category(publisher_category).map_err(|e| anyhow::anyhow!(e))?;
+    let database_type_enum =
+        seren::parse_database_type(database_type).map_err(|e| anyhow::anyhow!(e))?;
+    let integration_type_enum =
+        seren::parse_integration_type(integration_type).map_err(|e| anyhow::anyhow!(e))?;
 
     let database_config_from_json = match database_config_json {
         None => None,
@@ -424,37 +375,13 @@ pub async fn create_publisher(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
-    let auth_type = match auth_type {
-        None => None,
-        Some(raw) => {
-            let normalized = raw.trim().to_ascii_lowercase();
-            if normalized.is_empty() {
-                return Err(anyhow::anyhow!("auth_type must not be empty"));
-            }
-            match normalized.as_str() {
-                "static" | "jwt" | "oauth2_cc" | "passthrough" => Some(normalized),
-                other => {
-                    return Err(anyhow::anyhow!(
-                        "Invalid auth_type '{}'. Expected one of: static, jwt, oauth2_cc, passthrough",
-                        other
-                    ));
-                }
-            }
-        }
-    };
+    let auth_type = seren::normalize_auth_type(auth_type).map_err(|e| anyhow::anyhow!(e))?;
 
-    let mut allowed_passthrough_headers_normalized =
-        Vec::with_capacity(allowed_passthrough_headers.len());
-    for (i, header) in allowed_passthrough_headers.into_iter().enumerate() {
-        let trimmed = header.trim();
-        if trimmed.is_empty() {
-            return Err(anyhow::anyhow!(
-                "allowed_passthrough_headers[{}] must not be empty",
-                i
-            ));
-        }
-        allowed_passthrough_headers_normalized.push(trimmed.to_string());
-    }
+    let allowed_passthrough_headers_normalized = seren::normalize_string_list(
+        allowed_passthrough_headers.iter().map(String::as_str),
+        "allowed_passthrough_headers",
+    )
+    .map_err(|e| anyhow::anyhow!(e))?;
 
     // MongoDB Atlas Data API publishers require api_url + upstream_api_key.
     if publisher_category_enum == seren::PublisherCategory::Database
@@ -477,62 +404,38 @@ pub async fn create_publisher(
         }
     }
 
-    let oauth2_token_url = oauth2_token_url
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    if let Some(ref url) = oauth2_token_url
-        && !url.starts_with("https://")
-    {
-        return Err(anyhow::anyhow!("oauth2_token_url must use HTTPS"));
-    }
+    let oauth2_token_url = seren::normalize_optional_string(oauth2_token_url, "oauth2_token_url")
+        .map_err(|e| anyhow::anyhow!(e))?;
+    seren::ensure_https(oauth2_token_url.as_deref(), "oauth2_token_url")
+        .map_err(|e| anyhow::anyhow!(e))?;
 
-    let oauth2_client_id = oauth2_client_id
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
+    let oauth2_client_id = seren::normalize_optional_string(oauth2_client_id, "oauth2_client_id")
+        .map_err(|e| anyhow::anyhow!(e))?;
+    let oauth2_client_secret =
+        seren::normalize_optional_string(oauth2_client_secret, "oauth2_client_secret")
+            .map_err(|e| anyhow::anyhow!(e))?;
 
-    let oauth2_client_secret = oauth2_client_secret
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
+    let normalized_scopes =
+        seren::normalize_string_list(oauth2_scopes.iter().map(String::as_str), "oauth2_scopes")
+            .map_err(|e| anyhow::anyhow!(e))?;
+    let normalized_use_cases = seren::normalize_string_list(
+        use_cases
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(String::as_str),
+        "use_cases",
+    )
+    .map_err(|e| anyhow::anyhow!(e))?;
 
-    let mut normalized_scopes = Vec::with_capacity(oauth2_scopes.len());
-    for (i, scope) in oauth2_scopes.into_iter().enumerate() {
-        let trimmed = scope.trim();
-        if trimmed.is_empty() {
-            return Err(anyhow::anyhow!("oauth2_scopes[{}] must not be empty", i));
-        }
-        normalized_scopes.push(trimmed.to_string());
-    }
-
-    let mut normalized_use_cases =
-        Vec::with_capacity(use_cases.as_ref().map_or(0, |cases| cases.len()));
-    for (i, use_case) in use_cases.unwrap_or_default().into_iter().enumerate() {
-        let trimmed = use_case.trim();
-        if trimmed.is_empty() {
-            return Err(anyhow::anyhow!("use_cases[{}] must not be empty", i));
-        }
-        normalized_use_cases.push(trimmed.to_string());
-    }
-
-    if auth_type.as_deref() == Some("oauth2_cc")
-        && (oauth2_token_url.is_none()
-            || oauth2_client_id.is_none()
-            || oauth2_client_secret.is_none())
-    {
-        return Err(anyhow::anyhow!(
-            "oauth2_token_url, oauth2_client_id, and oauth2_client_secret are required when auth_type is oauth2_cc"
-        ));
-    }
-
-    if auth_type.as_deref() != Some("oauth2_cc")
-        && (oauth2_token_url.is_some()
-            || oauth2_client_id.is_some()
-            || oauth2_client_secret.is_some()
-            || !normalized_scopes.is_empty())
-    {
-        return Err(anyhow::anyhow!(
-            "oauth2_* fields require auth_type=oauth2_cc"
-        ));
-    }
+    seren::validate_oauth2_create_fields(
+        auth_type.as_deref(),
+        oauth2_token_url.as_deref(),
+        oauth2_client_id.as_deref(),
+        oauth2_client_secret.as_deref(),
+        !normalized_scopes.is_empty(),
+    )
+    .map_err(|e| anyhow::anyhow!(e))?;
 
     let body = seren::CreatePublisherRequest {
         name: name.to_string(),
@@ -3401,32 +3304,12 @@ fn parse_cloud_eval_criteria(
         .map_err(|e| anyhow::anyhow!("Invalid eval criteria payload: {e}"))
 }
 
-fn parse_schedule_field(value: Option<&str>) -> Option<String> {
-    value
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string)
-}
-
 fn build_cloud_eval_set_schedule_request(
     schedule_cron: Option<&str>,
     schedule_timezone: Option<&str>,
 ) -> Result<Option<seren::CloudEvalSetScheduleRequest>> {
-    match (
-        parse_schedule_field(schedule_cron),
-        parse_schedule_field(schedule_timezone),
-    ) {
-        (None, None) => Ok(None),
-        (Some(schedule_cron), Some(schedule_timezone)) => {
-            Ok(Some(seren::CloudEvalSetScheduleRequest {
-                schedule_cron,
-                schedule_timezone,
-            }))
-        }
-        _ => Err(anyhow::anyhow!(
-            "Provide both --schedule-cron and --schedule-timezone together.",
-        )),
-    }
+    seren::build_cloud_eval_set_schedule_request(schedule_cron, schedule_timezone)
+        .map_err(|e| anyhow::anyhow!(e))
 }
 
 fn resolve_cloud_eval_set_schedule_request(
@@ -3435,34 +3318,13 @@ fn resolve_cloud_eval_set_schedule_request(
     schedule_timezone: Option<&str>,
     clear_schedule: bool,
 ) -> Result<Option<seren::CloudEvalSetScheduleRequest>> {
-    if clear_schedule {
-        if parse_schedule_field(schedule_cron).is_some()
-            || parse_schedule_field(schedule_timezone).is_some()
-        {
-            return Err(anyhow::anyhow!(
-                "Do not combine --clear-schedule with --schedule-cron/--schedule-timezone.",
-            ));
-        }
-        return Ok(None);
-    }
-
-    let current_cron = eval_set_schedule_string(eval_set, "schedule_cron");
-    let current_timezone = eval_set_schedule_string(eval_set, "schedule_timezone");
-    match (
-        parse_schedule_field(schedule_cron).or(current_cron),
-        parse_schedule_field(schedule_timezone).or(current_timezone),
-    ) {
-        (None, None) => Ok(None),
-        (Some(schedule_cron), Some(schedule_timezone)) => {
-            Ok(Some(seren::CloudEvalSetScheduleRequest {
-                schedule_cron,
-                schedule_timezone,
-            }))
-        }
-        _ => Err(anyhow::anyhow!(
-            "Eval set schedule requires both cron and timezone values.",
-        )),
-    }
+    seren::resolve_cloud_eval_set_schedule_request(
+        eval_set,
+        schedule_cron,
+        schedule_timezone,
+        clear_schedule,
+    )
+    .map_err(|e| anyhow::anyhow!(e))
 }
 
 fn extract_run_identifiers(response_body: &serde_json::Value) -> (Option<String>, Option<String>) {
@@ -3477,49 +3339,6 @@ fn extract_run_identifiers(response_body: &serde_json::Value) -> (Option<String>
         .and_then(|v| v.as_str())
         .map(ToString::to_string);
     (run_id, execution_id)
-}
-
-fn build_cloud_approval_resume_payload(
-    approval_state: &serde_json::Value,
-    decision: &str,
-) -> Result<Option<serde_json::Value>> {
-    let data = approval_state.get("data").unwrap_or(approval_state);
-    let status = data
-        .get("status")
-        .and_then(|value| value.as_str())
-        .unwrap_or_default();
-    let approvals = data
-        .get("pending_approvals")
-        .and_then(|value| value.as_array())
-        .cloned()
-        .unwrap_or_default();
-
-    if status != "awaiting_approval" || approvals.is_empty() {
-        return Ok(None);
-    }
-
-    let checkpoint_id = data
-        .get("checkpoint_id")
-        .and_then(|value| value.as_str())
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            anyhow::anyhow!("Run is awaiting approval but no checkpoint_id was returned.")
-        })?;
-
-    let approval_decisions = approvals
-        .into_iter()
-        .filter_map(|approval| {
-            approval
-                .get("id")
-                .and_then(|value| value.as_str())
-                .map(|id| serde_json::json!({ "id": id, "decision": decision }))
-        })
-        .collect::<Vec<_>>();
-
-    Ok(Some(serde_json::json!({
-        "resume_checkpoint_id": checkpoint_id,
-        "approval_decisions": approval_decisions,
-    })))
 }
 
 /// Approve all pending approvals for a run and resume it.
@@ -3552,7 +3371,8 @@ async fn resolve_cloud_run_pending_approvals(
     };
     let approval_state_json = serde_json::to_value(&approval_state)?;
 
-    let maybe_body = build_cloud_approval_resume_payload(&approval_state_json, decision)?;
+    let maybe_body = seren::build_cloud_approval_resume_request(&approval_state_json, decision)
+        .map_err(|e| anyhow::anyhow!(e))?;
     if maybe_body.is_none() {
         let payload = serde_json::json!({
             "resolved": false,
@@ -3575,9 +3395,7 @@ async fn resolve_cloud_run_pending_approvals(
         return Ok(());
     }
 
-    let body: seren::CloudDeploymentRunRequest =
-        serde_json::from_value(maybe_body.unwrap_or_default())
-            .map_err(|e| anyhow::anyhow!("Failed to build approval resume payload: {}", e))?;
+    let body = maybe_body.unwrap_or_default();
     let response_body = match client.seren_cloud_run(&deployment_id, &body).await {
         Ok(response) => response.into_inner(),
         Err(e) => return Err(anyhow_from_seren_error("Failed to resume run", e).await),
@@ -4031,11 +3849,7 @@ fn eval_set_schedule_json(eval_set: &seren::CloudEvalSet) -> serde_json::Value {
 }
 
 fn eval_set_schedule_string(eval_set: &seren::CloudEvalSet, key: &str) -> Option<String> {
-    eval_set_schedule_json(eval_set)
-        .as_object()?
-        .get(key)?
-        .as_str()
-        .map(ToString::to_string)
+    seren::eval_set_schedule_string(eval_set, key)
 }
 
 fn format_eval_set_schedule_brief(eval_set: &seren::CloudEvalSet) -> String {
@@ -6251,7 +6065,8 @@ mod tests {
             }
         });
 
-        let payload = build_cloud_approval_resume_payload(&approval_state, "approve").unwrap();
+        let payload =
+            seren::build_cloud_approval_resume_request(&approval_state, "approve").unwrap();
         assert!(payload.is_none());
     }
 
@@ -6268,12 +6083,13 @@ mod tests {
             }
         });
 
-        let payload = build_cloud_approval_resume_payload(&approval_state, "reject")
+        let payload = seren::build_cloud_approval_resume_request(&approval_state, "reject")
             .unwrap()
             .unwrap();
-        assert_eq!(payload["resume_checkpoint_id"], "chk_123");
-        assert_eq!(payload["approval_decisions"][0]["id"], "approval-1");
-        assert_eq!(payload["approval_decisions"][0]["decision"], "reject");
-        assert_eq!(payload["approval_decisions"][1]["id"], "approval-2");
+        assert_eq!(payload.resume_checkpoint_id.as_deref(), Some("chk_123"));
+        let approval_decisions = payload.approval_decisions.unwrap();
+        assert_eq!(approval_decisions[0].id, "approval-1");
+        assert_eq!(approval_decisions[0].decision, "reject");
+        assert_eq!(approval_decisions[1].id, "approval-2");
     }
 }

@@ -26,6 +26,7 @@ mod generated {
 
 mod config;
 mod models;
+mod shared;
 
 // Re-export the generated client and types
 pub use generated::Client;
@@ -39,6 +40,7 @@ pub use config::ClientConfig;
 
 // Re-export additional model types
 pub use models::*;
+pub use shared::*;
 
 /// Create a new authenticated client
 impl Client {

@@ -1908,45 +1908,12 @@ pub struct UpdateCloudEvalSetParams {
     pub clear_schedule: bool,
 }
 
-fn parse_schedule_field(value: Option<&str>) -> Option<String> {
-    value
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string)
-}
-
 fn build_cloud_eval_set_schedule_request(
     schedule_cron: Option<&str>,
     schedule_timezone: Option<&str>,
 ) -> Result<Option<seren::CloudEvalSetScheduleRequest>, McpError> {
-    match (
-        parse_schedule_field(schedule_cron),
-        parse_schedule_field(schedule_timezone),
-    ) {
-        (None, None) => Ok(None),
-        (Some(schedule_cron), Some(schedule_timezone)) => {
-            Ok(Some(seren::CloudEvalSetScheduleRequest {
-                schedule_cron,
-                schedule_timezone,
-            }))
-        }
-        _ => Err(McpError::invalid_params(
-            "Provide both schedule_cron and schedule_timezone together.",
-            None,
-        )),
-    }
-}
-
-fn eval_set_schedule_json(eval_set: &seren::CloudEvalSet) -> serde_json::Value {
-    serde_json::to_value(&eval_set.schedule).unwrap_or(serde_json::Value::Null)
-}
-
-fn eval_set_schedule_string(eval_set: &seren::CloudEvalSet, key: &str) -> Option<String> {
-    eval_set_schedule_json(eval_set)
-        .as_object()?
-        .get(key)?
-        .as_str()
-        .map(ToString::to_string)
+    seren::build_cloud_eval_set_schedule_request(schedule_cron, schedule_timezone)
+        .map_err(|e| McpError::invalid_params(e.to_string(), None))
 }
 
 fn resolve_cloud_eval_set_schedule_request(
@@ -1955,35 +1922,13 @@ fn resolve_cloud_eval_set_schedule_request(
     schedule_timezone: Option<&str>,
     clear_schedule: bool,
 ) -> Result<Option<seren::CloudEvalSetScheduleRequest>, McpError> {
-    if clear_schedule {
-        if parse_schedule_field(schedule_cron).is_some()
-            || parse_schedule_field(schedule_timezone).is_some()
-        {
-            return Err(McpError::invalid_params(
-                "Do not combine clear_schedule with schedule_cron or schedule_timezone.",
-                None,
-            ));
-        }
-        return Ok(None);
-    }
-
-    match (
-        parse_schedule_field(schedule_cron).or(eval_set_schedule_string(eval_set, "schedule_cron")),
-        parse_schedule_field(schedule_timezone)
-            .or(eval_set_schedule_string(eval_set, "schedule_timezone")),
-    ) {
-        (None, None) => Ok(None),
-        (Some(schedule_cron), Some(schedule_timezone)) => {
-            Ok(Some(seren::CloudEvalSetScheduleRequest {
-                schedule_cron,
-                schedule_timezone,
-            }))
-        }
-        _ => Err(McpError::invalid_params(
-            "Eval set schedule requires both cron and timezone values.",
-            None,
-        )),
-    }
+    seren::resolve_cloud_eval_set_schedule_request(
+        eval_set,
+        schedule_cron,
+        schedule_timezone,
+        clear_schedule,
+    )
+    .map_err(|e| McpError::invalid_params(e.to_string(), None))
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -2188,52 +2133,6 @@ fn enrich_with_deployment_name(
             entry
         })
         .collect()
-}
-
-fn build_cloud_approval_resume_payload(
-    approval_state: &serde_json::Value,
-    decision: &str,
-) -> Result<Option<serde_json::Value>, McpError> {
-    let data = approval_state.get("data").unwrap_or(approval_state);
-    let status = data
-        .get("status")
-        .and_then(|value| value.as_str())
-        .unwrap_or_default();
-    let approvals = data
-        .get("pending_approvals")
-        .and_then(|value| value.as_array())
-        .cloned()
-        .unwrap_or_default();
-
-    if status != "awaiting_approval" || approvals.is_empty() {
-        return Ok(None);
-    }
-
-    let checkpoint_id = data
-        .get("checkpoint_id")
-        .and_then(|value| value.as_str())
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            McpError::internal_error(
-                "Run is awaiting approval but no checkpoint_id was returned.".to_string(),
-                None,
-            )
-        })?;
-
-    let approval_decisions = approvals
-        .into_iter()
-        .filter_map(|approval| {
-            approval
-                .get("id")
-                .and_then(|value| value.as_str())
-                .map(|id| serde_json::json!({ "id": id, "decision": decision }))
-        })
-        .collect::<Vec<_>>();
-
-    Ok(Some(serde_json::json!({
-        "resume_checkpoint_id": checkpoint_id,
-        "approval_decisions": approval_decisions,
-    })))
 }
 
 fn enrich_data_envelope_with_deployment_names(
@@ -3133,51 +3032,6 @@ fn normalize_token_exchange_mode(value: Option<String>) -> Result<Option<String>
     Ok(Some(normalized))
 }
 
-fn normalize_string_vec(
-    value: Option<Vec<String>>,
-    field_name: &'static str,
-) -> Result<Option<Vec<String>>, McpError> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-
-    let mut out = Vec::with_capacity(value.len());
-    for (i, item) in value.into_iter().enumerate() {
-        let trimmed = item.trim();
-        if trimmed.is_empty() {
-            return Err(McpError::invalid_params(
-                format!("{field_name}[{i}] must not be empty"),
-                None,
-            ));
-        }
-        out.push(trimmed.to_string());
-    }
-    Ok(Some(out))
-}
-
-fn normalize_auth_type(value: Option<String>) -> Result<Option<String>, McpError> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    let normalized = value.trim().to_ascii_lowercase();
-    if normalized.is_empty() {
-        return Err(McpError::invalid_params(
-            "auth_type must not be empty",
-            None,
-        ));
-    }
-    match normalized.as_str() {
-        "static" | "jwt" | "oauth2_cc" | "passthrough" => Ok(Some(normalized)),
-        other => Err(McpError::invalid_params(
-            format!(
-                "Invalid auth_type '{}'. Expected one of: static, jwt, oauth2_cc, passthrough",
-                other
-            ),
-            None,
-        )),
-    }
-}
-
 fn validate_token_cache_ttl_seconds(value: Option<i32>) -> Result<Option<i32>, McpError> {
     let Some(value) = value else {
         return Ok(None);
@@ -3424,7 +3278,8 @@ impl SerenMcpServer {
         let approval_state_json = serde_json::to_value(&approval_state)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let maybe_body = build_cloud_approval_resume_payload(&approval_state_json, decision)?;
+        let maybe_body = seren::build_cloud_approval_resume_request(&approval_state_json, decision)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         if maybe_body.is_none() {
             let payload = serde_json::json!({
                 "resolved": false,
@@ -3443,9 +3298,7 @@ impl SerenMcpServer {
             ]));
         }
 
-        let body: seren::CloudDeploymentRunRequest =
-            serde_json::from_value(maybe_body.unwrap_or_default())
-                .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let body = maybe_body.unwrap_or_default();
         let response_json = api_client
             .seren_cloud_run(&deployment_id, &body)
             .await
@@ -6754,70 +6607,12 @@ API endpoint: {endpoint}",
         let wallet_address = wallet_address.trim().to_string();
         let wallet_network_id = wallet_network_id.trim().to_ascii_lowercase();
 
-        // Convert publisher_category string to enum
-        let publisher_category_enum = {
-            let normalized = publisher_category.trim().to_ascii_lowercase();
-            match normalized.as_str() {
-                "database" => seren::PublisherCategory::Database,
-                "integration" => seren::PublisherCategory::Integration,
-                "compute" => seren::PublisherCategory::Compute,
-                other => {
-                    return Err(McpError::invalid_request(
-                        format!(
-                            "Invalid publisher_category '{}'. Expected one of: database, integration, compute",
-                            other
-                        ),
-                        None,
-                    ));
-                }
-            }
-        };
-
-        // Convert database_type string to enum
-        let database_type_enum = match database_type.as_deref() {
-            None => None,
-            Some(raw) => {
-                let normalized = raw.trim().to_ascii_lowercase();
-                let parsed = match normalized.as_str() {
-                    "serendb" => seren::DatabaseType::Serendb,
-                    "neon" => seren::DatabaseType::Neon,
-                    "supabase" => seren::DatabaseType::Supabase,
-                    "mongodb" => seren::DatabaseType::Mongodb,
-                    other => {
-                        return Err(McpError::invalid_request(
-                            format!(
-                                "Invalid database_type '{}'. Expected one of: serendb, neon, supabase, mongodb",
-                                other
-                            ),
-                            None,
-                        ));
-                    }
-                };
-                Some(parsed)
-            }
-        };
-
-        // Convert integration_type string to enum
-        let integration_type_enum = match integration_type.as_deref() {
-            None => None,
-            Some(raw) => {
-                let normalized = raw.trim().to_ascii_lowercase();
-                let parsed = match normalized.as_str() {
-                    "api" => seren::IntegrationType::Api,
-                    "mcp" => seren::IntegrationType::Mcp,
-                    other => {
-                        return Err(McpError::invalid_request(
-                            format!(
-                                "Invalid integration_type '{}'. Expected one of: api, mcp",
-                                other
-                            ),
-                            None,
-                        ));
-                    }
-                };
-                Some(parsed)
-            }
-        };
+        let publisher_category_enum = seren::parse_publisher_category(&publisher_category)
+            .map_err(|e| McpError::invalid_request(e.to_string(), None))?;
+        let database_type_enum = seren::parse_database_type(database_type.as_deref())
+            .map_err(|e| McpError::invalid_request(e.to_string(), None))?;
+        let integration_type_enum = seren::parse_integration_type(integration_type.as_deref())
+            .map_err(|e| McpError::invalid_request(e.to_string(), None))?;
 
         let endpoints = match endpoints {
             None => None,
@@ -6860,61 +6655,39 @@ API endpoint: {endpoint}",
             ));
         }
 
-        let auth_type = normalize_auth_type(auth_type)?;
+        let auth_type = seren::normalize_auth_type(auth_type.as_deref())
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
         let oauth2_token_url =
-            normalize_nonempty_optional_string(oauth2_token_url, "oauth2_token_url")?;
-        if let Some(ref url) = oauth2_token_url
-            && !url.starts_with("https://")
-        {
-            return Err(McpError::invalid_params(
-                "oauth2_token_url must use HTTPS",
-                None,
-            ));
-        }
+            seren::normalize_optional_string(oauth2_token_url.as_deref(), "oauth2_token_url")
+                .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        seren::ensure_https(oauth2_token_url.as_deref(), "oauth2_token_url")
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
         let oauth2_client_id =
-            normalize_nonempty_optional_string(oauth2_client_id, "oauth2_client_id")?;
-        let oauth2_client_secret =
-            normalize_nonempty_optional_string(oauth2_client_secret, "oauth2_client_secret")?;
-        let oauth2_scopes = match oauth2_scopes {
-            None => Vec::new(),
-            Some(scopes) => {
-                let mut out = Vec::with_capacity(scopes.len());
-                for (i, scope) in scopes.into_iter().enumerate() {
-                    let trimmed = scope.trim();
-                    if trimmed.is_empty() {
-                        return Err(McpError::invalid_params(
-                            format!("oauth2_scopes[{}] must not be empty", i),
-                            None,
-                        ));
-                    }
-                    out.push(trimmed.to_string());
-                }
-                out
-            }
-        };
+            seren::normalize_optional_string(oauth2_client_id.as_deref(), "oauth2_client_id")
+                .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        let oauth2_client_secret = seren::normalize_optional_string(
+            oauth2_client_secret.as_deref(),
+            "oauth2_client_secret",
+        )
+        .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        let oauth2_scopes = seren::normalize_string_list(
+            oauth2_scopes
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .map(String::as_str),
+            "oauth2_scopes",
+        )
+        .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
 
-        if auth_type.as_deref() == Some("oauth2_cc")
-            && (oauth2_token_url.is_none()
-                || oauth2_client_id.is_none()
-                || oauth2_client_secret.is_none())
-        {
-            return Err(McpError::invalid_params(
-                "oauth2_token_url, oauth2_client_id, and oauth2_client_secret are required when auth_type is oauth2_cc",
-                None,
-            ));
-        }
-
-        if auth_type.as_deref() != Some("oauth2_cc")
-            && (oauth2_token_url.is_some()
-                || oauth2_client_id.is_some()
-                || oauth2_client_secret.is_some()
-                || !oauth2_scopes.is_empty())
-        {
-            return Err(McpError::invalid_params(
-                "oauth2_* fields require auth_type=oauth2_cc",
-                None,
-            ));
-        }
+        seren::validate_oauth2_create_fields(
+            auth_type.as_deref(),
+            oauth2_token_url.as_deref(),
+            oauth2_client_id.as_deref(),
+            oauth2_client_secret.as_deref(),
+            !oauth2_scopes.is_empty(),
+        )
+        .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
 
         let upstream_headers = match upstream_headers {
             None => None,
@@ -6924,10 +6697,24 @@ API endpoint: {endpoint}",
             ),
         };
 
-        let allowed_passthrough_headers =
-            normalize_string_vec(allowed_passthrough_headers, "allowed_passthrough_headers")?
-                .unwrap_or_default();
-        let use_cases = normalize_string_vec(use_cases, "use_cases")?.unwrap_or_default();
+        let allowed_passthrough_headers = seren::normalize_string_list(
+            allowed_passthrough_headers
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .map(String::as_str),
+            "allowed_passthrough_headers",
+        )
+        .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        let use_cases = seren::normalize_string_list(
+            use_cases
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .map(String::as_str),
+            "use_cases",
+        )
+        .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
 
         if connection_string.is_some() && database_config.is_some() {
             return Err(McpError::invalid_params(
@@ -7144,65 +6931,47 @@ API endpoint: {endpoint}",
         let token_response_field =
             normalize_nonempty_optional_string(token_response_field, "token_response_field")?;
 
-        let allowed_passthrough_headers =
-            normalize_string_vec(allowed_passthrough_headers, "allowed_passthrough_headers")?;
+        let allowed_passthrough_headers = allowed_passthrough_headers
+            .map(|values| {
+                seren::normalize_string_list(
+                    values.iter().map(String::as_str),
+                    "allowed_passthrough_headers",
+                )
+            })
+            .transpose()
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
 
-        let auth_type = normalize_auth_type(auth_type)?;
+        let auth_type = seren::normalize_auth_type(auth_type.as_deref())
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
         let oauth2_token_url =
-            normalize_nonempty_optional_string(oauth2_token_url, "oauth2_token_url")?;
-        if let Some(ref url) = oauth2_token_url
-            && !url.starts_with("https://")
-        {
-            return Err(McpError::invalid_params(
-                "oauth2_token_url must use HTTPS",
-                None,
-            ));
-        }
+            seren::normalize_optional_string(oauth2_token_url.as_deref(), "oauth2_token_url")
+                .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        seren::ensure_https(oauth2_token_url.as_deref(), "oauth2_token_url")
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
         let oauth2_client_id =
-            normalize_nonempty_optional_string(oauth2_client_id, "oauth2_client_id")?;
-        let oauth2_client_secret =
-            normalize_nonempty_optional_string(oauth2_client_secret, "oauth2_client_secret")?;
-        let oauth2_scopes = match oauth2_scopes {
-            None => None,
-            Some(scopes) => {
-                let mut out = Vec::with_capacity(scopes.len());
-                for (i, scope) in scopes.into_iter().enumerate() {
-                    let trimmed = scope.trim();
-                    if trimmed.is_empty() {
-                        return Err(McpError::invalid_params(
-                            format!("oauth2_scopes[{}] must not be empty", i),
-                            None,
-                        ));
-                    }
-                    out.push(trimmed.to_string());
-                }
-                Some(out)
-            }
-        };
+            seren::normalize_optional_string(oauth2_client_id.as_deref(), "oauth2_client_id")
+                .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        let oauth2_client_secret = seren::normalize_optional_string(
+            oauth2_client_secret.as_deref(),
+            "oauth2_client_secret",
+        )
+        .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        let oauth2_scopes = oauth2_scopes
+            .map(|values| {
+                seren::normalize_string_list(values.iter().map(String::as_str), "oauth2_scopes")
+            })
+            .transpose()
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
 
-        if auth_type.as_deref() == Some("oauth2_cc")
-            && (oauth2_token_url.is_none()
-                || oauth2_client_id.is_none()
-                || oauth2_client_secret.is_none())
-        {
-            return Err(McpError::invalid_params(
-                "oauth2_token_url, oauth2_client_id, and oauth2_client_secret are required when auth_type is oauth2_cc",
-                None,
-            ));
-        }
-
-        if let Some(ref at) = auth_type
-            && at != "oauth2_cc"
-            && (oauth2_token_url.is_some()
-                || oauth2_client_id.is_some()
-                || oauth2_client_secret.is_some()
-                || oauth2_scopes.is_some())
-        {
-            return Err(McpError::invalid_params(
-                "oauth2_* fields require auth_type=oauth2_cc",
-                None,
-            ));
-        }
+        let oauth2_scopes_provided = oauth2_scopes.is_some();
+        seren::validate_oauth2_update_fields(
+            auth_type.as_deref(),
+            oauth2_token_url.as_deref(),
+            oauth2_client_id.as_deref(),
+            oauth2_client_secret.as_deref(),
+            oauth2_scopes_provided,
+        )
+        .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
 
         if connection_string.is_some() && database_config.is_some() {
             return Err(McpError::invalid_params(
@@ -10693,7 +10462,7 @@ mod tests {
         });
 
         let payload =
-            super::build_cloud_approval_resume_payload(&approval_state, "approve").unwrap();
+            seren::build_cloud_approval_resume_request(&approval_state, "approve").unwrap();
         assert!(payload.is_none());
     }
 
@@ -10710,12 +10479,13 @@ mod tests {
             }
         });
 
-        let payload = super::build_cloud_approval_resume_payload(&approval_state, "reject")
+        let payload = seren::build_cloud_approval_resume_request(&approval_state, "reject")
             .unwrap()
             .unwrap();
-        assert_eq!(payload["resume_checkpoint_id"], "chk_123");
-        assert_eq!(payload["approval_decisions"][0]["id"], "approval-1");
-        assert_eq!(payload["approval_decisions"][0]["decision"], "reject");
-        assert_eq!(payload["approval_decisions"][1]["id"], "approval-2");
+        assert_eq!(payload.resume_checkpoint_id.as_deref(), Some("chk_123"));
+        let approval_decisions = payload.approval_decisions.unwrap();
+        assert_eq!(approval_decisions[0].id, "approval-1");
+        assert_eq!(approval_decisions[0].decision, "reject");
+        assert_eq!(approval_decisions[1].id, "approval-2");
     }
 }
