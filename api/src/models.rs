@@ -1,8 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-/// Legacy alias retained for compatibility with previous SDK versions.
-pub type User = crate::generated::types::UserInfo;
-
 // ===================== Schema Diff Types (not in OpenAPI spec) =====================
 
 /// Schema diff result comparing two branches.
