@@ -840,19 +840,18 @@ pub async fn publish_template(
         )
     })?;
 
-    let body: seren::CreateTemplateRequest = serde_json::from_value(serde_json::json!({
-        "name": name,
-        "slug": slug,
-        "code": code_content,
-        "language": language,
-        "price": price,
-        "description": description,
-        "dependencies": deps,
-        "computeBackend": compute_backend,
-        "settingsSchema": serde_json::Value::Null,
-        "llmConfig": serde_json::Value::Null,
-    }))
-    .map_err(|e| anyhow::anyhow!("Failed to build template request: {}", e))?;
+    let body = seren::CreateTemplateRequest {
+        name: name.to_string(),
+        slug: slug.to_string(),
+        code: code_content,
+        language,
+        price: price.to_string(),
+        description: description.map(str::to_string),
+        dependencies: deps,
+        compute_backend: compute_backend.map(str::to_string),
+        settings_schema: None,
+        llm_config: None,
+    };
 
     let response = match client.publish_template(&body).await {
         Ok(response) => response,

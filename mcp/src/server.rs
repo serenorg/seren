@@ -1587,36 +1587,56 @@ fn build_update_seren_agent_deployment_request(
         "model_policy",
         "performance_profile",
     )?;
+    let template = seren::parse_managed_agent_template(template.as_deref())
+        .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+    let tool_presets = tool_presets
+        .as_ref()
+        .map(|values| seren::parse_managed_agent_tool_presets(values.iter().map(String::as_str)))
+        .transpose()
+        .map_err(|e| McpError::invalid_params(e.to_string(), None))?
+        .flatten();
+    let approval_policy = seren::parse_managed_agent_approval_policy(approval_policy.as_deref())
+        .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+    let model_policy = seren::parse_managed_agent_model_policy(model_policy.as_deref())
+        .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+    let requirements = params
+        .requirements
+        .clone()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|e| {
+            McpError::invalid_params(format!("Invalid requirements payload: {e}"), None)
+        })?;
 
-    serde_json::from_value(serde_json::json!({
-        "agent_slug": params.agent_slug,
-        "name": params.name,
-        "cron_schedule": params.cron_schedule,
-        "cron_timezone": params.cron_timezone,
-        "eval_gate_set_id": params.eval_gate_set_id,
-        "eval_gate_max_age_seconds": params.eval_gate_max_age_seconds,
-        "clear_eval_gate": params.clear_eval_gate,
-        "prompt": params.prompt,
-        "model_id": params.model_id,
-        "template": template,
-        "tool_presets": tool_presets,
-        "approval_policy": approval_policy,
-        "model_policy": model_policy,
-        "allowed_remote_agent_origins": params.allowed_remote_agent_origins,
-        "config": params.config,
-        "secrets": params.secrets,
-        "model_config": params.model_config,
-        "fallback_models": params.fallback_models,
-        "max_timeout_seconds": params.max_timeout_seconds,
-        "requirements": params.requirements,
-        "dashboard_config": params.dashboard_config,
-        "visibility": params.visibility,
-    }))
-    .map_err(|e| {
-        McpError::invalid_params(
-            format!("Invalid managed deployment update payload: {e}"),
-            None,
-        )
+    Ok(seren::UpdateSerenAgentDeploymentRequest {
+        agent_slug: params.agent_slug.clone(),
+        alert_policy: None,
+        allowed_remote_agent_origins: params.allowed_remote_agent_origins.clone(),
+        approval_policy,
+        clear_alert_policy: None,
+        clear_eval_gate: params.clear_eval_gate.then_some(true),
+        clear_network_policy: None,
+        config: params.config.clone(),
+        cron_schedule: params.cron_schedule.clone(),
+        cron_timezone: params.cron_timezone.clone(),
+        dashboard_config: params.dashboard_config.clone(),
+        eval_gate_max_age_seconds: params.eval_gate_max_age_seconds,
+        eval_gate_set_id: params.eval_gate_set_id,
+        fallback_models: params.fallback_models.clone(),
+        max_timeout_seconds: params.max_timeout_seconds,
+        max_tool_calls_per_run: None,
+        model_config: params.model_config.clone(),
+        model_id: params.model_id.clone(),
+        model_policy,
+        name: params.name.clone(),
+        network_policy: None,
+        prompt: params.prompt.clone(),
+        requirements,
+        secrets: params.secrets.clone(),
+        side_effect_policy: None,
+        template,
+        tool_presets,
+        visibility: params.visibility.clone(),
     })
 }
 

@@ -185,6 +185,66 @@ pub fn parse_integration_type(
     Ok(Some(parsed))
 }
 
+pub fn parse_managed_agent_template(
+    value: Option<&str>,
+) -> Result<Option<crate::ManagedAgentTemplate>, ValidationError> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    value.parse().map(Some).map_err(|_| {
+        ValidationError::new("Invalid template. Expected one of: research_monitor, workflow_agent")
+    })
+}
+
+pub fn parse_managed_agent_approval_policy(
+    value: Option<&str>,
+) -> Result<Option<crate::ManagedAgentApprovalPolicy>, ValidationError> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    value.parse().map(Some).map_err(|_| {
+        ValidationError::new("Invalid approval_policy. Expected one of: read_only, allow_mutations")
+    })
+}
+
+pub fn parse_managed_agent_model_policy(
+    value: Option<&str>,
+) -> Result<Option<crate::ManagedAgentModelPolicy>, ValidationError> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    value.parse().map(Some).map_err(|_| {
+        ValidationError::new("Invalid model_policy. Expected one of: fast, balanced, deep")
+    })
+}
+
+pub fn parse_managed_agent_tool_presets<I, S>(
+    values: I,
+) -> Result<Option<Vec<crate::ManagedAgentToolPreset>>, ValidationError>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut parsed = Vec::new();
+    for value in values {
+        let trimmed = value.as_ref().trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        parsed.push(trimmed.parse().map_err(|_| {
+            ValidationError::new(
+                "Invalid tool_presets entry. Expected values from: live_data, publisher_actions, database",
+            )
+        })?);
+    }
+
+    if parsed.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(parsed))
+}
+
 pub fn parse_schedule_field(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
