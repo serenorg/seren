@@ -1,12 +1,16 @@
 # Seren MCP Server
 
-Model Context Protocol (MCP) server for SerenAI, enabling AI agents like Claude to manage your SerenDB databases through natural language.
+Model Context Protocol (MCP) server for SerenAI, exposing database operations, publisher access, managed agents, and seren-cloud workflows to MCP clients.
 
 ## Features
 
 - **Project Management**: Create, list, and manage SerenDB projects
 - **Branch Operations**: Create branches, manage development workflows
 - **Database Queries**: Execute SQL queries directly through your AI assistant
+- **Publisher Access**: Discover paid publishers, MCP publishers, and agent templates
+- **Managed Agents**: Deploy and operate prompt-defined `seren-agent` services
+- **Cloud Operations**: Inspect deployments, runs, approvals, artifacts, and eval sets
+- **Payments**: Use prepaid balance flows or local x402 wallet signing when configured
 - **Secure OAuth**: OAuth 2.1 (Auth Code + PKCE) for hosted deployments
 
 ## Usage Modes
@@ -151,6 +155,9 @@ Once configured, you can ask Claude to:
 - "Create a development branch from main"
 - "Run this SQL query on my database: SELECT * FROM users LIMIT 10"
 - "Run a prepaid API request against a store publisher"
+- "Show me all cloud deployments waiting for approval"
+- "Deploy a managed seren-agent for triage and show me its revision history"
+- "List MCP tools exposed by a publisher before calling it"
 
 ### Managed Agent Tools
 

@@ -147,18 +147,69 @@ fn categorize_tool(name: &str) -> &'static str {
         }
         n if n.contains("role") => "Roles",
         n if n.contains("endpoint") => "Endpoints",
-        n if n.contains("organization") || n.contains("api_key") => "Organizations",
-        n if n.contains("publisher") || n == "suggest_for_task" => "Agent Store",
-        n if n.contains("wallet")
-            || n.contains("prepaid")
-            || n.contains("balance")
-            || n.contains("transaction")
-            || n.contains("x402")
-            || n.contains("supported") =>
-        {
-            "Payments"
+        n if n.contains("organization") || n.contains("api_key") || n.contains("org_oauth") => {
+            "Organizations & Access"
         }
-        n if n.contains("paid") || n.contains("estimate") => "Paid APIs",
+        n if n.contains("cloud_eval")
+            || n.contains("eval_set")
+            || n.contains("eval_case")
+            || n.contains("eval_run") =>
+        {
+            "Cloud Evals"
+        }
+        "promote_cloud_run_to_eval_case" => "Cloud Evals",
+        n if n == "list_mcp_tools" || n == "list_mcp_resources" => "MCP Publishers",
+        n if n.contains("seren_agent") => "Managed Agents",
+        n if n.contains("cloud_environment") => "Cloud Environments",
+        n if n == "deploy_cloud_agent"
+            || n == "list_cloud_agents"
+            || n == "get_cloud_overview"
+            || n == "cloud_agent_status"
+            || n == "start_cloud_agent"
+            || n == "stop_cloud_agent"
+            || n == "run_cloud_agent"
+            || n == "cloud_agent_logs"
+            || n == "destroy_cloud_agent"
+            || n == "update_cloud_agent_config" =>
+        {
+            "Cloud Deployments"
+        }
+        n if n.contains("cloud_run")
+            || n.contains("cloud_agent_run")
+            || n.contains("pending_cloud_approvals")
+            || n == "list_all_cloud_runs"
+            || n == "get_cloud_run_by_id"
+            || n == "compare_cloud_runs"
+            || n == "list_cloud_run_artifacts"
+            || n == "cancel_cloud_run_by_id" =>
+        {
+            "Cloud Runs & Approvals"
+        }
+        n if n == "get_local_wallet_address"
+            || n == "has_local_wallet"
+            || n == "get_onchain_wallet_status"
+            || n == "get_x402_deposit_requirements"
+            || n == "get_supported" =>
+        {
+            "Local Wallet & x402"
+        }
+        n if n.contains("prepaid")
+            || n == "get_wallet_status"
+            || n == "get_transaction_history" =>
+        {
+            "Payments & Wallets"
+        }
+        n if n.contains("publisher")
+            || n == "suggest_for_task"
+            || n.contains("agent_template")
+            || n == "run_agent_cloud"
+            || n == "list_agent_tasks"
+            || n == "get_agent_task"
+            || n == "cancel_agent_task"
+            || n == "estimate_query_cost" =>
+        {
+            "Agent Store & Publishers"
+        }
         _ => "Other",
     }
 }

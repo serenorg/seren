@@ -11,6 +11,7 @@ include!(concat!(env!("OUT_DIR"), "/tools_generated.rs"));
 /// Generate the HTML documentation page
 fn generate_docs_html() -> String {
     let version = env!("CARGO_PKG_VERSION");
+    let total_tools = TOOLS.len();
 
     // Group tools by category (maintain order)
     let categories = [
@@ -20,12 +21,22 @@ fn generate_docs_html() -> String {
         "SQL",
         "Roles",
         "Endpoints",
-        "Organizations",
-        "Agent Store",
-        "Payments",
-        "Paid APIs",
+        "Organizations & Access",
+        "Agent Store & Publishers",
+        "Payments & Wallets",
+        "Local Wallet & x402",
+        "MCP Publishers",
+        "Managed Agents",
+        "Cloud Environments",
+        "Cloud Deployments",
+        "Cloud Runs & Approvals",
+        "Cloud Evals",
         "Other",
     ];
+    let populated_category_count = categories
+        .iter()
+        .filter(|category| TOOLS.iter().any(|tool| tool.category == **category))
+        .count();
 
     let mut tools_html = String::new();
 
@@ -72,7 +83,7 @@ fn generate_docs_html() -> String {
     <link rel="icon" href="https://serendb.com/favicon.ico" type="image/x-icon">
     <style>
         :root {{
-            /* SerenDB dark theme - Zinc palette with Cyan accent */
+            /* SerenAI dark theme - Zinc palette with Cyan accent */
             --bg-primary: #09090b;
             --bg-secondary: #18181b;
             --bg-tertiary: #27272a;
@@ -191,6 +202,56 @@ fn generate_docs_html() -> String {
             width: 60px;
         }}
 
+        .meta {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            margin: 1rem 0 0;
+        }}
+
+        .pill {{
+            border: 1px solid var(--border);
+            background: var(--bg-tertiary);
+            border-radius: 999px;
+            padding: 0.45rem 0.8rem;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }}
+
+        .links-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem;
+            margin-top: 1.25rem;
+        }}
+
+        .link-card {{
+            display: block;
+            background: linear-gradient(180deg, rgba(6, 182, 212, 0.08), rgba(6, 182, 212, 0.02));
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem;
+            text-decoration: none;
+            transition: border-color 0.2s, transform 0.2s;
+        }}
+
+        .link-card:hover {{
+            border-color: var(--accent);
+            transform: translateY(-1px);
+            text-decoration: none;
+        }}
+
+        .link-card strong {{
+            display: block;
+            color: var(--text-primary);
+            margin-bottom: 0.25rem;
+        }}
+
+        .link-card span {{
+            color: var(--text-secondary);
+            font-size: 0.9375rem;
+        }}
+
         h2.section-title {{
             margin-bottom: 1.5rem;
             font-size: 1.5rem;
@@ -252,6 +313,12 @@ fn generate_docs_html() -> String {
         td:last-child {{
             color: var(--text-secondary);
             font-size: 0.9375rem;
+        }}
+
+        .note {{
+            margin-top: 1rem;
+            color: var(--text-muted);
+            font-size: 0.875rem;
         }}
 
         tr:last-child td {{
@@ -328,18 +395,39 @@ fn generate_docs_html() -> String {
         <div class="intro">
             <h2>Getting Started</h2>
             <p>
-                The Seren MCP Server enables AI assistants to manage PostgreSQL databases,
-                execute queries, and access the Agent Store for paid data services via the
-                Model Context Protocol (MCP).
+                Seren MCP exposes the current tool surface for Seren projects, branches,
+                databases, publishers, payments, managed agents, and seren-cloud operations
+                over the Model Context Protocol (MCP).
             </p>
             <div class="endpoints">
                 <code><span class="method">POST</span> /mcp — Send JSON-RPC messages</code>
                 <code><span class="method">GET</span> /mcp — Establish SSE stream (with session)</code>
                 <code><span class="method">DELETE</span> /mcp — Close session</code>
             </div>
+            <div class="meta">
+                <div class="pill">{total_tools} tools in this build</div>
+                <div class="pill">{populated_category_count} documentation sections</div>
+                <div class="pill">Hosted OAuth + local API key workflows</div>
+            </div>
             <p>
-                For more information, visit <a href="https://serendb.com">serendb.com</a>
-                or check out the <a href="https://github.com/serenorg/seren">GitHub repository</a>.
+                The inventory below is generated directly from the current Rust tool
+                registrations at build time, so the page tracks the live server surface
+                instead of a hand-maintained list.
+            </p>
+            <div class="links-grid">
+                <a class="link-card" href="https://github.com/serenorg/seren/blob/main/mcp/README.md">
+                    <strong>Server Setup</strong>
+                    <span>Hosted connection, local CLI startup, auth, and environment variables.</span>
+                </a>
+                <a class="link-card" href="https://github.com/serenorg/seren">
+                    <strong>Repository</strong>
+                    <span>Source for the MCP server, CLI, OpenAPI specs, and supporting docs.</span>
+                </a>
+            </div>
+            <p class="note">
+                For operator workflows, start with <code>get_cloud_overview</code>,
+                <code>list_cloud_agents</code>, <code>list_pending_cloud_approvals</code>,
+                and the managed-agent tools before drilling into individual runs.
             </p>
         </div>
 
@@ -349,11 +437,11 @@ fn generate_docs_html() -> String {
 
         <footer>
             <div class="links">
-                <a href="https://serendb.com">SerenDB</a>
+                <a href="https://serendb.com">SerenAI</a>
                 <a href="https://github.com/serenorg/seren">GitHub</a>
-                <a href="https://docs.serendb.com">Documentation</a>
+                <a href="https://github.com/serenorg/seren/blob/main/mcp/README.md">MCP README</a>
             </div>
-            <p>&copy; 2024-2025 SerenDB. All rights reserved.</p>
+            <p>&copy; 2024-2025 SerenAI. All rights reserved.</p>
         </footer>
     </div>
 </body>

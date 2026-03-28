@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "MCP server for SerenDB - AI assistant integration"
+description = "MCP server for SerenAI - AI assistant integration"
 repository = "https://github.com/seren/seren"
 keywords = ["seren", "mcp", "ai", "database"]
 
