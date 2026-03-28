@@ -4,6 +4,7 @@ members = [
     "api",
     "mcp",
 ]
+default-members = ["cli"]
 resolver = "2"
 
 [workspace.package]
