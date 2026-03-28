@@ -571,9 +571,15 @@ fn main() -> anyhow::Result<()> {
         )
         .replace("chrono::DateTime<chrono::offset::Utc>", "::jiff::Timestamp");
 
-    // Convert 402 responses from ErrorResponse (which discards body) to UnexpectedResponse
-    // (which preserves the raw response). This allows callers to deserialize 402 bodies
-    // for payment-required flows while keeping 402 documented in the OpenAPI spec.
+    // Convert 400/402/403 responses from ErrorResponse (which discards body) to UnexpectedResponse
+    // (which preserves the raw response). This allows callers to read and display the actual
+    // error body while keeping these status codes documented in the OpenAPI spec.
+    // 400: Bad request errors include a JSON body with {error, message} that should be surfaced.
+    // 402/403: Payment-required and forbidden errors may carry structured body payloads.
+    let formatted = formatted.replace(
+        "400u16 => Err(Error::ErrorResponse(ResponseValue::empty(response)))",
+        "400u16 => Err(Error::UnexpectedResponse(response))",
+    );
     let formatted = formatted.replace(
         "402u16 => Err(Error::ErrorResponse(ResponseValue::empty(response)))",
         "402u16 => Err(Error::UnexpectedResponse(response))",

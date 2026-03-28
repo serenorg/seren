@@ -428,6 +428,94 @@
           }
         ]
       }
+    },
+    "/private-models": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "List the private model catalog available through seren-private-models.",
+        "operationId": "seren_agent_private_models",
+        "parameters": [
+          {
+            "name": "private_provider",
+            "in": "query",
+            "description": "Optional internal private model provider selector. Defaults to aws_bedrock.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "region",
+            "in": "query",
+            "description": "Optional private model region for live discovery. Defaults to us-east-1.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Private model catalog retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_PrivateModelCatalogResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/test-run": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Run an unsaved managed seren-agent draft once before deploying.",
+        "operationId": "seren_agent_test_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestSerenAgentDraftRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Draft test run completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_TestSerenAgentDraftRunResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -773,6 +861,9 @@
             "type": "string",
             "format": "uuid"
           },
+          "publisher_only": {
+            "type": "boolean"
+          },
           "requirements": {},
           "runtime_kind": {
             "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
@@ -901,6 +992,17 @@
             },
             "description": "Optional fallback model list for transient failures."
           },
+          "llm_connection": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentLlmConnection",
+                "description": "Optional private model connection override resolved through seren-private-models."
+              }
+            ]
+          },
           "max_timeout_seconds": {
             "type": [
               "integer",
@@ -962,6 +1064,17 @@
               }
             ]
           },
+          "private_output_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentPrivateOutputPolicy",
+                "description": "Output persistence policy for model/tool traces."
+              }
+            ]
+          },
           "prompt": {
             "type": "string",
             "description": "Main task instructions for the managed agent."
@@ -978,6 +1091,17 @@
           },
           "secrets": {
             "description": "JSON secrets object."
+          },
+          "session_database": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentSessionDatabase",
+                "description": "Optional external session database configuration for durable agent state."
+              }
+            ]
           },
           "side_effect_policy": {
             "oneOf": [
@@ -1226,6 +1350,9 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "publisher_only": {
+                "type": "boolean"
+              },
               "requirements": {},
               "runtime_kind": {
                 "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
@@ -1288,6 +1415,7 @@
               "resolved_tools",
               "approval_policy",
               "model_policy",
+              "private_output_policy",
               "secret_keys",
               "requirements",
               "visibility",
@@ -1374,6 +1502,16 @@
                   "type": "string"
                 }
               },
+              "llm_connection": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentLlmConnection"
+                  }
+                ]
+              },
               "max_iterations": {
                 "type": [
                   "integer",
@@ -1429,6 +1567,9 @@
                   }
                 ]
               },
+              "private_output_policy": {
+                "$ref": "#/components/schemas/ManagedAgentPrivateOutputPolicy"
+              },
               "prompt": {
                 "type": [
                   "string",
@@ -1458,6 +1599,16 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "session_database": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentSessionDatabase"
+                  }
+                ]
               },
               "side_effect_policy": {
                 "oneOf": [
@@ -1582,6 +1733,137 @@
               "proposed": {
                 "$ref": "#/components/schemas/ManagedAgentDeploymentDetail"
               }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_PrivateModelCatalogResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "default_model_id",
+              "models",
+              "supports_custom_model_id",
+              "catalog_source"
+            ],
+            "properties": {
+              "catalog_source": {
+                "$ref": "#/components/schemas/PrivateModelCatalogSource"
+              },
+              "default_model_id": {
+                "type": "string"
+              },
+              "models": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PrivateModelCatalogEntry"
+                }
+              },
+              "notice": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "supports_custom_model_id": {
+                "type": "boolean"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_TestSerenAgentDraftRunResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "status",
+              "runtime_adapter",
+              "usage",
+              "iterations",
+              "tool_calls",
+              "output_events"
+            ],
+            "properties": {
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "error_info": {},
+              "iterations": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "output_events": {
+                "type": "array",
+                "items": {}
+              },
+              "partial_response": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "response": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "runtime_adapter": {
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/components/schemas/ManagedAgentDraftTestRunStatus"
+              },
+              "tool_calls": {
+                "type": "array",
+                "items": {}
+              },
+              "usage": {},
+              "warnings": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "workflow": {}
             }
           },
           "pagination": {
@@ -1745,6 +2027,9 @@
                 "organization_id": {
                   "type": "string",
                   "format": "uuid"
+                },
+                "publisher_only": {
+                  "type": "boolean"
                 },
                 "requirements": {},
                 "runtime_kind": {
@@ -1913,6 +2198,7 @@
           "resolved_tools",
           "approval_policy",
           "model_policy",
+          "private_output_policy",
           "secret_keys",
           "requirements",
           "visibility",
@@ -1999,6 +2285,16 @@
               "type": "string"
             }
           },
+          "llm_connection": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentLlmConnection"
+              }
+            ]
+          },
           "max_iterations": {
             "type": [
               "integer",
@@ -2054,6 +2350,9 @@
               }
             ]
           },
+          "private_output_policy": {
+            "$ref": "#/components/schemas/ManagedAgentPrivateOutputPolicy"
+          },
           "prompt": {
             "type": [
               "string",
@@ -2083,6 +2382,16 @@
             "items": {
               "type": "string"
             }
+          },
+          "session_database": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentSessionDatabase"
+              }
+            ]
           },
           "side_effect_policy": {
             "oneOf": [
@@ -2250,6 +2559,14 @@
           }
         }
       },
+      "ManagedAgentDraftTestRunStatus": {
+        "type": "string",
+        "enum": [
+          "completed",
+          "awaiting_approval",
+          "failed"
+        ]
+      },
       "ManagedAgentFieldChange": {
         "type": "object",
         "required": [
@@ -2269,6 +2586,78 @@
           "proposed_value": {}
         }
       },
+      "ManagedAgentLlmConnection": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "private_provider",
+              "provider"
+            ],
+            "properties": {
+              "access_token_secret_key": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Optional secret key whose value is a bearer token for Microsoft Entra auth."
+              },
+              "api_key_secret_key": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Optional secret key whose value is the API key for the endpoint."
+              },
+              "base_url_secret_key": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Secret key whose value is the base URL for the Azure private-model endpoint."
+              },
+              "deployment_name": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Optional Azure deployment name used as the model identifier for the v1 API."
+              },
+              "endpoint_url": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Optional custom Bedrock runtime endpoint URL, for example a PrivateLink endpoint."
+              },
+              "private_provider": {
+                "$ref": "#/components/schemas/ManagedPrivateModelProvider",
+                "description": "Private model backend routed through seren-private-models."
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "seren_private_models"
+                ]
+              },
+              "provider_name": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Optional provider label shown in logs and errors."
+              },
+              "region": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "AWS region for Bedrock runtime calls."
+              }
+            }
+          }
+        ]
+      },
       "ManagedAgentModelPolicy": {
         "type": "string",
         "enum": [
@@ -2277,12 +2666,63 @@
           "deep"
         ]
       },
+      "ManagedAgentPrivateOutputPolicy": {
+        "type": "string",
+        "enum": [
+          "control_plane",
+          "private_session_database"
+        ]
+      },
       "ManagedAgentRevisionChangeKind": {
         "type": "string",
         "enum": [
           "create",
           "update",
           "rollback"
+        ]
+      },
+      "ManagedAgentSessionDatabase": {
+        "type": "object",
+        "required": [
+          "engine"
+        ],
+        "properties": {
+          "database_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional Seren organization database name when `provider` is `seren_organization_database`."
+          },
+          "engine": {
+            "$ref": "#/components/schemas/ManagedAgentSessionDatabaseEngine",
+            "description": "Session database engine family. The runtime still consumes a standard connection URL."
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ManagedAgentSessionDatabaseProvider",
+            "description": "Session database provider. Defaults to `direct_url`."
+          },
+          "url_secret_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Secret key whose value is the connection URL for the session database."
+          }
+        }
+      },
+      "ManagedAgentSessionDatabaseEngine": {
+        "type": "string",
+        "enum": [
+          "postgres",
+          "aurora_postgres"
+        ]
+      },
+      "ManagedAgentSessionDatabaseProvider": {
+        "type": "string",
+        "enum": [
+          "direct_url",
+          "seren_organization_database"
         ]
       },
       "ManagedAgentSummary": {
@@ -2366,6 +2806,13 @@
           "database"
         ]
       },
+      "ManagedPrivateModelProvider": {
+        "type": "string",
+        "enum": [
+          "aws_bedrock",
+          "azure_open_ai"
+        ]
+      },
       "OrchestrationMode": {
         "type": "string",
         "description": "Cloud deployment orchestration mode.\n\n`Script` (default): container runs user code directly (existing behavior).\n`Llm`: container runs the seren-orchestrator LLM tool-calling loop.",
@@ -2410,6 +2857,65 @@
             "description": "Total number of items across all pages"
           }
         }
+      },
+      "PrivateModelCatalogEntry": {
+        "type": "object",
+        "required": [
+          "model_id",
+          "label",
+          "recommended"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "recommended": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PrivateModelCatalogResponse": {
+        "type": "object",
+        "required": [
+          "default_model_id",
+          "models",
+          "supports_custom_model_id",
+          "catalog_source"
+        ],
+        "properties": {
+          "catalog_source": {
+            "$ref": "#/components/schemas/PrivateModelCatalogSource"
+          },
+          "default_model_id": {
+            "type": "string"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PrivateModelCatalogEntry"
+            }
+          },
+          "notice": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "supports_custom_model_id": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PrivateModelCatalogSource": {
+        "type": "string",
+        "enum": [
+          "live_discovery",
+          "fallback_registry",
+          "unsupported_provider"
+        ]
       },
       "RequirementSource": {
         "type": "string",
@@ -2480,6 +2986,84 @@
           }
         }
       },
+      "TestSerenAgentDraftRunRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CreateSerenAgentDeploymentRequest"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Optional test message. When omitted, the server uses a generic first-run prompt."
+              }
+            }
+          }
+        ]
+      },
+      "TestSerenAgentDraftRunResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "runtime_adapter",
+          "usage",
+          "iterations",
+          "tool_calls",
+          "output_events"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_info": {},
+          "iterations": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "output_events": {
+            "type": "array",
+            "items": {}
+          },
+          "partial_response": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "response": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "runtime_adapter": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ManagedAgentDraftTestRunStatus"
+          },
+          "tool_calls": {
+            "type": "array",
+            "items": {}
+          },
+          "usage": {},
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "workflow": {}
+        }
+      },
       "UpdateSerenAgentDeploymentRequest": {
         "type": "object",
         "description": "Partial update request for an existing managed `seren-agent` deployment.",
@@ -2535,6 +3119,10 @@
             "type": "boolean",
             "description": "Clear any existing outbound network restrictions."
           },
+          "clear_session_database": {
+            "type": "boolean",
+            "description": "Clear any existing external session database configuration."
+          },
           "config": {
             "description": "Updated JSON config object."
           },
@@ -2580,6 +3168,17 @@
               "type": "string"
             },
             "description": "Updated fallback model list."
+          },
+          "llm_connection": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentLlmConnection",
+                "description": "Updated private LLM connection override."
+              }
+            ]
           },
           "max_timeout_seconds": {
             "type": [
@@ -2638,6 +3237,17 @@
               }
             ]
           },
+          "private_output_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentPrivateOutputPolicy",
+                "description": "Updated output persistence policy for model/tool traces."
+              }
+            ]
+          },
           "prompt": {
             "type": [
               "string",
@@ -2657,6 +3267,17 @@
           },
           "secrets": {
             "description": "Updated JSON secrets object."
+          },
+          "session_database": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentSessionDatabase",
+                "description": "Updated external session database configuration."
+              }
+            ]
           },
           "side_effect_policy": {
             "oneOf": [

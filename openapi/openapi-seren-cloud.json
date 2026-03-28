@@ -3568,7 +3568,7 @@
             "items": {
               "$ref": "#/components/schemas/CloudRunApprovalDecision"
             },
-            "description": "Approval decisions used when resuming a run awaiting approval."
+            "description": "Optional approval decisions used when resuming a paused run checkpoint."
           },
           "async": {
             "type": [
@@ -3584,19 +3584,19 @@
             ],
             "description": "Optional message for orchestrated runtimes."
           },
+          "resume_checkpoint_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional checkpoint identifier used to resume an awaiting-approval run."
+          },
           "run_id": {
             "type": [
               "string",
               "null"
             ],
             "description": "Optional client-provided run identifier (used by some orchestrators)."
-          },
-          "resume_checkpoint_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Checkpoint identifier used when resuming an awaiting-approval run."
           }
         }
       },
@@ -3761,6 +3761,9 @@
           "organization_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "publisher_only": {
+            "type": "boolean"
           },
           "requirements": {},
           "runtime_kind": {
@@ -4520,6 +4523,30 @@
           }
         }
       },
+      "CloudRunApprovalDecision": {
+        "type": "object",
+        "description": "Approval decision submitted when resuming an awaiting-approval run.",
+        "required": [
+          "id",
+          "decision"
+        ],
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/CloudRunApprovalDecisionValue"
+          },
+          "id": {
+            "type": "string"
+          }
+        }
+      },
+      "CloudRunApprovalDecisionValue": {
+        "type": "string",
+        "description": "Normalized approval action accepted by the cloud resume API.",
+        "enum": [
+          "approve",
+          "reject"
+        ]
+      },
       "CloudRunEvalsResponse": {
         "type": "object",
         "description": "Eval records linked to a run, either as the promoted source or as an actual replay target.",
@@ -4798,21 +4825,6 @@
           "error",
           "unknown"
         ]
-      },
-      "CloudRunApprovalDecision": {
-        "type": "object",
-        "required": [
-          "decision",
-          "id"
-        ],
-        "properties": {
-          "decision": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          }
-        }
       },
       "CloudRunPendingApproval": {
         "type": "object",
@@ -5736,6 +5748,9 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "publisher_only": {
+                "type": "boolean"
+              },
               "requirements": {},
               "runtime_kind": {
                 "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
@@ -6280,6 +6295,12 @@
               "status"
             ],
             "properties": {
+              "checkpoint_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "pending_approvals": {
                 "type": "array",
                 "items": {
@@ -7094,6 +7115,9 @@
                 "organization_id": {
                   "type": "string",
                   "format": "uuid"
+                },
+                "publisher_only": {
+                  "type": "boolean"
                 },
                 "requirements": {},
                 "runtime_kind": {
@@ -7968,6 +7992,10 @@
               "null"
             ],
             "description": "Orchestration mode: \"script\" (default) or \"llm\"."
+          },
+          "publisher_only": {
+            "type": "boolean",
+            "description": "Restrict the runtime to built-in Seren publisher tools only."
           },
           "requirements": {
             "type": [

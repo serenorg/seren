@@ -129,15 +129,23 @@ pub async fn delete(
 pub async fn list_all(project_id: Option<&str>, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
 
-    let databases = if let Some(pid) = project_id {
+    let databases: seren::DataResponseVecDatabaseWithContext = if let Some(pid) = project_id {
         // List databases for a specific project (across all branches)
         let project_uuid =
             Uuid::parse_str(pid).map_err(|e| anyhow::anyhow!("Invalid project ID: {}", e))?;
-        client
+        let response = client
             .seren_db_list_project_databases(&project_uuid)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to list databases: {}", e))?
-            .into_inner()
+            .into_inner();
+
+        let data = serde_json::from_value(response.data)
+            .map_err(|e| anyhow::anyhow!("Failed to decode project databases: {}", e))?;
+
+        seren::DataResponseVecDatabaseWithContext {
+            data,
+            pagination: response.pagination,
+        }
     } else {
         // List all databases across all projects
         client

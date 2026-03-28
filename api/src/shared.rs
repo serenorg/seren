@@ -321,6 +321,9 @@ pub fn build_cloud_approval_resume_request(
     approval_state: &serde_json::Value,
     decision: &str,
 ) -> Result<Option<crate::CloudDeploymentRunRequest>, ValidationError> {
+    let decision = crate::CloudRunApprovalDecisionValue::try_from(decision).map_err(|_| {
+        ValidationError::new("Invalid approval decision. Expected approve or reject.")
+    })?;
     let data = approval_state.get("data").unwrap_or(approval_state);
     let status = data
         .get("status")
@@ -352,7 +355,7 @@ pub fn build_cloud_approval_resume_request(
                 .and_then(|value| value.as_str())
                 .map(|id| crate::CloudRunApprovalDecision {
                     id: id.to_string(),
-                    decision: decision.to_string(),
+                    decision,
                 })
         })
         .collect::<Vec<_>>();
@@ -399,6 +402,9 @@ mod tests {
             Some("checkpoint-123")
         );
         assert_eq!(payload.approval_decisions.as_ref().map(Vec::len), Some(2));
-        assert_eq!(payload.approval_decisions.unwrap()[0].decision, "reject");
+        assert_eq!(
+            payload.approval_decisions.unwrap()[0].decision,
+            crate::CloudRunApprovalDecisionValue::Reject
+        );
     }
 }

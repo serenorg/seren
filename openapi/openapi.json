@@ -20,6 +20,51 @@
     }
   ],
   "paths": {
+    "/auth/accept-invite": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "POST /auth/accept-invite\nAccept an organization invite for the authenticated user.",
+        "operationId": "accept_organization_invite",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptOrganizationInviteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Organization invite accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_AcceptOrganizationInviteResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or expired invite"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Invite not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/auth/agent": {
       "post": {
         "tags": [
@@ -1660,7 +1705,7 @@
             "name": "redirect_uri",
             "in": "query",
             "description": "Where to redirect after OAuth completes",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -1669,6 +1714,9 @@
         "responses": {
           "302": {
             "description": "Redirect to OAuth provider"
+          },
+          "400": {
+            "description": "Invalid or missing redirect URI"
           },
           "404": {
             "description": "Provider not found"
@@ -1753,7 +1801,7 @@
             "name": "redirect_uri",
             "in": "query",
             "description": "Where to redirect after OAuth completes",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -1762,6 +1810,9 @@
         "responses": {
           "302": {
             "description": "Redirect to OAuth provider"
+          },
+          "400": {
+            "description": "Invalid or missing redirect URI"
           },
           "404": {
             "description": "Provider not found"
@@ -2154,6 +2205,68 @@
           },
           "404": {
             "description": "Not found"
+          }
+        }
+      }
+    },
+    "/organizations/{organization_id}/agents/tasks/{task_id}/resume": {
+      "post": {
+        "tags": [
+          "Agent Tasks"
+        ],
+        "summary": "POST /organizations/{organization_id}/agents/tasks/{task_id}/resume",
+        "operationId": "submit_task_input",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitTaskInputRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Task input accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_AgentTask"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Task is not awaiting input or cannot be resumed"
+          },
+          "403": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Task not found"
           }
         }
       }
@@ -2670,6 +2783,559 @@
           },
           "500": {
             "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/custom-skills": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "GET /organizations/{organization_id}/custom-skills",
+        "operationId": "list_custom_skills",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Custom skills retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_OrganizationCustomSkill"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "POST /organizations/{organization_id}/custom-skills",
+        "operationId": "create_custom_skill",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrganizationCustomSkillRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Custom skill created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationCustomSkill"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/custom-skills/{skill_id}": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "GET /organizations/{organization_id}/custom-skills/{skill_id}",
+        "operationId": "get_custom_skill",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "skill_id",
+            "in": "path",
+            "description": "Custom skill ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Custom skill retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationCustomSkill"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Custom skill not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "PATCH /organizations/{organization_id}/custom-skills/{skill_id}",
+        "operationId": "update_custom_skill",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "skill_id",
+            "in": "path",
+            "description": "Custom skill ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrganizationCustomSkillRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Custom skill updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationCustomSkill"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Custom skill not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/custom-skills/{skill_id}/revisions": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "GET /organizations/{organization_id}/custom-skills/{skill_id}/revisions",
+        "operationId": "list_custom_skill_revisions",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "skill_id",
+            "in": "path",
+            "description": "Custom skill ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Custom skill revisions retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_OrganizationCustomSkillRevisionSummary"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "POST /organizations/{organization_id}/custom-skills/{skill_id}/revisions",
+        "operationId": "create_custom_skill_revision",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "skill_id",
+            "in": "path",
+            "description": "Custom skill ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrganizationCustomSkillRevisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Custom skill revision created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationCustomSkillRevision"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/custom-skills/{skill_id}/revisions/{revision_id}": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "GET /organizations/{organization_id}/custom-skills/{skill_id}/revisions/{revision_id}",
+        "operationId": "get_custom_skill_revision",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "skill_id",
+            "in": "path",
+            "description": "Custom skill ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "revision_id",
+            "in": "path",
+            "description": "Revision ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Custom skill revision retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationCustomSkillRevision"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/custom-skills/{skill_id}/revisions/{revision_id}/bundle": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "GET /organizations/{organization_id}/custom-skills/{skill_id}/revisions/{revision_id}/bundle",
+        "operationId": "download_custom_skill_revision_bundle",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "skill_id",
+            "in": "path",
+            "description": "Custom skill ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "revision_id",
+            "in": "path",
+            "description": "Revision ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revision bundle download",
+            "content": {
+              "application/gzip": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/custom-skills/{skill_id}/revisions/{revision_id}/file": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "GET /organizations/{organization_id}/custom-skills/{skill_id}/revisions/{revision_id}/file?path=...",
+        "operationId": "get_custom_skill_revision_file",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "skill_id",
+            "in": "path",
+            "description": "Custom skill ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "revision_id",
+            "in": "path",
+            "description": "Revision ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revision file retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationCustomSkillFileContent"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/custom-skills/{skill_id}/revisions/{revision_id}/publish": {
+      "post": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "POST /organizations/{organization_id}/custom-skills/{skill_id}/revisions/{revision_id}/publish",
+        "operationId": "publish_custom_skill_revision",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "skill_id",
+            "in": "path",
+            "description": "Custom skill ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "revision_id",
+            "in": "path",
+            "description": "Revision ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revision published",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationCustomSkill"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -3367,6 +4033,105 @@
             "description": "Internal server error"
           }
         }
+      }
+    },
+    "/organizations/{organization_id}/private-chat-policy": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "GET /organizations/{organization_id}/private-chat-policy",
+        "operationId": "get_private_chat_policy",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID or 'default' for authenticated user's default organization",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization private chat policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationPrivateChatPolicy"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "User is not a member of the organization"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "PUT /organizations/{organization_id}/private-chat-policy",
+        "operationId": "update_private_chat_policy",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID or 'default' for authenticated user's default organization",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrganizationPrivateChatPolicyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated organization private chat policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationPrivateChatPolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "User is not allowed to update the organization"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
     "/organizations/{organization_id}/publishers": {
@@ -6961,6 +7726,43 @@
   },
   "components": {
     "schemas": {
+      "AcceptOrganizationInviteRequest": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "AcceptOrganizationInviteResult": {
+        "type": "object",
+        "required": [
+          "organization_id",
+          "organization_name",
+          "role"
+        ],
+        "properties": {
+          "affiliate_referral_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
       "AddPaymentMethodRequest": {
         "type": "object",
         "required": [
@@ -8013,6 +8815,48 @@
           }
         }
       },
+      "CreateOrganizationCustomSkillRequest": {
+        "type": "object",
+        "required": [
+          "slug",
+          "display_name",
+          "initial_revision"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "initial_revision": {
+            "$ref": "#/components/schemas/CreateOrganizationCustomSkillRevisionRequest"
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateOrganizationCustomSkillRevisionRequest": {
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrganizationCustomSkillFileInput"
+            }
+          },
+          "publish": {
+            "type": "boolean"
+          }
+        }
+      },
       "CreateOrganizationInviteRequest": {
         "type": "object",
         "description": "Request body for creating an organization invite.",
@@ -8884,6 +9728,52 @@
           },
           "success": {
             "type": "boolean"
+          }
+        }
+      },
+      "DataResponse_AcceptOrganizationInviteResult": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "organization_id",
+              "organization_name",
+              "role"
+            ],
+            "properties": {
+              "affiliate_referral_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "organization_name": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
           }
         }
       },
@@ -10411,6 +11301,292 @@
           }
         }
       },
+      "DataResponse_OrganizationCustomSkill": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "organization_id",
+              "slug",
+              "display_name",
+              "status",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "created_by_user_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "display_name": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "latest_revision": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/OrganizationCustomSkillRevisionSummary"
+                  }
+                ]
+              },
+              "latest_revision_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "published_revision": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/OrganizationCustomSkillRevisionSummary"
+                  }
+                ]
+              },
+              "published_revision_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "slug": {
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/components/schemas/OrganizationCustomSkillStatus"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "updated_by_user_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_OrganizationCustomSkillFileContent": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "revision_id",
+              "relative_path",
+              "content_type",
+              "size_bytes",
+              "sha256",
+              "content_base64",
+              "is_text"
+            ],
+            "properties": {
+              "content_base64": {
+                "type": "string"
+              },
+              "content_type": {
+                "type": "string"
+              },
+              "is_text": {
+                "type": "boolean"
+              },
+              "relative_path": {
+                "type": "string"
+              },
+              "revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "size_bytes": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_OrganizationCustomSkillRevision": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "organization_custom_skill_id",
+              "organization_id",
+              "revision_number",
+              "status",
+              "skill_md",
+              "skill_md_sha256",
+              "frontmatter",
+              "manifest",
+              "bundle_sha256",
+              "bundle_size_bytes",
+              "created_at",
+              "files"
+            ],
+            "properties": {
+              "bundle_artifact_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bundle_sha256": {
+                "type": "string"
+              },
+              "bundle_size_bytes": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "created_by_user_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/OrganizationCustomSkillFileMetadata"
+                }
+              },
+              "frontmatter": {},
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "manifest": {},
+              "organization_custom_skill_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "published_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "revision_number": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "skill_md": {
+                "type": "string"
+              },
+              "skill_md_sha256": {
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/components/schemas/OrganizationCustomSkillRevisionStatus"
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_OrganizationInvite": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -10502,6 +11678,118 @@
               },
               "plan": {
                 "$ref": "#/components/schemas/Plan"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_OrganizationPrivateChatPolicy": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "organization_id",
+              "mode",
+              "updated_at"
+            ],
+            "properties": {
+              "allow_claude_agent": {
+                "type": "boolean"
+              },
+              "allow_cloud_agent_launch": {
+                "type": "boolean"
+              },
+              "allow_codex_agent": {
+                "type": "boolean"
+              },
+              "allow_seren_agent": {
+                "type": "boolean"
+              },
+              "allow_seren_private_agent": {
+                "type": "boolean"
+              },
+              "deployment_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "deployment_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "disable_external_model_providers": {
+                "type": "boolean"
+              },
+              "disable_local_agents": {
+                "type": "boolean"
+              },
+              "disable_seren_models": {
+                "type": "boolean"
+              },
+              "fallback_models": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "force_private_model": {
+                "type": "boolean"
+              },
+              "hide_model_picker": {
+                "type": "boolean"
+              },
+              "mode": {
+                "$ref": "#/components/schemas/OrganizationPrivateChatMode"
+              },
+              "model_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "private_output_policy": {
+                "$ref": "#/components/schemas/ManagedAgentPrivateOutputPolicy"
+              },
+              "session_database": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentSessionDatabase"
+                  }
+                ]
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
               }
             }
           },
@@ -13184,6 +14472,227 @@
                 "updated_at": {
                   "type": "string",
                   "format": "date-time"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_OrganizationCustomSkill": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "organization_id",
+                "slug",
+                "display_name",
+                "status",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "created_by_user_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "display_name": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "latest_revision": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/OrganizationCustomSkillRevisionSummary"
+                    }
+                  ]
+                },
+                "latest_revision_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "organization_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "published_revision": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/OrganizationCustomSkillRevisionSummary"
+                    }
+                  ]
+                },
+                "published_revision_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "slug": {
+                  "type": "string"
+                },
+                "status": {
+                  "$ref": "#/components/schemas/OrganizationCustomSkillStatus"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "updated_by_user_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_OrganizationCustomSkillRevisionSummary": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "organization_custom_skill_id",
+                "organization_id",
+                "revision_number",
+                "status",
+                "bundle_sha256",
+                "bundle_size_bytes",
+                "file_count",
+                "created_at"
+              ],
+              "properties": {
+                "bundle_artifact_key": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "bundle_sha256": {
+                  "type": "string"
+                },
+                "bundle_size_bytes": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "created_by_user_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "file_count": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "organization_custom_skill_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "organization_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "published_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "revision_number": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "status": {
+                  "$ref": "#/components/schemas/OrganizationCustomSkillRevisionStatus"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               }
             }
@@ -16532,6 +18041,80 @@
           }
         }
       },
+      "ManagedAgentPrivateOutputPolicy": {
+        "type": "string",
+        "enum": [
+          "control_plane",
+          "private_session_database"
+        ]
+      },
+      "ManagedAgentSessionDatabase": {
+        "type": "object",
+        "required": [
+          "engine"
+        ],
+        "properties": {
+          "database_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional Seren organization database name when `provider` is `seren_organization_database`."
+          },
+          "engine": {
+            "$ref": "#/components/schemas/ManagedAgentSessionDatabaseEngine",
+            "description": "Session database engine family. The runtime still consumes a standard connection URL."
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ManagedAgentSessionDatabaseProvider",
+            "description": "Session database provider. Defaults to `direct_url`."
+          },
+          "url_secret_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Secret key whose value is the connection URL for the session database."
+          }
+        }
+      },
+      "ManagedAgentSessionDatabaseEngine": {
+        "type": "string",
+        "enum": [
+          "postgres",
+          "aurora_postgres"
+        ]
+      },
+      "ManagedAgentSessionDatabaseProvider": {
+        "type": "string",
+        "enum": [
+          "direct_url",
+          "seren_organization_database"
+        ]
+      },
+      "McpToolInfo": {
+        "type": "object",
+        "description": "Information about an MCP tool",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Tool description"
+          },
+          "input_schema": {
+            "description": "JSON Schema for tool input parameters"
+          },
+          "name": {
+            "type": "string",
+            "description": "Tool name"
+          }
+        }
+      },
       "OAuthProviderResponse": {
         "type": "object",
         "description": "Response type for OAuth provider (excludes sensitive fields like client_secret)",
@@ -16823,6 +18406,394 @@
           }
         }
       },
+      "OrganizationCustomSkill": {
+        "type": "object",
+        "required": [
+          "id",
+          "organization_id",
+          "slug",
+          "display_name",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "latest_revision": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrganizationCustomSkillRevisionSummary"
+              }
+            ]
+          },
+          "latest_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "published_revision": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrganizationCustomSkillRevisionSummary"
+              }
+            ]
+          },
+          "published_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OrganizationCustomSkillStatus"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_by_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "OrganizationCustomSkillFileContent": {
+        "type": "object",
+        "required": [
+          "revision_id",
+          "relative_path",
+          "content_type",
+          "size_bytes",
+          "sha256",
+          "content_base64",
+          "is_text"
+        ],
+        "properties": {
+          "content_base64": {
+            "type": "string"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "is_text": {
+            "type": "boolean"
+          },
+          "relative_path": {
+            "type": "string"
+          },
+          "revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "OrganizationCustomSkillFileInput": {
+        "type": "object",
+        "required": [
+          "relative_path",
+          "content_base64"
+        ],
+        "properties": {
+          "content_base64": {
+            "type": "string"
+          },
+          "content_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "relative_path": {
+            "type": "string"
+          }
+        }
+      },
+      "OrganizationCustomSkillFileMetadata": {
+        "type": "object",
+        "required": [
+          "id",
+          "revision_id",
+          "relative_path",
+          "content_type",
+          "size_bytes",
+          "sha256",
+          "is_text",
+          "created_at"
+        ],
+        "properties": {
+          "content_type": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_text": {
+            "type": "boolean"
+          },
+          "relative_path": {
+            "type": "string"
+          },
+          "revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "OrganizationCustomSkillRevision": {
+        "type": "object",
+        "required": [
+          "id",
+          "organization_custom_skill_id",
+          "organization_id",
+          "revision_number",
+          "status",
+          "skill_md",
+          "skill_md_sha256",
+          "frontmatter",
+          "manifest",
+          "bundle_sha256",
+          "bundle_size_bytes",
+          "created_at",
+          "files"
+        ],
+        "properties": {
+          "bundle_artifact_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bundle_sha256": {
+            "type": "string"
+          },
+          "bundle_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrganizationCustomSkillFileMetadata"
+            }
+          },
+          "frontmatter": {},
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "manifest": {},
+          "organization_custom_skill_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "published_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "revision_number": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "skill_md": {
+            "type": "string"
+          },
+          "skill_md_sha256": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OrganizationCustomSkillRevisionStatus"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "OrganizationCustomSkillRevisionStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "published",
+          "superseded",
+          "archived"
+        ]
+      },
+      "OrganizationCustomSkillRevisionSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "organization_custom_skill_id",
+          "organization_id",
+          "revision_number",
+          "status",
+          "bundle_sha256",
+          "bundle_size_bytes",
+          "file_count",
+          "created_at"
+        ],
+        "properties": {
+          "bundle_artifact_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bundle_sha256": {
+            "type": "string"
+          },
+          "bundle_size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "file_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_custom_skill_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "published_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "revision_number": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OrganizationCustomSkillRevisionStatus"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "OrganizationCustomSkillStatus": {
+        "type": "string",
+        "enum": [
+          "active",
+          "archived"
+        ]
+      },
       "OrganizationInvite": {
         "type": "object",
         "description": "Response type for organization invites (token is not exposed over the API).",
@@ -17011,6 +18982,105 @@
           },
           "plan": {
             "$ref": "#/components/schemas/Plan"
+          }
+        }
+      },
+      "OrganizationPrivateChatMode": {
+        "type": "string",
+        "enum": [
+          "standard",
+          "private_org_agent"
+        ]
+      },
+      "OrganizationPrivateChatPolicy": {
+        "type": "object",
+        "required": [
+          "organization_id",
+          "mode",
+          "updated_at"
+        ],
+        "properties": {
+          "allow_claude_agent": {
+            "type": "boolean"
+          },
+          "allow_cloud_agent_launch": {
+            "type": "boolean"
+          },
+          "allow_codex_agent": {
+            "type": "boolean"
+          },
+          "allow_seren_agent": {
+            "type": "boolean"
+          },
+          "allow_seren_private_agent": {
+            "type": "boolean"
+          },
+          "deployment_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "deployment_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "disable_external_model_providers": {
+            "type": "boolean"
+          },
+          "disable_local_agents": {
+            "type": "boolean"
+          },
+          "disable_seren_models": {
+            "type": "boolean"
+          },
+          "fallback_models": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "force_private_model": {
+            "type": "boolean"
+          },
+          "hide_model_picker": {
+            "type": "boolean"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/OrganizationPrivateChatMode"
+          },
+          "model_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "private_output_policy": {
+            "$ref": "#/components/schemas/ManagedAgentPrivateOutputPolicy"
+          },
+          "session_database": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentSessionDatabase"
+              }
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -19083,6 +21153,16 @@
             "type": "string",
             "description": "Why this publisher was suggested"
           },
+          "mcp_tools": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/McpToolInfo"
+            },
+            "description": "Cached MCP tool schemas for MCP publishers"
+          },
           "name": {
             "type": "string"
           },
@@ -19694,6 +21774,15 @@
         "description": "A Stripe Payment Method ID (pm_xxx).",
         "example": "pm_1234567890abcdef"
       },
+      "SubmitTaskInputRequest": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {}
+        }
+      },
       "SuggestResponse": {
         "type": "object",
         "description": "Response for suggest endpoint\nReturns publisher and agent recommendations based on task/query matching",
@@ -20223,6 +22312,127 @@
               "null"
             ],
             "description": "If omitted, leave unchanged. If null, clear."
+          }
+        }
+      },
+      "UpdateOrganizationCustomSkillRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "If omitted, leave unchanged. If null, clear."
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrganizationCustomSkillStatus"
+              }
+            ]
+          }
+        }
+      },
+      "UpdateOrganizationPrivateChatPolicyRequest": {
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "allow_claude_agent": {
+            "type": "boolean"
+          },
+          "allow_cloud_agent_launch": {
+            "type": "boolean"
+          },
+          "allow_codex_agent": {
+            "type": "boolean"
+          },
+          "allow_seren_agent": {
+            "type": "boolean"
+          },
+          "allow_seren_private_agent": {
+            "type": "boolean"
+          },
+          "clear_session_database": {
+            "type": "boolean"
+          },
+          "deployment_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "disable_external_model_providers": {
+            "type": "boolean"
+          },
+          "disable_local_agents": {
+            "type": "boolean"
+          },
+          "disable_seren_models": {
+            "type": "boolean"
+          },
+          "fallback_models": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "force_private_model": {
+            "type": "boolean"
+          },
+          "hide_model_picker": {
+            "type": "boolean"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/OrganizationPrivateChatMode"
+          },
+          "model_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "private_output_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentPrivateOutputPolicy"
+              }
+            ]
+          },
+          "session_database": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentSessionDatabase"
+              }
+            ]
+          },
+          "session_database_secret_value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional new secret value for the private DB URL referenced by `session_database.url_secret_key`.\n\nThis is write-only and is not returned by the API."
           }
         }
       },
@@ -21231,6 +23441,12 @@
           "created_at"
         ],
         "properties": {
+          "affiliate_referral_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "avatar_url": {
             "type": [
               "string",
