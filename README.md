@@ -52,7 +52,7 @@ seren projects create --name my-project --region aws-us-east-1
 
 ```toml
 [dependencies]
-seren = "0.3"
+seren = "0.5"
 ```
 
 ```rust
