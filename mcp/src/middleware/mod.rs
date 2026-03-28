@@ -60,8 +60,10 @@ fn metrics_path_label(uri: &axum::http::Uri) -> &'static str {
     let path = uri.path();
     if path.starts_with("/mcp") {
         "/mcp"
-    } else if path == "/health" {
-        "/health"
+    } else if path == "/livez" {
+        "/livez"
+    } else if path == "/readyz" {
+        "/readyz"
     } else if path == "/metrics" {
         "/metrics"
     } else {

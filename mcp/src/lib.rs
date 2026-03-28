@@ -35,8 +35,13 @@ struct HealthCheckState {
     store: Option<Arc<TokenStore>>,
 }
 
-/// Health check endpoint for k8s liveness/readiness probes
-async fn health_check(
+/// Liveness probe - process is alive and the HTTP stack is responding.
+async fn livez() -> impl IntoResponse {
+    axum::http::StatusCode::OK
+}
+
+/// Readiness probe - verifies required dependencies before taking traffic.
+async fn readyz(
     State(state): State<HealthCheckState>,
 ) -> Result<impl IntoResponse, (axum::http::StatusCode, axum::Json<serde_json::Value>)> {
     // Check database connectivity if store is available
@@ -1191,9 +1196,10 @@ async fn run_http(config: Config) -> Result<()> {
             require_simple_auth,
         ));
 
-    // Health endpoint (no auth required) for k8s probes
+    // Health endpoints (no auth required) for k8s probes
     let health_router = axum::Router::new()
-        .route("/health", axum::routing::get(health_check))
+        .route("/livez", axum::routing::get(livez))
+        .route("/readyz", axum::routing::get(readyz))
         .with_state(HealthCheckState { store: None });
 
     // Documentation fallback - serves docs at any unmatched route
@@ -1216,6 +1222,9 @@ async fn run_http(config: Config) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
     tracing::info!("Streamable HTTP MCP server listening on {}", addr);
+    tracing::info!("Health endpoints:");
+    tracing::info!("  GET /livez   - liveness");
+    tracing::info!("  GET /readyz  - readiness");
     tracing::info!("  POST   /mcp - send JSON-RPC messages");
     tracing::info!("  GET    /mcp - establish SSE stream (with session)");
     tracing::info!("  DELETE /mcp - close session");
@@ -1458,9 +1467,10 @@ async fn run_oauth(config: Config) -> Result<()> {
             require_oauth_auth,
         ));
 
-    // Health endpoint (no auth required) for k8s probes
+    // Health endpoints (no auth required) for k8s probes
     let health_router = axum::Router::new()
-        .route("/health", axum::routing::get(health_check))
+        .route("/livez", axum::routing::get(livez))
+        .route("/readyz", axum::routing::get(readyz))
         .with_state(HealthCheckState {
             store: Some(health_store),
         });
@@ -1494,6 +1504,9 @@ async fn run_oauth(config: Config) -> Result<()> {
     tracing::info!("  POST /register - Dynamic client registration");
     tracing::info!("  GET  /authorize - Authorization endpoint");
     tracing::info!("  POST /token - Token endpoint");
+    tracing::info!("Health endpoints:");
+    tracing::info!("  GET  /livez   - liveness");
+    tracing::info!("  GET  /readyz  - readiness");
     tracing::info!("MCP endpoint:");
     tracing::info!("  POST   /mcp - send JSON-RPC messages");
     tracing::info!("  GET    /mcp - establish SSE stream (with session)");

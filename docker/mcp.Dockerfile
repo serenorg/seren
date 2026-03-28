@@ -54,6 +54,6 @@ ENV RUST_LOG=seren_mcp=info,tower_http=info
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -sf http://localhost:${PORT}/health || exit 1
+    CMD curl -sf http://localhost:${PORT}/readyz || exit 1
 
 CMD ["seren", "mcp", "start:server"]

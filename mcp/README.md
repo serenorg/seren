@@ -543,7 +543,7 @@ cargo build --release --package seren-cli --features telemetry
 Ensure the MCP server is running and accessible:
 
 ```bash
-curl http://localhost:3000/health
+curl http://localhost:3000/readyz
 ```
 
 ### OAuth authentication fails

@@ -1,6 +1,6 @@
 //! Documentation page handler for the MCP server.
 //!
-//! Serves a static HTML documentation page at all routes except /mcp, /health,
+//! Serves a static HTML documentation page at all routes except /mcp, /livez,
 //! and OAuth endpoints. Tool information is auto-generated from server.rs at build time.
 
 use axum::response::{Html, IntoResponse};
