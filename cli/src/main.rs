@@ -1416,6 +1416,15 @@ enum OrgAction {
         #[command(subcommand)]
         action: Box<OrgOauthAction>,
     },
+    /// Manage organization custom skills
+    Skills {
+        /// Organization ID
+        #[arg(long)]
+        org_id: String,
+
+        #[command(subcommand)]
+        action: Box<OrgSkillsAction>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1517,6 +1526,92 @@ enum OrgOauthAction {
     Delete {
         /// OAuth provider ID (UUID)
         provider_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum OrgSkillsAction {
+    /// List custom skills for the organization
+    List,
+    /// Get one custom skill by ID
+    Get {
+        /// Custom skill ID (UUID)
+        skill_id: String,
+    },
+    /// Create a new custom skill from a local directory
+    Create {
+        /// URL-safe skill slug
+        #[arg(long)]
+        slug: String,
+        /// Display name
+        #[arg(long)]
+        display_name: String,
+        /// Optional description
+        #[arg(long)]
+        description: Option<String>,
+        /// Path to the local skill directory containing SKILL.md
+        #[arg(long)]
+        path: String,
+        /// Publish the initial revision immediately
+        #[arg(long, default_value_t = true)]
+        publish: bool,
+    },
+    /// Update skill metadata
+    Update {
+        /// Custom skill ID (UUID)
+        skill_id: String,
+        /// New display name
+        #[arg(long)]
+        display_name: Option<String>,
+        /// New description
+        #[arg(long)]
+        description: Option<String>,
+        /// Clear the description
+        #[arg(long, default_value_t = false)]
+        clear_description: bool,
+        /// New status (active or archived)
+        #[arg(long)]
+        status: Option<String>,
+    },
+    /// List revisions for a custom skill
+    Revisions {
+        /// Custom skill ID (UUID)
+        skill_id: String,
+    },
+    /// Get one revision by ID
+    RevisionGet {
+        /// Custom skill ID (UUID)
+        skill_id: String,
+        /// Revision ID (UUID)
+        revision_id: String,
+    },
+    /// Upload a new revision from a local directory
+    RevisionCreate {
+        /// Custom skill ID (UUID)
+        skill_id: String,
+        /// Path to the local skill directory containing SKILL.md
+        #[arg(long)]
+        path: String,
+        /// Publish the revision immediately
+        #[arg(long, default_value_t = false)]
+        publish: bool,
+    },
+    /// Publish an existing revision
+    Publish {
+        /// Custom skill ID (UUID)
+        skill_id: String,
+        /// Revision ID (UUID)
+        revision_id: String,
+    },
+    /// Download a revision bundle
+    DownloadBundle {
+        /// Custom skill ID (UUID)
+        skill_id: String,
+        /// Revision ID (UUID)
+        revision_id: String,
+        /// Output path for the tar.gz bundle
+        #[arg(long)]
+        output: Option<String>,
     },
 }
 
@@ -3005,6 +3100,87 @@ async fn main() -> anyhow::Result<()> {
                 }
                 OrgOauthAction::Delete { provider_id } => {
                     commands::org_oauth_providers::delete(&org_id, &provider_id, &ctx).await?
+                }
+            },
+            OrgAction::Skills { org_id, action } => match *action {
+                OrgSkillsAction::List => commands::org_skills::list(&org_id, &ctx).await?,
+                OrgSkillsAction::Get { skill_id } => {
+                    commands::org_skills::get(&org_id, &skill_id, &ctx).await?
+                }
+                OrgSkillsAction::Create {
+                    slug,
+                    display_name,
+                    description,
+                    path,
+                    publish,
+                } => {
+                    commands::org_skills::create(
+                        &org_id,
+                        &slug,
+                        &display_name,
+                        description.as_deref(),
+                        &path,
+                        publish,
+                        &ctx,
+                    )
+                    .await?
+                }
+                OrgSkillsAction::Update {
+                    skill_id,
+                    display_name,
+                    description,
+                    clear_description,
+                    status,
+                } => {
+                    commands::org_skills::update(
+                        &org_id,
+                        &skill_id,
+                        display_name.as_deref(),
+                        description.as_deref(),
+                        clear_description,
+                        status.as_deref(),
+                        &ctx,
+                    )
+                    .await?
+                }
+                OrgSkillsAction::Revisions { skill_id } => {
+                    commands::org_skills::list_revisions(&org_id, &skill_id, &ctx).await?
+                }
+                OrgSkillsAction::RevisionGet {
+                    skill_id,
+                    revision_id,
+                } => {
+                    commands::org_skills::get_revision(&org_id, &skill_id, &revision_id, &ctx)
+                        .await?
+                }
+                OrgSkillsAction::RevisionCreate {
+                    skill_id,
+                    path,
+                    publish,
+                } => {
+                    commands::org_skills::create_revision(&org_id, &skill_id, &path, publish, &ctx)
+                        .await?
+                }
+                OrgSkillsAction::Publish {
+                    skill_id,
+                    revision_id,
+                } => {
+                    commands::org_skills::publish_revision(&org_id, &skill_id, &revision_id, &ctx)
+                        .await?
+                }
+                OrgSkillsAction::DownloadBundle {
+                    skill_id,
+                    revision_id,
+                    output,
+                } => {
+                    commands::org_skills::download_bundle(
+                        &org_id,
+                        &skill_id,
+                        &revision_id,
+                        output.as_deref(),
+                        &ctx,
+                    )
+                    .await?
                 }
             },
         },

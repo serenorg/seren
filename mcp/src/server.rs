@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use alloy::primitives::U256;
 use base64::Engine;
+use futures::TryStreamExt;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::{router::tool::ToolRouter, tool::ToolCallContext, wrapper::Parameters},
@@ -207,6 +208,93 @@ pub struct UpdateOrgOAuthProviderParams {
 }
 
 pub type DeleteOrgOAuthProviderParams = OrgOAuthProviderPath;
+
+// Organization custom skill operations
+#[allow(dead_code)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct OrgCustomSkillPath {
+    /// The organization ID (UUID)
+    pub organization_id: Uuid,
+    /// The custom skill ID (UUID)
+    pub skill_id: Uuid,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct OrgCustomSkillRevisionPath {
+    /// The organization ID (UUID)
+    pub organization_id: Uuid,
+    /// The custom skill ID (UUID)
+    pub skill_id: Uuid,
+    /// The revision ID (UUID)
+    pub revision_id: Uuid,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ListOrgCustomSkillsParams {
+    /// The organization ID (UUID)
+    pub organization_id: Uuid,
+    /// Include archived skills in the result set
+    #[serde(default)]
+    pub include_archived: Option<bool>,
+    /// Optional search query matched against skill metadata
+    #[serde(default)]
+    pub q: Option<String>,
+}
+
+#[allow(dead_code)]
+pub type GetOrgCustomSkillParams = OrgCustomSkillPath;
+#[allow(dead_code)]
+pub type ListOrgCustomSkillRevisionsParams = OrgCustomSkillPath;
+#[allow(dead_code)]
+pub type GetOrgCustomSkillRevisionParams = OrgCustomSkillRevisionPath;
+#[allow(dead_code)]
+pub type PublishOrgCustomSkillRevisionParams = OrgCustomSkillRevisionPath;
+#[allow(dead_code)]
+pub type DownloadOrgCustomSkillRevisionBundleParams = OrgCustomSkillRevisionPath;
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CreateOrgCustomSkillParams {
+    #[serde(flatten)]
+    pub path: OrganizationPath,
+    #[serde(flatten)]
+    pub body: seren::CreateOrganizationCustomSkillRequest,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct UpdateOrgCustomSkillParams {
+    /// The organization ID (UUID)
+    pub organization_id: Uuid,
+    /// The custom skill ID (UUID)
+    pub skill_id: Uuid,
+    #[serde(flatten)]
+    pub body: seren::UpdateOrganizationCustomSkillRequest,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CreateOrgCustomSkillRevisionParams {
+    #[serde(flatten)]
+    pub path: OrgCustomSkillPath,
+    #[serde(flatten)]
+    pub body: seren::CreateOrganizationCustomSkillRevisionRequest,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetOrgCustomSkillRevisionFileParams {
+    /// The organization ID (UUID)
+    pub organization_id: Uuid,
+    /// The custom skill ID (UUID)
+    pub skill_id: Uuid,
+    /// The revision ID (UUID)
+    pub revision_id: Uuid,
+    /// Relative path to the file within the skill bundle
+    pub file_path: String,
+}
 
 // Connection and SQL operations (branch path + additional params)
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -5210,6 +5298,273 @@ impl SerenMcpServer {
     // ========================================================================
     // Agent Store Tools (agent paid access)
     // ========================================================================
+
+    #[tool(
+        description = "List custom skills for an organization. Use include_archived=true to include archived skills, and q to filter by name, slug, or description.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_org_custom_skills(
+        &self,
+        Parameters(params): Parameters<ListOrgCustomSkillsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .list_custom_skills(
+                &params.organization_id,
+                params.include_archived,
+                params.q.as_deref(),
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get one organization custom skill by ID, including its published and latest revision summaries.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_org_custom_skill(
+        &self,
+        Parameters(params): Parameters<GetOrgCustomSkillParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .get_custom_skill(&params.organization_id, &params.skill_id)
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Create a new organization custom skill from inline skill files. The payload must include a root SKILL.md file in initial_revision.files.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn create_org_custom_skill(
+        &self,
+        Parameters(params): Parameters<CreateOrgCustomSkillParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .create_custom_skill(&params.path.organization_id, &params.body)
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Update organization custom skill metadata such as display name, description, or archived status.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn update_org_custom_skill(
+        &self,
+        Parameters(params): Parameters<UpdateOrgCustomSkillParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .update_custom_skill(&params.organization_id, &params.skill_id, &params.body)
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List all revisions for an organization custom skill.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_org_custom_skill_revisions(
+        &self,
+        Parameters(params): Parameters<ListOrgCustomSkillRevisionsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .list_custom_skill_revisions(&params.organization_id, &params.skill_id)
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get one custom skill revision, including its parsed manifest and full file metadata.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_org_custom_skill_revision(
+        &self,
+        Parameters(params): Parameters<GetOrgCustomSkillRevisionParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .get_custom_skill_revision(
+                &params.organization_id,
+                &params.skill_id,
+                &params.revision_id,
+            )
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Create a new revision for an organization custom skill from inline files. The payload must include a root SKILL.md file.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn create_org_custom_skill_revision(
+        &self,
+        Parameters(params): Parameters<CreateOrgCustomSkillRevisionParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .create_custom_skill_revision(
+                &params.path.organization_id,
+                &params.path.skill_id,
+                &params.body,
+            )
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Publish a custom skill revision so it becomes the active organization version consumed by clients.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn publish_org_custom_skill_revision(
+        &self,
+        Parameters(params): Parameters<PublishOrgCustomSkillRevisionParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .publish_custom_skill_revision(
+                &params.organization_id,
+                &params.skill_id,
+                &params.revision_id,
+            )
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Fetch one file from an organization custom skill revision. Text files are returned as base64 plus metadata so the caller can decode or preserve bytes exactly.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_org_custom_skill_revision_file(
+        &self,
+        Parameters(params): Parameters<GetOrgCustomSkillRevisionFileParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .get_custom_skill_revision_file(
+                &params.organization_id,
+                &params.skill_id,
+                &params.revision_id,
+                &params.file_path,
+            )
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Download a custom skill revision bundle as a base64-encoded tar.gz payload with size metadata. Prefer file-level access when you only need specific files.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn download_org_custom_skill_revision_bundle(
+        &self,
+        Parameters(params): Parameters<DownloadOrgCustomSkillRevisionBundleParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .download_custom_skill_revision_bundle(
+                &params.organization_id,
+                &params.skill_id,
+                &params.revision_id,
+            )
+            .await
+        {
+            Ok(response) => response,
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
+
+        let mut stream = response.into_inner().into_inner();
+        let mut bytes = Vec::new();
+        while let Some(chunk) = stream
+            .try_next()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+        {
+            bytes.extend_from_slice(&chunk);
+        }
+
+        let payload = serde_json::json!({
+            "organization_id": params.organization_id,
+            "skill_id": params.skill_id,
+            "revision_id": params.revision_id,
+            "content_type": "application/gzip",
+            "bundle_base64": base64::engine::general_purpose::STANDARD.encode(&bytes),
+            "size_bytes": bytes.len(),
+        });
+
+        Ok(CallToolResult::success(vec![json_content(&payload)?]))
+    }
 
     #[tool(
         description = "List active publishers in the agent store (compact by default). Set verbose=true for full publisher objects. For task-specific recommendations, use suggest_for_task instead.",
