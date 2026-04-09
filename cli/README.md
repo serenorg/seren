@@ -429,7 +429,7 @@ seren -o json agent cloud overview # machine-readable activity summary
 | Variable | Description |
 |----------|-------------|
 | `SEREN_API_KEY` | API key for authentication |
-| `SEREN_API_HOST` | Custom API host URL |
+| `SEREN_API_BASE` | Custom API base URL |
 
 ## Configuration
 

@@ -5,9 +5,9 @@
 /// - Release builds (`cargo build --release`): `https://api.serendb.com`
 ///
 /// Runtime overrides are available via:
-/// - `SEREN_API_HOST` environment variable
+/// - `SEREN_API_BASE` environment variable
 /// - `SEREN_OAUTH_HOST` environment variable
-/// - `--api-host` command-line flag
+/// - `--api-base` command-line flag
 ///
 /// Default API host URL
 /// - Debug builds: http://localhost:8080
@@ -30,9 +30,19 @@ pub const DEFAULT_OAUTH_HOST: &str = if cfg!(debug_assertions) {
 /// Default OAuth client ID (same for all builds)
 pub const DEFAULT_CLIENT_ID: &str = "seren-cli";
 
-/// Normalize a CLI API host value.
+pub fn env_api_host_override() -> Option<String> {
+    std::env::var("SEREN_API_BASE")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+}
+
+pub fn runtime_api_host() -> String {
+    env_api_host_override().unwrap_or_else(|| DEFAULT_API_HOST.to_string())
+}
+
+/// Normalize a CLI API base value.
 ///
-/// The CLI treats `SEREN_API_HOST` / `--api-host` as a host (no `/api` suffix).
+/// The CLI treats `SEREN_API_BASE` / `--api-base` as a base URL (no `/api` suffix).
 /// For backward compatibility, a trailing `/api` is stripped.
 pub fn normalize_api_host(api_host: &str) -> String {
     let host = api_host.trim().trim_end_matches('/');

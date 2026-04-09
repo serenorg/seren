@@ -40,8 +40,8 @@ struct Cli {
     #[arg(long, short = 'o', global = true, default_value = "table")]
     format: OutputFormat,
 
-    /// API host URL
-    #[arg(long, global = true, env = "SEREN_API_HOST")]
+    /// API base URL
+    #[arg(long = "api-base", global = true, env = "SEREN_API_BASE")]
     api_host: Option<String>,
 
     /// API key for authentication (overrides stored credentials)
@@ -2997,9 +2997,13 @@ async fn execute_agent_cloud_action(
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    let api_host = cli
+        .api_host
+        .clone()
+        .or_else(crate::defaults::env_api_host_override);
 
     // Create shared command context for all commands
-    let ctx = CommandContext::new(cli.api_host.clone(), cli.api_key.clone(), cli.format);
+    let ctx = CommandContext::new(api_host.clone(), cli.api_key.clone(), cli.format);
 
     match cli.command {
         Commands::Auth { action } => match action {
@@ -3007,9 +3011,11 @@ async fn main() -> anyhow::Result<()> {
             AuthAction::Status => commands::auth::status().await?,
             AuthAction::Logout => commands::auth::logout().await?,
         },
-        Commands::Me => commands::auth::me(cli.format, cli.api_host, cli.api_key.clone()).await?,
+        Commands::Me => {
+            commands::auth::me(cli.format, api_host.clone(), cli.api_key.clone()).await?
+        }
         Commands::Organizations => {
-            commands::auth::organizations(cli.format, cli.api_host, cli.api_key.clone()).await?
+            commands::auth::organizations(cli.format, api_host.clone(), cli.api_key.clone()).await?
         }
         Commands::Orgs { action } => match action {
             OrgAction::Members { org_id } => {

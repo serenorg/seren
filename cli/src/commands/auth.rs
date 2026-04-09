@@ -12,7 +12,9 @@ use url::Url;
 
 use crate::OutputFormat;
 use crate::config::Config;
-use crate::defaults::{DEFAULT_API_HOST, DEFAULT_CLIENT_ID, DEFAULT_OAUTH_HOST, api_base_url};
+use crate::defaults::{
+    DEFAULT_API_HOST, DEFAULT_CLIENT_ID, DEFAULT_OAUTH_HOST, api_base_url, runtime_api_host,
+};
 use crate::output;
 
 const ACCESS_TOKEN_DEFAULT_TTL_SECS: i64 = 900; // 15 minutes
@@ -49,7 +51,7 @@ async fn login_oauth() -> Result<()> {
     // Get OAuth host from runtime env var or use compile-time default
     let oauth_host =
         std::env::var("SEREN_OAUTH_HOST").unwrap_or_else(|_| DEFAULT_OAUTH_HOST.to_string());
-    let api_host = std::env::var("SEREN_API_HOST").unwrap_or_else(|_| DEFAULT_API_HOST.to_string());
+    let api_host = runtime_api_host();
 
     // Start local server to receive OAuth callback
     let listener = TcpListener::bind("127.0.0.1:0")?;
@@ -162,7 +164,7 @@ async fn login_api_key() -> Result<()> {
 
     // Verify the API key by making a test request to the API
     println!("Verifying API key...");
-    let api_host = std::env::var("SEREN_API_HOST").unwrap_or_else(|_| DEFAULT_API_HOST.to_string());
+    let api_host = runtime_api_host();
     verify_token(&api_key, &api_host).await?;
 
     let config = Config::from_api_key(api_key);
