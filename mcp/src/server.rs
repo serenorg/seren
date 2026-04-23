@@ -753,6 +753,7 @@ fn endpoint_param_to_definition(
     }
 
     Ok(seren::EndpointDefinition {
+        access: None,
         method,
         path: path.to_string(),
         description: param.description,
@@ -1723,6 +1724,7 @@ fn build_update_seren_agent_deployment_request(
         private_output_policy: None,
         prompt: params.prompt.clone(),
         requirements,
+        runtime_adapter: None,
         secrets: params.secrets.clone(),
         session_database: None,
         side_effect_policy: None,
@@ -6023,7 +6025,8 @@ Examples:
                             .await
                         {
                             Ok(response) => {
-                                let result = response.into_inner();
+                                let result = serde_json::to_value(response.into_inner())
+                                    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
                                 return Ok(CallToolResult::success(vec![json_content(&result)?]));
                             }
                             Err(e) => Err(e),
@@ -6179,10 +6182,8 @@ Examples:
                                 }
                             }
                         }
-                        let text = String::from_utf8_lossy(&collected);
-                        return Ok(CallToolResult::success(vec![Content::text(
-                            text.to_string(),
-                        )]));
+                        let text = String::from_utf8_lossy(&collected).to_string();
+                        return Ok(CallToolResult::success(vec![Content::text(text)]));
                     } else {
                         let result: serde_json::Value = resp
                             .json()
@@ -7888,6 +7889,7 @@ API endpoint: {endpoint}",
         let request = seren::UpdateEndpointRequest {
             autoscaling_min: params.autoscaling_min,
             autoscaling_max: params.autoscaling_max,
+            compute_unit: None,
             suspend_timeout_seconds: params.suspend_timeout_seconds,
             pooler_enabled: None,
             pooler_mode: None,
@@ -10540,13 +10542,20 @@ mod tests {
         let x402_payload = base64::engine::general_purpose::STANDARD
             .encode(serde_json::json!({ "x402Version": 2 }).to_string());
 
+        let wrapped_response = serde_json::json!({
+            "data": {
+                "status": 200,
+                "body": { "ok": true },
+                "cost": "0.001",
+                "asset_symbol": "USDC"
+            }
+        });
+
         Mock::given(method("GET"))
             .and(path("/publishers/test-publisher/_mcp/resources"))
             .and(query_param("uri", resource_uri))
             .and(header("PAYMENT-SIGNATURE", x402_payload.as_str()))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "ok": true,
-            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(wrapped_response.clone()))
             .mount(&proxy)
             .await;
 
@@ -10564,7 +10573,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result, serde_json::json!({ "ok": true }));
+        assert_eq!(result, wrapped_response);
     }
 
     #[tokio::test]
@@ -10607,14 +10616,21 @@ mod tests {
             .mount(&proxy)
             .await;
 
+        let wrapped_response = serde_json::json!({
+            "data": {
+                "status": 200,
+                "body": { "ok": true },
+                "cost": "0.001",
+                "asset_symbol": "USDC"
+            }
+        });
+
         Mock::given(method("GET"))
             .and(path("/publishers/test-publisher/_mcp/resources"))
             .and(query_param("uri", resource_uri))
             .and(header_exists("X-AGENT-WALLET"))
             .and(header_exists("PAYMENT-SIGNATURE"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "ok": true,
-            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(wrapped_response.clone()))
             .with_priority(1)
             .mount(&proxy)
             .await;
@@ -10642,7 +10658,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result, serde_json::json!({ "ok": true }));
+        assert_eq!(result, wrapped_response);
     }
 
     #[tokio::test]
@@ -10864,7 +10880,10 @@ mod tests {
         assert_eq!(payload.resume_checkpoint_id.as_deref(), Some("chk_123"));
         let approval_decisions = payload.approval_decisions.unwrap();
         assert_eq!(approval_decisions[0].id, "approval-1");
-        assert_eq!(approval_decisions[0].decision, "reject");
+        assert_eq!(
+            approval_decisions[0].decision,
+            seren::CloudRunApprovalDecisionValue::Reject
+        );
         assert_eq!(approval_decisions[1].id, "approval-2");
     }
 }

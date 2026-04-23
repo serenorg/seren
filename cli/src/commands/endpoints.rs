@@ -105,6 +105,7 @@ pub async fn update(
     let mut request = seren::UpdateEndpointRequest {
         autoscaling_min: None,
         autoscaling_max: None,
+        compute_unit: None,
         pooler_enabled: None,
         pooler_mode: None,
         suspend_timeout_seconds: None,
