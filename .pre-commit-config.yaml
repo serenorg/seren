@@ -1,8 +1,6 @@
-# Prek hook configuration (no pre-commit required)
-# Install runner: brew install prek   # or see https://prek.j178.dev/installation/
-# One-time setup: prek install -f && prek install --hook-type commit-msg
-# Run manually:  prek run --all-files
-minimum_prek_version: "0.2.0"
+# Pre-commit hooks
+# Install: prek install
+# Run manually: prek run --all-files
 
 default_install_hook_types:
   - pre-commit
@@ -15,7 +13,7 @@ repos:
       - id: trailing-whitespace
         name: Remove trailing whitespace
         types: [text]
-        exclude: '.md$'
+        exclude: "\\.md$"
       - id: end-of-file-fixer
         name: Ensure files end with newline
         types: [text]
@@ -65,30 +63,22 @@ repos:
         pass_filenames: true
         args: ["--edition", "2024"]
 
-  # Rust clippy (workspace, not file-based - clippy operates on crates)
-  - repo: local
-    hooks:
-      - id: clippy-staged
-        name: clippy (workspace)
-        entry: cargo clippy -- -D warnings
-        language: system
-        types: [rust]
-        pass_filenames: false
-
   # Rust cargo check (warnings as errors)
   - repo: local
     hooks:
       - id: cargo-check
         name: cargo check (deny warnings)
-        entry: sh -c 'RUSTFLAGS="-D warnings" cargo check --workspace'
+        entry: sh -c 'set -eu; RUSTFLAGS="-D warnings" cargo check --workspace --locked'
         language: system
         types: [rust]
         pass_filenames: false
 
-# Exclude files
-exclude: |
-  (?x)(
-    ^target/|
-    ^\.git/|
-    \.lock$
-  )
+  # Rust clippy (workspace)
+  - repo: local
+    hooks:
+      - id: clippy
+        name: clippy (deny warnings)
+        entry: sh -c 'set -eu; cargo clippy --workspace --locked -- -D warnings'
+        language: system
+        types: [rust]
+        pass_filenames: false
