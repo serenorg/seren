@@ -5001,7 +5001,7 @@ pub async fn cloud_run_artifacts(run_id: Uuid, ctx: &CommandContext) -> Result<(
     let response = client
         .seren_cloud_run_artifacts(&run_id, None, None)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed to list run artifacts: {}", e))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())
@@ -5017,7 +5017,7 @@ pub async fn cloud_deployment_run_artifacts(
     let response = client
         .seren_cloud_deployment_run_artifacts(&deployment_id, &run_id, None, None)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed to list deployment run artifacts: {}", e))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())
@@ -5035,7 +5035,7 @@ pub async fn cloud_run_audit(
     let response = client
         .seren_cloud_run_audit(&run_id, action, Some(limit), Some(offset), q)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed to list run audit entries: {}", e))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())
@@ -5046,7 +5046,7 @@ pub async fn cloud_run_evals(run_id: Uuid, ctx: &CommandContext) -> Result<()> {
     let response = client
         .seren_cloud_run_evals(&run_id)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed to list run evals: {}", e))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())
@@ -5061,7 +5061,7 @@ pub async fn cloud_deployment_run_evals(
     let response = client
         .seren_cloud_deployment_run_evals(&deployment_id, &run_id)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed to list deployment run evals: {}", e))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())
@@ -5080,7 +5080,7 @@ pub async fn cloud_run_events(
     let response = client
         .seren_cloud_run_events(&run_id, item_id, kind, Some(limit), Some(offset), q)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed to list run events: {}", e))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())
@@ -5109,7 +5109,7 @@ pub async fn cloud_deployment_run_events(
             q,
         )
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed to list deployment run events: {}", e))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())
@@ -5323,7 +5323,7 @@ pub async fn cloud_run_stream_close(
     let response = client
         .seren_cloud_run_stream_close(&run_id, session_id)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed to close run stream: {}", e))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())
@@ -5345,7 +5345,7 @@ pub async fn cloud_deployment_run_stream_close(
     let response = client
         .seren_cloud_deployment_run_stream_close(&deployment_id, &run_id, session_id)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed to close deployment run stream: {}", e))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())
@@ -5362,7 +5362,7 @@ pub async fn cloud_audit_list(
     let response = client
         .seren_cloud_list_audit_entries(action, Some(limit), Some(offset), q)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed to list cloud audit entries: {}", e))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())
@@ -5373,7 +5373,7 @@ pub async fn cloud_audit_get(entry_id: Uuid, ctx: &CommandContext) -> Result<()>
     let response = client
         .seren_cloud_get_audit_entry(&entry_id)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed to get cloud audit entry: {}", e))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())
@@ -5384,7 +5384,7 @@ pub async fn cloud_audit_verify(limit: Option<i64>, ctx: &CommandContext) -> Res
     let response = client
         .seren_cloud_verify_audit(limit)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed to verify cloud audit chain: {}", e))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())
@@ -5395,7 +5395,7 @@ pub async fn cloud_deployment_spend(deployment_id: Uuid, ctx: &CommandContext) -
     let response = client
         .seren_cloud_get_deployment_spend(&deployment_id)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed to get deployment spend: {}", e))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())
@@ -5413,7 +5413,7 @@ pub async fn cloud_deployment_audit(
     let response = client
         .seren_cloud_deployment_audit(&deployment_id, action, Some(limit), Some(offset), q)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed to list deployment audit entries: {}", e))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())
@@ -5430,7 +5430,7 @@ pub async fn cloud_deployment_fs(
     let response = client
         .seren_cloud_deployment_fs(&deployment_id, limit, namespace, path)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed to inspect deployment filesystem: {}", e))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())
@@ -5447,7 +5447,7 @@ pub async fn cloud_deployment_fs_read_text(
     let response = client
         .seren_cloud_deployment_fs_read_text(&deployment_id, max_bytes, namespace, path)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed to read deployment text file: {}", e))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())
@@ -5465,7 +5465,7 @@ pub async fn cloud_deployment_fs_read_bytes(
     let response = client
         .seren_cloud_deployment_fs_read_bytes(&deployment_id, length, namespace, offset, path)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed to read deployment byte range: {}", e))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())
