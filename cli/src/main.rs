@@ -916,6 +916,11 @@ enum AgentCloudAction {
         #[command(subcommand)]
         action: CloudDeploymentAction,
     },
+    /// Inspect tamper-evident cloud audit logs
+    Audit {
+        #[command(subcommand)]
+        action: CloudAuditAction,
+    },
     /// Manage reusable cloud deployment environments
     Environment {
         #[command(subcommand)]
@@ -976,6 +981,73 @@ enum CloudDeploymentAction {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
     },
+    /// Get deployment spend summary
+    Spend {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+    /// List audit entries scoped to a deployment
+    Audit {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Filter by exact audit action
+        #[arg(long)]
+        action: Option<String>,
+        /// Maximum audit entries to return
+        #[arg(long, default_value = "50")]
+        limit: i64,
+        /// Pagination offset
+        #[arg(long, default_value = "0")]
+        offset: i64,
+        /// Case-insensitive search query
+        #[arg(long)]
+        q: Option<String>,
+    },
+    /// Inspect deployment filesystem state or artifacts
+    Fs {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Namespace root: artifacts or state
+        #[arg(long)]
+        namespace: Option<String>,
+        /// Relative path under the namespace
+        #[arg(long)]
+        path: Option<String>,
+        /// Maximum directory entries
+        #[arg(long)]
+        limit: Option<u64>,
+    },
+    /// Read a UTF-8 text file from deployment filesystem state or artifacts
+    FsReadText {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Relative file path under the namespace
+        #[arg(long)]
+        path: String,
+        /// Namespace root: artifacts or state
+        #[arg(long)]
+        namespace: Option<String>,
+        /// Maximum bytes to read
+        #[arg(long)]
+        max_bytes: Option<u64>,
+    },
+    /// Read a byte range from deployment filesystem state or artifacts
+    FsReadBytes {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Relative file path under the namespace
+        #[arg(long)]
+        path: String,
+        /// Namespace root: artifacts or state
+        #[arg(long)]
+        namespace: Option<String>,
+        /// Starting byte offset
+        #[arg(long)]
+        offset: Option<u64>,
+        /// Maximum bytes to read
+        #[arg(long)]
+        length: Option<u64>,
+    },
     /// Destroy a cloud agent deployment
     Destroy {
         /// Deployment ID (UUID)
@@ -1012,6 +1084,36 @@ enum CloudDeploymentAction {
         /// Remove the eval gate from the deployment
         #[arg(long, default_value_t = false)]
         clear_eval_gate: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum CloudAuditAction {
+    /// List tamper-evident audit entries
+    List {
+        /// Filter by exact audit action
+        #[arg(long)]
+        action: Option<String>,
+        /// Maximum audit entries to return
+        #[arg(long, default_value = "50")]
+        limit: i64,
+        /// Pagination offset
+        #[arg(long, default_value = "0")]
+        offset: i64,
+        /// Case-insensitive search query
+        #[arg(long)]
+        q: Option<String>,
+    },
+    /// Get one audit entry
+    Get {
+        /// Audit entry ID (UUID)
+        entry_id: Uuid,
+    },
+    /// Verify the audit hash chain
+    Verify {
+        /// Maximum audit entries to verify
+        #[arg(long)]
+        limit: Option<i64>,
     },
 }
 
@@ -1112,11 +1214,65 @@ enum CloudRunAction {
     },
     /// List artifacts emitted by a run
     Artifacts {
+        /// Deployment ID (UUID) for deployment-scoped lookup
+        #[arg(long)]
+        deployment_id: Option<Uuid>,
         /// Run event ID (UUID)
         run_id: Uuid,
     },
+    /// List audit entries scoped to a run
+    Audit {
+        /// Run event ID (UUID)
+        run_id: Uuid,
+        /// Filter by exact audit action
+        #[arg(long)]
+        action: Option<String>,
+        /// Maximum audit entries to return
+        #[arg(long, default_value = "50")]
+        limit: i64,
+        /// Pagination offset
+        #[arg(long, default_value = "0")]
+        offset: i64,
+        /// Case-insensitive search query
+        #[arg(long)]
+        q: Option<String>,
+    },
+    /// List eval records linked to a run
+    Evals {
+        /// Deployment ID (UUID) for deployment-scoped lookup
+        #[arg(long)]
+        deployment_id: Option<Uuid>,
+        /// Run event ID (UUID)
+        run_id: Uuid,
+    },
+    /// List structured output events emitted by a run
+    Events {
+        /// Deployment ID (UUID) for deployment-scoped lookup
+        #[arg(long)]
+        deployment_id: Option<Uuid>,
+        /// Run event ID (UUID)
+        run_id: Uuid,
+        /// Filter by tool/output item ID
+        #[arg(long)]
+        item_id: Option<String>,
+        /// Filter by event kind
+        #[arg(long)]
+        kind: Option<String>,
+        /// Maximum events to return
+        #[arg(long, default_value = "100")]
+        limit: i64,
+        /// Pagination offset
+        #[arg(long, default_value = "0")]
+        offset: i64,
+        /// Case-insensitive search query
+        #[arg(long)]
+        q: Option<String>,
+    },
     /// Stream run events over SSE, with optional session resume headers
     Stream {
+        /// Deployment ID (UUID) for deployment-scoped stream path
+        #[arg(long)]
+        deployment_id: Option<Uuid>,
         /// Run event ID (UUID)
         run_id: Uuid,
         /// Optional stream session ID to resume/reattach an existing stream session
@@ -1128,6 +1284,9 @@ enum CloudRunAction {
     },
     /// Close an active run stream session by run ID and session ID
     StreamClose {
+        /// Deployment ID (UUID) for deployment-scoped stream path
+        #[arg(long)]
+        deployment_id: Option<Uuid>,
         /// Run event ID (UUID)
         run_id: Uuid,
         /// Stream session ID returned by `cloud run stream`
@@ -2701,6 +2860,73 @@ async fn execute_agent_cloud_action(
             CloudDeploymentAction::Logs { deployment_id } => {
                 commands::agent::cloud_logs(deployment_id, ctx).await?
             }
+            CloudDeploymentAction::Spend { deployment_id } => {
+                commands::agent::cloud_deployment_spend(deployment_id, ctx).await?
+            }
+            CloudDeploymentAction::Audit {
+                deployment_id,
+                action,
+                limit,
+                offset,
+                q,
+            } => {
+                commands::agent::cloud_deployment_audit(
+                    deployment_id,
+                    action.as_deref(),
+                    limit,
+                    offset,
+                    q.as_deref(),
+                    ctx,
+                )
+                .await?
+            }
+            CloudDeploymentAction::Fs {
+                deployment_id,
+                namespace,
+                path,
+                limit,
+            } => {
+                commands::agent::cloud_deployment_fs(
+                    deployment_id,
+                    namespace.as_deref(),
+                    path.as_deref(),
+                    limit,
+                    ctx,
+                )
+                .await?
+            }
+            CloudDeploymentAction::FsReadText {
+                deployment_id,
+                path,
+                namespace,
+                max_bytes,
+            } => {
+                commands::agent::cloud_deployment_fs_read_text(
+                    deployment_id,
+                    &path,
+                    namespace.as_deref(),
+                    max_bytes,
+                    ctx,
+                )
+                .await?
+            }
+            CloudDeploymentAction::FsReadBytes {
+                deployment_id,
+                path,
+                namespace,
+                offset,
+                length,
+            } => {
+                commands::agent::cloud_deployment_fs_read_bytes(
+                    deployment_id,
+                    &path,
+                    namespace.as_deref(),
+                    offset,
+                    length,
+                    ctx,
+                )
+                .await?
+            }
             CloudDeploymentAction::Destroy { deployment_id } => {
                 commands::agent::cloud_destroy(deployment_id, ctx).await?
             }
@@ -2732,6 +2958,29 @@ async fn execute_agent_cloud_action(
                     ctx,
                 )
                 .await?
+            }
+        },
+        AgentCloudAction::Audit { action } => match action {
+            CloudAuditAction::List {
+                action,
+                limit,
+                offset,
+                q,
+            } => {
+                commands::agent::cloud_audit_list(
+                    action.as_deref(),
+                    limit,
+                    offset,
+                    q.as_deref(),
+                    ctx,
+                )
+                .await?
+            }
+            CloudAuditAction::Get { entry_id } => {
+                commands::agent::cloud_audit_get(entry_id, ctx).await?
+            }
+            CloudAuditAction::Verify { limit } => {
+                commands::agent::cloud_audit_verify(limit, ctx).await?
             }
         },
         AgentCloudAction::Environment { action } => match action {
@@ -2821,24 +3070,119 @@ async fn execute_agent_cloud_action(
                 baseline_run_id,
                 candidate_run_id,
             } => commands::agent::cloud_run_compare(baseline_run_id, candidate_run_id, ctx).await?,
-            CloudRunAction::Artifacts { run_id } => {
-                commands::agent::cloud_run_artifacts(run_id, ctx).await?
-            }
-            CloudRunAction::Stream {
+            CloudRunAction::Artifacts {
+                deployment_id,
                 run_id,
-                session_id,
-                last_event_id,
             } => {
-                commands::agent::cloud_run_stream(
+                if let Some(deployment_id) = deployment_id {
+                    commands::agent::cloud_deployment_run_artifacts(deployment_id, run_id, ctx)
+                        .await?
+                } else {
+                    commands::agent::cloud_run_artifacts(run_id, ctx).await?
+                }
+            }
+            CloudRunAction::Audit {
+                run_id,
+                action,
+                limit,
+                offset,
+                q,
+            } => {
+                commands::agent::cloud_run_audit(
                     run_id,
-                    session_id.as_deref(),
-                    last_event_id.as_deref(),
+                    action.as_deref(),
+                    limit,
+                    offset,
+                    q.as_deref(),
                     ctx,
                 )
                 .await?
             }
-            CloudRunAction::StreamClose { run_id, session_id } => {
-                commands::agent::cloud_run_stream_close(run_id, &session_id, ctx).await?
+            CloudRunAction::Evals {
+                deployment_id,
+                run_id,
+            } => {
+                if let Some(deployment_id) = deployment_id {
+                    commands::agent::cloud_deployment_run_evals(deployment_id, run_id, ctx).await?
+                } else {
+                    commands::agent::cloud_run_evals(run_id, ctx).await?
+                }
+            }
+            CloudRunAction::Events {
+                deployment_id,
+                run_id,
+                item_id,
+                kind,
+                limit,
+                offset,
+                q,
+            } => {
+                if let Some(deployment_id) = deployment_id {
+                    commands::agent::cloud_deployment_run_events(
+                        deployment_id,
+                        run_id,
+                        item_id.as_deref(),
+                        kind.as_deref(),
+                        limit,
+                        offset,
+                        q.as_deref(),
+                        ctx,
+                    )
+                    .await?
+                } else {
+                    commands::agent::cloud_run_events(
+                        run_id,
+                        item_id.as_deref(),
+                        kind.as_deref(),
+                        limit,
+                        offset,
+                        q.as_deref(),
+                        ctx,
+                    )
+                    .await?
+                }
+            }
+            CloudRunAction::Stream {
+                deployment_id,
+                run_id,
+                session_id,
+                last_event_id,
+            } => {
+                if let Some(deployment_id) = deployment_id {
+                    commands::agent::cloud_deployment_run_stream(
+                        deployment_id,
+                        run_id,
+                        session_id.as_deref(),
+                        last_event_id.as_deref(),
+                        ctx,
+                    )
+                    .await?
+                } else {
+                    commands::agent::cloud_run_stream(
+                        run_id,
+                        session_id.as_deref(),
+                        last_event_id.as_deref(),
+                        ctx,
+                    )
+                    .await?
+                }
+            }
+            CloudRunAction::StreamClose {
+                deployment_id,
+                run_id,
+                session_id,
+            } => {
+                if let Some(deployment_id) = deployment_id {
+                    commands::agent::cloud_deployment_run_stream_close(
+                        deployment_id,
+                        run_id,
+                        &session_id,
+                        ctx,
+                    )
+                    .await?
+                } else {
+                    commands::agent::cloud_run_stream_close(run_id, &session_id, ctx).await?
+                }
             }
             CloudRunAction::PendingApprovals {
                 deployment_id,
@@ -4528,6 +4872,135 @@ mod tests {
                                 run_id,
                                 Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap()
                             );
+                        }
+                        _ => panic!("unexpected run action parsed"),
+                    },
+                    _ => panic!("unexpected cloud action parsed"),
+                },
+                _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn cloud_audit_list_accepts_filters() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "cloud",
+            "audit",
+            "list",
+            "--action",
+            "run.completed",
+            "--limit",
+            "25",
+            "--q",
+            "deploy",
+        ]);
+
+        match cli.command {
+            Commands::Agent { action, .. } => match *action {
+                AgentAction::Cloud { action } => match *action {
+                    AgentCloudAction::Audit { action } => match action {
+                        CloudAuditAction::List {
+                            action, limit, q, ..
+                        } => {
+                            assert_eq!(action.as_deref(), Some("run.completed"));
+                            assert_eq!(limit, 25);
+                            assert_eq!(q.as_deref(), Some("deploy"));
+                        }
+                        _ => panic!("unexpected audit action parsed"),
+                    },
+                    _ => panic!("unexpected cloud action parsed"),
+                },
+                _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn cloud_deployment_fs_read_text_accepts_namespace() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "cloud",
+            "deployment",
+            "fs-read-text",
+            "11111111-1111-1111-1111-111111111111",
+            "--path",
+            "logs/run.txt",
+            "--namespace",
+            "artifacts",
+            "--max-bytes",
+            "1024",
+        ]);
+
+        match cli.command {
+            Commands::Agent { action, .. } => match *action {
+                AgentAction::Cloud { action } => match *action {
+                    AgentCloudAction::Deployment { action } => match action {
+                        CloudDeploymentAction::FsReadText {
+                            deployment_id,
+                            path,
+                            namespace,
+                            max_bytes,
+                        } => {
+                            assert_eq!(
+                                deployment_id,
+                                Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap()
+                            );
+                            assert_eq!(path, "logs/run.txt");
+                            assert_eq!(namespace.as_deref(), Some("artifacts"));
+                            assert_eq!(max_bytes, Some(1024));
+                        }
+                        _ => panic!("unexpected deployment action parsed"),
+                    },
+                    _ => panic!("unexpected cloud action parsed"),
+                },
+                _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn cloud_run_stream_close_accepts_deployment_scope() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "cloud",
+            "run",
+            "stream-close",
+            "--deployment-id",
+            "33333333-3333-3333-3333-333333333333",
+            "22222222-2222-2222-2222-222222222222",
+            "--session-id",
+            "session-1",
+        ]);
+
+        match cli.command {
+            Commands::Agent { action, .. } => match *action {
+                AgentAction::Cloud { action } => match *action {
+                    AgentCloudAction::Run { action } => match action {
+                        CloudRunAction::StreamClose {
+                            deployment_id,
+                            run_id,
+                            session_id,
+                        } => {
+                            assert_eq!(
+                                deployment_id,
+                                Some(
+                                    Uuid::parse_str("33333333-3333-3333-3333-333333333333")
+                                        .unwrap()
+                                )
+                            );
+                            assert_eq!(
+                                run_id,
+                                Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap()
+                            );
+                            assert_eq!(session_id, "session-1");
                         }
                         _ => panic!("unexpected run action parsed"),
                     },

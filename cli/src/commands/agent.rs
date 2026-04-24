@@ -5007,6 +5007,114 @@ pub async fn cloud_run_artifacts(run_id: Uuid, ctx: &CommandContext) -> Result<(
     Ok(())
 }
 
+/// List artifacts emitted by a deployment-scoped run.
+pub async fn cloud_deployment_run_artifacts(
+    deployment_id: Uuid,
+    run_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_deployment_run_artifacts(&deployment_id, &run_id, None, None)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn cloud_run_audit(
+    run_id: Uuid,
+    action: Option<&str>,
+    limit: i64,
+    offset: i64,
+    q: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_run_audit(&run_id, action, Some(limit), Some(offset), q)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn cloud_run_evals(run_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_run_evals(&run_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn cloud_deployment_run_evals(
+    deployment_id: Uuid,
+    run_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_deployment_run_evals(&deployment_id, &run_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn cloud_run_events(
+    run_id: Uuid,
+    item_id: Option<&str>,
+    kind: Option<&str>,
+    limit: i64,
+    offset: i64,
+    q: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_run_events(&run_id, item_id, kind, Some(limit), Some(offset), q)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn cloud_deployment_run_events(
+    deployment_id: Uuid,
+    run_id: Uuid,
+    item_id: Option<&str>,
+    kind: Option<&str>,
+    limit: i64,
+    offset: i64,
+    q: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_deployment_run_events(
+            &deployment_id,
+            &run_id,
+            item_id,
+            kind,
+            Some(limit),
+            Some(offset),
+            q,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
 /// Cancel a queued/running run event by run ID (global path).
 pub async fn cloud_run_cancel_by_id(run_id: Uuid, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
@@ -5029,16 +5137,59 @@ pub async fn cloud_run_stream(
     last_event_id: Option<&str>,
     ctx: &CommandContext,
 ) -> Result<()> {
-    use futures_util::StreamExt;
-
-    let client = ctx.http_client().await?;
     let url = format!(
         "{}/publishers/seren-cloud/runs/{}/stream",
         ctx.api_base(),
         run_id
     );
+    let close_command = |server_session_id: &str| {
+        format!(
+            "Close session: seren agent cloud run stream-close {} --session-id {}",
+            run_id, server_session_id
+        )
+    };
+    cloud_run_stream_url(&url, run_id, session_id, last_event_id, close_command, ctx).await
+}
 
-    let mut request = client.get(&url).header("Accept", "text/event-stream");
+/// Stream updates for a deployment-scoped run via SSE.
+///
+/// Uses raw HTTP so callers can pass SSE resume headers that are not exposed by
+/// the generated stream method.
+pub async fn cloud_deployment_run_stream(
+    deployment_id: Uuid,
+    run_id: Uuid,
+    session_id: Option<&str>,
+    last_event_id: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let url = format!(
+        "{}/publishers/seren-cloud/deployments/{}/runs/{}/stream",
+        ctx.api_base(),
+        deployment_id,
+        run_id
+    );
+    let close_command = |server_session_id: &str| {
+        format!(
+            "Close session: seren agent cloud run stream-close --deployment-id {} {} --session-id {}",
+            deployment_id, run_id, server_session_id
+        )
+    };
+    cloud_run_stream_url(&url, run_id, session_id, last_event_id, close_command, ctx).await
+}
+
+async fn cloud_run_stream_url(
+    url: &str,
+    run_id: Uuid,
+    session_id: Option<&str>,
+    last_event_id: Option<&str>,
+    close_command: impl Fn(&str) -> String,
+    ctx: &CommandContext,
+) -> Result<()> {
+    use futures_util::StreamExt;
+
+    let client = ctx.http_client().await?;
+
+    let mut request = client.get(url).header("Accept", "text/event-stream");
     if let Some(session_id) = session_id.map(str::trim).filter(|v| !v.is_empty()) {
         request = request.header("x-seren-stream-session-id", session_id);
     }
@@ -5073,14 +5224,7 @@ pub async fn cloud_run_stream(
             "Stream session:".dimmed(),
             server_session_id.bold()
         );
-        eprintln!(
-            "{}",
-            format!(
-                "Close session: seren agent cloud run stream-close {} --session-id {}",
-                run_id, server_session_id
-            )
-            .dimmed()
-        );
+        eprintln!("{}", close_command(server_session_id).dimmed());
     }
 
     eprintln!(
@@ -5178,6 +5322,148 @@ pub async fn cloud_run_stream_close(
     let client = ctx.client().await?;
     let response = client
         .seren_cloud_run_stream_close(&run_id, session_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+/// Close an active deployment-scoped run stream session.
+pub async fn cloud_deployment_run_stream_close(
+    deployment_id: Uuid,
+    run_id: Uuid,
+    session_id: &str,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let session_id = session_id.trim();
+    if session_id.is_empty() {
+        return Err(anyhow::anyhow!("--session-id cannot be empty."));
+    }
+
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_deployment_run_stream_close(&deployment_id, &run_id, session_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn cloud_audit_list(
+    action: Option<&str>,
+    limit: i64,
+    offset: i64,
+    q: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_list_audit_entries(action, Some(limit), Some(offset), q)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn cloud_audit_get(entry_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_get_audit_entry(&entry_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn cloud_audit_verify(limit: Option<i64>, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_verify_audit(limit)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn cloud_deployment_spend(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_get_deployment_spend(&deployment_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn cloud_deployment_audit(
+    deployment_id: Uuid,
+    action: Option<&str>,
+    limit: i64,
+    offset: i64,
+    q: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_deployment_audit(&deployment_id, action, Some(limit), Some(offset), q)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn cloud_deployment_fs(
+    deployment_id: Uuid,
+    namespace: Option<&str>,
+    path: Option<&str>,
+    limit: Option<u64>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_deployment_fs(&deployment_id, limit, namespace, path)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn cloud_deployment_fs_read_text(
+    deployment_id: Uuid,
+    path: &str,
+    namespace: Option<&str>,
+    max_bytes: Option<u64>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_deployment_fs_read_text(&deployment_id, max_bytes, namespace, path)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn cloud_deployment_fs_read_bytes(
+    deployment_id: Uuid,
+    path: &str,
+    namespace: Option<&str>,
+    offset: Option<u64>,
+    length: Option<u64>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_deployment_fs_read_bytes(&deployment_id, length, namespace, offset, path)
         .await
         .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
         .into_inner();

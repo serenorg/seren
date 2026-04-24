@@ -1955,9 +1955,182 @@ pub struct CloudDeploymentRunParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudAuditQueryParams {
+    /// Filter by exact audit action
+    #[serde(default)]
+    pub action: Option<String>,
+    /// Maximum audit entries to return
+    #[serde(default = "default_cloud_runs_limit")]
+    pub limit: i64,
+    /// Offset for pagination
+    #[serde(default)]
+    pub offset: i64,
+    /// Case-insensitive search across action, actor, and details
+    #[serde(default)]
+    pub q: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudRunAuditParams {
+    /// Run event UUID
+    pub run_id: Uuid,
+    /// Filter by exact audit action
+    #[serde(default)]
+    pub action: Option<String>,
+    /// Maximum audit entries to return
+    #[serde(default = "default_cloud_runs_limit")]
+    pub limit: i64,
+    /// Offset for pagination
+    #[serde(default)]
+    pub offset: i64,
+    /// Case-insensitive search across action, actor, and details
+    #[serde(default)]
+    pub q: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudAuditEntryParams {
+    /// Audit entry UUID
+    pub entry_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudAuditVerifyParams {
+    /// Maximum audit entries to verify
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudDeploymentAuditParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Filter by exact audit action
+    #[serde(default)]
+    pub action: Option<String>,
+    /// Maximum audit entries to return
+    #[serde(default = "default_cloud_runs_limit")]
+    pub limit: i64,
+    /// Offset for pagination
+    #[serde(default)]
+    pub offset: i64,
+    /// Case-insensitive search across action, actor, and details
+    #[serde(default)]
+    pub q: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudDeploymentFsParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Namespace root to inspect: artifacts or state
+    #[serde(default)]
+    pub namespace: Option<String>,
+    /// Relative path under the selected namespace root
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Maximum directory entries to return
+    #[serde(default)]
+    pub limit: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudDeploymentFsReadTextParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Relative file path under the selected namespace root
+    pub path: String,
+    /// Namespace root to inspect: artifacts or state
+    #[serde(default)]
+    pub namespace: Option<String>,
+    /// Maximum bytes to read
+    #[serde(default)]
+    pub max_bytes: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudDeploymentFsReadBytesParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Relative file path under the selected namespace root
+    pub path: String,
+    /// Namespace root to inspect: artifacts or state
+    #[serde(default)]
+    pub namespace: Option<String>,
+    /// Starting byte offset
+    #[serde(default)]
+    pub offset: Option<u64>,
+    /// Maximum bytes to read
+    #[serde(default)]
+    pub length: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudRunEventsParams {
+    /// Run event UUID
+    pub run_id: Uuid,
+    /// Filter by tool/output item ID
+    #[serde(default)]
+    pub item_id: Option<String>,
+    /// Filter by event kind
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// Maximum events to return
+    #[serde(default = "default_cloud_events_limit")]
+    pub limit: i64,
+    /// Offset for pagination
+    #[serde(default)]
+    pub offset: i64,
+    /// Case-insensitive search across event type, kind, item ID, and payload
+    #[serde(default)]
+    pub q: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudDeploymentRunEventsParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Run event UUID
+    pub run_id: Uuid,
+    /// Filter by tool/output item ID
+    #[serde(default)]
+    pub item_id: Option<String>,
+    /// Filter by event kind
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// Maximum events to return
+    #[serde(default = "default_cloud_events_limit")]
+    pub limit: i64,
+    /// Offset for pagination
+    #[serde(default)]
+    pub offset: i64,
+    /// Case-insensitive search across event type, kind, item ID, and payload
+    #[serde(default)]
+    pub q: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CloudRunIdParams {
     /// Run event UUID
     pub run_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudRunStreamCloseParams {
+    /// Run event UUID
+    pub run_id: Uuid,
+    /// Active stream session ID to close
+    pub session_id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudDeploymentRunStreamCloseParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Run event UUID
+    pub run_id: Uuid,
+    /// Active stream session ID to close
+    pub session_id: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -2255,6 +2428,10 @@ pub struct CloudAllRunsParams {
 
 fn default_cloud_runs_limit() -> i64 {
     50
+}
+
+fn default_cloud_events_limit() -> i64 {
+    100
 }
 
 fn default_cloud_overview_limit() -> i64 {
@@ -9301,6 +9478,177 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "Get spend summary for a cloud agent deployment.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_cloud_deployment_spend(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_get_deployment_spend(&params.deployment_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List tamper-evident audit entries for seren-cloud.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_cloud_audit_entries(
+        &self,
+        Parameters(params): Parameters<CloudAuditQueryParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_list_audit_entries(
+                params.action.as_deref(),
+                Some(params.limit),
+                Some(params.offset),
+                params.q.as_deref(),
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get a single seren-cloud audit entry.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_cloud_audit_entry(
+        &self,
+        Parameters(params): Parameters<CloudAuditEntryParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_get_audit_entry(&params.entry_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Verify the seren-cloud tamper-evident audit hash chain.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn verify_cloud_audit(
+        &self,
+        Parameters(params): Parameters<CloudAuditVerifyParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_verify_audit(params.limit)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List tamper-evident audit entries scoped to a cloud agent deployment.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_cloud_deployment_audit_entries(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentAuditParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_deployment_audit(
+                &params.deployment_id,
+                params.action.as_deref(),
+                Some(params.limit),
+                Some(params.offset),
+                params.q.as_deref(),
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Inspect a cloud deployment filesystem within the artifacts or state namespace.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn inspect_cloud_deployment_fs(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentFsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_deployment_fs(
+                &params.deployment_id,
+                params.limit,
+                params.namespace.as_deref(),
+                params.path.as_deref(),
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Read a UTF-8 text file from a cloud deployment filesystem.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn read_cloud_deployment_fs_text(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentFsReadTextParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_deployment_fs_read_text(
+                &params.deployment_id,
+                params.max_bytes,
+                params.namespace.as_deref(),
+                &params.path,
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Read a byte range from a cloud deployment filesystem.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn read_cloud_deployment_fs_bytes(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentFsReadBytesParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_deployment_fs_read_bytes(
+                &params.deployment_id,
+                params.length,
+                params.namespace.as_deref(),
+                params.offset,
+                &params.path,
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
         description = "Start a stopped always-on cloud agent.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
@@ -9508,6 +9856,80 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_deployment_run_artifacts(&params.deployment_id, &params.run_id, None, None)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List eval records linked to a specific cloud agent deployment run.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_cloud_agent_run_evals(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentRunParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_deployment_run_evals(&params.deployment_id, &params.run_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List structured output events emitted by a specific cloud agent deployment run.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_cloud_agent_run_events(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentRunEventsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_deployment_run_events(
+                &params.deployment_id,
+                &params.run_id,
+                params.item_id.as_deref(),
+                params.kind.as_deref(),
+                Some(params.limit),
+                Some(params.offset),
+                params.q.as_deref(),
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Close an active stream session for a cloud agent deployment run.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn close_cloud_agent_run_stream(
+        &self,
+        Parameters(params): Parameters<CloudDeploymentRunStreamCloseParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let session_id = params.session_id.trim();
+        if session_id.is_empty() {
+            return Err(McpError::invalid_params(
+                "session_id must not be empty.",
+                None,
+            ));
+        }
+
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_deployment_run_stream_close(
+                &params.deployment_id,
+                &params.run_id,
+                session_id,
+            )
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -10144,6 +10566,99 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_run_artifacts(&params.run_id, None, None)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List tamper-evident audit entries scoped to a cloud run by run ID.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_cloud_run_audit_entries(
+        &self,
+        Parameters(params): Parameters<CloudRunAuditParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_run_audit(
+                &params.run_id,
+                params.action.as_deref(),
+                Some(params.limit),
+                Some(params.offset),
+                params.q.as_deref(),
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List eval records linked to a cloud run by run ID.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_cloud_run_evals(
+        &self,
+        Parameters(params): Parameters<CloudRunIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_run_evals(&params.run_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List structured output events emitted by a cloud run by run ID.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_cloud_run_events(
+        &self,
+        Parameters(params): Parameters<CloudRunEventsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_run_events(
+                &params.run_id,
+                params.item_id.as_deref(),
+                params.kind.as_deref(),
+                Some(params.limit),
+                Some(params.offset),
+                params.q.as_deref(),
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Close an active stream session for a cloud run by run ID.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn close_cloud_run_stream(
+        &self,
+        Parameters(params): Parameters<CloudRunStreamCloseParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let session_id = params.session_id.trim();
+        if session_id.is_empty() {
+            return Err(McpError::invalid_params(
+                "session_id must not be empty.",
+                None,
+            ));
+        }
+
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_run_stream_close(&params.run_id, session_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
