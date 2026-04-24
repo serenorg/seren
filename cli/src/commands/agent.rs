@@ -6088,7 +6088,10 @@ mod tests {
         assert_eq!(payload.resume_checkpoint_id.as_deref(), Some("chk_123"));
         let approval_decisions = payload.approval_decisions.unwrap();
         assert_eq!(approval_decisions[0].id, "approval-1");
-        assert_eq!(approval_decisions[0].decision, "reject");
+        assert_eq!(
+            approval_decisions[0].decision,
+            seren::CloudRunApprovalDecisionValue::Reject
+        );
         assert_eq!(approval_decisions[1].id, "approval-2");
     }
 }
