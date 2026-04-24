@@ -137,3 +137,95 @@ pub async fn create_invite(
 
     Ok(())
 }
+
+pub async fn private_models_policy_get(organization_id: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let org_uuid = Uuid::parse_str(organization_id)
+        .map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
+
+    let response = client
+        .get_private_models_policy(&org_uuid)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get private-model policy: {}", e))?
+        .into_inner();
+
+    print_private_models_policy_response(&response, ctx.format)
+}
+
+pub async fn private_models_policy_update(
+    organization_id: &str,
+    body: &str,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let org_uuid = Uuid::parse_str(organization_id)
+        .map_err(|e| anyhow::anyhow!("Invalid organization ID: {}", e))?;
+    let request: seren::UpdateOrganizationPrivateModelsPolicyRequest =
+        serde_json::from_str(body).map_err(|e| anyhow::anyhow!("Invalid policy JSON: {}", e))?;
+
+    let response = client
+        .update_private_models_policy(&org_uuid, &request)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to update private-model policy: {}", e))?
+        .into_inner();
+
+    print_private_models_policy_response(&response, ctx.format)
+}
+
+fn print_private_models_policy_response(
+    response: &seren::DataResponseOrganizationPrivateModelsPolicy,
+    format: OutputFormat,
+) -> Result<()> {
+    match format {
+        OutputFormat::Json => output::print_json(response)?,
+        OutputFormat::Table => {
+            let policy = &response.data;
+            let rows = [
+                ("Organization ID", policy.organization_id.to_string()),
+                ("Mode", policy.mode.to_string()),
+                (
+                    "Deployment ID",
+                    option_to_string(policy.deployment_id.as_ref()),
+                ),
+                (
+                    "Deployment Name",
+                    policy
+                        .deployment_name
+                        .clone()
+                        .unwrap_or_else(|| "-".to_string()),
+                ),
+                ("Model ID", option_to_string(policy.model_id.as_ref())),
+                (
+                    "Disable Seren Models",
+                    option_to_string(policy.disable_seren_models.as_ref()),
+                ),
+                (
+                    "Disable External Providers",
+                    option_to_string(policy.disable_external_model_providers.as_ref()),
+                ),
+                (
+                    "Disable Local Agents",
+                    option_to_string(policy.disable_local_agents.as_ref()),
+                ),
+                (
+                    "Allow Seren Agent",
+                    option_to_string(policy.allow_seren_agent.as_ref()),
+                ),
+                (
+                    "Allow Cloud Agent Launch",
+                    option_to_string(policy.allow_cloud_agent_launch.as_ref()),
+                ),
+                ("Updated At", policy.updated_at.to_string()),
+            ];
+            output::print_key_value_table(Some("Private Model Policy"), &rows);
+        }
+    }
+
+    Ok(())
+}
+
+fn option_to_string<T: std::fmt::Display>(value: Option<&T>) -> String {
+    value
+        .map(ToString::to_string)
+        .unwrap_or_else(|| "-".to_string())
+}

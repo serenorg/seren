@@ -954,6 +954,198 @@ pub async fn run_cloud(publisher: &str, message: &str, ctx: &CommandContext) -> 
     Ok(())
 }
 
+pub async fn private_models_list(ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .get_private_models()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to list private models: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => {
+            let rows = response
+                .data
+                .data
+                .iter()
+                .map(|model| {
+                    let recommended = if model.recommended.unwrap_or(false) {
+                        " recommended"
+                    } else {
+                        ""
+                    };
+                    let display = model.display_name.as_deref().unwrap_or(&model.id);
+                    format!(
+                        "{} - {} ({}){}",
+                        model.id, display, model.owned_by, recommended
+                    )
+                })
+                .collect::<Vec<_>>();
+            output::print_list_table(Some("Private Models"), "Model", &rows);
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn private_models_catalog(region: Option<&str>, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_agent_private_models(region)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to list seren-agent private model catalog: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => {
+            let data = &response.data;
+            let summary = [
+                ("Source", data.catalog_source.to_string()),
+                ("Default Model", data.default_model_id.clone()),
+                (
+                    "Custom Model IDs",
+                    if data.supports_custom_model_id {
+                        "yes".to_string()
+                    } else {
+                        "no".to_string()
+                    },
+                ),
+            ];
+            output::print_key_value_table(Some("Private Model Catalog"), &summary);
+            if let Some(notice) = &data.notice {
+                println!();
+                output::print_key_value_table(Some("Notice"), &[("Message", notice.clone())]);
+            }
+            let rows = data
+                .models
+                .iter()
+                .map(|model| {
+                    let recommended = if model.recommended {
+                        " recommended"
+                    } else {
+                        ""
+                    };
+                    format!("{} - {}{}", model.model_id, model.label, recommended)
+                })
+                .collect::<Vec<_>>();
+            println!();
+            output::print_list_table(Some("Models"), "Model", &rows);
+        }
+    }
+
+    Ok(())
+}
+
+pub struct PrivateModelsChatOptions<'a> {
+    pub model: Option<&'a str>,
+    pub message: Option<&'a str>,
+    pub messages_json: Option<&'a str>,
+    pub temperature: Option<f32>,
+    pub max_tokens: Option<i32>,
+    pub top_p: Option<f32>,
+    pub top_k: Option<i32>,
+    pub response_schema_json: Option<&'a str>,
+    pub tools_json: Option<&'a str>,
+}
+
+pub async fn private_models_chat(
+    options: PrivateModelsChatOptions<'_>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let messages = private_model_messages(options.message, options.messages_json)?;
+    let response_schema = options
+        .response_schema_json
+        .map(|raw| parse_json_object(raw, "response_schema_json"))
+        .transpose()?;
+    let tools = options
+        .tools_json
+        .map(|raw| parse_json_object_array(raw, "tools_json"))
+        .transpose()?;
+
+    let request = seren::PrivateModelsChatCompletionsRequest {
+        max_tokens: options.max_tokens,
+        messages,
+        model: options.model.map(ToString::to_string),
+        response_schema,
+        stream: Some(false),
+        temperature: options.temperature,
+        tools,
+        top_k: options.top_k,
+        top_p: options.top_p,
+    };
+
+    let client = ctx.client().await?;
+    let response = client
+        .post_chat_completions(&request)
+        .await
+        .map_err(|e| anyhow::anyhow!("Private model chat completion failed: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => {
+            let data = &response.data;
+            let rows = [
+                ("Status", data.status.to_string()),
+                ("Payment Source", data.payment_source.clone()),
+                ("Cost", format!("{} {}", data.cost, data.asset_symbol)),
+                ("Execution Time", format!("{}ms", data.execution_time_ms)),
+                ("Response Bytes", data.response_bytes.to_string()),
+            ];
+            output::print_key_value_table(Some("Private Model Response"), &rows);
+            println!();
+            output::print_json(&data.body)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn private_model_messages(
+    message: Option<&str>,
+    messages_json: Option<&str>,
+) -> Result<Vec<serde_json::Map<String, serde_json::Value>>> {
+    match (message, messages_json) {
+        (Some(_), Some(_)) => anyhow::bail!("Use either --message or --messages-json, not both"),
+        (Some(message), None) => {
+            let mut map = serde_json::Map::new();
+            map.insert("role".to_string(), serde_json::json!("user"));
+            map.insert("content".to_string(), serde_json::json!(message));
+            Ok(vec![map])
+        }
+        (None, Some(raw)) => parse_json_object_array(raw, "messages_json"),
+        (None, None) => anyhow::bail!("Provide --message or --messages-json"),
+    }
+}
+
+fn parse_json_object(
+    raw: &str,
+    field_name: &str,
+) -> Result<serde_json::Map<String, serde_json::Value>> {
+    match serde_json::from_str::<serde_json::Value>(raw)? {
+        serde_json::Value::Object(map) => Ok(map),
+        _ => anyhow::bail!("{field_name} must be a JSON object"),
+    }
+}
+
+fn parse_json_object_array(
+    raw: &str,
+    field_name: &str,
+) -> Result<Vec<serde_json::Map<String, serde_json::Value>>> {
+    match serde_json::from_str::<serde_json::Value>(raw)? {
+        serde_json::Value::Array(items) => items
+            .into_iter()
+            .map(|item| match item {
+                serde_json::Value::Object(map) => Ok(map),
+                _ => anyhow::bail!("{field_name} must contain only JSON objects"),
+            })
+            .collect(),
+        _ => anyhow::bail!("{field_name} must be a JSON array"),
+    }
+}
+
 /// List agent tasks for an organization.
 pub async fn list_agent_tasks(
     org_id: &str,
@@ -1973,6 +2165,38 @@ fn print_cloud_deployment_detail_table(payload: &serde_json::Value) {
     );
 }
 
+fn print_cloud_deployment_list_table(deployments: &[serde_json::Value]) {
+    if deployments.is_empty() {
+        println!("No deployments found.");
+        return;
+    }
+    println!(
+        "{:<38} {:<24} {:<18} {:<14} {:<12} {:<10} {:<24}",
+        "ID", "SKILL", "BACKEND", "RUNTIME", "MODE", "STATUS", "EVAL GATE"
+    );
+    for d_json in deployments {
+        println!(
+            "{:<38} {:<24} {:<18} {:<14} {:<12} {:<10} {:<24}",
+            d_json.get("id").and_then(|v| v.as_str()).unwrap_or("-"),
+            d_json
+                .get("skill_slug")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-"),
+            d_json
+                .get("compute_backend")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-"),
+            d_json
+                .get("runtime_kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-"),
+            d_json.get("mode").and_then(|v| v.as_str()).unwrap_or("-"),
+            d_json.get("status").and_then(|v| v.as_str()).unwrap_or("-"),
+            format_eval_gate_brief(d_json),
+        );
+    }
+}
+
 fn print_managed_agent_detail_table(payload: &serde_json::Value) {
     let detail = payload.get("data").unwrap_or(payload);
     let tool_presets = json_string_list(detail, "tool_presets");
@@ -2462,6 +2686,125 @@ pub async fn cloud_deploy_prompt(
         ));
     }
     submit_cloud_deploy_request(deploy_publisher, body, ctx).await
+}
+
+/// Inspect seren-agent publisher capabilities.
+pub async fn managed_agent_capabilities(ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_agent_capabilities()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get seren-agent capabilities: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => {
+            let data = &response.data;
+            let rows = [
+                ("Publisher", data.publisher.clone()),
+                ("Runtime Provider", data.runtime_provider.clone()),
+                ("Runtime API", data.deployment_runtime_api.clone()),
+                (
+                    "Orchestration Plane",
+                    if data.orchestration_plane {
+                        "yes"
+                    } else {
+                        "no"
+                    }
+                    .to_string(),
+                ),
+                (
+                    "Direct Skill Deploy",
+                    if data.supports_direct_skill_deploy {
+                        "yes"
+                    } else {
+                        "no"
+                    }
+                    .to_string(),
+                ),
+                (
+                    "Orchestrated Deploy",
+                    if data.supports_orchestrated_deploy {
+                        "yes"
+                    } else {
+                        "no"
+                    }
+                    .to_string(),
+                ),
+                ("Deployment Targets", data.deployment_targets.join(", ")),
+            ];
+            output::print_key_value_table(Some("Seren Agent Capabilities"), &rows);
+        }
+    }
+
+    Ok(())
+}
+
+/// List deployments through the seren-agent publisher.
+pub async fn managed_agent_list(ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_agent_list_deployments()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to list seren-agent deployments: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => {
+            let value = serde_json::to_value(&response)?;
+            let deployments = value
+                .get("data")
+                .and_then(|data| data.as_array())
+                .cloned()
+                .unwrap_or_default();
+            print_cloud_deployment_list_table(&deployments);
+        }
+    }
+
+    Ok(())
+}
+
+/// Run an unsaved managed seren-agent draft once.
+pub async fn managed_agent_test_run(body: &str, ctx: &CommandContext) -> Result<()> {
+    let request: seren::TestSerenAgentDraftRunRequest =
+        serde_json::from_str(body).map_err(|e| anyhow::anyhow!("Invalid draft JSON: {}", e))?;
+
+    let client = ctx.client().await?;
+    let response = client
+        .seren_agent_test_run(&request)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to run seren-agent draft: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => {
+            let data = &response.data;
+            let rows = [
+                ("Status", data.status.to_string()),
+                ("Runtime Adapter", data.runtime_adapter.clone()),
+                ("Iterations", data.iterations.to_string()),
+                ("Tool Calls", data.tool_calls.len().to_string()),
+                ("Warnings", data.warnings.len().to_string()),
+            ];
+            output::print_key_value_table(Some("Seren Agent Draft Run"), &rows);
+            if let Some(response) = &data.response {
+                println!();
+                println!("{}", response);
+            } else if let Some(partial) = &data.partial_response {
+                println!();
+                println!("{}", partial);
+            }
+            if let Some(error) = &data.error {
+                println!();
+                println!("Error: {error}");
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Get the resolved managed seren-agent deployment detail.

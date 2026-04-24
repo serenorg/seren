@@ -648,6 +648,21 @@ enum AgentAction {
         #[arg(long)]
         agent_config: Option<String>,
     },
+    /// Use seren-private-models and related seren-agent model discovery
+    PrivateModels {
+        #[command(subcommand)]
+        action: PrivateModelsAction,
+    },
+    /// Inspect seren-agent publisher capabilities
+    ManagedCapabilities,
+    /// List deployments through the seren-agent publisher
+    ManagedList,
+    /// Run an unsaved seren-agent managed draft once
+    ManagedTestRun {
+        /// JSON body matching CreateSerenAgentDeploymentRequest
+        #[arg(long)]
+        body: String,
+    },
     /// Get the resolved managed seren-agent deployment detail
     ManagedGet {
         /// Deployment ID (UUID)
@@ -850,6 +865,48 @@ enum McpAction {
     /// Start the hosted MCP server with OAuth 2.1
     #[command(name = "start:server", alias = "start:oauth")]
     StartServer,
+}
+
+#[derive(Subcommand)]
+enum PrivateModelsAction {
+    /// List models from the seren-private-models publisher
+    List,
+    /// List the seren-agent private model catalog
+    Catalog {
+        /// Optional private model region for live discovery
+        #[arg(long)]
+        region: Option<String>,
+    },
+    /// Send one chat completion request to seren-private-models
+    Chat {
+        /// Model ID to use
+        #[arg(long)]
+        model: Option<String>,
+        /// User message. Mutually exclusive with --messages-json
+        #[arg(long)]
+        message: Option<String>,
+        /// Full OpenAI-compatible messages JSON array
+        #[arg(long)]
+        messages_json: Option<String>,
+        /// Sampling temperature
+        #[arg(long)]
+        temperature: Option<f32>,
+        /// Maximum output tokens
+        #[arg(long)]
+        max_tokens: Option<i32>,
+        /// Top-p sampling value
+        #[arg(long)]
+        top_p: Option<f32>,
+        /// Top-k sampling value
+        #[arg(long)]
+        top_k: Option<i32>,
+        /// JSON object schema for structured responses
+        #[arg(long)]
+        response_schema_json: Option<String>,
+        /// JSON array of tool definitions
+        #[arg(long)]
+        tools_json: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1424,6 +1481,27 @@ enum OrgAction {
 
         #[command(subcommand)]
         action: Box<OrgSkillsAction>,
+    },
+    /// Manage organization private-model policy
+    PrivateModelsPolicy {
+        /// Organization ID
+        #[arg(long)]
+        org_id: String,
+
+        #[command(subcommand)]
+        action: PrivateModelsPolicyAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum PrivateModelsPolicyAction {
+    /// Get the private-model policy
+    Get,
+    /// Update the private-model policy from a JSON request body
+    Update {
+        /// JSON body matching UpdateOrganizationPrivateModelsPolicyRequest
+        #[arg(long)]
+        body: String,
     },
 }
 
@@ -3189,6 +3267,15 @@ async fn main() -> anyhow::Result<()> {
                     .await?
                 }
             },
+            OrgAction::PrivateModelsPolicy { org_id, action } => match action {
+                PrivateModelsPolicyAction::Get => {
+                    commands::organizations::private_models_policy_get(&org_id, &ctx).await?
+                }
+                PrivateModelsPolicyAction::Update { body } => {
+                    commands::organizations::private_models_policy_update(&org_id, &body, &ctx)
+                        .await?
+                }
+            },
         },
         Commands::Projects { action } => match action {
             ProjectAction::List => commands::projects::list(&ctx).await?,
@@ -4049,6 +4136,46 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
+            AgentAction::PrivateModels { action } => match action {
+                PrivateModelsAction::List => commands::agent::private_models_list(&ctx).await?,
+                PrivateModelsAction::Catalog { region } => {
+                    commands::agent::private_models_catalog(region.as_deref(), &ctx).await?
+                }
+                PrivateModelsAction::Chat {
+                    model,
+                    message,
+                    messages_json,
+                    temperature,
+                    max_tokens,
+                    top_p,
+                    top_k,
+                    response_schema_json,
+                    tools_json,
+                } => {
+                    commands::agent::private_models_chat(
+                        commands::agent::PrivateModelsChatOptions {
+                            model: model.as_deref(),
+                            message: message.as_deref(),
+                            messages_json: messages_json.as_deref(),
+                            temperature,
+                            max_tokens,
+                            top_p,
+                            top_k,
+                            response_schema_json: response_schema_json.as_deref(),
+                            tools_json: tools_json.as_deref(),
+                        },
+                        &ctx,
+                    )
+                    .await?
+                }
+            },
+            AgentAction::ManagedCapabilities => {
+                commands::agent::managed_agent_capabilities(&ctx).await?
+            }
+            AgentAction::ManagedList => commands::agent::managed_agent_list(&ctx).await?,
+            AgentAction::ManagedTestRun { body } => {
+                commands::agent::managed_agent_test_run(&body, &ctx).await?
+            }
             AgentAction::ManagedGet { deployment_id } => {
                 commands::agent::managed_agent_get(deployment_id, &ctx).await?
             }
@@ -4407,6 +4534,88 @@ mod tests {
                     _ => panic!("unexpected cloud action parsed"),
                 },
                 _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn private_models_chat_accepts_simple_message() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "private-models",
+            "chat",
+            "--model",
+            "anthropic.claude-3-5-sonnet",
+            "--message",
+            "hello",
+        ]);
+
+        match cli.command {
+            Commands::Agent { action, .. } => match *action {
+                AgentAction::PrivateModels { action } => match action {
+                    PrivateModelsAction::Chat { model, message, .. } => {
+                        assert_eq!(model.as_deref(), Some("anthropic.claude-3-5-sonnet"));
+                        assert_eq!(message.as_deref(), Some("hello"));
+                    }
+                    _ => panic!("unexpected private models action parsed"),
+                },
+                _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn managed_test_run_accepts_body() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-test-run",
+            "--body",
+            r#"{"name":"Draft","mode":"always_on","prompt":"hello"}"#,
+        ]);
+
+        match cli.command {
+            Commands::Agent { action, .. } => match *action {
+                AgentAction::ManagedTestRun { body } => {
+                    assert_eq!(
+                        body,
+                        r#"{"name":"Draft","mode":"always_on","prompt":"hello"}"#
+                    );
+                }
+                _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn org_private_models_policy_update_accepts_body() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "orgs",
+            "private-models-policy",
+            "--org-id",
+            "11111111-1111-1111-1111-111111111111",
+            "update",
+            "--body",
+            r#"{"mode":"standard"}"#,
+        ]);
+
+        match cli.command {
+            Commands::Orgs { action } => match action {
+                OrgAction::PrivateModelsPolicy { org_id, action } => {
+                    assert_eq!(org_id, "11111111-1111-1111-1111-111111111111");
+                    match action {
+                        PrivateModelsPolicyAction::Update { body } => {
+                            assert_eq!(body, r#"{"mode":"standard"}"#);
+                        }
+                        _ => panic!("unexpected policy action parsed"),
+                    }
+                }
+                _ => panic!("unexpected org action parsed"),
             },
             _ => panic!("unexpected command parsed"),
         }

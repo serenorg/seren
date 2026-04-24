@@ -1412,6 +1412,54 @@ pub struct RunAgentCloudParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ListSerenAgentPrivateModelsParams {
+    /// Optional private model region for live discovery. Defaults to us-east-1.
+    #[serde(default)]
+    pub region: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct PrivateModelsChatParams {
+    /// Optional model identifier. Omit to use the publisher default.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Simple user message. Mutually exclusive with messages.
+    #[serde(default)]
+    pub message: Option<String>,
+    /// Full OpenAI-compatible message objects.
+    #[serde(default)]
+    pub messages: Option<Vec<serde_json::Map<String, serde_json::Value>>>,
+    /// Sampling temperature.
+    #[serde(default)]
+    pub temperature: Option<f32>,
+    /// Maximum output tokens.
+    #[serde(default)]
+    pub max_tokens: Option<i32>,
+    /// Top-p sampling value.
+    #[serde(default)]
+    pub top_p: Option<f32>,
+    /// Top-k sampling value.
+    #[serde(default)]
+    pub top_k: Option<i32>,
+    /// JSON schema object for structured responses.
+    #[serde(default)]
+    pub response_schema: Option<serde_json::Map<String, serde_json::Value>>,
+    /// Tool definition objects.
+    #[serde(default)]
+    pub tools: Option<Vec<serde_json::Map<String, serde_json::Value>>>,
+}
+
+pub type GetPrivateModelsPolicyParams = OrganizationPath;
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct UpdatePrivateModelsPolicyParams {
+    /// The organization ID (UUID)
+    pub organization_id: Uuid,
+    #[serde(flatten)]
+    pub body: seren::UpdateOrganizationPrivateModelsPolicyRequest,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ListAgentTasksParams {
     /// The organization ID (UUID)
     pub organization_id: Uuid,
@@ -1523,6 +1571,12 @@ pub struct DeployCloudAgentParams {
     /// Optional visibility mode ("open" or "opaque")
     #[serde(default)]
     pub visibility: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct TestSerenAgentDraftRunParams {
+    #[serde(flatten)]
+    pub body: seren::CreateSerenAgentDeploymentRequest,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -5298,6 +5352,149 @@ impl SerenMcpServer {
     }
 
     // ========================================================================
+    // Private Model Tools
+    // ========================================================================
+
+    #[tool(
+        description = "Get the private-model policy for an organization, including mode, allowed local/cloud agents, selected deployment, model IDs, provider restrictions, and private output/session database settings.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_private_models_policy(
+        &self,
+        Parameters(params): Parameters<GetPrivateModelsPolicyParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .get_private_models_policy(&params.organization_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Update the private-model policy for an organization. Provide mode plus any optional policy fields you need to change, such as deployment_id, model_id, ordered_model_ids, fallback_models, allowed agent flags, provider restrictions, private_output_policy, or session_database.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn update_private_models_policy(
+        &self,
+        Parameters(params): Parameters<UpdatePrivateModelsPolicyParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .update_private_models_policy(&params.organization_id, &params.body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List OpenAI-compatible models available from the seren-private-models publisher.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_private_models(
+        &self,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .get_private_models()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List the private model catalog exposed through seren-agent, including the default model, catalog source, custom model support, and optional live-discovery region.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_seren_agent_private_models(
+        &self,
+        Parameters(params): Parameters<ListSerenAgentPrivateModelsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_private_models(params.region.as_deref())
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Send one non-streaming chat completion request to seren-private-models. Use message for a simple user prompt or messages for full OpenAI-compatible message objects.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn chat_private_models(
+        &self,
+        Parameters(params): Parameters<PrivateModelsChatParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let messages = match (params.message, params.messages) {
+            (Some(_), Some(_)) => {
+                return Err(McpError::invalid_params(
+                    "Provide either message or messages, not both.",
+                    None,
+                ));
+            }
+            (Some(message), None) => {
+                let mut map = serde_json::Map::new();
+                map.insert("role".to_string(), serde_json::json!("user"));
+                map.insert("content".to_string(), serde_json::json!(message));
+                vec![map]
+            }
+            (None, Some(messages)) if !messages.is_empty() => messages,
+            (None, Some(_)) => {
+                return Err(McpError::invalid_params(
+                    "messages must not be empty.",
+                    None,
+                ));
+            }
+            (None, None) => {
+                return Err(McpError::invalid_params(
+                    "Provide message or messages.",
+                    None,
+                ));
+            }
+        };
+
+        let request = seren::PrivateModelsChatCompletionsRequest {
+            max_tokens: params.max_tokens,
+            messages,
+            model: params.model,
+            response_schema: params.response_schema,
+            stream: Some(false),
+            temperature: params.temperature,
+            tools: params.tools,
+            top_k: params.top_k,
+            top_p: params.top_p,
+        };
+
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .post_chat_completions(&request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    // ========================================================================
     // Agent Store Tools (agent paid access)
     // ========================================================================
 
@@ -8509,6 +8706,73 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "Inspect available seren-agent orchestration features, deployment targets, and runtime limits.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn get_seren_agent_capabilities(
+        &self,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_capabilities()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List deployments through the first-class seren-agent publisher.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn list_seren_agent_deployments(
+        &self,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_list_deployments()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Run an unsaved managed seren-agent draft once before deploying. The request body matches deploy_seren_agent inputs and may include optional test_message.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn test_seren_agent_draft_run(
+        &self,
+        Parameters(params): Parameters<TestSerenAgentDraftRunParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let request = seren::TestSerenAgentDraftRunRequest(params.body);
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_test_run(&request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
         description = "Get the resolved managed deployment detail for a seren-agent deployment, including the saved prompt, template, resolved tool presets, allowed publisher operations, remote A2A delegation allowlist, runtime overrides, visible config, and secret key names.",
         annotations(
             read_only_hint = true,
@@ -8521,14 +8785,13 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<GetSerenAgentDeploymentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!(
-            "{}/publishers/seren-agent/deployments/{}/managed",
-            self.api_base_url, params.deployment_id
-        );
-        let result = self
-            .execute_api_json::<serde_json::Value>(&extensions, reqwest::Method::GET, url, None)
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_get_managed_deployment(&params.deployment_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -8544,14 +8807,13 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<GetSerenAgentDeploymentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!(
-            "{}/publishers/seren-agent/deployments/{}/managed/revisions",
-            self.api_base_url, params.deployment_id
-        );
-        let result = self
-            .execute_api_json::<serde_json::Value>(&extensions, reqwest::Method::GET, url, None)
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_list_managed_deployment_revisions(&params.deployment_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -8567,18 +8829,14 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<UpdateSerenAgentDeploymentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!(
-            "{}/publishers/seren-agent/deployments/{}/managed/preview",
-            self.api_base_url, params.deployment_id
-        );
         let body = build_update_seren_agent_deployment_request(&params)?;
-        let body_value = serde_json::to_value(&body).map_err(|e| {
-            McpError::invalid_params(format!("Failed to encode preview body: {e}"), None)
-        })?;
-        let result = self
-            .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body_value))
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_preview_managed_deployment_update(&params.deployment_id, &body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -8594,15 +8852,16 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<RollbackSerenAgentDeploymentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!(
-            "{}/publishers/seren-agent/deployments/{}/managed/rollback/preview",
-            self.api_base_url, params.deployment_id
-        );
-        let body = serde_json::json!({ "revision_id": params.revision_id });
-        let result = self
-            .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body))
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let body = seren::RollbackSerenAgentDeploymentRequest {
+            revision_id: params.revision_id,
+        };
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_preview_managed_deployment_rollback(&params.deployment_id, &body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -8618,18 +8877,14 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<UpdateSerenAgentDeploymentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!(
-            "{}/publishers/seren-agent/deployments/{}/managed",
-            self.api_base_url, params.deployment_id
-        );
         let body = build_update_seren_agent_deployment_request(&params)?;
-        let body_value = serde_json::to_value(&body).map_err(|e| {
-            McpError::invalid_params(format!("Failed to encode update body: {e}"), None)
-        })?;
-        let result = self
-            .execute_api_json(&extensions, reqwest::Method::PATCH, url, Some(&body_value))
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_update_managed_deployment(&params.deployment_id, &body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -8645,15 +8900,16 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<RollbackSerenAgentDeploymentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!(
-            "{}/publishers/seren-agent/deployments/{}/managed/rollback",
-            self.api_base_url, params.deployment_id
-        );
-        let body = serde_json::json!({ "revision_id": params.revision_id });
-        let result = self
-            .execute_api_json(&extensions, reqwest::Method::POST, url, Some(&body))
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let body = seren::RollbackSerenAgentDeploymentRequest {
+            revision_id: params.revision_id,
+        };
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_rollback_managed_deployment(&params.deployment_id, &body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
