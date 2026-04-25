@@ -4,8 +4,8 @@
     "title": "SerenAI API",
     "description": "SerenAI API - Database management, agent commerce, and AI-powered data access",
     "contact": {
-      "name": "SerenAI Team",
-      "email": "team@serendb.com"
+      "name": "SerenAI",
+      "email": "hello@serendb.com"
     },
     "license": {
       "name": "UNLICENSED",
@@ -25180,6 +25180,12 @@
             "type": "string"
           }
         }
+      }
+    },
+    "securitySchemes": {
+      "bearer_auth": {
+        "type": "http",
+        "scheme": "bearer"
       }
     }
   },

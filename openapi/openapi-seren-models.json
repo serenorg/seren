@@ -1,8 +1,8 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Seren Private Models",
-    "description": "List and run organization private models through seren-private-models.",
+    "title": "Seren Models",
+    "description": "Run public model chat completions through seren-models.",
     "contact": {
       "name": "SerenAI",
       "email": "hello@serendb.com"
@@ -15,7 +15,7 @@
   },
   "servers": [
     {
-      "url": "/publishers/seren-private-models"
+      "url": "/publishers/seren-models"
     }
   ],
   "paths": {
@@ -24,13 +24,11 @@
         "tags": [
           "publishers"
         ],
-        "operationId": "post_chat_completions",
+        "operationId": "seren_models_chat_completions",
         "requestBody": {
           "content": {
             "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PrivateModelsChatCompletionsRequest"
-              }
+              "schema": {}
             }
           },
           "required": true
@@ -49,42 +47,8 @@
           "401": {
             "description": "Authentication required"
           },
-          "403": {
-            "description": "Private models are not configured for this organization"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/models": {
-      "get": {
-        "tags": [
-          "publishers"
-        ],
-        "operationId": "get_private_models",
-        "responses": {
-          "200": {
-            "description": "Available private models",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DataResponse_PrivateModelsListResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required"
-          },
-          "403": {
-            "description": "Private models are not configured for this organization"
+          "402": {
+            "description": "Payment required"
           },
           "500": {
             "description": "Internal server error"
@@ -259,44 +223,6 @@
           }
         }
       },
-      "DataResponse_PrivateModelsListResponse": {
-        "type": "object",
-        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
-        "required": [
-          "data"
-        ],
-        "properties": {
-          "data": {
-            "type": "object",
-            "required": [
-              "object",
-              "data"
-            ],
-            "properties": {
-              "data": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/PrivateModelsModelInfo"
-                }
-              },
-              "object": {
-                "type": "string"
-              }
-            }
-          },
-          "pagination": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/PaginationMeta",
-                "description": "Optional pagination metadata"
-              }
-            ]
-          }
-        }
-      },
       "PaginationMeta": {
         "type": "object",
         "description": "Pagination metadata included in responses.",
@@ -331,126 +257,6 @@
             "type": "integer",
             "format": "int64",
             "description": "Total number of items across all pages"
-          }
-        }
-      },
-      "PrivateModelsChatCompletionsRequest": {
-        "type": "object",
-        "required": [
-          "messages"
-        ],
-        "properties": {
-          "max_tokens": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32"
-          },
-          "messages": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          },
-          "model": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "response_schema": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "stream": {
-            "type": "boolean"
-          },
-          "temperature": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "float"
-          },
-          "tools": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "object"
-            }
-          },
-          "top_k": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32"
-          },
-          "top_p": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "float"
-          }
-        }
-      },
-      "PrivateModelsListResponse": {
-        "type": "object",
-        "required": [
-          "object",
-          "data"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/PrivateModelsModelInfo"
-            }
-          },
-          "object": {
-            "type": "string"
-          }
-        }
-      },
-      "PrivateModelsModelInfo": {
-        "type": "object",
-        "required": [
-          "id",
-          "object",
-          "created",
-          "owned_by"
-        ],
-        "properties": {
-          "created": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "display_name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "id": {
-            "type": "string"
-          },
-          "object": {
-            "type": "string"
-          },
-          "owned_by": {
-            "type": "string"
-          },
-          "recommended": {
-            "type": [
-              "boolean",
-              "null"
-            ]
           }
         }
       }

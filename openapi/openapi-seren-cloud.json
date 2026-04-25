@@ -4,7 +4,8 @@
     "title": "Seren Cloud",
     "description": "Deploy and operate hosted skills through seren-cloud.",
     "contact": {
-      "name": "SerenDB Team"
+      "name": "SerenAI",
+      "email": "hello@serendb.com"
     },
     "license": {
       "name": "UNLICENSED",
@@ -8687,6 +8688,12 @@
             "type": "boolean"
           }
         }
+      }
+    },
+    "securitySchemes": {
+      "bearer_auth": {
+        "type": "http",
+        "scheme": "bearer"
       }
     }
   },

@@ -4,7 +4,8 @@
     "title": "Seren DB",
     "description": "Create, manage, and query SerenDB serverless Postgres databases.",
     "contact": {
-      "name": "SerenDB Team"
+      "name": "SerenAI",
+      "email": "hello@serendb.com"
     },
     "license": {
       "name": "UNLICENSED",
@@ -8907,6 +8908,12 @@
             }
           }
         }
+      }
+    },
+    "securitySchemes": {
+      "bearer_auth": {
+        "type": "http",
+        "scheme": "bearer"
       }
     }
   },
