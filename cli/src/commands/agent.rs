@@ -1105,7 +1105,10 @@ pub async fn private_models_chat(
             serde_json::Value::Array(tools.into_iter().map(serde_json::Value::Object).collect()),
         );
     }
-    let request = serde_json::Value::Object(request);
+    let request = serde_json::from_value::<seren::PrivateModelsChatCompletionsRequest>(
+        serde_json::Value::Object(request),
+    )
+    .map_err(|e| anyhow::anyhow!("Invalid chat completions request: {}", e))?;
 
     let client = ctx.client().await?;
     let response = client
@@ -1740,7 +1743,6 @@ const ORCHESTRATION_CONFIG_FIELDS: &[&str] = &[
     "max_tool_output_chars",
     "model_config",
     "model_id",
-    "orchestration_mode",
     "requirements",
     "system_prompt",
     "tool_definitions",
@@ -1904,6 +1906,136 @@ fn merge_managed_agent_config(
     ))
 }
 
+/// Workload-level fields that the SDK now expects nested under `workload`.
+const WORKLOAD_LEVEL_FIELDS: &[&str] = &[
+    "code_bundle_base64",
+    "compute_backend",
+    "config",
+    "fallback_models",
+    "model_config",
+    "model_id",
+    "network_policy",
+    "publisher_only",
+    "requirements",
+    "requirements_txt",
+    "runtime_kind",
+    "secrets",
+    "side_effect_policy",
+    "system_prompt",
+    "tool_definitions",
+];
+
+/// Workload limits fields that should be folded into `workload.limits`.
+const WORKLOAD_LIMITS_FIELDS: &[&str] = &[
+    "context_budget_tokens",
+    "max_iterations",
+    "max_timeout_seconds",
+    "max_tool_calls_per_run",
+    "max_tool_output_chars",
+];
+
+/// Workload execution fields that distinguish llm-style workloads.
+const LLM_EXECUTION_FIELDS: &[&str] = &[
+    "fallback_models",
+    "model_config",
+    "model_id",
+    "system_prompt",
+    "tool_definitions",
+];
+
+/// Workload execution fields that distinguish code-bundle workloads.
+const CODE_EXECUTION_FIELDS: &[&str] = &["code_bundle_base64", "requirements_txt", "runtime_kind"];
+
+/// Reshape a flat deploy/update body into the SDK-shaped JSON object.
+///
+/// The legacy CLI builds a flat `Map<String, Value>` of agent/cloud fields. The
+/// regenerated SDK nests workload-level fields under `workload`, splits the
+/// LLM/code execution into a tagged `WorkloadExecution`, bundles `eval_gate_*`
+/// into a typed `EvalGate`, and folds resource limits under `workload.limits`.
+fn reshape_body_for_sdk(
+    body: serde_json::Map<String, serde_json::Value>,
+    expect_code_workload: bool,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut envelope = body;
+
+    // CLI exposes `prompt` for managed agents; the SDK names it `system_prompt`.
+    if let Some(prompt) = envelope.remove("prompt") {
+        envelope
+            .entry("system_prompt".to_string())
+            .or_insert(prompt);
+    }
+
+    let mut workload = serde_json::Map::new();
+    let mut limits = serde_json::Map::new();
+    let mut llm_execution = serde_json::Map::new();
+    let mut code_execution = serde_json::Map::new();
+
+    for key in WORKLOAD_LIMITS_FIELDS {
+        if let Some(value) = envelope.remove(*key) {
+            limits.insert((*key).to_string(), value);
+        }
+    }
+    for key in LLM_EXECUTION_FIELDS {
+        if let Some(value) = envelope.remove(*key) {
+            llm_execution.insert((*key).to_string(), value);
+        }
+    }
+    for key in CODE_EXECUTION_FIELDS {
+        if let Some(value) = envelope.remove(*key) {
+            code_execution.insert((*key).to_string(), value);
+        }
+    }
+    for key in WORKLOAD_LEVEL_FIELDS {
+        if let Some(value) = envelope.remove(*key) {
+            // Skip keys that already moved into the execution maps above.
+            if LLM_EXECUTION_FIELDS.contains(key) || CODE_EXECUTION_FIELDS.contains(key) {
+                continue;
+            }
+            workload.insert((*key).to_string(), value);
+        }
+    }
+
+    let has_code = !code_execution.is_empty() || expect_code_workload;
+    let has_llm = !llm_execution.is_empty();
+    if has_code {
+        code_execution.insert(
+            "type".to_string(),
+            serde_json::Value::String("code".to_string()),
+        );
+        workload.insert(
+            "execution".to_string(),
+            serde_json::Value::Object(code_execution),
+        );
+    } else if has_llm {
+        llm_execution.insert(
+            "type".to_string(),
+            serde_json::Value::String("llm".to_string()),
+        );
+        workload.insert(
+            "execution".to_string(),
+            serde_json::Value::Object(llm_execution),
+        );
+    }
+    if !limits.is_empty() {
+        workload.insert("limits".to_string(), serde_json::Value::Object(limits));
+    }
+    if !workload.is_empty() {
+        envelope.insert("workload".to_string(), serde_json::Value::Object(workload));
+    }
+
+    // Bundle eval_gate_set_id + eval_gate_max_age_seconds into a typed EvalGate.
+    let eval_gate_set_id = envelope.remove("eval_gate_set_id");
+    let eval_gate_max_age_seconds = envelope.remove("eval_gate_max_age_seconds");
+    if let (Some(set_id), Some(max_age_seconds)) = (eval_gate_set_id, eval_gate_max_age_seconds) {
+        let mut gate = serde_json::Map::new();
+        gate.insert("set_id".to_string(), set_id);
+        gate.insert("max_age_seconds".to_string(), max_age_seconds);
+        envelope.insert("eval_gate".to_string(), serde_json::Value::Object(gate));
+    }
+
+    envelope
+}
+
 async fn submit_cloud_deploy_request(
     deploy_publisher: &str,
     body: serde_json::Map<String, serde_json::Value>,
@@ -1912,8 +2044,9 @@ async fn submit_cloud_deploy_request(
     let client = ctx.client().await?;
     let result = match deploy_publisher {
         SEREN_CLOUD_SLUG => {
-            let request: seren::DeployRequest =
-                serde_json::from_value(serde_json::Value::Object(body))
+            let reshaped = reshape_body_for_sdk(body, true);
+            let request: seren::CreateCloudDeploymentRequest =
+                serde_json::from_value(serde_json::Value::Object(reshaped))
                     .map_err(|e| anyhow::anyhow!("Failed to build cloud deploy request: {}", e))?;
             match client.seren_cloud_deploy(&request).await {
                 Ok(response) => response.into_inner(),
@@ -1921,8 +2054,9 @@ async fn submit_cloud_deploy_request(
             }
         }
         SEREN_AGENT_SLUG => {
-            let request: seren::CreateSerenAgentDeploymentRequest =
-                serde_json::from_value(serde_json::Value::Object(body)).map_err(|e| {
+            let reshaped = reshape_body_for_sdk(body, false);
+            let request: seren::AgentSpec =
+                serde_json::from_value(serde_json::Value::Object(reshaped)).map_err(|e| {
                     anyhow::anyhow!("Failed to build managed deploy request: {}", e)
                 })?;
             match client.seren_agent_deploy(&request).await {
@@ -2881,9 +3015,142 @@ pub async fn managed_agent_revisions(deployment_id: Uuid, ctx: &CommandContext) 
     Ok(())
 }
 
-fn build_managed_agent_update_request(
+/// Workload-level keys that, when present in the patch body, force a full
+/// `WorkloadSpec` replacement against the current managed deployment.
+fn body_touches_workload(body: &serde_json::Map<String, serde_json::Value>) -> bool {
+    body.keys().any(|key| {
+        WORKLOAD_LEVEL_FIELDS.contains(&key.as_str())
+            || WORKLOAD_LIMITS_FIELDS.contains(&key.as_str())
+            || LLM_EXECUTION_FIELDS.contains(&key.as_str())
+            || CODE_EXECUTION_FIELDS.contains(&key.as_str())
+            || key == "prompt"
+    })
+}
+
+async fn build_replacement_workload_for_managed_agent(
+    client: &seren::Client,
+    deployment_id: &Uuid,
+    body: &serde_json::Map<String, serde_json::Value>,
+) -> Result<seren::WorkloadSpec> {
+    let detail = match client
+        .seren_agent_get_managed_deployment(deployment_id)
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(err) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to fetch managed deployment for workload replacement",
+                err,
+            )
+            .await);
+        }
+    };
+
+    if !detail.secret_keys.is_empty() && !body.contains_key("secrets") {
+        return Err(anyhow::anyhow!(
+            "This deployment has existing secrets. Workload-level updates require a full replacement; pass --env or include `secrets` in --agent-config so the new secret bundle is explicit."
+        ));
+    }
+
+    let prompt_override = body
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned);
+    let system_prompt = prompt_override.or(detail.prompt).unwrap_or_default();
+
+    let model_id = body
+        .get("model_id")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
+        .unwrap_or(detail.model_id);
+
+    let model_config = body
+        .get("model_config")
+        .cloned()
+        .unwrap_or(detail.model_config);
+
+    let fallback_models = body
+        .get("fallback_models")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("Invalid fallback_models payload: {}", e))?
+        .or(detail.fallback_models);
+
+    let tool_definitions = body
+        .get("tool_definitions")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("Invalid tool_definitions payload: {}", e))?;
+
+    let config = body.get("config").cloned().or(detail.config);
+    let secrets = body.get("secrets").cloned();
+
+    let requirements = match body.get("requirements").cloned() {
+        Some(value) => serde_json::from_value(value)
+            .map_err(|e| anyhow::anyhow!("Invalid requirements payload: {}", e))?,
+        None => detail.requirements,
+    };
+
+    let max_timeout_seconds = body
+        .get("max_timeout_seconds")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32)
+        .or(detail.max_timeout_seconds);
+    let context_budget_tokens = body
+        .get("context_budget_tokens")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32)
+        .or(detail.context_budget_tokens);
+    let max_iterations = body
+        .get("max_iterations")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32)
+        .or(detail.max_iterations);
+    let max_tool_calls_per_run = body
+        .get("max_tool_calls_per_run")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32)
+        .or(detail.max_tool_calls_per_run);
+    let max_tool_output_chars = body
+        .get("max_tool_output_chars")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32)
+        .or(detail.max_tool_output_chars);
+
+    Ok(seren::WorkloadSpec {
+        compute_backend: Some(detail.compute_backend),
+        config,
+        execution: seren::WorkloadExecution::Llm {
+            adapter: Some(detail.runtime_adapter),
+            fallback_models,
+            llm_connection: detail.llm_connection,
+            model_config: Some(model_config),
+            model_id: Some(model_id),
+            system_prompt,
+            tool_definitions,
+        },
+        limits: Some(seren::WorkloadLimits {
+            context_budget_tokens,
+            max_iterations,
+            max_timeout_seconds,
+            max_tool_calls_per_run,
+            max_tool_output_chars,
+        }),
+        network_policy: detail.network_policy,
+        publisher_only: None,
+        requirements: Some(requirements),
+        secrets,
+        side_effect_policy: detail.side_effect_policy,
+    })
+}
+
+async fn build_managed_agent_update_request(
+    client: &seren::Client,
+    deployment_id: &Uuid,
     options: ManagedAgentUpdateOptions<'_>,
-) -> Result<seren::UpdateSerenAgentDeploymentRequest> {
+) -> Result<seren::AgentSpecUpdate> {
     let ManagedAgentUpdateOptions {
         name,
         agent_slug,
@@ -3013,8 +3280,38 @@ fn build_managed_agent_update_request(
         ));
     }
 
-    serde_json::from_value(serde_json::Value::Object(body))
-        .map_err(|e| anyhow::anyhow!("Failed to build managed update request: {}", e))
+    let workload = if body_touches_workload(&body) {
+        Some(build_replacement_workload_for_managed_agent(client, deployment_id, &body).await?)
+    } else {
+        None
+    };
+
+    // Strip workload-level fields out of the envelope; they are now embedded
+    // in `workload` (or carried implicitly via the existing deployment).
+    for key in WORKLOAD_LEVEL_FIELDS
+        .iter()
+        .chain(WORKLOAD_LIMITS_FIELDS.iter())
+        .chain(LLM_EXECUTION_FIELDS.iter())
+        .chain(CODE_EXECUTION_FIELDS.iter())
+    {
+        body.remove(*key);
+    }
+    body.remove("prompt");
+
+    let eval_gate_set_id = body.remove("eval_gate_set_id");
+    let eval_gate_max_age_seconds = body.remove("eval_gate_max_age_seconds");
+    if let (Some(set_id), Some(max_age_seconds)) = (eval_gate_set_id, eval_gate_max_age_seconds) {
+        let mut gate = serde_json::Map::new();
+        gate.insert("set_id".to_string(), set_id);
+        gate.insert("max_age_seconds".to_string(), max_age_seconds);
+        body.insert("eval_gate".to_string(), serde_json::Value::Object(gate));
+    }
+
+    let mut request: seren::AgentSpecUpdate =
+        serde_json::from_value(serde_json::Value::Object(body))
+            .map_err(|e| anyhow::anyhow!("Failed to build managed update request: {}", e))?;
+    request.workload = workload;
+    Ok(request)
 }
 
 fn build_managed_agent_rollback_request(
@@ -3030,7 +3327,7 @@ pub async fn managed_agent_preview(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
-    let body = build_managed_agent_update_request(options)?;
+    let body = build_managed_agent_update_request(&client, &deployment_id, options).await?;
     let response = match client
         .seren_agent_preview_managed_deployment_update(&deployment_id, &body)
         .await
@@ -3055,7 +3352,7 @@ pub async fn managed_agent_update(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
-    let body = build_managed_agent_update_request(options)?;
+    let body = build_managed_agent_update_request(&client, &deployment_id, options).await?;
     let response = match client
         .seren_agent_update_managed_deployment(&deployment_id, &body)
         .await
@@ -6219,13 +6516,16 @@ pub async fn cloud_update_config(
         ));
     }
 
-    let config = options.config_path.map(parse_json_file).transpose()?;
+    if options.config_path.is_some()
+        || options.env_path.is_some()
+        || options.network_policy_path.is_some()
+        || options.clear_network_policy
+    {
+        return Err(anyhow::anyhow!(
+            "config, secrets, and network_policy are workload-level fields and now require a full workload replacement. Redeploy the cloud agent with the new bundle and config to update these.",
+        ));
+    }
 
-    let secrets: Option<serde_json::Value> = if let Some(p) = options.env_path {
-        Some(parse_env_file(p)?)
-    } else {
-        None
-    };
     let alert_policy = options
         .alert_policy_path
         .map(parse_json_file)
@@ -6233,25 +6533,42 @@ pub async fn cloud_update_config(
         .map(serde_json::from_value::<seren::CloudDeploymentAlertPolicy>)
         .transpose()
         .map_err(|e| anyhow::anyhow!("Invalid alert policy: {}", e))?;
-    let network_policy = options
-        .network_policy_path
-        .map(parse_json_file)
-        .transpose()?
-        .map(serde_json::from_value::<seren::CloudDeploymentNetworkPolicy>)
-        .transpose()
-        .map_err(|e| anyhow::anyhow!("Invalid network policy: {}", e))?;
+    let eval_gate = match (
+        options.eval_gate_set_id,
+        options.eval_gate_max_age_seconds,
+        options.clear_eval_gate,
+    ) {
+        (Some(set_id), Some(max_age_seconds), false) => Some(seren::EvalGate {
+            max_age_seconds,
+            set_id,
+        }),
+        (None, None, _) => None,
+        (Some(_), None, false) => {
+            return Err(anyhow::anyhow!(
+                "--eval-gate-max-age-seconds is required with --eval-gate-set-id."
+            ));
+        }
+        (None, Some(_), false) => {
+            return Err(anyhow::anyhow!(
+                "--eval-gate-set-id is required with --eval-gate-max-age-seconds."
+            ));
+        }
+        (Some(_), _, true) | (_, Some(_), true) => {
+            return Err(anyhow::anyhow!(
+                "Provide either --clear-eval-gate or --eval-gate-set-id plus --eval-gate-max-age-seconds, not both."
+            ));
+        }
+    };
 
     let client = ctx.client().await?;
     let request = seren::UpdateCloudDeploymentRequest {
         alert_policy,
         clear_alert_policy: Some(options.clear_alert_policy),
-        config,
-        clear_network_policy: Some(options.clear_network_policy),
-        secrets,
-        eval_gate_set_id: options.eval_gate_set_id,
-        eval_gate_max_age_seconds: options.eval_gate_max_age_seconds,
+        clear_dashboard_config: None,
         clear_eval_gate: Some(options.clear_eval_gate),
-        network_policy,
+        dashboard_config: None,
+        eval_gate,
+        visibility: None,
     };
     client
         .seren_cloud_update_config(&deployment_id, &request)

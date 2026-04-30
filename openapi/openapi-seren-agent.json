@@ -3269,23 +3269,24 @@
         }
       },
       "TestSerenAgentDraftRunRequest": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/AgentSpec"
+        "type": "object",
+        "required": [
+          "deployment"
+        ],
+        "properties": {
+          "deployment": {
+            "$ref": "#/components/schemas/AgentSpec",
+            "description": "Draft managed-agent deployment spec to test."
           },
-          {
-            "type": "object",
-            "properties": {
-              "message": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "description": "Optional test message. When omitted, the server uses a generic first-run prompt."
-              }
-            }
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional test message. When omitted, the server uses a generic first-run prompt."
           }
-        ]
+        },
+        "additionalProperties": false
       },
       "TestSerenAgentDraftRunResponse": {
         "type": "object",

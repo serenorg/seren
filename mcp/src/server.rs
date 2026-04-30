@@ -1576,7 +1576,10 @@ pub struct DeployCloudAgentParams {
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct TestSerenAgentDraftRunParams {
     #[serde(flatten)]
-    pub body: seren::CreateSerenAgentDeploymentRequest,
+    pub body: seren::AgentSpec,
+    /// Optional test message. When omitted, the server uses a generic first-run prompt.
+    #[serde(default)]
+    pub test_message: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -1703,9 +1706,10 @@ fn resolve_guided_list_alias(
     }
 }
 
-fn build_update_seren_agent_deployment_request(
+async fn build_update_seren_agent_deployment_request(
+    api_client: &seren::Client,
     params: &UpdateSerenAgentDeploymentParams,
-) -> Result<seren::UpdateSerenAgentDeploymentRequest, McpError> {
+) -> Result<seren::AgentSpecUpdate, McpError> {
     let template = resolve_guided_string_alias(
         params.template.as_ref(),
         params.agent_style.as_ref(),
@@ -1742,49 +1746,126 @@ fn build_update_seren_agent_deployment_request(
         .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
     let model_policy = seren::parse_managed_agent_model_policy(model_policy.as_deref())
         .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
-    let requirements = params
-        .requirements
-        .clone()
-        .map(serde_json::from_value)
-        .transpose()
-        .map_err(|e| {
-            McpError::invalid_params(format!("Invalid requirements payload: {e}"), None)
-        })?;
+    let eval_gate = match (
+        params.eval_gate_set_id,
+        params.eval_gate_max_age_seconds,
+        params.clear_eval_gate,
+    ) {
+        (Some(set_id), Some(max_age_seconds), false) => Some(seren::EvalGate {
+            max_age_seconds,
+            set_id,
+        }),
+        (None, None, _) => None,
+        (Some(_), None, false) => {
+            return Err(McpError::invalid_params(
+                "eval_gate_max_age_seconds is required with eval_gate_set_id.",
+                None,
+            ));
+        }
+        (None, Some(_), false) => {
+            return Err(McpError::invalid_params(
+                "eval_gate_set_id is required with eval_gate_max_age_seconds.",
+                None,
+            ));
+        }
+        (Some(_), _, true) | (_, Some(_), true) => {
+            return Err(McpError::invalid_params(
+                "Provide either clear_eval_gate or eval_gate_set_id plus eval_gate_max_age_seconds, not both.",
+                None,
+            ));
+        }
+    };
+    let workload = if update_requires_workload_replacement(params) {
+        Some(build_replacement_workload(api_client, params).await?)
+    } else {
+        None
+    };
 
-    Ok(seren::UpdateSerenAgentDeploymentRequest {
+    Ok(seren::AgentSpecUpdate {
         agent_slug: params.agent_slug.clone(),
         alert_policy: None,
         allowed_remote_agent_origins: params.allowed_remote_agent_origins.clone(),
         approval_policy,
         clear_alert_policy: None,
+        clear_dashboard_config: None,
         clear_eval_gate: params.clear_eval_gate.then_some(true),
-        clear_network_policy: None,
         clear_session_database: None,
-        config: params.config.clone(),
         cron_schedule: params.cron_schedule.clone(),
         cron_timezone: params.cron_timezone.clone(),
         dashboard_config: params.dashboard_config.clone(),
-        eval_gate_max_age_seconds: params.eval_gate_max_age_seconds,
-        eval_gate_set_id: params.eval_gate_set_id,
-        fallback_models: params.fallback_models.clone(),
-        llm_connection: None,
-        max_timeout_seconds: params.max_timeout_seconds,
-        max_tool_calls_per_run: None,
-        model_config: params.model_config.clone(),
-        model_id: params.model_id.clone(),
+        eval_gate,
         model_policy,
         name: params.name.clone(),
-        network_policy: None,
         private_output_policy: None,
-        prompt: params.prompt.clone(),
-        requirements,
-        runtime_adapter: None,
-        secrets: params.secrets.clone(),
         session_database: None,
-        side_effect_policy: None,
         template,
         tool_presets,
         visibility: params.visibility.clone(),
+        workload,
+    })
+}
+
+fn update_requires_workload_replacement(params: &UpdateSerenAgentDeploymentParams) -> bool {
+    params.prompt.is_some()
+        || params.model_id.is_some()
+        || params.config.is_some()
+        || params.secrets.is_some()
+        || params.model_config.is_some()
+        || params.fallback_models.is_some()
+        || params.max_timeout_seconds.is_some()
+        || params.requirements.is_some()
+}
+
+async fn build_replacement_workload(
+    api_client: &seren::Client,
+    params: &UpdateSerenAgentDeploymentParams,
+) -> Result<seren::WorkloadSpec, McpError> {
+    let detail = api_client
+        .seren_agent_get_managed_deployment(&params.deployment_id)
+        .await
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?
+        .into_inner()
+        .data;
+
+    if !detail.secret_keys.is_empty() && params.secrets.is_none() {
+        return Err(McpError::invalid_params(
+            "This deployment has existing secrets. Because managed-agent workload updates are full replacements, provide the complete replacement secrets object when changing workload-level fields.",
+            None,
+        ));
+    }
+
+    let requirements = params
+        .requirements
+        .clone()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|e| McpError::invalid_params(format!("Invalid requirements payload: {e}"), None))?
+        .unwrap_or(detail.requirements);
+
+    Ok(seren::WorkloadSpec {
+        compute_backend: Some(detail.compute_backend),
+        config: params.config.clone().or(detail.config),
+        execution: seren::WorkloadExecution::Llm {
+            adapter: Some(detail.runtime_adapter),
+            fallback_models: params.fallback_models.clone().or(detail.fallback_models),
+            llm_connection: detail.llm_connection,
+            model_config: Some(params.model_config.clone().unwrap_or(detail.model_config)),
+            model_id: Some(params.model_id.clone().unwrap_or(detail.model_id)),
+            system_prompt: params.prompt.clone().or(detail.prompt).unwrap_or_default(),
+            tool_definitions: None,
+        },
+        limits: Some(seren::WorkloadLimits {
+            context_budget_tokens: detail.context_budget_tokens,
+            max_iterations: detail.max_iterations,
+            max_timeout_seconds: params.max_timeout_seconds.or(detail.max_timeout_seconds),
+            max_tool_calls_per_run: detail.max_tool_calls_per_run,
+            max_tool_output_chars: detail.max_tool_output_chars,
+        }),
+        network_policy: detail.network_policy,
+        publisher_only: None,
+        requirements: Some(requirements),
+        secrets: params.secrets.clone(),
+        side_effect_policy: detail.side_effect_policy,
     })
 }
 
@@ -5690,7 +5771,12 @@ impl SerenMcpServer {
                 ),
             );
         }
-        let request = serde_json::Value::Object(request);
+        let request = serde_json::from_value::<seren::PrivateModelsChatCompletionsRequest>(
+            serde_json::Value::Object(request),
+        )
+        .map_err(|e| {
+            McpError::invalid_params(format!("Invalid chat completions request: {e}"), None)
+        })?;
 
         let api_client = self.api_client(&extensions)?;
         let response = api_client
@@ -8969,7 +9055,15 @@ API endpoint: {endpoint}",
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
 
-        let request = seren::TestSerenAgentDraftRunRequest(params.body);
+        let request = seren::TestSerenAgentDraftRunRequest {
+            deployment: params.body,
+            message: params
+                .test_message
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned),
+        };
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_test_run(&request)
@@ -9036,8 +9130,8 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<UpdateSerenAgentDeploymentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let body = build_update_seren_agent_deployment_request(&params)?;
         let api_client = self.api_client(&extensions)?;
+        let body = build_update_seren_agent_deployment_request(&api_client, &params).await?;
         let response = api_client
             .seren_agent_preview_managed_deployment_update(&params.deployment_id, &body)
             .await
@@ -9084,8 +9178,8 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<UpdateSerenAgentDeploymentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let body = build_update_seren_agent_deployment_request(&params)?;
         let api_client = self.api_client(&extensions)?;
+        let body = build_update_seren_agent_deployment_request(&api_client, &params).await?;
         let response = api_client
             .seren_agent_update_managed_deployment(&params.deployment_id, &body)
             .await
@@ -10714,7 +10808,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Update config, secrets, alert_policy, network_policy, and/or the deployment eval gate for a cloud agent without redeploying code. Provide JSON objects for config/secrets/alert_policy/network_policy, eval_gate_set_id plus eval_gate_max_age_seconds, or the clear_* flags.",
+        description = "Update alert_policy and/or the deployment eval gate for a cloud agent without redeploying code. Workload-level config, secrets, and network_policy updates require a full workload replacement and are not exposed by this helper.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -10737,7 +10831,17 @@ API endpoint: {endpoint}",
             && !params.clear_eval_gate
         {
             return Err(McpError::invalid_params(
-                "Provide config, secrets, alert_policy, clear_alert_policy, network_policy, clear_network_policy, eval_gate_set_id plus eval_gate_max_age_seconds, or clear_eval_gate.",
+                "Provide alert_policy, clear_alert_policy, eval_gate_set_id plus eval_gate_max_age_seconds, or clear_eval_gate.",
+                None,
+            ));
+        }
+        if params.config.is_some()
+            || params.secrets.is_some()
+            || params.network_policy.is_some()
+            || params.clear_network_policy
+        {
+            return Err(McpError::invalid_params(
+                "config, secrets, and network_policy are workload-level fields and require a full UpdateCloudDeploymentRequest.workload replacement.",
                 None,
             ));
         }
@@ -10749,23 +10853,43 @@ API endpoint: {endpoint}",
             .map_err(|e| {
                 McpError::invalid_params(format!("Invalid alert_policy payload: {e}"), None)
             })?;
-        let network_policy = params
-            .network_policy
-            .map(serde_json::from_value::<seren::CloudDeploymentNetworkPolicy>)
-            .transpose()
-            .map_err(|e| {
-                McpError::invalid_params(format!("Invalid network_policy payload: {e}"), None)
-            })?;
+        let eval_gate = match (
+            params.eval_gate_set_id,
+            params.eval_gate_max_age_seconds,
+            params.clear_eval_gate,
+        ) {
+            (Some(set_id), Some(max_age_seconds), false) => Some(seren::EvalGate {
+                max_age_seconds,
+                set_id,
+            }),
+            (None, None, _) => None,
+            (Some(_), None, false) => {
+                return Err(McpError::invalid_params(
+                    "eval_gate_max_age_seconds is required with eval_gate_set_id.",
+                    None,
+                ));
+            }
+            (None, Some(_), false) => {
+                return Err(McpError::invalid_params(
+                    "eval_gate_set_id is required with eval_gate_max_age_seconds.",
+                    None,
+                ));
+            }
+            (Some(_), _, true) | (_, Some(_), true) => {
+                return Err(McpError::invalid_params(
+                    "Provide either clear_eval_gate or eval_gate_set_id plus eval_gate_max_age_seconds, not both.",
+                    None,
+                ));
+            }
+        };
         let request = seren::UpdateCloudDeploymentRequest {
             alert_policy,
             clear_alert_policy: Some(params.clear_alert_policy),
-            clear_network_policy: Some(params.clear_network_policy),
-            config: params.config,
             clear_eval_gate: Some(params.clear_eval_gate),
-            eval_gate_max_age_seconds: params.eval_gate_max_age_seconds,
-            eval_gate_set_id: params.eval_gate_set_id,
-            network_policy,
-            secrets: params.secrets,
+            clear_dashboard_config: None,
+            dashboard_config: None,
+            eval_gate,
+            visibility: None,
         };
         api_client
             .seren_cloud_update_config(&params.deployment_id, &request)
