@@ -11,7 +11,7 @@
       "name": "UNLICENSED",
       "identifier": "UNLICENSED"
     },
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "servers": [
     {
@@ -56,7 +56,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateSerenAgentDeploymentRequest"
+                "$ref": "#/components/schemas/AgentSpec"
               }
             }
           },
@@ -107,6 +107,50 @@
           },
           "401": {
             "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}": {
+      "delete": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Delete a managed seren-agent deployment.",
+        "operationId": "seren_agent_delete_managed_deployment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed deployment deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentActionStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Deployment not found"
           }
         },
         "security": [
@@ -181,7 +225,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateSerenAgentDeploymentRequest"
+                "$ref": "#/components/schemas/AgentSpecUpdate"
               }
             }
           },
@@ -238,7 +282,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateSerenAgentDeploymentRequest"
+                "$ref": "#/components/schemas/AgentSpecUpdate"
               }
             }
           },
@@ -430,6 +474,94 @@
         ]
       }
     },
+    "/deployments/{id}/start": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Start a managed seren-agent deployment.",
+        "operationId": "seren_agent_start_managed_deployment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed deployment started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentActionStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/stop": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Stop a managed seren-agent deployment.",
+        "operationId": "seren_agent_stop_managed_deployment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed deployment stopped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentActionStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/private-models": {
       "get": {
         "tags": [
@@ -521,7 +653,10 @@
           "supports_direct_skill_deploy",
           "supports_orchestrated_deploy",
           "deployment_targets",
-          "deployment_runtime_api"
+          "deployment_runtime_api",
+          "supported_templates",
+          "supported_tool_presets",
+          "supported_model_policies"
         ],
         "properties": {
           "deployment_runtime_api": {
@@ -542,11 +677,364 @@
           "runtime_provider": {
             "type": "string"
           },
+          "supported_model_policies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "supported_templates": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "supported_tool_presets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "supports_direct_skill_deploy": {
             "type": "boolean"
           },
           "supports_orchestrated_deploy": {
             "type": "boolean"
+          }
+        }
+      },
+      "AgentSpec": {
+        "type": "object",
+        "description": "Managed deploy request for the `seren-agent` first-class publisher.",
+        "required": [
+          "mode",
+          "workload"
+        ],
+        "properties": {
+          "agent_slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional stable slug for the agent. If omitted, derived from `name`."
+          },
+          "alert_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentAlertPolicy",
+                "description": "Optional alert webhook policy."
+              }
+            ]
+          },
+          "allowed_remote_agent_origins": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional allowlist for remote A2A delegation targets.\n\nEntries may be either hostnames (for example `agents.example.com`) or\nfull origins (for example `https://agents.example.com`)."
+          },
+          "approval_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentApprovalPolicy",
+                "description": "Safety policy for publisher operations. Defaults to `read_only`."
+              }
+            ]
+          },
+          "cron_schedule": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Cron schedule expression, required when `mode` is `cron`."
+          },
+          "cron_timezone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Timezone for cron schedules. Defaults to `UTC` when omitted."
+          },
+          "dashboard_config": {
+            "description": "Optional dashboard rendering config."
+          },
+          "eval_gate": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EvalGate",
+                "description": "Optional eval gate that must pass before runs proceed."
+              }
+            ]
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CloudDeploymentMode",
+            "description": "Deployment mode."
+          },
+          "model_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentModelPolicy",
+                "description": "Runtime/model execution profile. Defaults to `balanced`."
+              }
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Human-readable agent name. Auto-generated when omitted."
+          },
+          "private_output_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentPrivateOutputPolicy",
+                "description": "Output persistence policy for model/tool traces."
+              }
+            ]
+          },
+          "session_database": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentSessionDatabase",
+                "description": "Optional external session database configuration for durable agent state."
+              }
+            ]
+          },
+          "template": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplate",
+                "description": "Opinionated managed template. Defaults to `research_monitor`."
+              }
+            ]
+          },
+          "tool_presets": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentToolPreset"
+            },
+            "description": "Managed tool presets. Defaults to `live_data`."
+          },
+          "visibility": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Visibility mode (`open` or `opaque`)."
+          },
+          "workload": {
+            "$ref": "#/components/schemas/WorkloadSpec",
+            "description": "Runtime workload specification (execution strategy, compute, limits, ...)."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentSpecUpdate": {
+        "type": "object",
+        "description": "Partial update request for an existing managed `seren-agent` deployment.\n\nMirrors the agent-level fields of `AgentSpec` as `Option<...>` for partial\nupdate. The `workload` field replaces the entire `WorkloadSpec` when\npresent; partial-workload patching is intentionally out of scope.",
+        "properties": {
+          "agent_slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Updated stable slug for the agent."
+          },
+          "alert_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentAlertPolicy",
+                "description": "Updated alert webhook policy."
+              }
+            ]
+          },
+          "allowed_remote_agent_origins": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Updated allowlist for remote A2A delegation targets."
+          },
+          "approval_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentApprovalPolicy",
+                "description": "Updated approval policy."
+              }
+            ]
+          },
+          "clear_alert_policy": {
+            "type": "boolean",
+            "description": "Clear any existing alert policy."
+          },
+          "clear_dashboard_config": {
+            "type": "boolean",
+            "description": "Clear any existing dashboard config."
+          },
+          "clear_eval_gate": {
+            "type": "boolean",
+            "description": "Clear any existing eval gate configuration."
+          },
+          "clear_session_database": {
+            "type": "boolean",
+            "description": "Clear any existing external session database configuration."
+          },
+          "cron_schedule": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Updated cron schedule. Only valid for cron deployments."
+          },
+          "cron_timezone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Updated cron timezone. Only valid for cron deployments."
+          },
+          "dashboard_config": {
+            "description": "Updated dashboard rendering config."
+          },
+          "eval_gate": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EvalGate",
+                "description": "Updated eval gate configuration."
+              }
+            ]
+          },
+          "model_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentModelPolicy",
+                "description": "Updated model/runtime profile."
+              }
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Updated human-readable agent name."
+          },
+          "private_output_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentPrivateOutputPolicy",
+                "description": "Updated output persistence policy for model/tool traces."
+              }
+            ]
+          },
+          "session_database": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentSessionDatabase",
+                "description": "Updated external session database configuration."
+              }
+            ]
+          },
+          "template": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplate",
+                "description": "Updated managed template."
+              }
+            ]
+          },
+          "tool_presets": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentToolPreset"
+            },
+            "description": "Updated managed tool presets."
+          },
+          "visibility": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Updated visibility mode (`open` or `opaque`)."
+          },
+          "workload": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorkloadSpec",
+                "description": "Replaces the entire workload when present. Partial-workload patching\nis a future PR; for now, callers must send a complete `WorkloadSpec`\nto update any workload-level field."
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "CloudDeploymentActionStatusResponse": {
+        "type": "object",
+        "description": "Generic status payload used by cloud deployment lifecycle endpoints.",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
           }
         }
       },
@@ -734,6 +1222,14 @@
           "updated_at"
         ],
         "properties": {
+          "active_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Current managed-agent revision, when this is a managed seren-agent deployment."
+          },
           "alert_policy": {
             "oneOf": [
               {
@@ -880,274 +1376,6 @@
           }
         }
       },
-      "CreateSerenAgentDeploymentRequest": {
-        "type": "object",
-        "description": "Managed deploy request for the `seren-agent` first-class publisher.",
-        "required": [
-          "mode",
-          "prompt"
-        ],
-        "properties": {
-          "agent_slug": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Optional stable slug for the agent. If omitted, derived from `name`."
-          },
-          "alert_policy": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CloudDeploymentAlertPolicy",
-                "description": "Optional alert webhook policy."
-              }
-            ]
-          },
-          "allowed_remote_agent_origins": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            },
-            "description": "Optional allowlist for remote A2A delegation targets.\n\nEntries may be either hostnames (for example `agents.example.com`) or\nfull origins (for example `https://agents.example.com`)."
-          },
-          "approval_policy": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ManagedAgentApprovalPolicy",
-                "description": "Safety policy for publisher operations. Defaults to `read_only`."
-              }
-            ]
-          },
-          "compute_backend": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CloudDeploymentComputeBackend",
-                "description": "Optional backend override. Omit for AWS-first managed routing."
-              }
-            ]
-          },
-          "config": {
-            "description": "JSON config object."
-          },
-          "cron_schedule": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Cron schedule expression, required when `mode` is `cron`."
-          },
-          "cron_timezone": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Timezone for cron schedules. Defaults to `UTC` when omitted."
-          },
-          "dashboard_config": {
-            "description": "Optional dashboard rendering config."
-          },
-          "eval_gate_max_age_seconds": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Freshness window in seconds for the eval gate. Required with `eval_gate_set_id`."
-          },
-          "eval_gate_set_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid",
-            "description": "Optional eval set ID that must have a fresh passing verdict before runs are allowed."
-          },
-          "fallback_models": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            },
-            "description": "Optional fallback model list for transient failures."
-          },
-          "llm_connection": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ManagedAgentLlmConnection",
-                "description": "Optional private model connection override resolved through seren-private-models."
-              }
-            ]
-          },
-          "max_timeout_seconds": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Optional maximum wall-clock timeout per run in seconds.",
-            "minimum": 0
-          },
-          "max_tool_calls_per_run": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Optional total tool-call budget per run.",
-            "minimum": 0
-          },
-          "mode": {
-            "$ref": "#/components/schemas/CloudDeploymentMode",
-            "description": "Deployment mode."
-          },
-          "model_config": {
-            "description": "Additional model parameters."
-          },
-          "model_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Model identifier (for example `anthropic/claude-sonnet-4-20250514`). Defaults to `anthropic/claude-sonnet-4-20250514` when omitted."
-          },
-          "model_policy": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ManagedAgentModelPolicy",
-                "description": "Runtime/model execution profile. Defaults to `balanced`."
-              }
-            ]
-          },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Human-readable agent name. Auto-generated when omitted."
-          },
-          "network_policy": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy",
-                "description": "Optional outbound network restrictions for supported sandboxes."
-              }
-            ]
-          },
-          "private_output_policy": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ManagedAgentPrivateOutputPolicy",
-                "description": "Output persistence policy for model/tool traces."
-              }
-            ]
-          },
-          "prompt": {
-            "type": "string",
-            "description": "Main task instructions for the managed agent."
-          },
-          "requirements": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/RequirementSpec"
-            },
-            "description": "Declared requirements validated at deploy time."
-          },
-          "runtime_adapter": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ManagedAgentRuntimeAdapter",
-                "description": "Runtime adapter used by the managed deployment. Defaults to `adk`."
-              }
-            ]
-          },
-          "secrets": {
-            "description": "JSON secrets object."
-          },
-          "session_database": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ManagedAgentSessionDatabase",
-                "description": "Optional external session database configuration for durable agent state."
-              }
-            ]
-          },
-          "side_effect_policy": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/SideEffectPolicy",
-                "description": "Deployment-level safety controls for mutating built-in publisher calls."
-              }
-            ]
-          },
-          "template": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ManagedAgentTemplate",
-                "description": "Opinionated managed template. Defaults to `research_monitor`."
-              }
-            ]
-          },
-          "tool_presets": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/ManagedAgentToolPreset"
-            },
-            "description": "Managed tool presets. Defaults to `live_data`."
-          },
-          "visibility": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Visibility mode (`open` or `opaque`)."
-          }
-        },
-        "additionalProperties": false
-      },
       "DataResponse_AgentCapabilitiesResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -1164,7 +1392,10 @@
               "supports_direct_skill_deploy",
               "supports_orchestrated_deploy",
               "deployment_targets",
-              "deployment_runtime_api"
+              "deployment_runtime_api",
+              "supported_templates",
+              "supported_tool_presets",
+              "supported_model_policies"
             ],
             "properties": {
               "deployment_runtime_api": {
@@ -1185,11 +1416,61 @@
               "runtime_provider": {
                 "type": "string"
               },
+              "supported_model_policies": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "supported_templates": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "supported_tool_presets": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
               "supports_direct_skill_deploy": {
                 "type": "boolean"
               },
               "supports_orchestrated_deploy": {
                 "type": "boolean"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudDeploymentActionStatusResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Generic status payload used by cloud deployment lifecycle endpoints.",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string"
               }
             }
           },
@@ -1234,6 +1515,14 @@
               "updated_at"
             ],
             "properties": {
+              "active_revision_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Current managed-agent revision, when this is a managed seren-agent deployment."
+              },
               "alert_policy": {
                 "oneOf": [
                   {
@@ -1426,6 +1715,14 @@
               "routing_reason"
             ],
             "properties": {
+              "active_revision_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Current managed-agent revision for this deployment."
+              },
               "agent_slug": {
                 "type": "string"
               },
@@ -1483,19 +1780,16 @@
                 "type": "string",
                 "format": "uuid"
               },
-              "eval_gate_max_age_seconds": {
-                "type": [
-                  "integer",
-                  "null"
-                ],
-                "format": "int32"
-              },
-              "eval_gate_set_id": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "format": "uuid"
+              "eval_gate": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/EvalGate",
+                    "description": "Eval gate that must pass with a fresh verdict before runs proceed.\n`set_id` and `max_age_seconds` always travel together; either both are\nset or the gate is absent."
+                  }
+                ]
               },
               "fallback_models": {
                 "type": [
@@ -1916,6 +2210,14 @@
                 "updated_at"
               ],
               "properties": {
+                "active_revision_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid",
+                  "description": "Current managed-agent revision, when this is a managed seren-agent deployment."
+                },
                 "alert_policy": {
                   "oneOf": [
                     {
@@ -2180,6 +2482,25 @@
           }
         }
       },
+      "EvalGate": {
+        "type": "object",
+        "description": "Eval gate configuration that must pass with a fresh verdict before runs proceed.",
+        "required": [
+          "set_id",
+          "max_age_seconds"
+        ],
+        "properties": {
+          "max_age_seconds": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "set_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
       "ManagedAgentApprovalPolicy": {
         "type": "string",
         "enum": [
@@ -2213,6 +2534,14 @@
           "routing_reason"
         ],
         "properties": {
+          "active_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Current managed-agent revision for this deployment."
+          },
           "agent_slug": {
             "type": "string"
           },
@@ -2270,19 +2599,16 @@
             "type": "string",
             "format": "uuid"
           },
-          "eval_gate_max_age_seconds": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32"
-          },
-          "eval_gate_set_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid"
+          "eval_gate": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EvalGate",
+                "description": "Eval gate that must pass with a fresh verdict before runs proceed.\n`set_id` and `max_age_seconds` always travel together; either both are\nset or the gate is absent."
+              }
+            ]
           },
           "fallback_models": {
             "type": [
@@ -2945,7 +3271,7 @@
       "TestSerenAgentDraftRunRequest": {
         "allOf": [
           {
-            "$ref": "#/components/schemas/CreateSerenAgentDeploymentRequest"
+            "$ref": "#/components/schemas/AgentSpec"
           },
           {
             "type": "object",
@@ -3020,121 +3346,378 @@
           "workflow": {}
         }
       },
-      "UpdateSerenAgentDeploymentRequest": {
+      "ToolApprovalCondition": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "type"
+            ],
+            "properties": {
+              "gte": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "lte": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "path": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "numeric_threshold"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "value",
+              "type"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "string_equals"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "values",
+              "type"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "string_in"
+                ]
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "values",
+              "type"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "string_not_in"
+                ]
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "value",
+              "type"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "boolean_equals"
+                ]
+              },
+              "value": {
+                "type": "boolean"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "start_hour",
+              "end_hour",
+              "type"
+            ],
+            "properties": {
+              "end_hour": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "start_hour": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "outside_hours_utc"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Condition for a conditional approval rule."
+      },
+      "ToolApprovalRule": {
         "type": "object",
-        "description": "Partial update request for an existing managed `seren-agent` deployment.",
+        "description": "Conditional approval rule for an orchestration tool.",
         "properties": {
-          "agent_slug": {
+          "approval_reason": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "Updated stable slug for the agent."
-          },
-          "alert_policy": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CloudDeploymentAlertPolicy",
-                "description": "Updated alert webhook policy."
-              }
             ]
           },
-          "allowed_remote_agent_origins": {
-            "type": [
-              "array",
-              "null"
-            ],
+          "approval_type": {
+            "$ref": "#/components/schemas/ToolApprovalType"
+          },
+          "conditions": {
+            "type": "array",
             "items": {
-              "type": "string"
-            },
-            "description": "Updated allowlist for remote A2A delegation targets.\n\nEntries may be either hostnames (for example `agents.example.com`) or\nfull origins (for example `https://agents.example.com`)."
-          },
-          "approval_policy": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ManagedAgentApprovalPolicy",
-                "description": "Updated approval policy."
-              }
+              "$ref": "#/components/schemas/ToolApprovalCondition"
+            }
+          }
+        }
+      },
+      "ToolApprovalType": {
+        "type": "string",
+        "description": "Approval policy for an LLM orchestration tool.",
+        "enum": [
+          "none",
+          "required",
+          "audit"
+        ]
+      },
+      "ToolDefinition": {
+        "type": "object",
+        "description": "A single tool definition for LLM orchestration.",
+        "required": [
+          "name",
+          "description"
+        ],
+        "properties": {
+          "approval_reason": {
+            "type": [
+              "string",
+              "null"
             ]
           },
-          "clear_alert_policy": {
-            "type": "boolean",
-            "description": "Clear any existing alert policy."
+          "approval_rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolApprovalRule"
+            }
           },
-          "clear_eval_gate": {
-            "type": "boolean",
-            "description": "Clear any existing eval gate configuration."
+          "approval_type": {
+            "$ref": "#/components/schemas/ToolApprovalType"
           },
-          "clear_network_policy": {
-            "type": "boolean",
-            "description": "Clear any existing outbound network restrictions."
+          "description": {
+            "type": "string"
           },
-          "clear_session_database": {
-            "type": "boolean",
-            "description": "Clear any existing external session database configuration."
-          },
-          "config": {
-            "description": "Updated JSON config object."
-          },
-          "cron_schedule": {
+          "input_schema": {},
+          "max_output_bytes": {
             "type": [
-              "string",
+              "integer",
               "null"
             ],
-            "description": "Updated cron schedule. Only valid for cron deployments."
+            "description": "Maximum output size in bytes for this tool. Output exceeding this limit is truncated.",
+            "minimum": 0
           },
-          "cron_timezone": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Updated cron timezone. Only valid for cron deployments."
+          "name": {
+            "type": "string"
           },
-          "dashboard_config": {
-            "description": "Updated dashboard rendering config."
-          },
-          "eval_gate_max_age_seconds": {
+          "timeout_override_seconds": {
             "type": [
               "integer",
               "null"
             ],
             "format": "int32",
-            "description": "Updated eval freshness window in seconds. Required with `eval_gate_set_id`."
-          },
-          "eval_gate_set_id": {
-            "type": [
-              "string",
-              "null"
+            "description": "Per-tool timeout override in seconds. Overrides the deployment-level tool timeout.",
+            "minimum": 0
+          }
+        }
+      },
+      "WorkloadExecution": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "LLM-orchestrated agent with optional tool definitions and model config.",
+            "required": [
+              "system_prompt",
+              "type"
             ],
-            "format": "uuid",
-            "description": "Updated eval set ID that gates deployment execution."
-          },
-          "fallback_models": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            },
-            "description": "Updated fallback model list."
-          },
-          "llm_connection": {
-            "oneOf": [
-              {
-                "type": "null"
+            "properties": {
+              "adapter": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentRuntimeAdapter",
+                    "description": "Runtime adapter used to run the agent loop."
+                  }
+                ]
               },
-              {
-                "$ref": "#/components/schemas/ManagedAgentLlmConnection",
-                "description": "Updated private LLM connection override."
+              "fallback_models": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "description": "Ordered list of fallback model identifiers tried on primary failure."
+              },
+              "llm_connection": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentLlmConnection",
+                    "description": "LLM connection override for private-model routing."
+                  }
+                ]
+              },
+              "model_config": {
+                "description": "Arbitrary model parameters forwarded to the provider."
+              },
+              "model_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Model identifier override (e.g. `\"anthropic/claude-sonnet-4.6\"`)."
+              },
+              "system_prompt": {
+                "type": "string",
+                "description": "System prompt delivered to the language model at runtime."
+              },
+              "tool_definitions": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "$ref": "#/components/schemas/ToolDefinition"
+                },
+                "description": "Tool definitions available to the LLM during execution."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "llm"
+                ]
               }
-            ]
+            }
+          },
+          {
+            "type": "object",
+            "description": "Code-bundle workload deployed as a base64-encoded archive.",
+            "required": [
+              "code_bundle_base64",
+              "type"
+            ],
+            "properties": {
+              "code_bundle_base64": {
+                "type": "string",
+                "description": "Base64-encoded code bundle (tar.gz or zip depending on backend)."
+              },
+              "requirements_txt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Python requirements.txt contents injected at build time."
+              },
+              "runtime_kind": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudDeploymentRuntimeKind",
+                    "description": "Runtime kind (language/format) for the code bundle."
+                  }
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "code"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Execution strategy for a workload.\n\nTagged on the `type` field so the wire shape is `{\"type\":\"llm\",...}` or\n`{\"type\":\"code\",...}`."
+      },
+      "WorkloadLimits": {
+        "type": "object",
+        "description": "Resource and iteration limits applied to a workload run.\n\nAll fields default to `None` (no limit).",
+        "properties": {
+          "context_budget_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Maximum context window budget in tokens.",
+            "minimum": 0
+          },
+          "max_iterations": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Maximum number of agent loop iterations before the run is terminated.",
+            "minimum": 0
           },
           "max_timeout_seconds": {
             "type": [
@@ -3142,7 +3725,7 @@
               "null"
             ],
             "format": "int32",
-            "description": "Updated run timeout in seconds.",
+            "description": "Wall-clock timeout in seconds for the entire run.",
             "minimum": 0
           },
           "max_tool_calls_per_run": {
@@ -3151,36 +3734,49 @@
               "null"
             ],
             "format": "int32",
-            "description": "Updated total tool-call budget per run.",
+            "description": "Maximum number of tool calls across the entire run.",
             "minimum": 0
           },
-          "model_config": {
-            "description": "Updated model parameters."
-          },
-          "model_id": {
+          "max_tool_output_chars": {
             "type": [
-              "string",
+              "integer",
               "null"
             ],
-            "description": "Updated primary model identifier."
-          },
-          "model_policy": {
+            "format": "int32",
+            "description": "Maximum number of characters kept from any single tool output.",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "WorkloadSpec": {
+        "type": "object",
+        "description": "Full runtime specification for a cloud workload.\n\nCaptures compute backend, network policy, side-effect controls, and the\nexecution discriminator. The `execution` field is required; all other\nfields default to `None` or their zero value.",
+        "required": [
+          "execution"
+        ],
+        "properties": {
+          "compute_backend": {
             "oneOf": [
               {
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ManagedAgentModelPolicy",
-                "description": "Updated model/runtime profile."
+                "$ref": "#/components/schemas/CloudDeploymentComputeBackend",
+                "description": "Compute backend override. Uses the deployment default when absent."
               }
             ]
           },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Updated human-readable agent name."
+          "config": {
+            "description": "Arbitrary operator-supplied configuration passed to the runtime."
+          },
+          "execution": {
+            "$ref": "#/components/schemas/WorkloadExecution",
+            "description": "Execution strategy -- either LLM-orchestrated or code-bundle."
+          },
+          "limits": {
+            "$ref": "#/components/schemas/WorkloadLimits",
+            "description": "Resource and iteration limits for the workload."
           },
           "network_policy": {
             "oneOf": [
@@ -3189,27 +3785,13 @@
               },
               {
                 "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy",
-                "description": "Updated outbound network restrictions for supported sandboxes."
+                "description": "Outbound network restrictions for sandboxed backends."
               }
             ]
           },
-          "private_output_policy": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ManagedAgentPrivateOutputPolicy",
-                "description": "Updated output persistence policy for model/tool traces."
-              }
-            ]
-          },
-          "prompt": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Updated task instructions."
+          "publisher_only": {
+            "type": "boolean",
+            "description": "When true, the workload is exposed only to publisher-internal callers."
           },
           "requirements": {
             "type": [
@@ -3219,32 +3801,10 @@
             "items": {
               "$ref": "#/components/schemas/RequirementSpec"
             },
-            "description": "Updated deploy-time requirements."
-          },
-          "runtime_adapter": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ManagedAgentRuntimeAdapter",
-                "description": "Updated runtime adapter."
-              }
-            ]
+            "description": "Declared requirements validated at deploy time."
           },
           "secrets": {
-            "description": "Updated JSON secrets object."
-          },
-          "session_database": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ManagedAgentSessionDatabase",
-                "description": "Updated external session database configuration."
-              }
-            ]
+            "description": "Secret references available to the runtime (typed in a later milestone)."
           },
           "side_effect_policy": {
             "oneOf": [
@@ -3252,37 +3812,10 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/SideEffectPolicy"
+                "$ref": "#/components/schemas/SideEffectPolicy",
+                "description": "Controls for mutating built-in publisher calls."
               }
             ]
-          },
-          "template": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ManagedAgentTemplate",
-                "description": "Updated managed template."
-              }
-            ]
-          },
-          "tool_presets": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/ManagedAgentToolPreset"
-            },
-            "description": "Updated managed tool presets."
-          },
-          "visibility": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Updated visibility mode (`open` or `opaque`)."
           }
         },
         "additionalProperties": false

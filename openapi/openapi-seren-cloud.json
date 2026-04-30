@@ -11,7 +11,7 @@
       "name": "UNLICENSED",
       "identifier": "UNLICENSED"
     },
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "servers": [
     {
@@ -175,7 +175,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DeployRequest"
+                "$ref": "#/components/schemas/CreateCloudDeploymentRequest"
               }
             }
           },
@@ -3867,6 +3867,14 @@
           "updated_at"
         ],
         "properties": {
+          "active_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Current managed-agent revision, when this is a managed seren-agent deployment."
+          },
           "alert_policy": {
             "oneOf": [
               {
@@ -5298,6 +5306,91 @@
           }
         }
       },
+      "CreateCloudDeploymentRequest": {
+        "type": "object",
+        "description": "Request body for creating a cloud deployment.\n\nThe deployment envelope (name, skill, mode, schedule, eval gate, dashboard,\nalert policy, visibility, environment) is on the request itself; all\nruntime concerns (execution strategy, compute backend, limits, secrets,\nconfig, requirements, etc.) live inside the embedded `WorkloadSpec`.",
+        "required": [
+          "skill_slug",
+          "mode",
+          "workload"
+        ],
+        "properties": {
+          "alert_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentAlertPolicy",
+                "description": "Deployment-level alert webhook routing policy."
+              }
+            ]
+          },
+          "cron_schedule": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Cron expression, required when `mode` is `cron`."
+          },
+          "cron_timezone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Timezone for cron schedules. Defaults to `UTC` when omitted."
+          },
+          "dashboard_config": {
+            "description": "UI rendering hints for custom dashboards."
+          },
+          "environment_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Optional reusable execution environment."
+          },
+          "eval_gate": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EvalGate",
+                "description": "Optional eval gate that must pass before runs proceed."
+              }
+            ]
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CloudDeploymentMode",
+            "description": "Deployment mode (always_on, cron, job)."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Human-readable deployment name. Auto-generated when omitted."
+          },
+          "skill_slug": {
+            "type": "string",
+            "description": "Stable slug identifying the skill being deployed."
+          },
+          "visibility": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Visibility mode (`open` or `opaque`)."
+          },
+          "workload": {
+            "$ref": "#/components/schemas/WorkloadSpec",
+            "description": "Runtime workload specification (execution strategy, compute, limits, ...)."
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateCloudEvalRunRequest": {
         "type": "object",
         "description": "Request body for executing an eval set against a deployment.",
@@ -5853,6 +5946,14 @@
               "updated_at"
             ],
             "properties": {
+              "active_revision_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Current managed-agent revision, when this is a managed seren-agent deployment."
+              },
               "alert_policy": {
                 "oneOf": [
                   {
@@ -7221,6 +7322,14 @@
                 "updated_at"
               ],
               "properties": {
+                "active_revision_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid",
+                  "description": "Current managed-agent revision, when this is a managed seren-agent deployment."
+                },
                 "alert_policy": {
                   "oneOf": [
                     {
@@ -8055,231 +8164,6 @@
           }
         }
       },
-      "DeployRequest": {
-        "type": "object",
-        "description": "JSON body for the deploy endpoint (base64-encoded code bundle).",
-        "required": [
-          "skill_slug",
-          "mode",
-          "code_bundle_base64"
-        ],
-        "properties": {
-          "alert_policy": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CloudDeploymentAlertPolicy",
-                "description": "Deployment-level alert webhook routing policy."
-              }
-            ]
-          },
-          "code_bundle_base64": {
-            "type": "string",
-            "description": "Base64-encoded tar.gz of the scripts/ directory."
-          },
-          "compute_backend": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Optional backend override. Omit or set \"auto\" for AWS-first bundle-based routing."
-          },
-          "config": {
-            "description": "JSON config object (will be encrypted at rest)."
-          },
-          "context_budget_tokens": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Cumulative context token budget; oldest tool results truncated when exceeded.",
-            "minimum": 0
-          },
-          "cron_schedule": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "cron_timezone": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "dashboard_config": {
-            "description": "UI rendering hints for custom dashboards."
-          },
-          "environment_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid"
-          },
-          "eval_gate_max_age_seconds": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32"
-          },
-          "eval_gate_set_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid"
-          },
-          "fallback_models": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            },
-            "description": "Fallback model IDs to try on transient errors (429, 503, timeout)."
-          },
-          "max_iterations": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Max LLM loop iterations (overrides SEREN_MAX_ITERATIONS env var in orchestrator).",
-            "minimum": 0
-          },
-          "max_timeout_seconds": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Max wall-clock seconds per run (overrides SEREN_MAX_TIMEOUT env var in orchestrator).",
-            "minimum": 0
-          },
-          "max_tool_calls_per_run": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Max total tool calls allowed in a single run before the runtime stops.",
-            "minimum": 0
-          },
-          "max_tool_output_chars": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Max characters per tool output (overrides SEREN_MAX_TOOL_OUTPUT env var).",
-            "minimum": 0
-          },
-          "mode": {
-            "type": "string"
-          },
-          "model_config": {
-            "description": "Additional model parameters (temperature, max_tokens, etc.)."
-          },
-          "model_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Model identifier (e.g. \"anthropic/claude-sonnet-4-20250514\")."
-          },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "network_policy": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy",
-                "description": "Deployment-level outbound network restrictions for supported sandboxes."
-              }
-            ]
-          },
-          "orchestration_mode": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Orchestration mode: \"script\" (default) or \"llm\"."
-          },
-          "publisher_only": {
-            "type": "boolean",
-            "description": "Restrict the runtime to built-in Seren publisher tools only."
-          },
-          "requirements": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/RequirementSpec"
-            },
-            "description": "Declared requirements (env vars, secrets, config keys) validated at deploy time."
-          },
-          "requirements_txt": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "runtime_kind": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Optional runtime override. Omit or set \"auto\" to infer from the uploaded bundle."
-          },
-          "secrets": {
-            "description": "JSON secrets object (key-value pairs, will be encrypted at rest)."
-          },
-          "side_effect_policy": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/SideEffectPolicy",
-                "description": "Deployment-level safety controls for mutating built-in publisher calls."
-              }
-            ]
-          },
-          "skill_slug": {
-            "type": "string"
-          },
-          "system_prompt": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "System prompt for LLM orchestration (required when orchestration_mode = \"llm\")."
-          },
-          "tool_definitions": {
-            "description": "Tool definitions for the LLM to call."
-          },
-          "visibility": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Visibility mode: \"open\" (default, internals visible) or \"opaque\" (internals hidden)."
-          }
-        }
-      },
       "DeploymentSpendSummary": {
         "type": "object",
         "description": "Aggregated spend summary for a single cloud deployment.",
@@ -8319,11 +8203,48 @@
           }
         }
       },
+      "EvalGate": {
+        "type": "object",
+        "description": "Eval gate configuration that must pass with a fresh verdict before runs proceed.",
+        "required": [
+          "set_id",
+          "max_age_seconds"
+        ],
+        "properties": {
+          "max_age_seconds": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "set_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
       "ManagedAgentApprovalPolicy": {
         "type": "string",
         "enum": [
           "read_only",
           "allow_mutations"
+        ]
+      },
+      "ManagedAgentLlmConnection": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "provider"
+            ],
+            "properties": {
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "seren_private_models"
+                ]
+              }
+            }
+          }
         ]
       },
       "ManagedAgentModelPolicy": {
@@ -8332,6 +8253,12 @@
           "fast",
           "balanced",
           "deep"
+        ]
+      },
+      "ManagedAgentRuntimeAdapter": {
+        "type": "string",
+        "enum": [
+          "adk"
         ]
       },
       "ManagedAgentSummary": {
@@ -8529,6 +8456,242 @@
           }
         }
       },
+      "ToolApprovalCondition": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "type"
+            ],
+            "properties": {
+              "gte": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "lte": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "path": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "numeric_threshold"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "value",
+              "type"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "string_equals"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "values",
+              "type"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "string_in"
+                ]
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "values",
+              "type"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "string_not_in"
+                ]
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "value",
+              "type"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "boolean_equals"
+                ]
+              },
+              "value": {
+                "type": "boolean"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "start_hour",
+              "end_hour",
+              "type"
+            ],
+            "properties": {
+              "end_hour": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "start_hour": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "outside_hours_utc"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Condition for a conditional approval rule."
+      },
+      "ToolApprovalRule": {
+        "type": "object",
+        "description": "Conditional approval rule for an orchestration tool.",
+        "properties": {
+          "approval_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "approval_type": {
+            "$ref": "#/components/schemas/ToolApprovalType"
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolApprovalCondition"
+            }
+          }
+        }
+      },
+      "ToolApprovalType": {
+        "type": "string",
+        "description": "Approval policy for an LLM orchestration tool.",
+        "enum": [
+          "none",
+          "required",
+          "audit"
+        ]
+      },
+      "ToolDefinition": {
+        "type": "object",
+        "description": "A single tool definition for LLM orchestration.",
+        "required": [
+          "name",
+          "description"
+        ],
+        "properties": {
+          "approval_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "approval_rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolApprovalRule"
+            }
+          },
+          "approval_type": {
+            "$ref": "#/components/schemas/ToolApprovalType"
+          },
+          "description": {
+            "type": "string"
+          },
+          "input_schema": {},
+          "max_output_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Maximum output size in bytes for this tool. Output exceeding this limit is truncated.",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "timeout_override_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Per-tool timeout override in seconds. Overrides the deployment-level tool timeout.",
+            "minimum": 0
+          }
+        }
+      },
       "UpdateCloudDeploymentEnvironmentRequest": {
         "type": "object",
         "description": "Request body for updating a reusable execution environment.",
@@ -8570,7 +8733,7 @@
       },
       "UpdateCloudDeploymentRequest": {
         "type": "object",
-        "description": "Request body for updating config/secrets without redeploying.",
+        "description": "Partial update request for an existing cloud deployment.\n\nMirrors the deployment envelope as `Option<...>` for partial update. Runtime\nworkload changes use deployment-specific replacement/update endpoints.",
         "properties": {
           "alert_policy": {
             "oneOf": [
@@ -8578,46 +8741,46 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/CloudDeploymentAlertPolicy"
+                "$ref": "#/components/schemas/CloudDeploymentAlertPolicy",
+                "description": "Updated alert webhook policy."
               }
             ]
           },
           "clear_alert_policy": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Clear any existing alert policy."
+          },
+          "clear_dashboard_config": {
+            "type": "boolean",
+            "description": "Clear any existing dashboard config."
           },
           "clear_eval_gate": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Clear any existing eval gate configuration."
           },
-          "clear_network_policy": {
-            "type": "boolean"
+          "dashboard_config": {
+            "description": "Updated dashboard rendering config."
           },
-          "config": {},
-          "eval_gate_max_age_seconds": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32"
-          },
-          "eval_gate_set_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid"
-          },
-          "network_policy": {
+          "eval_gate": {
             "oneOf": [
               {
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy"
+                "$ref": "#/components/schemas/EvalGate",
+                "description": "Updated eval gate configuration."
               }
             ]
           },
-          "secrets": {}
-        }
+          "visibility": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Updated visibility mode."
+          }
+        },
+        "additionalProperties": false
       },
       "UpdateCloudEvalSetRequest": {
         "type": "object",
@@ -8688,6 +8851,244 @@
             "type": "boolean"
           }
         }
+      },
+      "WorkloadExecution": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "LLM-orchestrated agent with optional tool definitions and model config.",
+            "required": [
+              "system_prompt",
+              "type"
+            ],
+            "properties": {
+              "adapter": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentRuntimeAdapter",
+                    "description": "Runtime adapter used to run the agent loop."
+                  }
+                ]
+              },
+              "fallback_models": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "description": "Ordered list of fallback model identifiers tried on primary failure."
+              },
+              "llm_connection": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentLlmConnection",
+                    "description": "LLM connection override for private-model routing."
+                  }
+                ]
+              },
+              "model_config": {
+                "description": "Arbitrary model parameters forwarded to the provider."
+              },
+              "model_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Model identifier override (e.g. `\"anthropic/claude-sonnet-4.6\"`)."
+              },
+              "system_prompt": {
+                "type": "string",
+                "description": "System prompt delivered to the language model at runtime."
+              },
+              "tool_definitions": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "$ref": "#/components/schemas/ToolDefinition"
+                },
+                "description": "Tool definitions available to the LLM during execution."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "llm"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Code-bundle workload deployed as a base64-encoded archive.",
+            "required": [
+              "code_bundle_base64",
+              "type"
+            ],
+            "properties": {
+              "code_bundle_base64": {
+                "type": "string",
+                "description": "Base64-encoded code bundle (tar.gz or zip depending on backend)."
+              },
+              "requirements_txt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Python requirements.txt contents injected at build time."
+              },
+              "runtime_kind": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudDeploymentRuntimeKind",
+                    "description": "Runtime kind (language/format) for the code bundle."
+                  }
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "code"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Execution strategy for a workload.\n\nTagged on the `type` field so the wire shape is `{\"type\":\"llm\",...}` or\n`{\"type\":\"code\",...}`."
+      },
+      "WorkloadLimits": {
+        "type": "object",
+        "description": "Resource and iteration limits applied to a workload run.\n\nAll fields default to `None` (no limit).",
+        "properties": {
+          "context_budget_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Maximum context window budget in tokens.",
+            "minimum": 0
+          },
+          "max_iterations": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Maximum number of agent loop iterations before the run is terminated.",
+            "minimum": 0
+          },
+          "max_timeout_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Wall-clock timeout in seconds for the entire run.",
+            "minimum": 0
+          },
+          "max_tool_calls_per_run": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Maximum number of tool calls across the entire run.",
+            "minimum": 0
+          },
+          "max_tool_output_chars": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Maximum number of characters kept from any single tool output.",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "WorkloadSpec": {
+        "type": "object",
+        "description": "Full runtime specification for a cloud workload.\n\nCaptures compute backend, network policy, side-effect controls, and the\nexecution discriminator. The `execution` field is required; all other\nfields default to `None` or their zero value.",
+        "required": [
+          "execution"
+        ],
+        "properties": {
+          "compute_backend": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentComputeBackend",
+                "description": "Compute backend override. Uses the deployment default when absent."
+              }
+            ]
+          },
+          "config": {
+            "description": "Arbitrary operator-supplied configuration passed to the runtime."
+          },
+          "execution": {
+            "$ref": "#/components/schemas/WorkloadExecution",
+            "description": "Execution strategy -- either LLM-orchestrated or code-bundle."
+          },
+          "limits": {
+            "$ref": "#/components/schemas/WorkloadLimits",
+            "description": "Resource and iteration limits for the workload."
+          },
+          "network_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudDeploymentNetworkPolicy",
+                "description": "Outbound network restrictions for sandboxed backends."
+              }
+            ]
+          },
+          "publisher_only": {
+            "type": "boolean",
+            "description": "When true, the workload is exposed only to publisher-internal callers."
+          },
+          "requirements": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/RequirementSpec"
+            },
+            "description": "Declared requirements validated at deploy time."
+          },
+          "secrets": {
+            "description": "Secret references available to the runtime (typed in a later milestone)."
+          },
+          "side_effect_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SideEffectPolicy",
+                "description": "Controls for mutating built-in publisher calls."
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
       }
     },
     "securitySchemes": {
