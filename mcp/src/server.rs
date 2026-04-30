@@ -5650,17 +5650,47 @@ impl SerenMcpServer {
             }
         };
 
-        let request = seren::PrivateModelsChatCompletionsRequest {
-            max_tokens: params.max_tokens,
-            messages,
-            model: params.model,
-            response_schema: params.response_schema,
-            stream: Some(false),
-            temperature: params.temperature,
-            tools: params.tools,
-            top_k: params.top_k,
-            top_p: params.top_p,
-        };
+        let mut request = serde_json::Map::new();
+        request.insert(
+            "messages".to_string(),
+            serde_json::Value::Array(
+                messages
+                    .into_iter()
+                    .map(serde_json::Value::Object)
+                    .collect(),
+            ),
+        );
+        request.insert("stream".to_string(), serde_json::Value::Bool(false));
+        if let Some(model) = params.model {
+            request.insert("model".to_string(), serde_json::Value::String(model));
+        }
+        if let Some(temperature) = params.temperature {
+            request.insert("temperature".to_string(), serde_json::json!(temperature));
+        }
+        if let Some(max_tokens) = params.max_tokens {
+            request.insert("max_tokens".to_string(), serde_json::json!(max_tokens));
+        }
+        if let Some(top_p) = params.top_p {
+            request.insert("top_p".to_string(), serde_json::json!(top_p));
+        }
+        if let Some(top_k) = params.top_k {
+            request.insert("top_k".to_string(), serde_json::json!(top_k));
+        }
+        if let Some(response_schema) = params.response_schema {
+            request.insert(
+                "response_schema".to_string(),
+                serde_json::Value::Object(response_schema),
+            );
+        }
+        if let Some(tools) = params.tools {
+            request.insert(
+                "tools".to_string(),
+                serde_json::Value::Array(
+                    tools.into_iter().map(serde_json::Value::Object).collect(),
+                ),
+            );
+        }
+        let request = serde_json::Value::Object(request);
 
         let api_client = self.api_client(&extensions)?;
         let response = api_client

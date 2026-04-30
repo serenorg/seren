@@ -1064,17 +1064,48 @@ pub async fn private_models_chat(
         .map(|raw| parse_json_object_array(raw, "tools_json"))
         .transpose()?;
 
-    let request = seren::PrivateModelsChatCompletionsRequest {
-        max_tokens: options.max_tokens,
-        messages,
-        model: options.model.map(ToString::to_string),
-        response_schema,
-        stream: Some(false),
-        temperature: options.temperature,
-        tools,
-        top_k: options.top_k,
-        top_p: options.top_p,
-    };
+    let mut request = serde_json::Map::new();
+    request.insert(
+        "messages".to_string(),
+        serde_json::Value::Array(
+            messages
+                .into_iter()
+                .map(serde_json::Value::Object)
+                .collect(),
+        ),
+    );
+    request.insert("stream".to_string(), serde_json::Value::Bool(false));
+    if let Some(model) = options.model {
+        request.insert(
+            "model".to_string(),
+            serde_json::Value::String(model.to_string()),
+        );
+    }
+    if let Some(temperature) = options.temperature {
+        request.insert("temperature".to_string(), serde_json::json!(temperature));
+    }
+    if let Some(max_tokens) = options.max_tokens {
+        request.insert("max_tokens".to_string(), serde_json::json!(max_tokens));
+    }
+    if let Some(top_p) = options.top_p {
+        request.insert("top_p".to_string(), serde_json::json!(top_p));
+    }
+    if let Some(top_k) = options.top_k {
+        request.insert("top_k".to_string(), serde_json::json!(top_k));
+    }
+    if let Some(response_schema) = response_schema {
+        request.insert(
+            "response_schema".to_string(),
+            serde_json::Value::Object(response_schema),
+        );
+    }
+    if let Some(tools) = tools {
+        request.insert(
+            "tools".to_string(),
+            serde_json::Value::Array(tools.into_iter().map(serde_json::Value::Object).collect()),
+        );
+    }
+    let request = serde_json::Value::Object(request);
 
     let client = ctx.client().await?;
     let response = client

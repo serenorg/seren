@@ -28,9 +28,7 @@
         "requestBody": {
           "content": {
             "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PrivateModelsChatCompletionsRequest"
-              }
+              "schema": {}
             }
           },
           "required": true

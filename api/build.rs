@@ -424,9 +424,7 @@ fn merge_publisher_spec(
                 format!("/publishers/{publisher_slug}/{path}")
             };
 
-            main_paths
-                .entry(absolute_path)
-                .or_insert_with(|| item.clone());
+            main_paths.insert(absolute_path, item.clone());
         }
     }
 
