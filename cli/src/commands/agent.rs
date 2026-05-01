@@ -3015,6 +3015,78 @@ pub async fn managed_agent_revisions(deployment_id: Uuid, ctx: &CommandContext) 
     Ok(())
 }
 
+/// Start a managed seren-agent deployment.
+pub async fn managed_agent_start(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    match client
+        .seren_agent_start_managed_deployment(&deployment_id)
+        .await
+    {
+        Ok(response) => {
+            let _ = response.into_inner();
+        }
+        Err(err) => {
+            return Err(
+                anyhow_from_seren_error("Failed to start managed agent deployment", err).await,
+            );
+        }
+    }
+    println!(
+        "{} Managed deployment {} started.",
+        "✓".green(),
+        deployment_id
+    );
+    Ok(())
+}
+
+/// Stop a managed seren-agent deployment.
+pub async fn managed_agent_stop(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    match client
+        .seren_agent_stop_managed_deployment(&deployment_id)
+        .await
+    {
+        Ok(response) => {
+            let _ = response.into_inner();
+        }
+        Err(err) => {
+            return Err(
+                anyhow_from_seren_error("Failed to stop managed agent deployment", err).await,
+            );
+        }
+    }
+    println!(
+        "{} Managed deployment {} stopped.",
+        "✓".green(),
+        deployment_id
+    );
+    Ok(())
+}
+
+/// Delete a managed seren-agent deployment.
+pub async fn managed_agent_delete(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    match client
+        .seren_agent_delete_managed_deployment(&deployment_id)
+        .await
+    {
+        Ok(response) => {
+            let _ = response.into_inner();
+        }
+        Err(err) => {
+            return Err(
+                anyhow_from_seren_error("Failed to delete managed agent deployment", err).await,
+            );
+        }
+    }
+    println!(
+        "{} Managed deployment {} deleted.",
+        "✓".green(),
+        deployment_id
+    );
+    Ok(())
+}
+
 /// Workload-level keys that, when present in the patch body, force a full
 /// `WorkloadSpec` replacement against the current managed deployment.
 fn body_touches_workload(body: &serde_json::Map<String, serde_json::Value>) -> bool {
@@ -6522,7 +6594,7 @@ pub async fn cloud_update_config(
         || options.clear_network_policy
     {
         return Err(anyhow::anyhow!(
-            "config, secrets, and network_policy are workload-level fields and now require a full workload replacement. Redeploy the cloud agent with the new bundle and config to update these.",
+            "config, secrets, and network_policy are workload-level fields and cannot be changed through this cloud settings helper. Redeploy the cloud agent with the new bundle and config, or use the managed-agent update path for managed seren-agent deployments.",
         ));
     }
 

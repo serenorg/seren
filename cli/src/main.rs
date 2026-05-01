@@ -659,7 +659,7 @@ enum AgentAction {
     ManagedList,
     /// Run an unsaved seren-agent managed draft once
     ManagedTestRun {
-        /// JSON body matching CreateSerenAgentDeploymentRequest
+        /// JSON body matching AgentSpec
         #[arg(long)]
         body: String,
     },
@@ -670,6 +670,21 @@ enum AgentAction {
     },
     /// List immutable revision snapshots for a managed seren-agent deployment
     ManagedRevisions {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+    /// Start a managed seren-agent deployment
+    ManagedStart {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+    /// Stop a managed seren-agent deployment
+    ManagedStop {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+    /// Delete a managed seren-agent deployment
+    ManagedDelete {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
     },
@@ -4526,6 +4541,15 @@ async fn main() -> anyhow::Result<()> {
             AgentAction::ManagedRevisions { deployment_id } => {
                 commands::agent::managed_agent_revisions(deployment_id, &ctx).await?
             }
+            AgentAction::ManagedStart { deployment_id } => {
+                commands::agent::managed_agent_start(deployment_id, &ctx).await?
+            }
+            AgentAction::ManagedStop { deployment_id } => {
+                commands::agent::managed_agent_stop(deployment_id, &ctx).await?
+            }
+            AgentAction::ManagedDelete { deployment_id } => {
+                commands::agent::managed_agent_delete(deployment_id, &ctx).await?
+            }
             AgentAction::ManagedRollbackPreview {
                 deployment_id,
                 revision_id,
@@ -5061,6 +5085,33 @@ mod tests {
                 _ => panic!("unexpected agent action parsed"),
             },
             _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn managed_lifecycle_commands_accept_deployment_id() {
+        for command in ["managed-start", "managed-stop", "managed-delete"] {
+            let cli = parse_cli_with_large_stack(vec![
+                "seren",
+                "agent",
+                command,
+                "11111111-1111-1111-1111-111111111111",
+            ]);
+
+            match cli.command {
+                Commands::Agent { action, .. } => match *action {
+                    AgentAction::ManagedStart { deployment_id }
+                    | AgentAction::ManagedStop { deployment_id }
+                    | AgentAction::ManagedDelete { deployment_id } => {
+                        assert_eq!(
+                            deployment_id,
+                            Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap()
+                        );
+                    }
+                    _ => panic!("unexpected agent action parsed"),
+                },
+                _ => panic!("unexpected command parsed"),
+            }
         }
     }
 

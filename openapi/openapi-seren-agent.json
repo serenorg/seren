@@ -50,7 +50,7 @@
         "tags": [
           "seren-agent"
         ],
-        "summary": "Create or update an orchestrated deployment (forwarded to seren-cloud).",
+        "summary": "Create a managed seren-agent deployment.",
         "operationId": "seren_agent_deploy",
         "requestBody": {
           "content": {

@@ -168,6 +168,9 @@ See [docs/managed-agents.md](../docs/managed-agents.md) for the full model and C
 - `deploy_seren_agent` deploys a managed prompt-based agent
 - `get_seren_agent_deployment` returns the resolved deployment detail
 - `list_seren_agent_deployment_revisions` shows immutable revision history
+- `start_seren_agent_deployment` starts a managed deployment through the seren-agent lifecycle API
+- `stop_seren_agent_deployment` stops a managed deployment through the seren-agent lifecycle API
+- `delete_seren_agent_deployment` deletes a managed deployment through the seren-agent lifecycle API
 - `preview_seren_agent_deployment_update` returns a resolved diff before mutation
 - `update_seren_agent_deployment` applies the managed update
 - `preview_seren_agent_deployment_rollback` previews a rollback diff

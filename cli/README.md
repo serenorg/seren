@@ -213,6 +213,11 @@ seren agent deploy-prompt \
 seren agent managed-get <deployment-id>
 seren agent managed-revisions <deployment-id>
 
+# Manage the deployment lifecycle through seren-agent
+seren agent managed-start <deployment-id>
+seren agent managed-stop <deployment-id>
+seren agent managed-delete <deployment-id>
+
 # Preview and apply remote A2A delegation settings
 seren agent managed-preview <deployment-id> \
   --allow-remote-agent-origin https://agents.seren.ai \

@@ -9120,6 +9120,78 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "Start a managed seren-agent deployment through the seren-agent lifecycle endpoint.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn start_seren_agent_deployment(
+        &self,
+        Parameters(params): Parameters<GetSerenAgentDeploymentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_start_managed_deployment(&params.deployment_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Stop a managed seren-agent deployment through the seren-agent lifecycle endpoint.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn stop_seren_agent_deployment(
+        &self,
+        Parameters(params): Parameters<GetSerenAgentDeploymentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_stop_managed_deployment(&params.deployment_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Delete a managed seren-agent deployment through the seren-agent lifecycle endpoint.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn delete_seren_agent_deployment(
+        &self,
+        Parameters(params): Parameters<GetSerenAgentDeploymentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_delete_managed_deployment(&params.deployment_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
         description = "Preview an existing managed seren-agent deployment update before applying it. This returns the current resolved managed spec, the proposed resolved spec, and the changed fields so callers can inspect the diff before mutation, including eval-gate changes.",
         annotations(
             read_only_hint = true,
@@ -10810,7 +10882,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Update alert_policy and/or the deployment eval gate for a cloud agent without redeploying code. Workload-level config, secrets, and network_policy updates require a full workload replacement and are not exposed by this helper.",
+        description = "Update alert_policy and/or the deployment eval gate for a cloud agent without redeploying code. Workload-level config, secrets, and network_policy updates are not exposed by this helper; redeploy the cloud agent or use the managed-agent update tools for managed seren-agent deployments.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -10843,7 +10915,7 @@ API endpoint: {endpoint}",
             || params.clear_network_policy
         {
             return Err(McpError::invalid_params(
-                "config, secrets, and network_policy are workload-level fields and require a full UpdateCloudDeploymentRequest.workload replacement.",
+                "config, secrets, and network_policy are workload-level fields and cannot be changed through this cloud settings helper. Redeploy the cloud agent with the new bundle and config, or use update_seren_agent_deployment for managed seren-agent deployments.",
                 None,
             ));
         }
