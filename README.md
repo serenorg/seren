@@ -4,11 +4,11 @@ Official Rust SDK, CLI, and MCP server for SerenAI - the team behind [SerenDB](h
 
 ## Packages
 
-| Package | Description | Status |
-|---------|-------------|--------|
-| [seren](./api/) | Rust SDK for the SerenAI API (SerenDB) | [![crates.io](https://img.shields.io/crates/v/seren.svg)](https://crates.io/crates/seren) |
-| [seren-cli](./cli/) | Command-line interface | Not published on crates.io yet |
-| [seren-mcp](./mcp/) | MCP server for AI assistants | Not published on crates.io yet |
+| Package | Description | How to use |
+|---------|-------------|------------|
+| [api](./api/) | Rust SDK (`seren` crate) | Add as a Git or path dependency |
+| [cli](./cli/) | Command-line interface (binary `seren`) | Install from source or GitHub Releases |
+| [mcp](./mcp/) | MCP server for AI assistants | Use the hosted endpoint, or run `seren mcp start` after installing the CLI |
 
 ## Quick Start
 
@@ -39,7 +39,7 @@ See [mcp/README.md](./mcp/README.md) for local server setup and all configuratio
 ### CLI
 
 ```bash
-# Install from source (see Installation below)
+# Install from a local checkout (see Installation below for source/binary options)
 cargo install --path cli
 
 # Login and start managing databases
@@ -81,20 +81,15 @@ cd seren
 # Build all packages
 cargo build --release
 
-# Install CLI
+# Install the CLI binary (the MCP server is built in; run it with `seren mcp start`)
 cargo install --path cli
-
-# Install MCP server
-cargo install --path mcp
 ```
 
-### Pre-built Binaries
+### Pre-Built Binaries
 
-Download pre-built binaries from GitHub Releases (tagged versions): https://github.com/serenorg/seren/releases
+Pre-built `seren` binaries are published on GitHub Releases for each tagged version: https://github.com/serenorg/seren/releases
 
-Each release asset includes:
-- `seren` (CLI)
-- `seren-mcp` (MCP server)
+Each release ships `seren` for macOS (Apple Silicon and Intel), Linux (gnu and musl, on x86_64 and aarch64), and Windows (x86_64). The MCP server is built into the same binary; run it with `seren mcp start`.
 
 ## Development
 
@@ -113,7 +108,7 @@ cargo build --workspace
 cargo test --workspace
 
 # Lint
-cargo clippy --all-targets -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
 
 # Format
 cargo fmt --all
@@ -123,15 +118,15 @@ cargo fmt --all
 
 ```
 seren/
-├── api/            # Rust SDK - OpenAPI-generated type-safe client
-├── cli/            # CLI tool - clap-based database management
-├── mcp/            # MCP server - stdio, HTTP, and OAuth modes
-│   ├── oauth/      #   OAuth 2.1 + PKCE implementation
-│   ├── wallet/     #   x402 crypto payment support
-│   └── migrations/ #   Embedded SQL migrations
-├── openapi/        # OpenAPI spec (source for SDK codegen)
-├── docker/         # Dockerfiles
-└── Cargo.toml      # Workspace configuration
+|-- api/            # Rust SDK - OpenAPI-generated type-safe client
+|-- cli/            # CLI tool - clap-based database management
+|-- mcp/            # MCP server - stdio, HTTP, and OAuth modes
+|   |-- oauth/      #   OAuth 2.1 + PKCE implementation
+|   |-- wallet/     #   x402 crypto payment support
+|   `-- migrations/ #   Embedded SQL migrations
+|-- openapi/        # OpenAPI spec (source for SDK codegen)
+|-- docker/         # Dockerfiles
+`-- Cargo.toml      # Workspace configuration
 ```
 
 ## Documentation
