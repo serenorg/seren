@@ -2,6 +2,37 @@
 
 Changes to Seren are documented in this file.
 
+## [0.7.0] - 2026-05-01
+
+seren-models SDK support and managed agent lifecycle controls.
+
+This release adds `seren-models` SDK support, exposes managed `seren-agent` start/stop/delete lifecycle operations in the CLI and MCP server, and updates CLI and MCP managed-agent flows for the new workload model.
+
+### Added
+
+- `seren-models` publisher OpenAPI spec support in SDK generation
+- `seren agent managed-start|managed-stop|managed-delete` commands for managed `seren-agent` deployment lifecycle operations
+- MCP tools for managed `seren-agent` deployment start, stop, and delete operations
+
+### Changed
+
+- Publisher-specific OpenAPI paths now take precedence during SDK generation
+- OpenAPI specs synced with the latest seren-core agent, cloud, db, models, and private-models schemas
+- CLI and MCP managed-agent deploy/update flows now use the regenerated `AgentSpec`, `AgentSpecUpdate`, `WorkloadSpec`, `WorkloadExecution`, `WorkloadLimits`, `EvalGate`, and typed cloud deployment shapes
+- Cloud config update helpers align with the latest SDK shape for alert policies and eval gates
+- Cloud config update errors now point managed `seren-agent` users toward the managed-agent update path for workload-level changes
+
+### Fixed
+
+- Private-models chat request construction works with the publisher-specific generated SDK request type
+- MCP SQL and SQL transaction requests apply the requested timeout to the underlying HTTP request, overriding shorter client defaults
+
+### Documentation
+
+- Root README package table now describes the workspace SDK, CLI, and MCP components without implying external package publication
+- Root README release-install guidance now reflects the single `seren` binary and `seren mcp ...` commands
+- CLI and MCP README files document managed `seren-agent` start, stop, and delete lifecycle commands
+
 ## [0.6.0] - 2026-04-24
 
 seren-cloud, seren-agent, and private-model SDK updates.
