@@ -4236,6 +4236,7 @@ impl SerenMcpServer {
                 query: query.to_string(),
                 params,
             })
+            .timeout(timeout)
             .send();
 
         let response = tokio::time::timeout(timeout, send_future)
@@ -4332,6 +4333,7 @@ impl SerenMcpServer {
             .json(&SqlBatchRequest {
                 queries: batch_queries,
             })
+            .timeout(timeout)
             .send();
 
         let response = tokio::time::timeout(timeout, send_future)
@@ -10998,6 +11000,17 @@ mod tests {
         extensions
     }
 
+    fn server_with_http_client(http_client: reqwest::Client) -> SerenMcpServer {
+        SerenMcpServer {
+            api_base_url: "https://api.serendb.com".to_string(),
+            auth: SerenAuth::StaticToken("test-key".to_string()),
+            http_client,
+            tool_router: SerenMcpServer::tool_router(),
+            wallet: None,
+            signer_config: SignerConfig::default(),
+        }
+    }
+
     #[test]
     fn connection_string_with_database_replaces_path_preserves_query() {
         let conn = "postgresql://user:pass@db.serendb.com:5432/postgres?sslmode=require";
@@ -11239,6 +11252,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn execute_sql_request_timeout_overrides_client_timeout() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let proxy_url = reqwest::Url::parse(&proxy.uri()).unwrap();
+        let host = proxy_url.host_str().unwrap();
+        let port = proxy_url.port().unwrap();
+        let conn = format!("postgresql://user:pass@{host}:{port}/postgres?sslmode=require");
+
+        Mock::given(method("POST"))
+            .and(path("/sql"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(std::time::Duration::from_millis(150))
+                    .set_body_json(serde_json::json!({
+                        "ok": true,
+                    })),
+            )
+            .mount(&proxy)
+            .await;
+
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(50))
+            .build()
+            .unwrap();
+        let server = server_with_http_client(http_client);
+        let result = server
+            .execute_sql(
+                &conn,
+                "select 1",
+                vec![],
+                None,
+                std::time::Duration::from_millis(500),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result, serde_json::json!({ "ok": true }));
+    }
+
+    #[tokio::test]
     async fn execute_sql_transaction_sets_batch_headers() {
         use wiremock::matchers::{body_json, header, method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -11278,6 +11332,49 @@ mod tests {
                 Some(true),
                 None,
                 QUERY_TIMEOUT,
+            )
+            .await
+            .unwrap();
+        assert_eq!(result, serde_json::json!({ "ok": true }));
+    }
+
+    #[tokio::test]
+    async fn execute_sql_transaction_request_timeout_overrides_client_timeout() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let proxy_url = reqwest::Url::parse(&proxy.uri()).unwrap();
+        let host = proxy_url.host_str().unwrap();
+        let port = proxy_url.port().unwrap();
+        let conn = format!("postgresql://user:pass@{host}:{port}/postgres?sslmode=require");
+
+        Mock::given(method("POST"))
+            .and(path("/sql"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(std::time::Duration::from_millis(150))
+                    .set_body_json(serde_json::json!({
+                        "ok": true,
+                    })),
+            )
+            .mount(&proxy)
+            .await;
+
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(50))
+            .build()
+            .unwrap();
+        let server = server_with_http_client(http_client);
+        let result = server
+            .execute_sql_transaction(
+                &conn,
+                vec!["select 1".to_string()],
+                None,
+                None,
+                None,
+                None,
+                std::time::Duration::from_millis(500),
             )
             .await
             .unwrap();
