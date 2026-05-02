@@ -2353,6 +2353,10 @@ fn print_cloud_deployment_detail_table(payload: &serde_json::Value) {
                 format_optional_string(detail.get("runtime_kind")),
             ),
             (
+                "Deployment Bundle ID",
+                format_optional_string(detail.get("deployment_bundle_id")),
+            ),
+            (
                 "Cron Schedule",
                 format_optional_string(detail.get("cron_schedule")),
             ),

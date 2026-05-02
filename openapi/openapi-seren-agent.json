@@ -1263,6 +1263,13 @@
             ]
           },
           "dashboard_config": {},
+          "deployment_bundle_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "endpoint_url": {
             "type": [
               "string",
@@ -1556,6 +1563,13 @@
                 ]
               },
               "dashboard_config": {},
+              "deployment_bundle_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
               "endpoint_url": {
                 "type": [
                   "string",
@@ -2251,6 +2265,13 @@
                   ]
                 },
                 "dashboard_config": {},
+                "deployment_bundle_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "endpoint_url": {
                   "type": [
                     "string",
