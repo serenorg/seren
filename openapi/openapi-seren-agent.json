@@ -50,7 +50,7 @@
         "tags": [
           "seren-agent"
         ],
-        "summary": "Create a managed seren-agent deployment.",
+        "summary": "Create or update an orchestrated deployment (forwarded to seren-cloud).",
         "operationId": "seren_agent_deploy",
         "requestBody": {
           "content": {
@@ -3659,15 +3659,16 @@
           },
           {
             "type": "object",
-            "description": "Code-bundle workload deployed as a base64-encoded archive.",
+            "description": "Code workload deployed from a content-addressed deployment bundle.",
             "required": [
-              "code_bundle_base64",
+              "deployment_bundle_id",
               "type"
             ],
             "properties": {
-              "code_bundle_base64": {
+              "deployment_bundle_id": {
                 "type": "string",
-                "description": "Base64-encoded code bundle (tar.gz or zip depending on backend)."
+                "format": "uuid",
+                "description": "Uploaded deployment bundle identifier returned by `seren_cloud_create_deployment_bundle`."
               },
               "requirements_txt": {
                 "type": [
@@ -3683,7 +3684,7 @@
                   },
                   {
                     "$ref": "#/components/schemas/CloudDeploymentRuntimeKind",
-                    "description": "Runtime kind (language/format) for the code bundle."
+                    "description": "Runtime kind (language/format) for the deployment bundle."
                   }
                 ]
               },
@@ -3773,7 +3774,7 @@
           },
           "execution": {
             "$ref": "#/components/schemas/WorkloadExecution",
-            "description": "Execution strategy -- either LLM-orchestrated or code-bundle."
+            "description": "Execution strategy -- either LLM-orchestrated or artifact-bundle backed."
           },
           "limits": {
             "$ref": "#/components/schemas/WorkloadLimits",

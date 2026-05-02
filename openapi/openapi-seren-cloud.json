@@ -206,6 +206,147 @@
         ]
       }
     },
+    "/deployment-bundles": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Register a content-addressed deployment bundle before uploading raw bytes.",
+        "operationId": "seren_cloud_create_deployment_bundle",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCloudDeploymentBundleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Deployment bundle registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CreateCloudDeploymentBundleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployment-bundles/{id}": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Get deployment bundle metadata without raw content.",
+        "operationId": "seren_cloud_get_deployment_bundle",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment bundle ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deployment bundle metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentBundleDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Deployment bundle not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployment-bundles/{id}/content": {
+      "put": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Upload raw content for a registered deployment bundle.",
+        "operationId": "seren_cloud_upload_deployment_bundle_content",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment bundle ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Deployment bundle uploaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentBundle"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Deployment bundle not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments": {
       "get": {
         "tags": [
@@ -3308,6 +3449,86 @@
           }
         }
       },
+      "CloudDeploymentBundle": {
+        "type": "object",
+        "description": "Deployment bundle metadata without raw bundle content.",
+        "required": [
+          "id",
+          "organization_id",
+          "user_id",
+          "sha256",
+          "size_bytes",
+          "source_kind",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "source_kind": {
+            "$ref": "#/components/schemas/CloudDeploymentBundleSourceKind"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "uploaded_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "CloudDeploymentBundleDetail": {
+        "type": "object",
+        "description": "Deployment bundle metadata plus current deployment references.",
+        "required": [
+          "bundle",
+          "deployment_ids"
+        ],
+        "properties": {
+          "bundle": {
+            "$ref": "#/components/schemas/CloudDeploymentBundle"
+          },
+          "deployment_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "CloudDeploymentBundleSourceKind": {
+        "type": "string",
+        "description": "Deployment bundle artifact format.\n\nThis is intentionally a closed server-supported set. Add formats by\nmigration when Seren Cloud can validate and execute them.",
+        "enum": [
+          "tar_gz"
+        ]
+      },
       "CloudDeploymentComputeBackend": {
         "type": "string",
         "description": "Cloud deployment compute backend target.",
@@ -5269,6 +5490,61 @@
           }
         }
       },
+      "CreateCloudDeploymentBundleRequest": {
+        "type": "object",
+        "description": "Request body for registering a content-addressed deployment bundle.",
+        "required": [
+          "sha256",
+          "size_bytes",
+          "source_kind"
+        ],
+        "properties": {
+          "sha256": {
+            "type": "string",
+            "description": "Lowercase hex SHA-256 digest of the raw bundle bytes."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Exact raw bundle size in bytes."
+          },
+          "source_kind": {
+            "$ref": "#/components/schemas/CloudDeploymentBundleSourceKind",
+            "description": "Bundle artifact format."
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateCloudDeploymentBundleResponse": {
+        "type": "object",
+        "description": "Response returned when a deployment bundle is registered.",
+        "required": [
+          "deployment_bundle_id",
+          "sha256",
+          "size_bytes",
+          "source_kind",
+          "upload_required"
+        ],
+        "properties": {
+          "deployment_bundle_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "source_kind": {
+            "$ref": "#/components/schemas/CloudDeploymentBundleSourceKind"
+          },
+          "upload_required": {
+            "type": "boolean"
+          }
+        }
+      },
       "CreateCloudDeploymentEnvironmentRequest": {
         "type": "object",
         "description": "Request body for creating a reusable execution environment.",
@@ -5540,6 +5816,119 @@
             "properties": {
               "status": {
                 "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudDeploymentBundle": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Deployment bundle metadata without raw bundle content.",
+            "required": [
+              "id",
+              "organization_id",
+              "user_id",
+              "sha256",
+              "size_bytes",
+              "source_kind",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "size_bytes": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "source_kind": {
+                "$ref": "#/components/schemas/CloudDeploymentBundleSourceKind"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "uploaded_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "user_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudDeploymentBundleDetail": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Deployment bundle metadata plus current deployment references.",
+            "required": [
+              "bundle",
+              "deployment_ids"
+            ],
+            "properties": {
+              "bundle": {
+                "$ref": "#/components/schemas/CloudDeploymentBundle"
+              },
+              "deployment_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
               }
             }
           },
@@ -6778,6 +7167,56 @@
               },
               "status": {
                 "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CreateCloudDeploymentBundleResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Response returned when a deployment bundle is registered.",
+            "required": [
+              "deployment_bundle_id",
+              "sha256",
+              "size_bytes",
+              "source_kind",
+              "upload_required"
+            ],
+            "properties": {
+              "deployment_bundle_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "size_bytes": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "source_kind": {
+                "$ref": "#/components/schemas/CloudDeploymentBundleSourceKind"
+              },
+              "upload_required": {
+                "type": "boolean"
               }
             }
           },
@@ -8928,15 +9367,16 @@
           },
           {
             "type": "object",
-            "description": "Code-bundle workload deployed as a base64-encoded archive.",
+            "description": "Code workload deployed from a content-addressed deployment bundle.",
             "required": [
-              "code_bundle_base64",
+              "deployment_bundle_id",
               "type"
             ],
             "properties": {
-              "code_bundle_base64": {
+              "deployment_bundle_id": {
                 "type": "string",
-                "description": "Base64-encoded code bundle (tar.gz or zip depending on backend)."
+                "format": "uuid",
+                "description": "Uploaded deployment bundle identifier returned by `seren_cloud_create_deployment_bundle`."
               },
               "requirements_txt": {
                 "type": [
@@ -8952,7 +9392,7 @@
                   },
                   {
                     "$ref": "#/components/schemas/CloudDeploymentRuntimeKind",
-                    "description": "Runtime kind (language/format) for the code bundle."
+                    "description": "Runtime kind (language/format) for the deployment bundle."
                   }
                 ]
               },
@@ -9042,7 +9482,7 @@
           },
           "execution": {
             "$ref": "#/components/schemas/WorkloadExecution",
-            "description": "Execution strategy -- either LLM-orchestrated or code-bundle."
+            "description": "Execution strategy -- either LLM-orchestrated or artifact-bundle backed."
           },
           "limits": {
             "$ref": "#/components/schemas/WorkloadLimits",
