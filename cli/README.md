@@ -262,6 +262,7 @@ Advanced managed-agent deploys can also use `--agent-config <path>` to supply ra
 # Deployment inventory
 seren agent cloud deployment list
 seren -o json agent cloud deployment list
+seren agent cloud deployment bundle get <deployment-bundle-id>
 
 # Org-wide summary: deployments, recent runs, pending approvals
 seren agent cloud overview

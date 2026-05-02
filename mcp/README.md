@@ -157,6 +157,7 @@ Once configured, you can ask Claude to:
 - "Run a prepaid API request against a store publisher"
 - "Show me all cloud deployments waiting for approval"
 - "Deploy a managed seren-agent for triage and show me its revision history"
+- "Deploy this tar.gz deployment bundle to Seren Cloud and return the deployment id"
 - "List MCP tools exposed by a publisher before calling it"
 
 ### Managed Agent Tools
@@ -184,6 +185,10 @@ Use these tools when you want an organization-wide operator view before drilling
 - `list_all_cloud_runs` returns the global run feed across all deployments
 - `list_pending_cloud_approvals` returns the global approval inbox
 - `list_cloud_agents` returns the deployment inventory
+- `deploy_cloud_agent` accepts either `deployment_bundle_id` or `deployment_bundle_content_base64`, registers/uploads the bundle when needed, and deploys by bundle id
+- `get_cloud_deployment_bundle` returns uploaded bundle metadata without raw content
+
+`deployment_bundle_content_base64` is an MCP tool-input convenience for clients that cannot pass a local file path; the Seren Cloud API still receives raw bundle bytes through the generated deployment-bundle upload endpoint.
 
 Example `get_cloud_overview` parameters:
 

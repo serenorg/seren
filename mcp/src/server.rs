@@ -29,6 +29,7 @@ use rmcp::{
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tracing::instrument;
 use uuid::Uuid;
 
@@ -1520,9 +1521,12 @@ pub struct DeployCloudAgentParams {
     /// Optional runtime override ("auto", "python", "javascript", "typescript", "rust", or "rust_wasm_adk"). Omit to infer from the bundle.
     #[serde(default)]
     pub runtime_kind: Option<String>,
-    /// Base64-encoded tar.gz of the scripts/ directory.
+    /// Uploaded deployment bundle UUID. Provide this or deployment_bundle_content_base64.
     #[serde(default)]
-    pub code_bundle_base64: String,
+    pub deployment_bundle_id: Option<Uuid>,
+    /// Base64-encoded tar.gz deployment bundle. The tool registers it by SHA-256, uploads raw bytes only if needed, then deploys by bundle id.
+    #[serde(default)]
+    pub deployment_bundle_content_base64: Option<String>,
     /// pip requirements.txt content
     #[serde(default)]
     pub requirements_txt: Option<String>,
@@ -1532,21 +1536,6 @@ pub struct DeployCloudAgentParams {
     /// JSON secrets object (key-value pairs for .env)
     #[serde(default)]
     pub secrets: Option<serde_json::Value>,
-    /// Optional orchestration mode ("script" or "llm")
-    #[serde(default)]
-    pub orchestration_mode: Option<String>,
-    /// Optional system prompt for LLM orchestration
-    #[serde(default)]
-    pub system_prompt: Option<String>,
-    /// Optional model identifier for LLM orchestration
-    #[serde(default)]
-    pub model_id: Option<String>,
-    /// Optional model configuration (temperature, max_tokens, etc.)
-    #[serde(default)]
-    pub model_config: Option<serde_json::Value>,
-    /// Optional fallback model list for transient failures
-    #[serde(default)]
-    pub fallback_models: Option<Vec<String>>,
     /// Optional maximum LLM loop iterations
     #[serde(default)]
     pub max_iterations: Option<i32>,
@@ -1559,9 +1548,6 @@ pub struct DeployCloudAgentParams {
     /// Optional cumulative context token budget
     #[serde(default)]
     pub context_budget_tokens: Option<i32>,
-    /// Optional tool definitions passed to the orchestrator
-    #[serde(default)]
-    pub tool_definitions: Option<serde_json::Value>,
     /// Optional deployment requirements validated at deploy time
     #[serde(default)]
     pub requirements: Option<serde_json::Value>,
@@ -1571,6 +1557,12 @@ pub struct DeployCloudAgentParams {
     /// Optional visibility mode ("open" or "opaque")
     #[serde(default)]
     pub visibility: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetCloudDeploymentBundleParams {
+    /// Deployment bundle UUID
+    pub deployment_bundle_id: Uuid,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -3138,6 +3130,58 @@ fn ensure_writes_allowed(extensions: &Extensions) -> Result<(), McpError> {
         ));
     }
     Ok(())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+fn parse_cloud_enum<T>(label: &str, value: &str) -> Result<T, McpError>
+where
+    T: FromStr,
+{
+    value
+        .replace('-', "_")
+        .parse::<T>()
+        .map_err(|_| McpError::invalid_params(format!("Invalid {label}: {value}"), None))
+}
+
+async fn register_cloud_deployment_bundle(
+    api_client: &seren::Client,
+    content: Vec<u8>,
+) -> Result<Uuid, McpError> {
+    if content.is_empty() {
+        return Err(McpError::invalid_params(
+            "deployment_bundle_content_base64 decoded to an empty bundle.",
+            None,
+        ));
+    }
+
+    let request = seren::CreateCloudDeploymentBundleRequest {
+        sha256: sha256_hex(&content),
+        size_bytes: i64::try_from(content.len()).map_err(|_| {
+            McpError::invalid_params("deployment bundle content is too large.", None)
+        })?,
+        source_kind: seren::CloudDeploymentBundleSourceKind::TarGz,
+    };
+    let registration = api_client
+        .seren_cloud_create_deployment_bundle(&request)
+        .await
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?
+        .into_inner()
+        .data;
+
+    if registration.upload_required {
+        api_client
+            .seren_cloud_upload_deployment_bundle_content(
+                &registration.deployment_bundle_id,
+                content,
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    }
+
+    Ok(registration.deployment_bundle_id)
 }
 
 fn extract_bearer_token_from_extensions(extensions: &Extensions) -> Option<String> {
@@ -8846,7 +8890,7 @@ API endpoint: {endpoint}",
     // ========================================================================
 
     #[tool(
-        description = "Deploy a code bundle to the seren-cloud publisher for managed hosting. Supports script and LLM orchestration, always_on (persistent), cron (scheduled), and job modes. Leave compute_backend/runtime_kind unset, or set them to auto, for AWS-first bundle-based routing. Set compute_backend explicitly to force cloudflare_worker or daytona. Auto-routing inspects the uploaded scripts bundle itself: Python/JS/TS entrypoints, shell scripts, Linux binaries, standalone .wasm modules, and Worker JS+.wasm artifacts are all detected from files rather than SKILL.md prose.",
+        description = "Deploy a content-addressed deployment bundle to the seren-cloud publisher for managed hosting. Provide either deployment_bundle_id for an already-uploaded bundle or deployment_bundle_content_base64 for a tar.gz bundle that this tool should register and upload before deployment. Supports always_on, cron, and job modes. Leave compute_backend/runtime_kind unset, or set them to auto, for AWS-first bundle-based routing.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -8858,146 +8902,150 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<DeployCloudAgentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        if params.code_bundle_base64.trim().is_empty() {
-            return Err(McpError::invalid_params(
-                "deploy_cloud_agent requires a non-empty code_bundle_base64. Use deploy_seren_agent for prompt-only managed agents.",
-                None,
-            ));
-        }
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
 
-        let url = format!("{}/publishers/seren-cloud/deploy", self.api_base_url);
-        let mut body = serde_json::Map::new();
-        body.insert("name".to_string(), serde_json::json!(params.name));
-        body.insert(
-            "skill_slug".to_string(),
-            serde_json::json!(params.skill_slug),
-        );
-        body.insert("mode".to_string(), serde_json::json!(params.mode));
-        body.insert(
-            "code_bundle_base64".to_string(),
-            serde_json::json!(params.code_bundle_base64),
-        );
-        if let Some(environment_id) = params.environment_id {
-            body.insert(
-                "environment_id".to_string(),
-                serde_json::json!(environment_id),
-            );
-        }
-        if let Some(compute_backend) = params.compute_backend {
-            body.insert(
-                "compute_backend".to_string(),
-                serde_json::json!(compute_backend),
-            );
-        }
-        if let Some(runtime_kind) = params.runtime_kind {
-            body.insert("runtime_kind".to_string(), serde_json::json!(runtime_kind));
-        }
-        if let Some(cron_schedule) = params.cron_schedule {
-            body.insert(
-                "cron_schedule".to_string(),
-                serde_json::json!(cron_schedule),
-            );
-        }
-        if let Some(cron_timezone) = params.cron_timezone {
-            body.insert(
-                "cron_timezone".to_string(),
-                serde_json::json!(cron_timezone),
-            );
-        }
-        if let Some(eval_gate_set_id) = params.eval_gate_set_id {
-            body.insert(
-                "eval_gate_set_id".to_string(),
-                serde_json::json!(eval_gate_set_id),
-            );
-        }
-        if let Some(eval_gate_max_age_seconds) = params.eval_gate_max_age_seconds {
-            body.insert(
-                "eval_gate_max_age_seconds".to_string(),
-                serde_json::json!(eval_gate_max_age_seconds),
-            );
-        }
-        if let Some(requirements_txt) = params.requirements_txt {
-            body.insert(
-                "requirements_txt".to_string(),
-                serde_json::json!(requirements_txt),
-            );
-        }
-        if let Some(config) = params.config {
-            body.insert("config".to_string(), config);
-        }
-        if let Some(secrets) = params.secrets {
-            body.insert("secrets".to_string(), secrets);
-        }
-        if let Some(orchestration_mode) = params.orchestration_mode {
-            body.insert(
-                "orchestration_mode".to_string(),
-                serde_json::json!(orchestration_mode),
-            );
-        }
-        if let Some(system_prompt) = params.system_prompt {
-            body.insert(
-                "system_prompt".to_string(),
-                serde_json::json!(system_prompt),
-            );
-        }
-        if let Some(model_id) = params.model_id {
-            body.insert("model_id".to_string(), serde_json::json!(model_id));
-        }
-        if let Some(model_config) = params.model_config {
-            body.insert("model_config".to_string(), model_config);
-        }
-        if let Some(fallback_models) = params.fallback_models {
-            body.insert(
-                "fallback_models".to_string(),
-                serde_json::json!(fallback_models),
-            );
-        }
-        if let Some(max_iterations) = params.max_iterations {
-            body.insert(
-                "max_iterations".to_string(),
-                serde_json::json!(max_iterations),
-            );
-        }
-        if let Some(max_timeout_seconds) = params.max_timeout_seconds {
-            body.insert(
-                "max_timeout_seconds".to_string(),
-                serde_json::json!(max_timeout_seconds),
-            );
-        }
-        if let Some(max_tool_output_chars) = params.max_tool_output_chars {
-            body.insert(
-                "max_tool_output_chars".to_string(),
-                serde_json::json!(max_tool_output_chars),
-            );
-        }
-        if let Some(context_budget_tokens) = params.context_budget_tokens {
-            body.insert(
-                "context_budget_tokens".to_string(),
-                serde_json::json!(context_budget_tokens),
-            );
-        }
-        if let Some(tool_definitions) = params.tool_definitions {
-            body.insert("tool_definitions".to_string(), tool_definitions);
-        }
-        if let Some(requirements) = params.requirements {
-            body.insert("requirements".to_string(), requirements);
-        }
-        if let Some(dashboard_config) = params.dashboard_config {
-            body.insert("dashboard_config".to_string(), dashboard_config);
-        }
-        if let Some(visibility) = params.visibility {
-            body.insert("visibility".to_string(), serde_json::json!(visibility));
-        }
+        let deployment_bundle_id = match (
+            params.deployment_bundle_id,
+            params.deployment_bundle_content_base64.as_deref(),
+        ) {
+            (Some(id), None) => id,
+            (None, Some(encoded)) if !encoded.trim().is_empty() => {
+                let content = base64::engine::general_purpose::STANDARD
+                    .decode(encoded.trim())
+                    .map_err(|e| {
+                        McpError::invalid_params(
+                            format!("Invalid deployment_bundle_content_base64: {e}"),
+                            None,
+                        )
+                    })?;
+                register_cloud_deployment_bundle(&api_client, content).await?
+            }
+            (Some(_), Some(_)) => {
+                return Err(McpError::invalid_params(
+                    "Provide either deployment_bundle_id or deployment_bundle_content_base64, not both.",
+                    None,
+                ));
+            }
+            _ => {
+                return Err(McpError::invalid_params(
+                    "deploy_cloud_agent requires deployment_bundle_id or deployment_bundle_content_base64. Use deploy_seren_agent for prompt-only managed agents.",
+                    None,
+                ));
+            }
+        };
 
-        let result = self
-            .execute_api_json(
-                &extensions,
-                reqwest::Method::POST,
-                url,
-                Some(&serde_json::Value::Object(body)),
-            )
-            .await?;
-        Ok(CallToolResult::success(vec![json_content(&result)?]))
+        let mode = parse_cloud_enum::<seren::CloudDeploymentMode>("mode", &params.mode)?;
+        let compute_backend = match params.compute_backend.as_deref() {
+            Some("auto") | None => None,
+            Some(value) => Some(parse_cloud_enum::<seren::CloudDeploymentComputeBackend>(
+                "compute_backend",
+                value,
+            )?),
+        };
+        let runtime_kind = match params.runtime_kind.as_deref() {
+            Some("auto") | None => None,
+            Some(value) => Some(parse_cloud_enum::<seren::CloudDeploymentRuntimeKind>(
+                "runtime_kind",
+                value,
+            )?),
+        };
+        let eval_gate = match (params.eval_gate_set_id, params.eval_gate_max_age_seconds) {
+            (Some(set_id), Some(max_age_seconds)) => Some(seren::EvalGate {
+                max_age_seconds,
+                set_id,
+            }),
+            (None, None) => None,
+            (Some(_), None) => {
+                return Err(McpError::invalid_params(
+                    "eval_gate_max_age_seconds is required with eval_gate_set_id.",
+                    None,
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(McpError::invalid_params(
+                    "eval_gate_set_id is required with eval_gate_max_age_seconds.",
+                    None,
+                ));
+            }
+        };
+        let requirements = params
+            .requirements
+            .map(serde_json::from_value::<Vec<seren::RequirementSpec>>)
+            .transpose()
+            .map_err(|e| McpError::invalid_params(format!("Invalid requirements: {e}"), None))?;
+        let limits = if params.context_budget_tokens.is_some()
+            || params.max_iterations.is_some()
+            || params.max_timeout_seconds.is_some()
+            || params.max_tool_output_chars.is_some()
+        {
+            Some(seren::WorkloadLimits {
+                context_budget_tokens: params.context_budget_tokens,
+                max_iterations: params.max_iterations,
+                max_timeout_seconds: params.max_timeout_seconds,
+                max_tool_calls_per_run: None,
+                max_tool_output_chars: params.max_tool_output_chars,
+            })
+        } else {
+            None
+        };
+
+        let request = seren::CreateCloudDeploymentRequest {
+            alert_policy: None,
+            cron_schedule: params.cron_schedule,
+            cron_timezone: params.cron_timezone,
+            dashboard_config: params.dashboard_config,
+            environment_id: params.environment_id,
+            eval_gate,
+            mode,
+            name: Some(params.name),
+            skill_slug: params.skill_slug,
+            visibility: params.visibility,
+            workload: seren::WorkloadSpec {
+                compute_backend,
+                config: params.config,
+                execution: seren::WorkloadExecution::Code {
+                    deployment_bundle_id,
+                    requirements_txt: params.requirements_txt,
+                    runtime_kind,
+                },
+                limits,
+                network_policy: None,
+                publisher_only: None,
+                requirements,
+                secrets: params.secrets,
+                side_effect_policy: None,
+            },
+        };
+
+        let response = api_client
+            .seren_cloud_deploy(&request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get Seren Cloud deployment bundle metadata without returning raw bundle content.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn get_cloud_deployment_bundle(
+        &self,
+        Parameters(params): Parameters<GetCloudDeploymentBundleParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_get_deployment_bundle(&params.deployment_bundle_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(

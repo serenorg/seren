@@ -1,8 +1,8 @@
 use std::{collections::HashMap, fs, path::Path};
 
 use anyhow::Result;
-use base64::Engine;
 use colored::Colorize;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::money::format_usd_micros_4;
@@ -1733,7 +1733,6 @@ pub struct ManagedAgentUpdateOptions<'a> {
     pub visibility: Option<&'a str>,
 }
 
-const MAX_CLOUD_CODE_BUNDLE_BYTES: usize = 1_000_000;
 const ORCHESTRATION_CONFIG_FIELDS: &[&str] = &[
     "context_budget_tokens",
     "dashboard_config",
@@ -1908,7 +1907,7 @@ fn merge_managed_agent_config(
 
 /// Workload-level fields that the SDK now expects nested under `workload`.
 const WORKLOAD_LEVEL_FIELDS: &[&str] = &[
-    "code_bundle_base64",
+    "deployment_bundle_id",
     "compute_backend",
     "config",
     "fallback_models",
@@ -1943,8 +1942,9 @@ const LLM_EXECUTION_FIELDS: &[&str] = &[
     "tool_definitions",
 ];
 
-/// Workload execution fields that distinguish code-bundle workloads.
-const CODE_EXECUTION_FIELDS: &[&str] = &["code_bundle_base64", "requirements_txt", "runtime_kind"];
+/// Workload execution fields that distinguish deployment-bundle code workloads.
+const CODE_EXECUTION_FIELDS: &[&str] =
+    &["deployment_bundle_id", "requirements_txt", "runtime_kind"];
 
 /// Reshape a flat deploy/update body into the SDK-shaped JSON object.
 ///
@@ -2034,6 +2034,41 @@ fn reshape_body_for_sdk(
     }
 
     envelope
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+async fn ensure_cloud_deployment_bundle(client: &seren::Client, bundle: Vec<u8>) -> Result<Uuid> {
+    let sha256 = sha256_hex(&bundle);
+    let size_bytes = i64::try_from(bundle.len())
+        .map_err(|_| anyhow::anyhow!("Deployment bundle is too large."))?;
+    let request = seren::CreateCloudDeploymentBundleRequest {
+        sha256,
+        size_bytes,
+        source_kind: seren::CloudDeploymentBundleSourceKind::TarGz,
+    };
+
+    let registration = match client.seren_cloud_create_deployment_bundle(&request).await {
+        Ok(response) => response.into_inner().data,
+        Err(e) => {
+            return Err(anyhow_from_seren_error("Failed to register deployment bundle", e).await);
+        }
+    };
+
+    if registration.upload_required
+        && let Err(e) = client
+            .seren_cloud_upload_deployment_bundle_content(
+                &registration.deployment_bundle_id,
+                bundle,
+            )
+            .await
+    {
+        return Err(anyhow_from_seren_error("Failed to upload deployment bundle", e).await);
+    }
+
+    Ok(registration.deployment_bundle_id)
 }
 
 async fn submit_cloud_deploy_request(
@@ -2545,15 +2580,7 @@ pub async fn cloud_deploy(
     let deploy_name = name.unwrap_or(&skill_slug);
 
     // Bundle scripts/ as tar.gz
-    let code_bundle = bundle_directory(&scripts_dir)?;
-    if code_bundle.len() > MAX_CLOUD_CODE_BUNDLE_BYTES {
-        return Err(anyhow::anyhow!(
-            "Skill bundle is {} bytes, exceeds current cloud limit of {} bytes.",
-            code_bundle.len(),
-            MAX_CLOUD_CODE_BUNDLE_BYTES
-        ));
-    }
-    let code_bundle_base64 = base64::engine::general_purpose::STANDARD.encode(&code_bundle);
+    let deployment_bundle = bundle_directory(&scripts_dir)?;
 
     // Read optional files
     let requirements_txt = {
@@ -2630,13 +2657,16 @@ pub async fn cloud_deploy(
         runtime_target.runtime_kind.unwrap_or("auto")
     );
 
+    let client = ctx.client().await?;
+    let deployment_bundle_id = ensure_cloud_deployment_bundle(&client, deployment_bundle).await?;
+
     let mut body = serde_json::Map::new();
     body.insert("name".to_string(), serde_json::json!(deploy_name));
     body.insert("skill_slug".to_string(), serde_json::json!(skill_slug));
     body.insert("mode".to_string(), serde_json::json!(api_mode));
     body.insert(
-        "code_bundle_base64".to_string(),
-        serde_json::json!(code_bundle_base64),
+        "deployment_bundle_id".to_string(),
+        serde_json::json!(deployment_bundle_id),
     );
     if let Some(compute_backend) = runtime_target.compute_backend {
         body.insert(
@@ -3695,6 +3725,63 @@ pub async fn cloud_list(ctx: &CommandContext) -> Result<()> {
                     format_eval_gate_brief(&d_json),
                 );
             }
+        }
+    }
+
+    Ok(())
+}
+
+/// Get deployment bundle metadata without raw content.
+pub async fn cloud_deployment_bundle_get(bundle_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_get_deployment_bundle(&bundle_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => {
+            let payload = serde_json::to_value(&response)?;
+            let detail = payload.get("data").unwrap_or(&payload);
+            let bundle = detail.get("bundle").unwrap_or(detail);
+            output::print_key_value_table(
+                Some("Deployment Bundle"),
+                &[
+                    ("Bundle ID", format_optional_string(bundle.get("id"))),
+                    (
+                        "Organization ID",
+                        format_optional_string(bundle.get("organization_id")),
+                    ),
+                    ("User ID", format_optional_string(bundle.get("user_id"))),
+                    ("SHA256", format_optional_string(bundle.get("sha256"))),
+                    (
+                        "Size Bytes",
+                        bundle
+                            .get("size_bytes")
+                            .and_then(|value| value.as_i64())
+                            .map(|value| value.to_string())
+                            .unwrap_or_else(|| "—".to_string()),
+                    ),
+                    (
+                        "Source Kind",
+                        format_optional_string(bundle.get("source_kind")),
+                    ),
+                    (
+                        "Uploaded At",
+                        format_optional_string(bundle.get("uploaded_at")),
+                    ),
+                    (
+                        "Deployment References",
+                        detail
+                            .get("deployment_ids")
+                            .and_then(|value| value.as_array())
+                            .map(|items| items.len().to_string())
+                            .unwrap_or_else(|| "0".to_string()),
+                    ),
+                ],
+            );
         }
     }
 

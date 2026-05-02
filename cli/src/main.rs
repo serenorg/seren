@@ -976,6 +976,11 @@ enum AgentCloudAction {
 enum CloudDeploymentAction {
     /// List cloud agent deployments
     List,
+    /// Inspect uploaded deployment bundle metadata
+    Bundle {
+        #[command(subcommand)]
+        action: CloudDeploymentBundleAction,
+    },
     /// Get status of a cloud agent deployment
     Status {
         /// Deployment ID (UUID)
@@ -1099,6 +1104,15 @@ enum CloudDeploymentAction {
         /// Remove the eval gate from the deployment
         #[arg(long, default_value_t = false)]
         clear_eval_gate: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum CloudDeploymentBundleAction {
+    /// Get deployment bundle metadata without downloading raw content
+    Get {
+        /// Deployment bundle ID (UUID)
+        bundle_id: Uuid,
     },
 }
 
@@ -2863,6 +2877,11 @@ async fn execute_agent_cloud_action(
     match action {
         AgentCloudAction::Deployment { action } => match action {
             CloudDeploymentAction::List => commands::agent::cloud_list(ctx).await?,
+            CloudDeploymentAction::Bundle { action } => match action {
+                CloudDeploymentBundleAction::Get { bundle_id } => {
+                    commands::agent::cloud_deployment_bundle_get(bundle_id, ctx).await?
+                }
+            },
             CloudDeploymentAction::Status { deployment_id } => {
                 commands::agent::cloud_status(deployment_id, ctx).await?
             }
