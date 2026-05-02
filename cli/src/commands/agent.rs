@@ -2040,6 +2040,35 @@ fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
+async fn put_presigned_deployment_bundle(
+    upload_url: &str,
+    upload_headers: &HashMap<String, String>,
+    bundle: Vec<u8>,
+) -> Result<()> {
+    let client = reqwest::Client::new();
+    let mut request = client.put(upload_url).body(bundle);
+    for (name, value) in upload_headers {
+        if name.eq_ignore_ascii_case("host") {
+            continue;
+        }
+        request = request.header(name, value);
+    }
+
+    let response = request.send().await.map_err(|e| {
+        anyhow::anyhow!("Failed to upload deployment bundle to object storage: {e}")
+    })?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to upload deployment bundle to object storage: HTTP {} {}",
+            status,
+            body
+        ));
+    }
+    Ok(())
+}
+
 async fn ensure_cloud_deployment_bundle(client: &seren::Client, bundle: Vec<u8>) -> Result<Uuid> {
     let sha256 = sha256_hex(&bundle);
     let size_bytes = i64::try_from(bundle.len())
@@ -2057,15 +2086,19 @@ async fn ensure_cloud_deployment_bundle(client: &seren::Client, bundle: Vec<u8>)
         }
     };
 
-    if registration.upload_required
-        && let Err(e) = client
-            .seren_cloud_upload_deployment_bundle_content(
-                &registration.deployment_bundle_id,
-                bundle,
-            )
+    if registration.upload_required {
+        let upload_url = registration.upload_url.as_deref().ok_or_else(|| {
+            anyhow::anyhow!("Deployment bundle registration did not return an upload_url.")
+        })?;
+        put_presigned_deployment_bundle(upload_url, &registration.upload_headers, bundle).await?;
+        if let Err(e) = client
+            .seren_cloud_complete_deployment_bundle_upload(&registration.deployment_bundle_id)
             .await
-    {
-        return Err(anyhow_from_seren_error("Failed to upload deployment bundle", e).await);
+        {
+            return Err(
+                anyhow_from_seren_error("Failed to complete deployment bundle upload", e).await,
+            );
+        }
     }
 
     Ok(registration.deployment_bundle_id)

@@ -292,13 +292,13 @@
         ]
       }
     },
-    "/deployment-bundles/{id}/content": {
-      "put": {
+    "/deployment-bundles/{id}/complete": {
+      "post": {
         "tags": [
           "seren-cloud"
         ],
-        "summary": "Upload raw content for a registered deployment bundle.",
-        "operationId": "seren_cloud_upload_deployment_bundle_content",
+        "summary": "Complete a direct-to-S3 upload for a registered deployment bundle.",
+        "operationId": "seren_cloud_complete_deployment_bundle_upload",
         "parameters": [
           {
             "name": "id",
@@ -311,17 +311,9 @@
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/octet-stream": {
-              "schema": {}
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
-            "description": "Deployment bundle uploaded",
+            "description": "Deployment bundle upload completed",
             "content": {
               "application/json": {
                 "schema": {
@@ -4129,6 +4121,13 @@
             ]
           },
           "dashboard_config": {},
+          "deployment_bundle_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "endpoint_url": {
             "type": [
               "string",
@@ -5540,8 +5539,30 @@
           "source_kind": {
             "$ref": "#/components/schemas/CloudDeploymentBundleSourceKind"
           },
+          "upload_expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "upload_headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
           "upload_required": {
             "type": "boolean"
+          },
+          "upload_url": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -6376,6 +6397,13 @@
                 ]
               },
               "dashboard_config": {},
+              "deployment_bundle_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
               "endpoint_url": {
                 "type": [
                   "string",
@@ -7215,8 +7243,30 @@
               "source_kind": {
                 "$ref": "#/components/schemas/CloudDeploymentBundleSourceKind"
               },
+              "upload_expires_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "upload_headers": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              },
               "upload_required": {
                 "type": "boolean"
+              },
+              "upload_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             }
           },
@@ -7802,6 +7852,13 @@
                   ]
                 },
                 "dashboard_config": {},
+                "deployment_bundle_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "endpoint_url": {
                   "type": [
                     "string",

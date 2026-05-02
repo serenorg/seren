@@ -3136,6 +3136,38 @@ fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
+async fn put_presigned_deployment_bundle(
+    upload_url: &str,
+    upload_headers: &HashMap<String, String>,
+    content: Vec<u8>,
+) -> Result<(), McpError> {
+    let client = reqwest::Client::new();
+    let mut request = client.put(upload_url).body(content);
+    for (name, value) in upload_headers {
+        if name.eq_ignore_ascii_case("host") {
+            continue;
+        }
+        request = request.header(name, value);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(McpError::internal_error(
+            format!(
+                "Failed to upload deployment bundle to object storage: HTTP {} {}",
+                status, body
+            ),
+            None,
+        ));
+    }
+    Ok(())
+}
+
 fn parse_cloud_enum<T>(label: &str, value: &str) -> Result<T, McpError>
 where
     T: FromStr,
@@ -3172,11 +3204,15 @@ async fn register_cloud_deployment_bundle(
         .data;
 
     if registration.upload_required {
-        api_client
-            .seren_cloud_upload_deployment_bundle_content(
-                &registration.deployment_bundle_id,
-                content,
+        let upload_url = registration.upload_url.as_deref().ok_or_else(|| {
+            McpError::internal_error(
+                "Deployment bundle registration did not return an upload_url.",
+                None,
             )
+        })?;
+        put_presigned_deployment_bundle(upload_url, &registration.upload_headers, content).await?;
+        api_client
+            .seren_cloud_complete_deployment_bundle_upload(&registration.deployment_bundle_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
     }
