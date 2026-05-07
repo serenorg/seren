@@ -2800,6 +2800,10 @@ const QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 /// Marketplace and publisher endpoints can be slower than basic project operations.
 const API_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// Small extra window for logo uploads to return their normal timeout error
+/// before the handler falls back to a generic timeout response.
+const OUTER_TIMEOUT_SLACK: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// Timeout duration for local on-chain balance queries.
 const ONCHAIN_RPC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
@@ -8200,9 +8204,11 @@ API endpoint: {endpoint}",
             content_type: params.content_type,
         };
 
+        // Ensure this tool returns a bounded error even if the upload does not
+        // complete within the expected request window.
         let call_fut =
             api_client.upload_publisher_logo(&params.organization_id, &params.publisher_id, &body);
-        let upload_timeout = API_TIMEOUT + std::time::Duration::from_secs(5);
+        let upload_timeout = API_TIMEOUT + OUTER_TIMEOUT_SLACK;
         let result = match tokio::time::timeout(upload_timeout, call_fut).await {
             Ok(Ok(resp)) => {
                 tracing::info!(
@@ -11943,6 +11949,57 @@ mod tests {
             .unwrap();
 
         assert!(!result.is_error.unwrap_or(false));
+        // Verify the response body actually round-tripped, not just that
+        // is_error is unset (which is the default for a successful tool call).
+        let json = serde_json::to_value(&result).expect("CallToolResult is JSON-serializable");
+        let serialized = json.to_string();
+        assert!(
+            serialized.contains("Logo uploaded successfully"),
+            "missing success message in CallToolResult: {serialized}"
+        );
+        assert!(
+            serialized.contains("/publishers/test/logo"),
+            "missing logo_url in CallToolResult: {serialized}"
+        );
+    }
+
+    #[tokio::test]
+    async fn upload_publisher_logo_surfaces_upstream_error() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let organization_id = Uuid::new_v4();
+        let publisher_id = Uuid::new_v4();
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/publishers/{publisher_id}/logo"
+            )))
+            .respond_with(ResponseTemplate::new(413).set_body_json(serde_json::json!({
+                "message": "payload too large"
+            })))
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let extensions = extensions_with_headers(&[]);
+        let params = UploadPublisherLogoParams {
+            organization_id,
+            publisher_id,
+            logo: "A".repeat(8),
+            content_type: "image/png".to_string(),
+        };
+
+        let err = server
+            .upload_publisher_logo(Parameters(params), extensions)
+            .await
+            .expect_err("upstream 413 should surface as McpError, not hang or succeed");
+        let msg = err.message.to_string();
+        assert!(
+            msg.contains("413") || msg.to_ascii_lowercase().contains("payload too large"),
+            "expected 413/payload-too-large in error, got: {msg}"
+        );
     }
 
     #[test]
