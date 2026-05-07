@@ -8187,11 +8187,12 @@ API endpoint: {endpoint}",
         let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
 
         let logo_size = params.logo.len();
-        tracing::debug!(
+        tracing::info!(
             publisher_id = %params.publisher_id,
+            organization_id = %params.organization_id,
             content_type = %params.content_type,
             logo_base64_size = logo_size,
-            "Uploading publisher logo"
+            "upload_publisher_logo: dispatching to seren-core"
         );
 
         let body = seren::LogoUploadRequest {
@@ -8199,17 +8200,40 @@ API endpoint: {endpoint}",
             content_type: params.content_type,
         };
 
-        let result = match api_client
-            .upload_publisher_logo(&params.organization_id, &params.publisher_id, &body)
-            .await
-        {
-            Ok(resp) => {
-                tracing::debug!(publisher_id = %params.publisher_id, "Logo upload successful");
+        let call_fut =
+            api_client.upload_publisher_logo(&params.organization_id, &params.publisher_id, &body);
+        let upload_timeout = API_TIMEOUT + std::time::Duration::from_secs(5);
+        let result = match tokio::time::timeout(upload_timeout, call_fut).await {
+            Ok(Ok(resp)) => {
+                tracing::info!(
+                    publisher_id = %params.publisher_id,
+                    "upload_publisher_logo: success"
+                );
                 resp.into_inner()
             }
-            Err(e) => {
-                tracing::error!(publisher_id = %params.publisher_id, error = %e, "Logo upload failed");
+            Ok(Err(e)) => {
+                tracing::error!(
+                    publisher_id = %params.publisher_id,
+                    error = %e,
+                    "upload_publisher_logo: SDK error"
+                );
                 return Err(seren_error_to_mcp_error(e).await);
+            }
+            Err(_elapsed) => {
+                tracing::error!(
+                    publisher_id = %params.publisher_id,
+                    logo_base64_size = logo_size,
+                    timeout_seconds = upload_timeout.as_secs(),
+                    "upload_publisher_logo: outer timeout exceeded"
+                );
+                return Err(McpError::internal_error(
+                    format!(
+                        "Upload timed out after {}s (payload {} bytes)",
+                        upload_timeout.as_secs(),
+                        logo_size
+                    ),
+                    None,
+                ));
             }
         };
         Ok(CallToolResult::success(vec![json_content(&result)?]))
@@ -11876,6 +11900,49 @@ mod tests {
             .publisher_root_handler(publisher_slug, &body)
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn upload_publisher_logo_accepts_large_base64_payload() {
+        use wiremock::matchers::{body_string_contains, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let organization_id = Uuid::new_v4();
+        let publisher_id = Uuid::new_v4();
+        let logo = "A".repeat(30_000);
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/publishers/{publisher_id}/logo"
+            )))
+            .and(header("Authorization", "Bearer test-key"))
+            .and(body_string_contains("\"content_type\":\"image/png\""))
+            .and(body_string_contains(&logo))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "message": "Logo uploaded successfully",
+                    "logo_url": "/publishers/test/logo"
+                }
+            })))
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let extensions = extensions_with_headers(&[]);
+        let params = UploadPublisherLogoParams {
+            organization_id,
+            publisher_id,
+            logo,
+            content_type: "image/png".to_string(),
+        };
+
+        let result = server
+            .upload_publisher_logo(Parameters(params), extensions)
+            .await
+            .unwrap();
+
+        assert!(!result.is_error.unwrap_or(false));
     }
 
     #[test]
