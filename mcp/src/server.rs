@@ -586,7 +586,7 @@ enum PublisherOperation {
 ///
 /// This tool handles all publisher interactions based on publisher type:
 /// - Database publishers: provide `query` (and optionally `database`)
-/// - API publishers: provide `method`, `path`, `headers`, `body`
+/// - API publishers: provide `method`, `path`, `headers`, `body`, or `body_base64`
 /// - MCP publishers: provide `tool` + `tool_args` OR `resource_uri`
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CallPublisherParams {
@@ -614,6 +614,9 @@ pub struct CallPublisherParams {
     /// JSON body to send (for API or database publishers)
     #[serde(default)]
     pub body: Option<serde_json::Value>,
+    /// Raw request body, base64-encoded. Mutually exclusive with body.
+    #[serde(default)]
+    pub body_base64: Option<String>,
 
     // === MCP publisher parameters ===
     /// MCP tool name to call
@@ -673,6 +676,9 @@ pub struct EndpointDefinitionParam {
     /// Query parameters accepted by this endpoint
     #[serde(default)]
     pub query_params: Option<Vec<QueryParamDefinitionParam>>,
+    /// Endpoint-specific upstream Content-Type.
+    #[serde(default)]
+    pub request_content_type: Option<String>,
     /// If true, this endpoint is blocked (documented but not accessible)
     #[serde(default)]
     pub is_protected: bool,
@@ -753,40 +759,48 @@ fn endpoint_param_to_definition(
         ));
     }
 
-    Ok(seren::EndpointDefinition {
-        access: None,
-        method,
-        path: path.to_string(),
-        description: param.description,
-        query_params: param.query_params.map(|qps| {
-            qps.into_iter()
-                .map(|qp| seren::QueryParamDefinition {
-                    name: qp.name,
-                    description: qp.description,
-                    required: Some(qp.required),
-                    param_type: Some(match qp.param_type {
-                        ParamTypeParam::String => seren::ParamType::String,
-                        ParamTypeParam::Integer => seren::ParamType::Integer,
-                        ParamTypeParam::Boolean => seren::ParamType::Boolean,
-                        ParamTypeParam::Number => seren::ParamType::Number,
-                        ParamTypeParam::Array => seren::ParamType::Array,
-                    }),
-                    example: qp.example,
-                })
-                .collect()
-        }),
-        is_protected: Some(param.is_protected),
-        protection_reason: param.protection_reason,
-        // Endpoint-specific pricing
-        price: param.price,
-        // New fields from endpoint catalog feature - not exposed via MCP params yet
-        example_request: None,
-        example_response: None,
-        request_body: None,
-        required_headers: None,
-        response: None,
-        body_template: None,
-        is_default: None,
+    let query_params = param.query_params.map(|qps| {
+        qps.into_iter()
+            .map(|qp| seren::QueryParamDefinition {
+                name: qp.name,
+                description: qp.description,
+                required: Some(qp.required),
+                param_type: Some(match qp.param_type {
+                    ParamTypeParam::String => seren::ParamType::String,
+                    ParamTypeParam::Integer => seren::ParamType::Integer,
+                    ParamTypeParam::Boolean => seren::ParamType::Boolean,
+                    ParamTypeParam::Number => seren::ParamType::Number,
+                    ParamTypeParam::Array => seren::ParamType::Array,
+                }),
+                example: qp.example,
+            })
+            .collect::<Vec<_>>()
+    });
+
+    let endpoint = serde_json::json!({
+        "access": null,
+        "method": method,
+        "path": path,
+        "description": param.description,
+        "query_params": query_params,
+        "is_protected": param.is_protected,
+        "protection_reason": param.protection_reason,
+        "price": param.price,
+        "example_request": null,
+        "example_response": null,
+        "request_body": null,
+        "request_content_type": param.request_content_type,
+        "required_headers": null,
+        "response": null,
+        "body_template": null,
+        "is_default": null,
+    });
+
+    serde_json::from_value(endpoint).map_err(|e| {
+        McpError::invalid_params(
+            format!("Invalid endpoint definition after normalization: {}", e),
+            None,
+        )
     })
 }
 
@@ -3260,6 +3274,8 @@ struct CallPublisherErrorContext<'a, T: Serialize> {
     publisher_path: &'a str,
     query_string: Option<&'a str>,
     body: Option<&'a T>,
+    raw_body: Option<&'a [u8]>,
+    headers: Option<&'a HashMap<String, String>>,
     agent_metadata: &'a AgentMetadata,
     return_text: bool,
 }
@@ -3287,6 +3303,17 @@ fn normalize_api_request_body(
         }
         _ => Some(Cow::Borrowed(body)),
     }
+}
+
+fn decode_call_publisher_body_base64(value: Option<&str>) -> Result<Option<Vec<u8>>, McpError> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+
+    base64::engine::general_purpose::STANDARD
+        .decode(value)
+        .map(Some)
+        .map_err(|e| McpError::invalid_params(format!("Invalid body_base64: {}", e), None))
 }
 
 fn extract_agent_metadata_from_extensions(extensions: &Extensions) -> AgentMetadata {
@@ -3865,6 +3892,7 @@ impl SerenMcpServer {
         method: &reqwest::Method,
         publisher_path: &str,
         body: Option<&T>,
+        raw_body: Option<&[u8]>,
         headers: Option<&HashMap<String, String>>,
         request_id: Option<Uuid>,
         query_string: Option<&str>,
@@ -3900,7 +3928,9 @@ impl SerenMcpServer {
                 }
             }
         }
-        if let Some(body) = body {
+        if let Some(raw_body) = raw_body {
+            request_builder = request_builder.body(raw_body.to_vec());
+        } else if let Some(body) = body {
             request_builder = request_builder.json(body);
         }
 
@@ -3916,6 +3946,8 @@ impl SerenMcpServer {
         method: &reqwest::Method,
         path: &str,
         body: Option<&T>,
+        raw_body: Option<&[u8]>,
+        headers: Option<&HashMap<String, String>>,
         request_id: Option<Uuid>,
         confirm: bool,
         agent_metadata: &AgentMetadata,
@@ -3945,10 +3977,21 @@ impl SerenMcpServer {
         let mut request_builder = http_client
             .request(method.clone(), &url)
             .header("X-AGENT-WALLET", &wallet_address);
+        if let Some(headers) = headers {
+            for (key, value) in headers {
+                if let Ok(header_name) = reqwest::header::HeaderName::from_bytes(key.as_bytes())
+                    && let Ok(header_value) = reqwest::header::HeaderValue::from_str(value)
+                {
+                    request_builder = request_builder.header(header_name, header_value);
+                }
+            }
+        }
         if let Some(request_id) = request_id {
             request_builder = request_builder.header("x-request-id", request_id.to_string());
         }
-        if let Some(body) = body {
+        if let Some(raw_body) = raw_body {
+            request_builder = request_builder.body(raw_body.to_vec());
+        } else if let Some(body) = body {
             request_builder = request_builder.json(body);
         }
         let response = request_builder
@@ -4026,6 +4069,15 @@ impl SerenMcpServer {
             .request(method.clone(), &url)
             .header("X-AGENT-WALLET", &wallet_address)
             .header(payload.header_name(), payload_b64);
+        if let Some(headers) = headers {
+            for (key, value) in headers {
+                if let Ok(header_name) = reqwest::header::HeaderName::from_bytes(key.as_bytes())
+                    && let Ok(header_value) = reqwest::header::HeaderValue::from_str(value)
+                {
+                    request_builder = request_builder.header(header_name, header_value);
+                }
+            }
+        }
         if let Some(request_id) = request_id {
             request_builder = request_builder.header("x-request-id", request_id.to_string());
         }
@@ -4038,7 +4090,9 @@ impl SerenMcpServer {
             request_builder = request_builder.header("X-PAYMENT-REQUEST-ID", request_id);
         }
 
-        if let Some(body) = body {
+        if let Some(raw_body) = raw_body {
+            request_builder = request_builder.body(raw_body.to_vec());
+        } else if let Some(body) = body {
             request_builder = request_builder.json(body);
         }
         let paid = request_builder
@@ -4103,6 +4157,8 @@ impl SerenMcpServer {
         method: &reqwest::Method,
         path: &str,
         body: Option<&T>,
+        raw_body: Option<&[u8]>,
+        headers: Option<&HashMap<String, String>>,
         request_id: Option<Uuid>,
         confirm: bool,
         agent_metadata: &AgentMetadata,
@@ -4113,6 +4169,8 @@ impl SerenMcpServer {
                 method,
                 path,
                 body,
+                raw_body,
+                headers,
                 request_id,
                 confirm,
                 agent_metadata,
@@ -4132,6 +4190,8 @@ impl SerenMcpServer {
         method: &reqwest::Method,
         path: &str,
         body: Option<&T>,
+        raw_body: Option<&[u8]>,
+        headers: Option<&HashMap<String, String>>,
         request_id: Option<Uuid>,
         confirm: bool,
         agent_metadata: &AgentMetadata,
@@ -4142,6 +4202,8 @@ impl SerenMcpServer {
                 method,
                 path,
                 body,
+                raw_body,
+                headers,
                 request_id,
                 confirm,
                 agent_metadata,
@@ -4163,6 +4225,8 @@ impl SerenMcpServer {
         method: &reqwest::Method,
         path: &str,
         body: Option<&T>,
+        raw_body: Option<&[u8]>,
+        headers: Option<&HashMap<String, String>>,
         request_id: Option<Uuid>,
         x402_payment: &str,
         agent_metadata: &AgentMetadata,
@@ -4186,10 +4250,21 @@ impl SerenMcpServer {
         let mut request_builder = http_client
             .request(method.clone(), &url)
             .header(payment_header, x402_payment);
+        if let Some(headers) = headers {
+            for (key, value) in headers {
+                if let Ok(header_name) = reqwest::header::HeaderName::from_bytes(key.as_bytes())
+                    && let Ok(header_value) = reqwest::header::HeaderValue::from_str(value)
+                {
+                    request_builder = request_builder.header(header_name, header_value);
+                }
+            }
+        }
         if let Some(request_id) = request_id {
             request_builder = request_builder.header("x-request-id", request_id.to_string());
         }
-        if let Some(body) = body {
+        if let Some(raw_body) = raw_body {
+            request_builder = request_builder.body(raw_body.to_vec());
+        } else if let Some(body) = body {
             request_builder = request_builder.json(body);
         }
         let response = request_builder
@@ -4233,6 +4308,8 @@ impl SerenMcpServer {
         method: &reqwest::Method,
         path: &str,
         body: Option<&T>,
+        raw_body: Option<&[u8]>,
+        headers: Option<&HashMap<String, String>>,
         request_id: Option<Uuid>,
         x402_payment: &str,
         agent_metadata: &AgentMetadata,
@@ -4243,6 +4320,8 @@ impl SerenMcpServer {
                 method,
                 path,
                 body,
+                raw_body,
+                headers,
                 request_id,
                 x402_payment,
                 agent_metadata,
@@ -4263,6 +4342,8 @@ impl SerenMcpServer {
         method: &reqwest::Method,
         path: &str,
         body: Option<&T>,
+        raw_body: Option<&[u8]>,
+        headers: Option<&HashMap<String, String>>,
         request_id: Option<Uuid>,
         x402_payment: &str,
         agent_metadata: &AgentMetadata,
@@ -4273,6 +4354,8 @@ impl SerenMcpServer {
                 method,
                 path,
                 body,
+                raw_body,
+                headers,
                 request_id,
                 x402_payment,
                 agent_metadata,
@@ -6530,6 +6613,8 @@ Examples:
                         &reqwest::Method::POST,
                         &publisher_path,
                         Some(&body),
+                        None,
+                        None,
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -6543,6 +6628,8 @@ Examples:
                         &reqwest::Method::POST,
                         &publisher_path,
                         Some(&body),
+                        None,
+                        None,
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -6572,6 +6659,7 @@ Examples:
                         &reqwest::Method::POST,
                         &publisher_path,
                         Some(&body),
+                        None,
                         None,
                         params.request_id,
                         None,
@@ -6631,6 +6719,8 @@ Examples:
                                 publisher_path: &publisher_path,
                                 query_string: None,
                                 body: Some(&body),
+                                raw_body: None,
+                                headers: None,
                                 agent_metadata,
                                 return_text,
                             },
@@ -6658,8 +6748,20 @@ Examples:
         agent_metadata: &AgentMetadata,
         return_text: bool,
     ) -> Result<CallToolResult, McpError> {
-        let normalized_body = normalize_api_request_body(params.body.as_ref());
+        if params.body.is_some() && params.body_base64.is_some() {
+            return Err(McpError::invalid_params(
+                "call_publisher: provide only one of 'body' or 'body_base64'".to_string(),
+                None,
+            ));
+        }
+        let raw_body = decode_call_publisher_body_base64(params.body_base64.as_deref())?;
+        let normalized_body = if raw_body.is_some() {
+            None
+        } else {
+            normalize_api_request_body(params.body.as_ref())
+        };
         let body = normalized_body.as_deref();
+        let raw_body_ref = raw_body.as_deref();
         // Keep wildcard proxy calls manual for now:
         // we need dynamic HTTP methods, request-scoped passthrough headers, and
         // per-call x-request-id support that generated OpenAPI methods do not expose.
@@ -6694,6 +6796,8 @@ Examples:
                         &method,
                         &publisher_path,
                         body,
+                        raw_body_ref,
+                        params.headers.as_ref(),
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -6707,6 +6811,8 @@ Examples:
                         &method,
                         &publisher_path,
                         body,
+                        raw_body_ref,
+                        params.headers.as_ref(),
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -6733,6 +6839,7 @@ Examples:
                     &method,
                     &publisher_path,
                     body,
+                    raw_body_ref,
                     params.headers.as_ref(),
                     params.request_id,
                     None,
@@ -6791,6 +6898,8 @@ Examples:
                                 publisher_path: &publisher_path,
                                 query_string: None,
                                 body,
+                                raw_body: raw_body_ref,
+                                headers: params.headers.as_ref(),
                                 agent_metadata,
                                 return_text,
                             },
@@ -6841,6 +6950,8 @@ Examples:
                         &reqwest::Method::POST,
                         &publisher_path,
                         Some(&body),
+                        None,
+                        None,
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -6854,6 +6965,8 @@ Examples:
                         &reqwest::Method::POST,
                         &publisher_path,
                         Some(&body),
+                        None,
+                        None,
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -6880,6 +6993,7 @@ Examples:
                     &reqwest::Method::POST,
                     &publisher_path,
                     Some(&body),
+                    None,
                     None,
                     params.request_id,
                     None,
@@ -6952,6 +7066,8 @@ Examples:
                                         publisher_path: &publisher_path,
                                         query_string: None,
                                         body: Some(&body),
+                                        raw_body: None,
+                                        headers: None,
                                         agent_metadata,
                                         return_text,
                                     },
@@ -7007,6 +7123,8 @@ Examples:
                         &method,
                         &publisher_path,
                         None,
+                        None,
+                        None,
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -7019,6 +7137,8 @@ Examples:
                     .execute_with_proxy_payment_json::<serde_json::Value>(
                         &method,
                         &publisher_path,
+                        None,
+                        None,
                         None,
                         params.request_id,
                         x402_payment,
@@ -7045,6 +7165,7 @@ Examples:
                     API_TIMEOUT,
                     &method,
                     &publisher_path,
+                    None,
                     None,
                     None,
                     params.request_id,
@@ -7118,6 +7239,8 @@ Examples:
                                         publisher_path: &publisher_path,
                                         query_string: Some(&query_string),
                                         body: None,
+                                        raw_body: None,
+                                        headers: None,
                                         agent_metadata,
                                         return_text,
                                     },
@@ -7165,6 +7288,8 @@ Examples:
                                     ctx.method,
                                     ctx.publisher_path,
                                     ctx.body,
+                                    ctx.raw_body,
+                                    ctx.headers,
                                     ctx.request_id,
                                     ctx.confirm,
                                     ctx.agent_metadata,
@@ -7178,6 +7303,8 @@ Examples:
                                     ctx.method,
                                     ctx.publisher_path,
                                     ctx.body,
+                                    ctx.raw_body,
+                                    ctx.headers,
                                     ctx.request_id,
                                     ctx.confirm,
                                     ctx.agent_metadata,
@@ -8703,6 +8830,8 @@ API endpoint: {endpoint}",
                     &reqwest::Method::POST,
                     &path,
                     Some(&body),
+                    None,
+                    None,
                     None,
                     params.confirm,
                     &agent_metadata,
@@ -11602,6 +11731,7 @@ mod tests {
                 Some(&serde_json::json!({
                     "hello": "world",
                 })),
+                None,
                 Some(&passthrough_headers),
                 Some(request_id),
                 None,
@@ -11610,6 +11740,58 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), reqwest::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn call_publisher_api_forwards_body_base64_as_raw_bytes() {
+        use wiremock::matchers::{body_string_contains, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/publishers/deepgram-serenai/v1/listen"))
+            .and(header("Authorization", "Bearer test-key"))
+            .and(header("Content-Type", "audio/mp3"))
+            .and(body_string_contains("hello"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ok": true,
+            })))
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let mut headers = HashMap::new();
+        headers.insert("Content-Type".to_string(), "audio/mp3".to_string());
+        let params = CallPublisherParams {
+            publisher: "deepgram-serenai".to_string(),
+            query: None,
+            database: None,
+            method: Some("POST".to_string()),
+            path: Some("/v1/listen".to_string()),
+            headers: Some(headers),
+            body: None,
+            body_base64: Some("aGVsbG8=".to_string()),
+            tool: None,
+            tool_args: None,
+            resource_uri: None,
+            response_format: None,
+            request_id: None,
+            confirm: false,
+            x402_payment: None,
+        };
+
+        let result = server
+            .call_publisher_api(
+                &params,
+                &extensions_with_headers(&[]),
+                &AgentMetadata::default(),
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error.unwrap_or(false));
     }
 
     #[tokio::test]
@@ -11722,6 +11904,7 @@ mod tests {
             body: Some(serde_json::Value::String(
                 r#"{"hello":"world"}"#.to_string(),
             )),
+            body_base64: None,
             tool: None,
             tool_args: None,
             resource_uri: None,
@@ -11772,6 +11955,8 @@ mod tests {
             .execute_with_proxy_payment_json::<serde_json::Value>(
                 &reqwest::Method::GET,
                 "/publishers/test-publisher/_mcp/resources",
+                None,
+                None,
                 None,
                 None,
                 &x402_payload,
@@ -11857,6 +12042,8 @@ mod tests {
             .execute_x402_roundtrip_json::<serde_json::Value>(
                 &reqwest::Method::GET,
                 "/publishers/test-publisher/_mcp/resources",
+                None,
+                None,
                 None,
                 None,
                 false,
