@@ -121,7 +121,7 @@
         "tags": [
           "seren-agent"
         ],
-        "summary": "Delete a managed seren-agent deployment.",
+        "summary": "Delete a managed seren-agent deployment and clean up runtime resources.",
         "operationId": "seren_agent_delete_managed_deployment",
         "parameters": [
           {
@@ -234,6 +234,63 @@
         "responses": {
           "200": {
             "description": "Managed deployment updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "403": {
+            "description": "Managed deployment is opaque to this caller"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/managed/instructions": {
+      "patch": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Update instruction files for a managed deployment.",
+        "operationId": "seren_agent_patch_managed_deployment_instructions",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentInstructionPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Managed deployment instructions updated",
             "content": {
               "application/json": {
                 "schema": {
@@ -702,6 +759,111 @@
             "type": "boolean"
           }
         }
+      },
+      "AgentInstructionFile": {
+        "type": "object",
+        "description": "One authored instruction file.\n\nSupports inline instruction bodies as well as packaged workload metadata.",
+        "required": [
+          "kind",
+          "content"
+        ],
+        "properties": {
+          "allowed_tools": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional tool allowlist carried by skill metadata."
+          },
+          "content": {
+            "type": "string",
+            "description": "File body. Packaged workloads should provide the materialized instruction text."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AgentInstructionKind"
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Original or packaged path, when known."
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional content digest for packaged workload provenance."
+          },
+          "skill_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Skill directory name, when the instruction came from a packaged skill."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentInstructionKind": {
+        "type": "string",
+        "description": "Typed instruction-file kind for managed LLM workloads.",
+        "enum": [
+          "identity",
+          "soul",
+          "skill",
+          "agents",
+          "user",
+          "tools",
+          "memory",
+          "heartbeat",
+          "eval"
+        ]
+      },
+      "AgentInstructionPatch": {
+        "type": "object",
+        "description": "Partial instruction-file update for an existing managed deployment.",
+        "properties": {
+          "remove": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentInstructionSelector"
+            },
+            "description": "Instruction files to remove before applying upserts."
+          },
+          "upsert": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentInstructionFile"
+            },
+            "description": "Instruction files to insert or replace. Identity is `(kind, path)`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentInstructionSelector": {
+        "type": "object",
+        "description": "Selects instruction files to remove from a managed deployment.",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/AgentInstructionKind"
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Original or packaged path. When omitted, every instruction with this kind is selected."
+          }
+        },
+        "additionalProperties": false
       },
       "AgentSpec": {
         "type": "object",
@@ -1379,7 +1541,7 @@
           },
           "visibility": {
             "type": "string",
-            "description": "Visibility mode: \"open\" (default) or \"opaque\" (hides internals from non-owners)."
+            "description": "Visibility mode: \"open\" (default) or \"opaque\" (redacts selected details from non-owners)."
           }
         }
       },
@@ -1679,7 +1841,7 @@
               },
               "visibility": {
                 "type": "string",
-                "description": "Visibility mode: \"open\" (default) or \"opaque\" (hides internals from non-owners)."
+                "description": "Visibility mode: \"open\" (default) or \"opaque\" (redacts selected details from non-owners)."
               }
             }
           },
@@ -1713,6 +1875,7 @@
               "compute_backend",
               "runtime_kind",
               "status",
+              "instructions",
               "model_id",
               "model_config",
               "template",
@@ -1814,6 +1977,12 @@
                   "type": "string"
                 }
               },
+              "instructions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AgentInstructionFile"
+                }
+              },
               "llm_connection": {
                 "oneOf": [
                   {
@@ -1881,12 +2050,6 @@
               },
               "private_output_policy": {
                 "$ref": "#/components/schemas/ManagedAgentPrivateOutputPolicy"
-              },
-              "prompt": {
-                "type": [
-                  "string",
-                  "null"
-                ]
               },
               "requirements": {
                 "type": "array",
@@ -2381,7 +2544,7 @@
                 },
                 "visibility": {
                   "type": "string",
-                  "description": "Visibility mode: \"open\" (default) or \"opaque\" (hides internals from non-owners)."
+                  "description": "Visibility mode: \"open\" (default) or \"opaque\" (redacts selected details from non-owners)."
                 }
               }
             }
@@ -2539,6 +2702,7 @@
           "compute_backend",
           "runtime_kind",
           "status",
+          "instructions",
           "model_id",
           "model_config",
           "template",
@@ -2640,6 +2804,12 @@
               "type": "string"
             }
           },
+          "instructions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentInstructionFile"
+            }
+          },
           "llm_connection": {
             "oneOf": [
               {
@@ -2707,12 +2877,6 @@
           },
           "private_output_policy": {
             "$ref": "#/components/schemas/ManagedAgentPrivateOutputPolicy"
-          },
-          "prompt": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "requirements": {
             "type": "array",
@@ -3610,7 +3774,7 @@
             "type": "object",
             "description": "LLM-orchestrated agent with optional tool definitions and model config.",
             "required": [
-              "system_prompt",
+              "instructions",
               "type"
             ],
             "properties": {
@@ -3635,6 +3799,13 @@
                 },
                 "description": "Ordered list of fallback model identifiers tried on primary failure."
               },
+              "instructions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AgentInstructionFile"
+                },
+                "description": "Typed instruction files rendered server-side into the runtime system\nprompt."
+              },
               "llm_connection": {
                 "oneOf": [
                   {
@@ -3655,10 +3826,6 @@
                   "null"
                 ],
                 "description": "Model identifier override (e.g. `\"anthropic/claude-sonnet-4.6\"`)."
-              },
-              "system_prompt": {
-                "type": "string",
-                "description": "System prompt delivered to the language model at runtime."
               },
               "tool_definitions": {
                 "type": [
@@ -3814,7 +3981,7 @@
           },
           "publisher_only": {
             "type": "boolean",
-            "description": "When true, the workload is exposed only to publisher-internal callers."
+            "description": "When true, the workload is exposed only through publisher-managed entry points."
           },
           "requirements": {
             "type": [
