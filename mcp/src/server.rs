@@ -1853,11 +1853,11 @@ async fn build_replacement_workload(
         config: params.config.clone().or(detail.config),
         execution: seren::WorkloadExecution::Llm {
             adapter: Some(detail.runtime_adapter),
+            bundle: bundle_with_prompt_override(detail.bundle, params.prompt.clone()),
             fallback_models: params.fallback_models.clone().or(detail.fallback_models),
             llm_connection: detail.llm_connection,
             model_config: Some(params.model_config.clone().unwrap_or(detail.model_config)),
             model_id: Some(params.model_id.clone().unwrap_or(detail.model_id)),
-            system_prompt: params.prompt.clone().or(detail.prompt).unwrap_or_default(),
             tool_definitions: None,
         },
         limits: Some(seren::WorkloadLimits {
@@ -1873,6 +1873,49 @@ async fn build_replacement_workload(
         secrets: params.secrets.clone(),
         side_effect_policy: detail.side_effect_policy,
     })
+}
+
+fn bundle_with_prompt_override(
+    mut bundle: seren::AgentBundle,
+    prompt_override: Option<String>,
+) -> seren::AgentBundle {
+    let Some(prompt) = prompt_override else {
+        return bundle;
+    };
+
+    if let Some(instruction) = bundle
+        .instructions
+        .iter_mut()
+        .find(|instruction| instruction.kind == seren::AgentInstructionKind::Skill)
+    {
+        instruction.content = prompt;
+        instruction.sha256 = None;
+    } else {
+        bundle.instructions.push(seren::AgentInstructionFile {
+            allowed_tools: None,
+            content: prompt,
+            kind: seren::AgentInstructionKind::Skill,
+            path: Some("SKILL.md".to_string()),
+            sha256: None,
+            skill_name: None,
+        });
+    }
+
+    bundle
+}
+
+fn bundle_for_prompt(prompt: String) -> seren::AgentBundle {
+    seren::AgentBundle {
+        assets: Vec::new(),
+        instructions: vec![seren::AgentInstructionFile {
+            allowed_tools: None,
+            content: prompt,
+            kind: seren::AgentInstructionKind::Skill,
+            path: Some("SKILL.md".to_string()),
+            sha256: None,
+            skill_name: None,
+        }],
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -9543,7 +9586,7 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<DeploySerenAgentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let url = format!("{}/publishers/seren-agent/deploy", self.api_base_url);
+        let api_client = self.api_client(&extensions)?;
         let template = resolve_guided_string_alias(
             params.template.as_ref(),
             params.agent_style.as_ref(),
@@ -9568,107 +9611,106 @@ API endpoint: {endpoint}",
             "model_policy",
             "performance_profile",
         )?;
-        let mut body = serde_json::Map::new();
-        body.insert("name".to_string(), serde_json::json!(params.name));
-        body.insert("mode".to_string(), serde_json::json!(params.mode));
-        body.insert("prompt".to_string(), serde_json::json!(params.prompt));
+        let template = seren::parse_managed_agent_template(template.as_deref())
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        let tool_presets = tool_presets
+            .as_ref()
+            .map(|values| {
+                seren::parse_managed_agent_tool_presets(values.iter().map(String::as_str))
+            })
+            .transpose()
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?
+            .flatten();
+        let approval_policy =
+            seren::parse_managed_agent_approval_policy(approval_policy.as_deref())
+                .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        let model_policy = seren::parse_managed_agent_model_policy(model_policy.as_deref())
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        let mode: seren::CloudDeploymentMode =
+            serde_json::from_value(serde_json::json!(params.mode))
+                .map_err(|e| McpError::invalid_params(format!("Invalid mode: {e}"), None))?;
+        let compute_backend = params
+            .compute_backend
+            .map(|value| serde_json::from_value(serde_json::json!(value)))
+            .transpose()
+            .map_err(|e| McpError::invalid_params(format!("Invalid compute_backend: {e}"), None))?;
+        let eval_gate = match (params.eval_gate_set_id, params.eval_gate_max_age_seconds) {
+            (Some(set_id), Some(max_age_seconds)) => Some(seren::EvalGate {
+                max_age_seconds,
+                set_id,
+            }),
+            (None, None) => None,
+            (Some(_), None) => {
+                return Err(McpError::invalid_params(
+                    "eval_gate_max_age_seconds is required with eval_gate_set_id.",
+                    None,
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(McpError::invalid_params(
+                    "eval_gate_set_id is required with eval_gate_max_age_seconds.",
+                    None,
+                ));
+            }
+        };
+        let requirements = params
+            .requirements
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|e| {
+                McpError::invalid_params(format!("Invalid requirements payload: {e}"), None)
+            })?;
 
-        if let Some(agent_slug) = params.agent_slug {
-            body.insert("agent_slug".to_string(), serde_json::json!(agent_slug));
-        }
-        if let Some(model_id) = params.model_id {
-            body.insert("model_id".to_string(), serde_json::json!(model_id));
-        }
-        if let Some(cron_schedule) = params.cron_schedule {
-            body.insert(
-                "cron_schedule".to_string(),
-                serde_json::json!(cron_schedule),
-            );
-        }
-        if let Some(cron_timezone) = params.cron_timezone {
-            body.insert(
-                "cron_timezone".to_string(),
-                serde_json::json!(cron_timezone),
-            );
-        }
-        if let Some(compute_backend) = params.compute_backend {
-            body.insert(
-                "compute_backend".to_string(),
-                serde_json::json!(compute_backend),
-            );
-        }
-        if let Some(eval_gate_set_id) = params.eval_gate_set_id {
-            body.insert(
-                "eval_gate_set_id".to_string(),
-                serde_json::json!(eval_gate_set_id),
-            );
-        }
-        if let Some(eval_gate_max_age_seconds) = params.eval_gate_max_age_seconds {
-            body.insert(
-                "eval_gate_max_age_seconds".to_string(),
-                serde_json::json!(eval_gate_max_age_seconds),
-            );
-        }
-        if let Some(template) = template {
-            body.insert("template".to_string(), serde_json::json!(template));
-        }
-        if let Some(tool_presets) = tool_presets {
-            body.insert("tool_presets".to_string(), serde_json::json!(tool_presets));
-        }
-        if let Some(approval_policy) = approval_policy {
-            body.insert(
-                "approval_policy".to_string(),
-                serde_json::json!(approval_policy),
-            );
-        }
-        if let Some(model_policy) = model_policy {
-            body.insert("model_policy".to_string(), serde_json::json!(model_policy));
-        }
-        if let Some(allowed_remote_agent_origins) = params.allowed_remote_agent_origins {
-            body.insert(
-                "allowed_remote_agent_origins".to_string(),
-                serde_json::json!(allowed_remote_agent_origins),
-            );
-        }
-        if let Some(config) = params.config {
-            body.insert("config".to_string(), config);
-        }
-        if let Some(secrets) = params.secrets {
-            body.insert("secrets".to_string(), secrets);
-        }
-        if let Some(model_config) = params.model_config {
-            body.insert("model_config".to_string(), model_config);
-        }
-        if let Some(fallback_models) = params.fallback_models {
-            body.insert(
-                "fallback_models".to_string(),
-                serde_json::json!(fallback_models),
-            );
-        }
-        if let Some(max_timeout_seconds) = params.max_timeout_seconds {
-            body.insert(
-                "max_timeout_seconds".to_string(),
-                serde_json::json!(max_timeout_seconds),
-            );
-        }
-        if let Some(requirements) = params.requirements {
-            body.insert("requirements".to_string(), requirements);
-        }
-        if let Some(dashboard_config) = params.dashboard_config {
-            body.insert("dashboard_config".to_string(), dashboard_config);
-        }
-        if let Some(visibility) = params.visibility {
-            body.insert("visibility".to_string(), serde_json::json!(visibility));
-        }
+        let request = seren::AgentSpec {
+            agent_slug: params.agent_slug,
+            alert_policy: None,
+            allowed_remote_agent_origins: params.allowed_remote_agent_origins,
+            approval_policy,
+            cron_schedule: params.cron_schedule,
+            cron_timezone: params.cron_timezone,
+            dashboard_config: params.dashboard_config,
+            eval_gate,
+            mode,
+            model_policy,
+            name: Some(params.name),
+            private_output_policy: None,
+            session_database: None,
+            template,
+            tool_presets,
+            visibility: params.visibility,
+            workload: seren::WorkloadSpec {
+                compute_backend,
+                config: params.config,
+                execution: seren::WorkloadExecution::Llm {
+                    adapter: None,
+                    bundle: bundle_for_prompt(params.prompt),
+                    fallback_models: params.fallback_models,
+                    llm_connection: None,
+                    model_config: params.model_config,
+                    model_id: params.model_id,
+                    tool_definitions: None,
+                },
+                limits: Some(seren::WorkloadLimits {
+                    context_budget_tokens: None,
+                    max_iterations: None,
+                    max_timeout_seconds: params.max_timeout_seconds,
+                    max_tool_calls_per_run: None,
+                    max_tool_output_chars: None,
+                }),
+                network_policy: None,
+                publisher_only: None,
+                requirements: Some(requirements.unwrap_or_default()),
+                secrets: params.secrets,
+                side_effect_policy: None,
+            },
+        };
 
-        let result = self
-            .execute_api_json(
-                &extensions,
-                reqwest::Method::POST,
-                url,
-                Some(&serde_json::Value::Object(body)),
-            )
-            .await?;
+        let result = api_client
+            .seren_agent_deploy(&request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let result = serde_json::to_value(result.into_inner())
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![json_content(&result)?]))
     }
 
@@ -11411,6 +11453,34 @@ mod tests {
         assert_eq!(format_decimal_units("2500000", 6), "2.5");
         assert_eq!(format_decimal_units("1", 6), "0.000001");
         assert_eq!(format_decimal_units("0", 6), "0");
+    }
+
+    #[test]
+    fn bundle_prompt_override_preserves_assets_and_clears_sha() {
+        let bundle = seren::AgentBundle {
+            assets: vec![seren::AgentAssetFile {
+                content_base64: "Zm9v".to_string(),
+                content_type: None,
+                path: "notes.txt".to_string(),
+                purpose: None,
+                sha256: Some("asset-sha".to_string()),
+            }],
+            instructions: vec![seren::AgentInstructionFile {
+                allowed_tools: None,
+                content: "old prompt".to_string(),
+                kind: seren::AgentInstructionKind::Skill,
+                path: Some("SKILL.md".to_string()),
+                sha256: Some("old-sha".to_string()),
+                skill_name: None,
+            }],
+        };
+
+        let bundle = bundle_with_prompt_override(bundle, Some("new prompt".to_string()));
+
+        assert_eq!(bundle.assets.len(), 1);
+        assert_eq!(bundle.instructions.len(), 1);
+        assert_eq!(bundle.instructions[0].content, "new prompt");
+        assert!(bundle.instructions[0].sha256.is_none());
     }
 
     #[test]

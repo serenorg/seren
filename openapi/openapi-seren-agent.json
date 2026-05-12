@@ -259,13 +259,13 @@
         ]
       }
     },
-    "/deployments/{id}/managed/instructions": {
+    "/deployments/{id}/managed/files": {
       "patch": {
         "tags": [
           "seren-agent"
         ],
-        "summary": "Update instruction files for a managed deployment.",
-        "operationId": "seren_agent_patch_managed_deployment_instructions",
+        "summary": "Update files for a managed deployment.",
+        "operationId": "seren_agent_patch_managed_deployment_files",
         "parameters": [
           {
             "name": "id",
@@ -282,7 +282,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AgentInstructionPatch"
+                "$ref": "#/components/schemas/AgentBundlePatch"
               }
             }
           },
@@ -290,7 +290,7 @@
         },
         "responses": {
           "200": {
-            "description": "Managed deployment instructions updated",
+            "description": "Managed deployment files updated",
             "content": {
               "application/json": {
                 "schema": {
@@ -701,6 +701,116 @@
   },
   "components": {
     "schemas": {
+      "AgentAssetFile": {
+        "type": "object",
+        "description": "Non-prompt file that belongs to an agent bundle.",
+        "required": [
+          "path",
+          "content_base64"
+        ],
+        "properties": {
+          "content_base64": {
+            "type": "string",
+            "description": "Base64-encoded file body."
+          },
+          "content_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional MIME type supplied by the caller."
+          },
+          "path": {
+            "type": "string",
+            "description": "Agent-bundle relative path."
+          },
+          "purpose": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentAssetPurpose",
+                "description": "Optional caller-supplied purpose for UI grouping and runtime materialization."
+              }
+            ]
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional content digest for provenance. When present, the server verifies it."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentAssetPurpose": {
+        "type": "string",
+        "enum": [
+          "reference",
+          "script",
+          "schema",
+          "resource",
+          "eval"
+        ]
+      },
+      "AgentBundle": {
+        "type": "object",
+        "description": "Authored agent bundle used by LLM workloads.",
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentAssetFile"
+            },
+            "description": "Additional files available to the agent runtime."
+          },
+          "instructions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentInstructionFile"
+            },
+            "description": "Prompt-bearing instruction files rendered server-side into the runtime\nsystem prompt."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentBundlePatch": {
+        "type": "object",
+        "description": "Partial agent-bundle update for an existing managed deployment.",
+        "properties": {
+          "remove_assets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Asset paths to remove before applying upserts."
+          },
+          "remove_instructions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentInstructionFileSelector"
+            },
+            "description": "Instruction files to remove before applying upserts."
+          },
+          "upsert_assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentAssetFile"
+            },
+            "description": "Asset files to insert or replace. Identity is `path`."
+          },
+          "upsert_instructions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentInstructionFile"
+            },
+            "description": "Instruction files to insert or replace. Identity is `(kind, path)`."
+          }
+        },
+        "additionalProperties": false
+      },
       "AgentCapabilitiesResponse": {
         "type": "object",
         "required": [
@@ -809,45 +919,9 @@
         },
         "additionalProperties": false
       },
-      "AgentInstructionKind": {
-        "type": "string",
-        "description": "Typed instruction-file kind for managed LLM workloads.",
-        "enum": [
-          "identity",
-          "soul",
-          "skill",
-          "agents",
-          "user",
-          "tools",
-          "memory",
-          "heartbeat",
-          "eval"
-        ]
-      },
-      "AgentInstructionPatch": {
+      "AgentInstructionFileSelector": {
         "type": "object",
-        "description": "Partial instruction-file update for an existing managed deployment.",
-        "properties": {
-          "remove": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AgentInstructionSelector"
-            },
-            "description": "Instruction files to remove before applying upserts."
-          },
-          "upsert": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AgentInstructionFile"
-            },
-            "description": "Instruction files to insert or replace. Identity is `(kind, path)`."
-          }
-        },
-        "additionalProperties": false
-      },
-      "AgentInstructionSelector": {
-        "type": "object",
-        "description": "Selects instruction files to remove from a managed deployment.",
+        "description": "Selects instruction files to remove from a managed deployment bundle.",
         "required": [
           "kind"
         ],
@@ -864,6 +938,21 @@
           }
         },
         "additionalProperties": false
+      },
+      "AgentInstructionKind": {
+        "type": "string",
+        "description": "Typed instruction-file kind for managed LLM workloads.",
+        "enum": [
+          "identity",
+          "soul",
+          "skill",
+          "agents",
+          "user",
+          "tools",
+          "memory",
+          "heartbeat",
+          "eval"
+        ]
       },
       "AgentSpec": {
         "type": "object",
@@ -1181,7 +1270,7 @@
               },
               {
                 "$ref": "#/components/schemas/WorkloadSpec",
-                "description": "Replaces the entire workload when present. Partial-workload patching\nis a future PR; for now, callers must send a complete `WorkloadSpec`\nto update any workload-level field."
+                "description": "Replaces the entire workload when present. Use the managed files endpoint\nfor targeted bundle file changes."
               }
             ]
           }
@@ -1875,7 +1964,7 @@
               "compute_backend",
               "runtime_kind",
               "status",
-              "instructions",
+              "bundle",
               "model_id",
               "model_config",
               "template",
@@ -1928,6 +2017,9 @@
               "approval_policy": {
                 "$ref": "#/components/schemas/ManagedAgentApprovalPolicy"
               },
+              "bundle": {
+                "$ref": "#/components/schemas/AgentBundle"
+              },
               "compute_backend": {
                 "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
               },
@@ -1975,12 +2067,6 @@
                 ],
                 "items": {
                   "type": "string"
-                }
-              },
-              "instructions": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/AgentInstructionFile"
                 }
               },
               "llm_connection": {
@@ -2702,7 +2788,7 @@
           "compute_backend",
           "runtime_kind",
           "status",
-          "instructions",
+          "bundle",
           "model_id",
           "model_config",
           "template",
@@ -2755,6 +2841,9 @@
           "approval_policy": {
             "$ref": "#/components/schemas/ManagedAgentApprovalPolicy"
           },
+          "bundle": {
+            "$ref": "#/components/schemas/AgentBundle"
+          },
           "compute_backend": {
             "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
           },
@@ -2802,12 +2891,6 @@
             ],
             "items": {
               "type": "string"
-            }
-          },
-          "instructions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AgentInstructionFile"
             }
           },
           "llm_connection": {
@@ -3774,7 +3857,7 @@
             "type": "object",
             "description": "LLM-orchestrated agent with optional tool definitions and model config.",
             "required": [
-              "instructions",
+              "bundle",
               "type"
             ],
             "properties": {
@@ -3789,6 +3872,10 @@
                   }
                 ]
               },
+              "bundle": {
+                "$ref": "#/components/schemas/AgentBundle",
+                "description": "Authored instruction and asset files for the LLM agent."
+              },
               "fallback_models": {
                 "type": [
                   "array",
@@ -3798,13 +3885,6 @@
                   "type": "string"
                 },
                 "description": "Ordered list of fallback model identifiers tried on primary failure."
-              },
-              "instructions": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/AgentInstructionFile"
-                },
-                "description": "Typed instruction files rendered server-side into the runtime system\nprompt."
               },
               "llm_connection": {
                 "oneOf": [

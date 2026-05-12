@@ -1748,6 +1748,7 @@ const ORCHESTRATION_CONFIG_FIELDS: &[&str] = &[
     "visibility",
 ];
 const MANAGED_AGENT_CONFIG_FIELDS: &[&str] = &[
+    "bundle",
     "context_budget_tokens",
     "dashboard_config",
     "fallback_models",
@@ -1935,6 +1936,7 @@ const WORKLOAD_LIMITS_FIELDS: &[&str] = &[
 
 /// Workload execution fields that distinguish llm-style workloads.
 const LLM_EXECUTION_FIELDS: &[&str] = &[
+    "bundle",
     "fallback_models",
     "model_config",
     "model_id",
@@ -1958,12 +1960,7 @@ fn reshape_body_for_sdk(
 ) -> serde_json::Map<String, serde_json::Value> {
     let mut envelope = body;
 
-    // CLI exposes `prompt` for managed agents; the SDK names it `system_prompt`.
-    if let Some(prompt) = envelope.remove("prompt") {
-        envelope
-            .entry("system_prompt".to_string())
-            .or_insert(prompt);
-    }
+    let prompt = envelope.remove("prompt");
 
     let mut workload = serde_json::Map::new();
     let mut limits = serde_json::Map::new();
@@ -1992,6 +1989,20 @@ fn reshape_body_for_sdk(
                 continue;
             }
             workload.insert((*key).to_string(), value);
+        }
+    }
+
+    if let Some(prompt) = prompt {
+        if expect_code_workload {
+            llm_execution
+                .entry("system_prompt".to_string())
+                .or_insert(prompt);
+        } else {
+            let bundle = llm_execution
+                .remove("bundle")
+                .map(|bundle| bundle_value_with_prompt_override(bundle, prompt.clone()))
+                .unwrap_or_else(|| bundle_value_for_prompt(prompt));
+            llm_execution.insert("bundle".to_string(), bundle);
         }
     }
 
@@ -2034,6 +2045,45 @@ fn reshape_body_for_sdk(
     }
 
     envelope
+}
+
+fn bundle_value_for_prompt(prompt: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "instructions": [{
+            "kind": "skill",
+            "path": "SKILL.md",
+            "content": prompt
+        }]
+    })
+}
+
+fn bundle_value_with_prompt_override(
+    mut bundle: serde_json::Value,
+    prompt: serde_json::Value,
+) -> serde_json::Value {
+    let Some(instructions) = bundle
+        .get_mut("instructions")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return bundle_value_for_prompt(prompt);
+    };
+
+    if let Some(instruction) = instructions.iter_mut().find(|instruction| {
+        instruction.get("kind").and_then(serde_json::Value::as_str) == Some("skill")
+    }) {
+        if let Some(object) = instruction.as_object_mut() {
+            object.insert("content".to_string(), prompt);
+            object.remove("sha256");
+        }
+    } else {
+        instructions.push(serde_json::json!({
+            "kind": "skill",
+            "path": "SKILL.md",
+            "content": prompt
+        }));
+    }
+
+    bundle
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -3195,7 +3245,14 @@ async fn build_replacement_workload_for_managed_agent(
         .get("prompt")
         .and_then(|v| v.as_str())
         .map(str::to_owned);
-    let system_prompt = prompt_override.or(detail.prompt).unwrap_or_default();
+    let base_bundle = body
+        .get("bundle")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("Invalid bundle payload: {}", e))?
+        .unwrap_or(detail.bundle);
+    let bundle = bundle_with_prompt_override(base_bundle, prompt_override);
 
     let model_id = body
         .get("model_id")
@@ -3263,11 +3320,11 @@ async fn build_replacement_workload_for_managed_agent(
         config,
         execution: seren::WorkloadExecution::Llm {
             adapter: Some(detail.runtime_adapter),
+            bundle,
             fallback_models,
             llm_connection: detail.llm_connection,
             model_config: Some(model_config),
             model_id: Some(model_id),
-            system_prompt,
             tool_definitions,
         },
         limits: Some(seren::WorkloadLimits {
@@ -3283,6 +3340,35 @@ async fn build_replacement_workload_for_managed_agent(
         secrets,
         side_effect_policy: detail.side_effect_policy,
     })
+}
+
+fn bundle_with_prompt_override(
+    mut bundle: seren::AgentBundle,
+    prompt_override: Option<String>,
+) -> seren::AgentBundle {
+    let Some(prompt) = prompt_override else {
+        return bundle;
+    };
+
+    if let Some(instruction) = bundle
+        .instructions
+        .iter_mut()
+        .find(|instruction| instruction.kind == seren::AgentInstructionKind::Skill)
+    {
+        instruction.content = prompt;
+        instruction.sha256 = None;
+    } else {
+        bundle.instructions.push(seren::AgentInstructionFile {
+            allowed_tools: None,
+            content: prompt,
+            kind: seren::AgentInstructionKind::Skill,
+            path: Some("SKILL.md".to_string()),
+            sha256: None,
+            skill_name: None,
+        });
+    }
+
+    bundle
 }
 
 async fn build_managed_agent_update_request(
@@ -7266,5 +7352,116 @@ mod tests {
             seren::CloudRunApprovalDecisionValue::Reject
         );
         assert_eq!(approval_decisions[1].id, "approval-2");
+    }
+
+    #[test]
+    fn reshape_managed_prompt_uses_bundle_execution() {
+        let body = serde_json::Map::from_iter([
+            ("name".to_string(), serde_json::json!("Research Agent")),
+            ("mode".to_string(), serde_json::json!("always_on")),
+            ("prompt".to_string(), serde_json::json!("watch the price")),
+        ]);
+
+        let reshaped = reshape_body_for_sdk(body, false);
+        let request: seren::AgentSpec =
+            serde_json::from_value(serde_json::Value::Object(reshaped)).unwrap();
+
+        match request.workload.execution {
+            seren::WorkloadExecution::Llm { bundle, .. } => {
+                assert_eq!(bundle.instructions.len(), 1);
+                assert_eq!(bundle.instructions[0].content, "watch the price");
+                assert_eq!(
+                    bundle.instructions[0].kind,
+                    seren::AgentInstructionKind::Skill
+                );
+            }
+            other => panic!("expected llm workload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bundle_prompt_override_preserves_assets_and_clears_sha() {
+        let bundle = seren::AgentBundle {
+            assets: vec![seren::AgentAssetFile {
+                content_base64: "Zm9v".to_string(),
+                content_type: None,
+                path: "notes.txt".to_string(),
+                purpose: None,
+                sha256: Some("asset-sha".to_string()),
+            }],
+            instructions: vec![seren::AgentInstructionFile {
+                allowed_tools: None,
+                content: "old prompt".to_string(),
+                kind: seren::AgentInstructionKind::Skill,
+                path: Some("SKILL.md".to_string()),
+                sha256: Some("old-sha".to_string()),
+                skill_name: None,
+            }],
+        };
+
+        let bundle = bundle_with_prompt_override(bundle, Some("new prompt".to_string()));
+
+        assert_eq!(bundle.assets.len(), 1);
+        assert_eq!(bundle.instructions.len(), 1);
+        assert_eq!(bundle.instructions[0].content, "new prompt");
+        assert!(bundle.instructions[0].sha256.is_none());
+    }
+
+    #[test]
+    fn bundle_prompt_override_preserves_non_skill_instructions() {
+        let bundle = seren::AgentBundle {
+            assets: vec![],
+            instructions: vec![
+                seren::AgentInstructionFile {
+                    allowed_tools: None,
+                    content: "be careful".to_string(),
+                    kind: seren::AgentInstructionKind::Identity,
+                    path: Some("IDENTITY.md".to_string()),
+                    sha256: Some("identity-sha".to_string()),
+                    skill_name: None,
+                },
+                seren::AgentInstructionFile {
+                    allowed_tools: None,
+                    content: "old prompt".to_string(),
+                    kind: seren::AgentInstructionKind::Skill,
+                    path: Some("SKILL.md".to_string()),
+                    sha256: Some("old-sha".to_string()),
+                    skill_name: None,
+                },
+                seren::AgentInstructionFile {
+                    allowed_tools: None,
+                    content: "tail logs".to_string(),
+                    kind: seren::AgentInstructionKind::Tools,
+                    path: Some("TOOLS.md".to_string()),
+                    sha256: Some("tools-sha".to_string()),
+                    skill_name: None,
+                },
+            ],
+        };
+
+        let bundle = bundle_with_prompt_override(bundle, Some("new prompt".to_string()));
+
+        assert_eq!(bundle.instructions.len(), 3);
+        let identity = bundle
+            .instructions
+            .iter()
+            .find(|i| i.kind == seren::AgentInstructionKind::Identity)
+            .expect("identity instruction preserved");
+        assert_eq!(identity.content, "be careful");
+        assert_eq!(identity.sha256.as_deref(), Some("identity-sha"));
+        let tools = bundle
+            .instructions
+            .iter()
+            .find(|i| i.kind == seren::AgentInstructionKind::Tools)
+            .expect("tools instruction preserved");
+        assert_eq!(tools.content, "tail logs");
+        assert_eq!(tools.sha256.as_deref(), Some("tools-sha"));
+        let skill = bundle
+            .instructions
+            .iter()
+            .find(|i| i.kind == seren::AgentInstructionKind::Skill)
+            .expect("skill instruction present");
+        assert_eq!(skill.content, "new prompt");
+        assert!(skill.sha256.is_none());
     }
 }
