@@ -8,6 +8,10 @@ default-run = "seren"
 description = "CLI tool for Seren database management"
 repository = "https://github.com/seren/seren-cli"
 
+[lib]
+name = "seren_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "seren"
 path = "src/main.rs"
@@ -41,3 +45,6 @@ base64 = { workspace = true }
 sha2 = { workspace = true }
 flate2 = "1.0"
 tar = "0.4"
+
+[dev-dependencies]
+tempfile = "3"

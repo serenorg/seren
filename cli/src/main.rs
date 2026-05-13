@@ -1,33 +1,9 @@
 use clap::{ArgAction, Parser, Subcommand};
 use uuid::Uuid;
 
-mod command_context;
-mod commands;
-pub mod config;
-pub mod defaults;
-mod money;
-pub mod output;
-
-pub use command_context::CommandContext;
-use money::UsdCents;
-
-#[derive(Debug, Clone, Copy)]
-pub enum OutputFormat {
-    Json,
-    Table,
-}
-
-impl std::str::FromStr for OutputFormat {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "json" => Ok(OutputFormat::Json),
-            "table" => Ok(OutputFormat::Table),
-            _ => Err(format!("Invalid output format: {}", s)),
-        }
-    }
-}
+use seren_cli::commands;
+use seren_cli::money::UsdCents;
+use seren_cli::{CommandContext, OutputFormat, config, defaults};
 
 #[derive(Parser)]
 #[command(name = "seren")]
@@ -47,6 +23,20 @@ struct Cli {
     /// API key for authentication (overrides stored credentials)
     #[arg(long, global = true, env = "SEREN_API_KEY")]
     api_key: Option<String>,
+
+    /// Profile name to select per-profile credentials and context.
+    ///
+    /// Precedence (highest first): --profile, SEREN_PROFILE, "default".
+    /// Profile-scoped state lives under `~/.config/seren/profiles/<name>/`.
+    #[arg(long, global = true, env = "SEREN_PROFILE")]
+    profile: Option<String>,
+
+    /// Pretty-print API request/response envelopes for debugging.
+    ///
+    /// Currently parsed but not wired through the request pipeline; the flag
+    /// is reserved so consumers can adopt it before envelope logging lands.
+    #[arg(long, global = true, hide = true)]
+    debug_envelopes: bool,
 }
 
 #[derive(Subcommand)]
@@ -540,6 +530,21 @@ enum AgentAction {
     // =========================================================================
     // Cloud Deployment Commands
     // =========================================================================
+    /// Package a directory of instruction files and deploy it as a dev-namespace
+    /// agent. Streams logs until Ctrl-C, then deletes the deployment.
+    Dev {
+        /// Directory containing SKILL.md and optional companion instruction files.
+        path: String,
+        /// Optional display name (defaults to the directory name).
+        #[arg(long)]
+        name: Option<String>,
+        /// Optional agent slug; the result is always prefixed with `dev-`.
+        #[arg(long)]
+        agent_slug: Option<String>,
+        /// Build and print the AgentSpec draft without contacting the API.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Deploy a skill to Seren Cloud
     Deploy {
         /// Path to a skill directory or SKILL.md (must contain scripts/)
@@ -3453,10 +3458,17 @@ async fn execute_agent_cloud_action(
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+
+    // Resolve the active profile before any config or context is read.
+    config::set_active_profile(cli.profile.clone());
+
     let api_host = cli
         .api_host
         .clone()
-        .or_else(crate::defaults::env_api_host_override);
+        .or_else(defaults::env_api_host_override);
+
+    // `--debug-envelopes` is a global flag; capture it for later use.
+    let _debug_envelopes = cli.debug_envelopes;
 
     // Create shared command context for all commands
     let ctx = CommandContext::new(api_host.clone(), cli.api_key.clone(), cli.format);
@@ -4430,6 +4442,26 @@ async fn main() -> anyhow::Result<()> {
                 message,
                 stream,
             } => commands::agent::run_local(&endpoint, &message, stream, &ctx).await?,
+            AgentAction::Dev {
+                path,
+                name,
+                agent_slug,
+                dry_run,
+            } => {
+                commands::agent_dev::dev_agent_run(
+                    commands::agent_dev::DevAgentOptions {
+                        directory: std::path::PathBuf::from(path),
+                        name,
+                        agent_slug,
+                        // `dev_agent_run` populates this from the auth context
+                        // when None so the CLI does not have to.
+                        user_discriminator: None,
+                        dry_run,
+                    },
+                    &ctx,
+                )
+                .await?
+            }
             AgentAction::Deploy {
                 path,
                 publisher,

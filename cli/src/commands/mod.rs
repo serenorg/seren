@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod agent_dev;
 pub mod audit_logs;
 pub mod auth;
 pub mod billing;

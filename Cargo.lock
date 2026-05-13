@@ -5012,6 +5012,7 @@ dependencies = [
  "seren-mcp",
  "sha2",
  "tar",
+ "tempfile",
  "tokio",
  "toml",
  "url",
