@@ -576,66 +576,6 @@
         ]
       }
     },
-    "/deployments/{id}/channel-run-events": {
-      "post": {
-        "tags": [
-          "seren-cloud"
-        ],
-        "summary": "Record a minimized external channel turn for a deployment.",
-        "operationId": "seren_cloud_record_channel_run_event",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Deployment ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CloudDeploymentChannelRunEventRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Channel run event recorded",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentRunEvent"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request"
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "404": {
-            "description": "Deployment not found"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
     "/deployments/{id}/deployment-bundle-download": {
       "get": {
         "tags": [
@@ -686,13 +626,13 @@
         ]
       }
     },
-    "/deployments/{id}/fs": {
+    "/deployments/{id}/eval-drift": {
       "get": {
         "tags": [
           "seren-cloud"
         ],
-        "summary": "Inspect the managed deployment filesystem within the state or artifacts namespace.",
-        "operationId": "seren_cloud_deployment_fs",
+        "summary": "Compare the deployment's current eval-set verdict against the baseline\ncaptured at the last successful apply. Reports `passed`/`failed` deltas\nplus an operator-safe summary message.",
+        "operationId": "seren_cloud_get_deployment_eval_drift",
         "parameters": [
           {
             "name": "id",
@@ -703,237 +643,21 @@
               "type": "string",
               "format": "uuid"
             }
-          },
-          {
-            "name": "namespace",
-            "in": "query",
-            "description": "Namespace root to inspect: artifacts or state (default: artifacts)",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "path",
-            "in": "query",
-            "description": "Relative path under the selected namespace root",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "Max directory entries to return (default: 200, max: 1000)",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0
-            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Filesystem entry or directory listing",
+            "description": "Drift snapshot",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentEvalDrift"
+                }
               }
             }
           },
           "400": {
-            "description": "Bad request"
-          },
-          "404": {
-            "description": "Not found"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/deployments/{id}/fs/read_bytes": {
-      "get": {
-        "tags": [
-          "seren-cloud"
-        ],
-        "summary": "Read a byte range from the managed deployment filesystem.",
-        "operationId": "seren_cloud_deployment_fs_read_bytes",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Deployment ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "namespace",
-            "in": "query",
-            "description": "Namespace root to inspect: artifacts or state (default: artifacts)",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "path",
-            "in": "query",
-            "description": "Relative file path under the selected namespace root",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "description": "Starting byte offset",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0
-            }
-          },
-          {
-            "name": "length",
-            "in": "query",
-            "description": "Max bytes to read (default: 65536, max: 1048576)",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Base64-encoded file bytes",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request"
-          },
-          "404": {
-            "description": "Not found"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/deployments/{id}/fs/read_text": {
-      "get": {
-        "tags": [
-          "seren-cloud"
-        ],
-        "summary": "Read a UTF-8 text file from the managed deployment filesystem.",
-        "operationId": "seren_cloud_deployment_fs_read_text",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Deployment ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "namespace",
-            "in": "query",
-            "description": "Namespace root to inspect: artifacts or state (default: artifacts)",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "path",
-            "in": "query",
-            "description": "Relative file path under the selected namespace root",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "max_bytes",
-            "in": "query",
-            "description": "Max bytes to read (default: 65536, max: 1048576)",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Text file contents",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request"
-          },
-          "404": {
-            "description": "Not found"
-          },
-          "422": {
-            "description": "File is not valid UTF-8"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/deployments/{id}/logs": {
-      "get": {
-        "tags": [
-          "seren-cloud"
-        ],
-        "summary": "Get logs for a deployment.",
-        "operationId": "seren_cloud_logs",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Deployment ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Logs retrieved",
-            "content": {
-              "text/plain": {}
-            }
+            "description": "Deployment has no eval gate configured"
           },
           "404": {
             "description": "Not found"
@@ -2704,6 +2428,123 @@
         ]
       }
     },
+    "/inbox/approvals": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "List every awaiting approval the operator owns across all approval kinds.",
+        "description": "Returns `ToolCall` entries (derived from `awaiting_approval` runs) and\n`BlockedEgress` entries (from `blocked_egress_inbox_entries`) merged into\na single timeline ordered by `created_at DESC`. Pagination is cursor-only:\nthe response includes `next_cursor` when more entries are available, and\nthe caller passes it back in `?cursor=`.",
+        "operationId": "seren_cloud_approval_inbox_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max entries per page (default: 50, max: 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque cursor from a previous response. Cursors expire after 24h; reject malformed or expired cursors with 400.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Approval inbox entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ApprovalInboxListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed limit or cursor"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/inbox/approvals/{entry_id}/decide": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "summary": "Record an operator approve/deny decision for a single inbox entry.",
+        "description": "Tool-call entries record an audit row and rely on the existing run-resume\nflow to emit the `approval_decision` event. Blocked-egress entries flip\nthe row's `decision_state` so the runtime wait long-poll releases or\ndrops the corresponding request on its next tick. Re-deciding an\nalready-terminal blocked-egress row returns the current state instead of\n409 so the agent runtime's at-least-once retries are idempotent.",
+        "operationId": "seren_cloud_approval_inbox_decide",
+        "parameters": [
+          {
+            "name": "entry_id",
+            "in": "path",
+            "description": "Inbox-scoped entry id (e.g. tool:<run>:<call_id>)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalInboxDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Decision recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ApprovalInboxDecisionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed body"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Inbox entry not found"
+          },
+          "409": {
+            "description": "Entry no longer pending"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/pending_approvals": {
       "get": {
         "tags": [
@@ -3593,6 +3434,359 @@
           "eval"
         ]
       },
+      "ApprovalDecisionState": {
+        "type": "string",
+        "description": "Lifecycle state of a single inbox entry.\n\nThe state machine is `pending -> approved | denied | expired`. Decisions are\nterminal; an entry can never transition from a terminal state back to\npending. `expired` is a passive transition driven by `expires_at`.",
+        "enum": [
+          "pending",
+          "approved",
+          "denied",
+          "expired"
+        ]
+      },
+      "ApprovalInboxBlockedEgress": {
+        "type": "object",
+        "description": "Blocked egress approval surfaced when `AgentNetworkPolicy.blocked_request_inbox`\nholds a request for operator review.\n\n`request_id` is the durable identifier the runtime emitted with the\n`BlockedEgress` event so a decision can be threaded back to the originating\nrequest.",
+        "required": [
+          "request_id",
+          "host",
+          "port"
+        ],
+        "properties": {
+          "details": {
+            "description": "Free-form additional context captured at block time (rule id, matched\nhostname pattern, request size, etc.)."
+          },
+          "host": {
+            "type": "string"
+          },
+          "method": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ApprovalInboxDecisionRequest": {
+        "type": "object",
+        "description": "Body for `POST /inbox/approvals/{entry_id}/decide`.",
+        "required": [
+          "decision"
+        ],
+        "properties": {
+          "comment": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional operator note recorded in the audit chain alongside the\ndecision."
+          },
+          "decision": {
+            "$ref": "#/components/schemas/ApprovalInboxDecisionVerb"
+          }
+        }
+      },
+      "ApprovalInboxDecisionResponse": {
+        "type": "object",
+        "description": "Response returned after recording a decision.",
+        "required": [
+          "entry_id",
+          "decision_state"
+        ],
+        "properties": {
+          "decision_state": {
+            "$ref": "#/components/schemas/ApprovalDecisionState"
+          },
+          "entry_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ApprovalInboxDecisionVerb": {
+        "type": "string",
+        "description": "Decision verb accepted by the inbox decision endpoint.\n\nDistinct from `CloudRunApprovalDecisionValue` (which uses `approve`/`reject`)\nbecause the inbox is the operator surface and `deny` reads better than\n`reject` for non-tool kinds like blocked egress. The mapping into the\nexisting tool-call resume path is internal.",
+        "enum": [
+          "approve",
+          "deny"
+        ]
+      },
+      "ApprovalInboxEntry": {
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ApprovalInboxToolCall"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "entry_id",
+                  "deployment_id",
+                  "run_id",
+                  "created_at",
+                  "decision_state"
+                ],
+                "properties": {
+                  "created_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "decision_state": {
+                    "$ref": "#/components/schemas/ApprovalDecisionState"
+                  },
+                  "deployment_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "entry_id": {
+                    "type": "string"
+                  },
+                  "expires_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "run_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "tool_call"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ApprovalInboxBlockedEgress"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "entry_id",
+                  "deployment_id",
+                  "created_at",
+                  "decision_state"
+                ],
+                "properties": {
+                  "created_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "decision_state": {
+                    "$ref": "#/components/schemas/ApprovalDecisionState"
+                  },
+                  "deployment_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "entry_id": {
+                    "type": "string"
+                  },
+                  "expires_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "run_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid",
+                    "description": "Egress can fire outside of a run (background reconciliation,\nscheduled jobs that haven't claimed a run row yet)."
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "blocked_egress"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ApprovalInboxOther"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "entry_id",
+                  "deployment_id",
+                  "created_at",
+                  "decision_state"
+                ],
+                "properties": {
+                  "created_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "decision_state": {
+                    "$ref": "#/components/schemas/ApprovalDecisionState"
+                  },
+                  "deployment_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "entry_id": {
+                    "type": "string"
+                  },
+                  "expires_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "run_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "other"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "description": "One entry in the unified approval inbox.\n\n`entry_id` is inbox-scoped and stable for the lifetime of the entry; callers\npass it back to the decision endpoint. Tool-call entries encode\n`(run_id, tool_call_id)` so the inbox does not need a separate persistence\nrow. Blocked-egress entries use a real UUID backed by storage."
+      },
+      "ApprovalInboxListResponse": {
+        "type": "object",
+        "description": "Listing response for the approval inbox.",
+        "required": [
+          "entries"
+        ],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApprovalInboxEntry"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Opaque cursor for the next page; absent when no further entries exist."
+          }
+        }
+      },
+      "ApprovalInboxOther": {
+        "type": "object",
+        "description": "Catch-all variant so future approval kinds can land in the inbox without a\nmodel rev. Callers that do not yet know the subkind should still be able\nto render the row.\n\n`subkind` (rather than `kind`) avoids clashing with the enum-level\n`kind` discriminator tag.",
+        "required": [
+          "subkind"
+        ],
+        "properties": {
+          "payload": {},
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subkind": {
+            "type": "string"
+          }
+        }
+      },
+      "ApprovalInboxToolCall": {
+        "type": "object",
+        "description": "Tool-call approval surfaced from an `awaiting_approval` run.\n\n`tool_call_id` is the orchestrator-supplied id that round-trips into the\n`approval_decisions` array on resume. `tool_ref` is the human-meaningful\ntool name (e.g. `seren_publisher_request`).",
+        "required": [
+          "tool_call_id",
+          "tool_ref"
+        ],
+        "properties": {
+          "function_call_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "request_payload_summary": {
+            "description": "Arguments preview. Callers may truncate large payloads upstream; this\nfield is opaque JSON so the renderer decides how to display it."
+          },
+          "tool_call_id": {
+            "type": "string"
+          },
+          "tool_ref": {
+            "type": "string"
+          }
+        }
+      },
       "AuditEntry": {
         "type": "object",
         "description": "A single audit trail entry.",
@@ -3826,94 +4020,6 @@
           "tar_gz"
         ]
       },
-      "CloudDeploymentChannelRunEventRequest": {
-        "type": "object",
-        "required": [
-          "execution_id",
-          "status"
-        ],
-        "properties": {
-          "conversation_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "execution_id": {
-            "type": "string"
-          },
-          "execution_time_ms": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32"
-          },
-          "inference_cost_atomic": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "inference_input_tokens": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "inference_output_tokens": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "invocation_payload": {},
-          "metadata": {},
-          "output": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "output_events": {},
-          "run_name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "session_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "session_url": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "type": "string"
-          },
-          "status_message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "stop_reason": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
       "CloudDeploymentComputeBackend": {
         "type": "string",
         "description": "Cloud deployment compute backend target.",
@@ -3973,6 +4079,102 @@
           "user_id": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "CloudDeploymentEvalDrift": {
+        "type": "object",
+        "description": "Snapshot of the current eval-set verdict alongside the baseline captured at\nthe last successful apply. Reports the delta on `passed` so operators can\nsee regressions explicitly. `current_passed`/`current_failed` are `None`\nwhen no eval run has completed against the gated set yet; in that case the\nstatus carries an explanatory `reason`.",
+        "required": [
+          "deployment_id",
+          "eval_gate_set_id",
+          "message",
+          "checked_at"
+        ],
+        "properties": {
+          "baseline": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EvalGateDriftBaseline"
+              }
+            ]
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "current_completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "current_failed": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "current_passed": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "current_run_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "current_run_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "current_verdict_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "eval_gate_set_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "failed_delta": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "`current_failed - baseline_failed` when both sides are present."
+          },
+          "message": {
+            "type": "string",
+            "description": "Operator-safe one-line summary of the drift state. Always present."
+          },
+          "passed_delta": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "`current_passed - baseline_passed` when both sides are present."
           }
         }
       },
@@ -5377,12 +5579,50 @@
           }
         }
       },
+      "CloudRunApprovalDecisionKind": {
+        "type": "string",
+        "description": "Decision recorded by an approval event.",
+        "enum": [
+          "approve",
+          "reject",
+          "escalate"
+        ]
+      },
       "CloudRunApprovalDecisionValue": {
         "type": "string",
         "description": "Normalized approval action accepted by the cloud resume API.",
         "enum": [
           "approve",
           "reject"
+        ]
+      },
+      "CloudRunDoneStatus": {
+        "type": "string",
+        "description": "Terminal status reported by a `Done` event.",
+        "enum": [
+          "ok",
+          "error",
+          "cancelled"
+        ]
+      },
+      "CloudRunErrorCause": {
+        "type": "string",
+        "description": "Typed cause of a terminal `error` event. Operator-safe descriptors only;\nthe offending content must not appear in the cause label.",
+        "enum": [
+          "agent",
+          "model",
+          "tool",
+          "session",
+          "artifact",
+          "memory",
+          "config",
+          "io",
+          "serialization",
+          "timeout",
+          "task",
+          "guardrail",
+          "approval",
+          "unknown"
         ]
       },
       "CloudRunEvalsResponse": {
@@ -5409,6 +5649,26 @@
             }
           }
         }
+      },
+      "CloudRunGuardrailAction": {
+        "type": "string",
+        "description": "How the run responded to a failing guardrail.",
+        "enum": [
+          "retry",
+          "block",
+          "fix",
+          "human"
+        ]
+      },
+      "CloudRunGuardrailTarget": {
+        "type": "string",
+        "description": "The target of a guardrail validator.",
+        "enum": [
+          "input",
+          "output",
+          "tool_input",
+          "tool_output"
+        ]
       },
       "CloudRunOutputEvent": {
         "oneOf": [
@@ -5521,7 +5781,7 @@
           },
           {
             "type": "object",
-            "description": "Audit trail entry for a tool invocation that should be logged but not blocked.",
+            "description": "Audit trail entry for a tool invocation that should be logged but not blocked.\n`reason` carries an operator-visible descriptor. Optional fields surface\nruntime context (tool_ref kind, action, lease ref, status, byte counts,\nlatency) for operator inspection without changing the legacy wire shape.",
             "required": [
               "id",
               "tool",
@@ -5529,14 +5789,70 @@
               "type"
             ],
             "properties": {
+              "action": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "id": {
                 "type": "string"
+              },
+              "input_bytes": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "latency_ms": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "lease_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "output_bytes": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
               },
               "reason": {
                 "type": "string"
               },
+              "status": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudRunToolAuditStatus"
+                  }
+                ]
+              },
               "tool": {
                 "type": "string"
+              },
+              "tool_ref_kind": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudRunToolRefKind"
+                  }
+                ]
               },
               "type": {
                 "type": "string",
@@ -5574,12 +5890,341 @@
           },
           {
             "type": "object",
+            "description": "Run is paused waiting on a user or operator approval decision.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "checkpoint_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tool_call_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "approval_wait"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "An approval decision was recorded for a previously paused checkpoint.",
+            "required": [
+              "decision",
+              "type"
+            ],
+            "properties": {
+              "actor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "checkpoint_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "decision": {
+                "$ref": "#/components/schemas/CloudRunApprovalDecisionKind"
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tool_call_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "approval_decision"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A guardrail check passed for the named target.",
+            "required": [
+              "name",
+              "target",
+              "type"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "target": {
+                "$ref": "#/components/schemas/CloudRunGuardrailTarget"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "guardrail_pass"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A guardrail check failed; the action taken indicates how the run responded.",
+            "required": [
+              "name",
+              "target",
+              "message",
+              "action",
+              "type"
+            ],
+            "properties": {
+              "action": {
+                "$ref": "#/components/schemas/CloudRunGuardrailAction"
+              },
+              "attempt": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
+              "message": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "target": {
+                "$ref": "#/components/schemas/CloudRunGuardrailTarget"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "guardrail_fail"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Control was handed off from one agent to another (multi-agent runs).",
+            "required": [
+              "to_agent",
+              "type"
+            ],
+            "properties": {
+              "from_agent": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "to_agent": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "handoff"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "An artifact (file, blob, dataset) was produced by the run.",
+            "required": [
+              "id",
+              "kind",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "size_bytes": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "artifact"
+                ]
+              },
+              "uri": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Run completed; status indicates how it ended.",
+            "required": [
+              "status",
+              "type"
+            ],
+            "properties": {
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "$ref": "#/components/schemas/CloudRunDoneStatus"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "done"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Memory compaction started for the run. Carries the token count\nobserved before compaction and the summarizer model ref.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "summarizer_model_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "token_threshold": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "tokens_before": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "compaction_started"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Memory compaction finished. Carries token counts before/after, the\nretained event count, and the summarizer model ref.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "retained_event_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
+              "summarizer_model_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tokens_after": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "tokens_before": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "compaction_finished"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
             "description": "An error that occurred during execution.",
             "required": [
               "message",
               "type"
             ],
             "properties": {
+              "cause": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudRunErrorCause"
+                  }
+                ]
+              },
               "message": {
                 "type": "string"
               },
@@ -5660,6 +6305,15 @@
           "tool_call_completed",
           "tool_audit",
           "workflow",
+          "approval_wait",
+          "approval_decision",
+          "guardrail_pass",
+          "guardrail_fail",
+          "handoff",
+          "artifact",
+          "compaction_started",
+          "compaction_finished",
+          "done",
           "error",
           "unknown"
         ]
@@ -5874,6 +6528,27 @@
             "type": "string"
           }
         }
+      },
+      "CloudRunToolAuditStatus": {
+        "type": "string",
+        "description": "Success/failure status reported by a `tool_audit` event.",
+        "enum": [
+          "success",
+          "failure"
+        ]
+      },
+      "CloudRunToolRefKind": {
+        "type": "string",
+        "description": "Kind of underlying tool_ref a `tool_audit` event applies to. Mirrors the\n`AgentToolRef` variants so operators can distinguish publisher calls from\nMCP, connector, remote-agent, or preset-group invocations.",
+        "enum": [
+          "publisher",
+          "mcp",
+          "connector",
+          "remote_agent",
+          "preset_group",
+          "builtin",
+          "unknown"
+        ]
       },
       "CreateCloudDeploymentBundleRequest": {
         "type": "object",
@@ -6122,6 +6797,84 @@
               },
               {
                 "$ref": "#/components/schemas/CloudEvalSetScheduleRequest"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ApprovalInboxDecisionResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Response returned after recording a decision.",
+            "required": [
+              "entry_id",
+              "decision_state"
+            ],
+            "properties": {
+              "decision_state": {
+                "$ref": "#/components/schemas/ApprovalDecisionState"
+              },
+              "entry_id": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ApprovalInboxListResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Listing response for the approval inbox.",
+            "required": [
+              "entries"
+            ],
+            "properties": {
+              "entries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ApprovalInboxEntry"
+                }
+              },
+              "next_cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Opaque cursor for the next page; absent when no further entries exist."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
               }
             ]
           }
@@ -6478,6 +7231,122 @@
               "user_id": {
                 "type": "string",
                 "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CloudDeploymentEvalDrift": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Snapshot of the current eval-set verdict alongside the baseline captured at\nthe last successful apply. Reports the delta on `passed` so operators can\nsee regressions explicitly. `current_passed`/`current_failed` are `None`\nwhen no eval run has completed against the gated set yet; in that case the\nstatus carries an explanatory `reason`.",
+            "required": [
+              "deployment_id",
+              "eval_gate_set_id",
+              "message",
+              "checked_at"
+            ],
+            "properties": {
+              "baseline": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/EvalGateDriftBaseline"
+                  }
+                ]
+              },
+              "checked_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "current_completed_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "current_failed": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
+              "current_passed": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
+              "current_run_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "current_run_status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "current_verdict_status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "eval_gate_set_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "failed_delta": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "description": "`current_failed - baseline_failed` when both sides are present."
+              },
+              "message": {
+                "type": "string",
+                "description": "Operator-safe one-line summary of the drift state. Always present."
+              },
+              "passed_delta": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "description": "`current_passed - baseline_passed` when both sides are present."
               }
             }
           },
@@ -9142,19 +10011,104 @@
       },
       "EvalGate": {
         "type": "object",
-        "description": "Eval gate configuration that must pass with a fresh verdict before runs proceed.",
+        "description": "Eval gate configuration that must pass with a fresh verdict before runs proceed.\n\n`block_on_failure` controls what happens at update or rollback apply time:\nwhen `Some(true)`, the control plane rejects the apply if the latest eval\nverdict has failed or has expired beyond `max_age_seconds`. The default\n(`None`/`false`) preserves the original freshness-only behavior for\nback-compat.\n\n`schedule` is an operator-supplied cron expression that asks the control\nplane to run the gated eval set on a fixed cadence so freshness stays\ncurrent without manual triggering. The actual scheduling-loop dispatch is\nowned by the eval-set scheduler today (see `CloudEvalSetSchedule`); this\nfield records the operator intent on the deployment side.\n\n`drift_baseline` is captured by the apply path when an update or rollback\ncommits with a passing gate. Subsequent eval runs compare against the\nbaseline so operators see regressions explicitly.",
         "required": [
           "set_id",
           "max_age_seconds"
         ],
         "properties": {
+          "block_on_failure": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "drift_baseline": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EvalGateDriftBaseline",
+                "description": "Eval-set verdict captured at the most recent successful apply. Set by\nthe control plane; clients may submit this field but the control plane\nwill overwrite it on every successful apply."
+              }
+            ]
+          },
           "max_age_seconds": {
             "type": "integer",
             "format": "int32"
           },
+          "schedule": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EvalGateSchedule",
+                "description": "Optional cron-driven cadence for re-running the gated eval set."
+              }
+            ]
+          },
           "set_id": {
             "type": "string",
             "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EvalGateDriftBaseline": {
+        "type": "object",
+        "description": "Snapshot of an eval-set verdict captured at the last successful apply.\nSubsequent eval runs (manual or scheduled) compare against this snapshot\nto surface drift; the apply path overwrites this value on every commit.",
+        "required": [
+          "baseline_set_id",
+          "baseline_run_id",
+          "baseline_passed",
+          "baseline_failed",
+          "baseline_captured_at"
+        ],
+        "properties": {
+          "baseline_captured_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "baseline_failed": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "baseline_passed": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "baseline_run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "baseline_set_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EvalGateSchedule": {
+        "type": "object",
+        "description": "Cron-driven cadence requested by the operator for an eval gate. The\ntimezone is an IANA name (e.g. `UTC`, `America/New_York`); when omitted the\ncontrol plane defaults to UTC.",
+        "required": [
+          "cron"
+        ],
+        "properties": {
+          "cron": {
+            "type": "string",
+            "description": "Standard 5-field cron expression. Validated against the same parser\nthat backs deployment cron schedules."
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional IANA timezone. Defaults to `UTC` when absent."
           }
         },
         "additionalProperties": false
@@ -10012,7 +10966,7 @@
             "description": "Declared requirements validated at deploy time."
           },
           "secrets": {
-            "description": "Secret references available to the runtime (typed in a later milestone)."
+            "description": "Secret references available to the runtime."
           },
           "side_effect_policy": {
             "oneOf": [

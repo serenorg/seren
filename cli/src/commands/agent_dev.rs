@@ -233,17 +233,22 @@ pub fn package_agent_directory(options: &DevAgentOptions) -> Result<AgentSpecDra
         alert_policy: None,
         allowed_remote_agent_origins: None,
         approval_policy: None,
+        credentials: None,
         cron_schedule: None,
         cron_timezone: None,
         dashboard_config: None,
         eval_gate: None,
+        guardrails: None,
+        memory_policy: None,
         mode: seren::CloudDeploymentMode::AlwaysOn,
         model_policy: None,
         name: Some(display_name),
         private_output_policy: None,
+        runtime_policy: None,
         session_database: None,
         template: None,
         tool_presets: None,
+        tool_refs: None,
         visibility: None,
         workload,
     };
@@ -462,20 +467,10 @@ impl DevAgentClient for SdkClient<'_> {
     }
 
     async fn stream_logs(&self, deployment_id: Uuid) -> Result<()> {
-        use futures_util::StreamExt;
-        let response = self
-            .inner
-            .seren_cloud_logs(&deployment_id)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to stream logs: {}", e))?
-            .into_inner();
-        let mut stream = response;
-        while let Some(chunk) = stream.next().await {
-            let bytes = chunk.map_err(|e| anyhow::anyhow!("Log stream error: {}", e))?;
-            print!("{}", String::from_utf8_lossy(&bytes));
-            use std::io::Write;
-            let _ = std::io::stdout().flush();
-        }
+        println!(
+            "    Log streaming is unavailable for deployment {deployment_id}; press Ctrl-C to stop and delete."
+        );
+        std::future::pending::<()>().await;
         Ok(())
     }
 }
@@ -1137,17 +1132,22 @@ mod tests {
             alert_policy: None,
             allowed_remote_agent_origins: None,
             approval_policy: None,
+            credentials: None,
             cron_schedule: None,
             cron_timezone: None,
             dashboard_config: None,
             eval_gate: None,
+            guardrails: None,
+            memory_policy: None,
             mode: seren::CloudDeploymentMode::AlwaysOn,
             model_policy: None,
             name: Some("retry".to_string()),
             private_output_policy: None,
+            runtime_policy: None,
             session_database: None,
             template: None,
             tool_presets: None,
+            tool_refs: None,
             visibility: None,
             workload: seren::WorkloadSpec {
                 compute_backend: None,
@@ -1189,17 +1189,22 @@ mod tests {
             alert_policy: None,
             allowed_remote_agent_origins: None,
             approval_policy: None,
+            credentials: None,
             cron_schedule: None,
             cron_timezone: None,
             dashboard_config: None,
             eval_gate: None,
+            guardrails: None,
+            memory_policy: None,
             mode: seren::CloudDeploymentMode::AlwaysOn,
             model_policy: None,
             name: Some("orphan".to_string()),
             private_output_policy: None,
+            runtime_policy: None,
             session_database: None,
             template: None,
             tool_presets: None,
+            tool_refs: None,
             visibility: None,
             workload: seren::WorkloadSpec {
                 compute_backend: None,

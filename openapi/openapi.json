@@ -2942,6 +2942,463 @@
         }
       }
     },
+    "/organizations/{organization_id}/catalog": {
+      "get": {
+        "tags": [
+          "Agent Catalog"
+        ],
+        "summary": "List catalog entries for an organization.",
+        "operationId": "list_catalog_entries",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "description": "Filter by namespace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "Filter by entry kind",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/AgentCatalogEntryKind"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "description": "Filter by entry name",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "description": "Filter by mutable tag pointer",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "include_deprecated",
+            "in": "query",
+            "description": "Include deprecated entries",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Catalog entries for the organization",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_AgentCatalogListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Agent Catalog"
+        ],
+        "summary": "Create a new catalog entry.",
+        "operationId": "create_catalog_entry",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentCatalogEntryCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Catalog entry created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_AgentCatalogEntry"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "409": {
+            "description": "Entry with the same identity already exists"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/catalog/{entry_id}": {
+      "get": {
+        "tags": [
+          "Agent Catalog"
+        ],
+        "summary": "Fetch a single catalog entry by its UUID.",
+        "operationId": "get_catalog_entry",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "entry_id",
+            "in": "path",
+            "description": "Catalog entry ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Catalog entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_AgentCatalogEntry"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Catalog entry not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Agent Catalog"
+        ],
+        "summary": "Delete a catalog entry.",
+        "operationId": "delete_catalog_entry",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "entry_id",
+            "in": "path",
+            "description": "Catalog entry ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Catalog entry deleted"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Catalog entry not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Agent Catalog"
+        ],
+        "summary": "Apply a partial update to a catalog entry. Identity (namespace/name/version)\nis immutable; only mutable fields change.",
+        "operationId": "update_catalog_entry",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "entry_id",
+            "in": "path",
+            "description": "Catalog entry ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentCatalogEntryUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Catalog entry updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_AgentCatalogEntry"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Catalog entry not found"
+          },
+          "409": {
+            "description": "Tag pointer collision"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/catalog/{namespace}/{name}/by-tag/{tag}": {
+      "get": {
+        "tags": [
+          "Agent Catalog"
+        ],
+        "summary": "Resolve a mutable tag pointer to the concrete catalog entry it points at.\nTags like `stable` or `latest` are mutable; this endpoint returns whichever\nversion the tag currently names. Returns 404 when no entry within\n`(namespace, name)` carries the tag.",
+        "operationId": "resolve_catalog_tag",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "namespace",
+            "in": "path",
+            "description": "Catalog namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Catalog entry name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tag",
+            "in": "path",
+            "description": "Mutable tag pointer to resolve",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Catalog entry the tag points at",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_AgentCatalogEntry"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "No entry carries the named tag"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/catalog/{namespace}/{name}/promote": {
+      "post": {
+        "tags": [
+          "Agent Catalog"
+        ],
+        "summary": "Atomically promote a mutable tag pointer from one immutable version\nto another within `(namespace, name)`. Distinct from a generic PATCH so\nthe action surfaces as a promotion in audit history rather than a\ngeneric edit.",
+        "operationId": "promote_catalog_tag",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "namespace",
+            "in": "path",
+            "description": "Catalog namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Catalog entry name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentCatalogTagPromotionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Tag promoted; response is the post-promotion entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_AgentCatalogEntry"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request (from_version == to_version, malformed tokens)"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Destination version not found"
+          },
+          "409": {
+            "description": "from_version no longer holds the tag; refresh and retry"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/organizations/{organization_id}/consumption": {
       "get": {
         "tags": [
@@ -8374,6 +8831,263 @@
           }
         }
       },
+      "AgentCatalogEntry": {
+        "type": "object",
+        "description": "A single catalog entry. The four fields `organization_id`, `namespace`,\n`name`, and `version` together form the immutable identity of an entry.\n`tag` is an optional mutable pointer (for example `stable`) that resolves\nto the underlying version at lookup time.",
+        "required": [
+          "id",
+          "organization_id",
+          "namespace",
+          "name",
+          "version",
+          "kind",
+          "description",
+          "source",
+          "labels",
+          "annotations",
+          "trust",
+          "deprecated",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "annotations": {
+            "description": "Narrative key/value annotations; not indexed and not queryable."
+          },
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "deprecated": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AgentCatalogEntryKind"
+          },
+          "labels": {
+            "description": "Queryable key/value labels (e.g. `team=platform`, `env=prod`)."
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requires": {
+            "$ref": "#/components/schemas/EntryRequires",
+            "description": "Dependencies this entry requires to be useful. Typed so the control\nplane can validate references at apply time without parsing free-form\nJSON. Stored as JSONB; unknown fields are tolerated on read so a\nschema bump does not invalidate old rows."
+          },
+          "source": {
+            "description": "Where the artifact lives. Free-form JSON so we can evolve the source\nshape (`inline`, `git`, `registry`, ...) without further migrations."
+          },
+          "tag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trust": {
+            "description": "Trust and provenance metadata (`author`, `maintained_by`, `license`,\n`last_audit_at`). Free-form for now; concrete shape comes later."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentCatalogEntryCreateRequest": {
+        "type": "object",
+        "description": "Request body for creating or upserting a catalog entry. The control plane\nowns the `id`, `organization_id`, timestamps, and `created_by_user_id`.",
+        "required": [
+          "name",
+          "version",
+          "kind"
+        ],
+        "properties": {
+          "annotations": {},
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deprecated": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AgentCatalogEntryKind"
+          },
+          "labels": {},
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requires": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EntryRequires"
+              }
+            ]
+          },
+          "source": {},
+          "tag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trust": {},
+          "version": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentCatalogEntryKind": {
+        "type": "string",
+        "description": "Closed set of catalog entry kinds. New kinds should be added here only\nwhen there is a clear semantic distinction, not to model variants of an\nexisting kind.",
+        "enum": [
+          "agent",
+          "skill",
+          "mcp_server",
+          "prompt",
+          "runtime_policy"
+        ]
+      },
+      "AgentCatalogEntryUpdateRequest": {
+        "type": "object",
+        "description": "Partial update for an existing entry. The identity tuple\n`(organization_id, namespace, name, version)` is fixed; only mutable fields\nmay change. To move a tag pointer set `tag` directly. To clear a tag set\n`clear_tag = true`.",
+        "properties": {
+          "annotations": {},
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clear_category": {
+            "type": "boolean"
+          },
+          "clear_tag": {
+            "type": "boolean"
+          },
+          "deprecated": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "labels": {},
+          "requires": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EntryRequires"
+              }
+            ]
+          },
+          "source": {},
+          "tag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trust": {}
+        },
+        "additionalProperties": false
+      },
+      "AgentCatalogListResponse": {
+        "type": "object",
+        "description": "Response wrapping a list of catalog entries.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentCatalogEntry"
+            }
+          }
+        }
+      },
+      "AgentCatalogTagPromotionRequest": {
+        "type": "object",
+        "description": "Request body for atomic tag promotion. Moves a mutable tag pointer\n(`stable`, `canary`, ...) from one immutable version to another in a\nsingle transaction. Distinct from a generic update so the action is\nauditable as a promotion rather than an arbitrary edit.",
+        "required": [
+          "from_version",
+          "to_version",
+          "tag"
+        ],
+        "properties": {
+          "from_version": {
+            "type": "string",
+            "description": "Version that currently holds the tag. Must match the current pointer\nor the request fails so promotions are linearizable against caller\nstate."
+          },
+          "tag": {
+            "type": "string",
+            "description": "Tag being promoted. Must match the catalog tag regex."
+          },
+          "to_version": {
+            "type": "string",
+            "description": "Version that should hold the tag after the promotion completes."
+          }
+        },
+        "additionalProperties": false
+      },
       "AgentCreditSource": {
         "type": "string",
         "description": "Source of an agent credit grant (fiat-only, no on-chain deposits)",
@@ -9889,6 +10603,9 @@
             ],
             "description": "Enable resource ownership tracking (legacy gateway parity)"
           },
+          "passthrough_header_rewrite": {
+            "description": "Map of client-side header name to upstream header name for passthrough auth."
+          },
           "price_per_call": {
             "type": [
               "string",
@@ -10440,6 +11157,152 @@
               "has_password": {
                 "type": "boolean",
                 "description": "Whether this account can authenticate directly with an email/password."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_AgentCatalogEntry": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A single catalog entry. The four fields `organization_id`, `namespace`,\n`name`, and `version` together form the immutable identity of an entry.\n`tag` is an optional mutable pointer (for example `stable`) that resolves\nto the underlying version at lookup time.",
+            "required": [
+              "id",
+              "organization_id",
+              "namespace",
+              "name",
+              "version",
+              "kind",
+              "description",
+              "source",
+              "labels",
+              "annotations",
+              "trust",
+              "deprecated",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "annotations": {
+                "description": "Narrative key/value annotations; not indexed and not queryable."
+              },
+              "category": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "created_by_user_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "deprecated": {
+                "type": "boolean"
+              },
+              "description": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "kind": {
+                "$ref": "#/components/schemas/AgentCatalogEntryKind"
+              },
+              "labels": {
+                "description": "Queryable key/value labels (e.g. `team=platform`, `env=prod`)."
+              },
+              "name": {
+                "type": "string"
+              },
+              "namespace": {
+                "type": "string"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "requires": {
+                "$ref": "#/components/schemas/EntryRequires",
+                "description": "Dependencies this entry requires to be useful. Typed so the control\nplane can validate references at apply time without parsing free-form\nJSON. Stored as JSONB; unknown fields are tolerated on read so a\nschema bump does not invalidate old rows."
+              },
+              "source": {
+                "description": "Where the artifact lives. Free-form JSON so we can evolve the source\nshape (`inline`, `git`, `registry`, ...) without further migrations."
+              },
+              "tag": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "trust": {
+                "description": "Trust and provenance metadata (`author`, `maintained_by`, `license`,\n`last_audit_at`). Free-form for now; concrete shape comes later."
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_AgentCatalogListResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Response wrapping a list of catalog entries.",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AgentCatalogEntry"
+                }
               }
             }
           },
@@ -13716,6 +14579,7 @@
               "billing_model",
               "gateway_fee_percent",
               "allowed_passthrough_headers",
+              "passthrough_header_rewrite",
               "request_content_type",
               "upstream_headers",
               "ownership_tracking_enabled",
@@ -13920,6 +14784,9 @@
               },
               "ownership_tracking_enabled": {
                 "type": "boolean"
+              },
+              "passthrough_header_rewrite": {
+                "description": "Map of client-side header name to upstream header name for passthrough auth."
               },
               "pricing": {
                 "type": [
@@ -15511,6 +16378,13 @@
                   "type": "string",
                   "format": "uuid"
                 },
+                "deleted_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
                 "id": {
                   "type": "string",
                   "format": "uuid"
@@ -16529,6 +17403,7 @@
                 "billing_model",
                 "gateway_fee_percent",
                 "allowed_passthrough_headers",
+                "passthrough_header_rewrite",
                 "request_content_type",
                 "upstream_headers",
                 "ownership_tracking_enabled",
@@ -16733,6 +17608,9 @@
                 },
                 "ownership_tracking_enabled": {
                   "type": "boolean"
+                },
+                "passthrough_header_rewrite": {
+                  "description": "Map of client-side header name to upstream header name for passthrough auth."
                 },
                 "pricing": {
                   "type": [
@@ -17957,7 +18835,9 @@
           "amount_cents": {
             "type": "integer",
             "format": "int64",
-            "description": "Amount in USD cents (minimum 500 = $5.00)"
+            "description": "Amount in USD cents (minimum 500 = $5.00, maximum 30000 = $300.00 by default)",
+            "maximum": 30000,
+            "minimum": 500
           },
           "referral_code": {
             "type": [
@@ -18253,6 +19133,36 @@
           },
           "response": {
             "description": "Response schema (JSON Schema or simplified description)"
+          }
+        }
+      },
+      "EntryRequires": {
+        "type": "object",
+        "description": "Typed dependency declarations for a catalog entry. All sub-collections\ndefault to empty so legacy rows storing `{}` deserialize cleanly. Stored\nin the `requires` JSONB column. Unknown top-level fields are tolerated\nat read time so a future schema bump does not invalidate existing rows;\nrequest DTOs deny unknown fields to surface client typos.",
+        "properties": {
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "connectors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequiredConnectorRef"
+            }
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mcp_servers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequiredMcpServerRef"
+            }
           }
         }
       },
@@ -19446,6 +20356,13 @@
             "type": "string",
             "format": "uuid"
           },
+          "deleted_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "id": {
             "type": "string",
             "format": "uuid"
@@ -20485,6 +21402,7 @@
                 "billing_model",
                 "gateway_fee_percent",
                 "allowed_passthrough_headers",
+                "passthrough_header_rewrite",
                 "request_content_type",
                 "upstream_headers",
                 "ownership_tracking_enabled",
@@ -20689,6 +21607,9 @@
                 },
                 "ownership_tracking_enabled": {
                   "type": "boolean"
+                },
+                "passthrough_header_rewrite": {
+                  "description": "Map of client-side header name to upstream header name for passthrough auth."
                 },
                 "pricing": {
                   "type": [
@@ -22078,6 +22999,7 @@
           "billing_model",
           "gateway_fee_percent",
           "allowed_passthrough_headers",
+          "passthrough_header_rewrite",
           "request_content_type",
           "upstream_headers",
           "ownership_tracking_enabled",
@@ -22282,6 +23204,9 @@
           },
           "ownership_tracking_enabled": {
             "type": "boolean"
+          },
+          "passthrough_header_rewrite": {
+            "description": "Map of client-side header name to upstream header name for passthrough auth."
           },
           "pricing": {
             "type": [
@@ -22800,6 +23725,40 @@
         ],
         "properties": {
           "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "RequiredConnectorRef": {
+        "type": "object",
+        "description": "Reference to a connector the catalog item depends on. `kind` is optional\nmetadata for UI grouping or provider-specific platform hints\n(gmail|slack|browser|telegram|...). The connector itself is resolved by\n`name` against the org's connector inventory at apply time. Messaging\nchannel entries remain provider-defined: Seren's deployment contract uses\nconnector tool refs with capability/scopes metadata rather than a closed\nchannel enum.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "RequiredMcpServerRef": {
+        "type": "object",
+        "description": "Reference to an MCP server entry the catalog item depends on. `semver`\ncarries a constraint expression resolved at apply time against the\ninstalled MCP catalog (validation is shape-only here; resolution lives\nin the deployment apply path).",
+        "required": [
+          "name",
+          "semver"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "semver": {
             "type": "string"
           }
         }
@@ -24398,6 +25357,9 @@
             ],
             "description": "Enable resource ownership tracking (legacy gateway parity)"
           },
+          "passthrough_header_rewrite": {
+            "description": "Map of client-side header name to upstream header name for passthrough auth."
+          },
           "price_per_call": {
             "type": [
               "string",
@@ -25587,10 +26549,6 @@
     {
       "name": "agent",
       "description": "Agent commerce and paid query execution"
-    },
-    {
-      "name": "agent-internal",
-      "description": "Agent internal endpoints for SerenDB proxy"
     },
     {
       "name": "agent-wallet",

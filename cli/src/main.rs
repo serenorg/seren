@@ -1001,11 +1001,6 @@ enum CloudDeploymentAction {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
     },
-    /// Get logs from a running cloud agent
-    Logs {
-        /// Deployment ID (UUID)
-        deployment_id: Uuid,
-    },
     /// Get deployment spend summary
     Spend {
         /// Deployment ID (UUID)
@@ -1027,51 +1022,6 @@ enum CloudDeploymentAction {
         /// Case-insensitive search query
         #[arg(long)]
         q: Option<String>,
-    },
-    /// Inspect deployment filesystem state or artifacts
-    Fs {
-        /// Deployment ID (UUID)
-        deployment_id: Uuid,
-        /// Namespace root: artifacts or state
-        #[arg(long)]
-        namespace: Option<String>,
-        /// Relative path under the namespace
-        #[arg(long)]
-        path: Option<String>,
-        /// Maximum directory entries
-        #[arg(long)]
-        limit: Option<u64>,
-    },
-    /// Read a UTF-8 text file from deployment filesystem state or artifacts
-    FsReadText {
-        /// Deployment ID (UUID)
-        deployment_id: Uuid,
-        /// Relative file path under the namespace
-        #[arg(long)]
-        path: String,
-        /// Namespace root: artifacts or state
-        #[arg(long)]
-        namespace: Option<String>,
-        /// Maximum bytes to read
-        #[arg(long)]
-        max_bytes: Option<u64>,
-    },
-    /// Read a byte range from deployment filesystem state or artifacts
-    FsReadBytes {
-        /// Deployment ID (UUID)
-        deployment_id: Uuid,
-        /// Relative file path under the namespace
-        #[arg(long)]
-        path: String,
-        /// Namespace root: artifacts or state
-        #[arg(long)]
-        namespace: Option<String>,
-        /// Starting byte offset
-        #[arg(long)]
-        offset: Option<u64>,
-        /// Maximum bytes to read
-        #[arg(long)]
-        length: Option<u64>,
     },
     /// Destroy a cloud agent deployment
     Destroy {
@@ -2896,9 +2846,6 @@ async fn execute_agent_cloud_action(
             CloudDeploymentAction::Stop { deployment_id } => {
                 commands::agent::cloud_stop(deployment_id, ctx).await?
             }
-            CloudDeploymentAction::Logs { deployment_id } => {
-                commands::agent::cloud_logs(deployment_id, ctx).await?
-            }
             CloudDeploymentAction::Spend { deployment_id } => {
                 commands::agent::cloud_deployment_spend(deployment_id, ctx).await?
             }
@@ -2915,53 +2862,6 @@ async fn execute_agent_cloud_action(
                     limit,
                     offset,
                     q.as_deref(),
-                    ctx,
-                )
-                .await?
-            }
-            CloudDeploymentAction::Fs {
-                deployment_id,
-                namespace,
-                path,
-                limit,
-            } => {
-                commands::agent::cloud_deployment_fs(
-                    deployment_id,
-                    namespace.as_deref(),
-                    path.as_deref(),
-                    limit,
-                    ctx,
-                )
-                .await?
-            }
-            CloudDeploymentAction::FsReadText {
-                deployment_id,
-                path,
-                namespace,
-                max_bytes,
-            } => {
-                commands::agent::cloud_deployment_fs_read_text(
-                    deployment_id,
-                    &path,
-                    namespace.as_deref(),
-                    max_bytes,
-                    ctx,
-                )
-                .await?
-            }
-            CloudDeploymentAction::FsReadBytes {
-                deployment_id,
-                path,
-                namespace,
-                offset,
-                length,
-            } => {
-                commands::agent::cloud_deployment_fs_read_bytes(
-                    deployment_id,
-                    &path,
-                    namespace.as_deref(),
-                    offset,
-                    length,
                     ctx,
                 )
                 .await?
@@ -4986,51 +4886,6 @@ mod tests {
                             assert_eq!(q.as_deref(), Some("deploy"));
                         }
                         _ => panic!("unexpected audit action parsed"),
-                    },
-                    _ => panic!("unexpected cloud action parsed"),
-                },
-                _ => panic!("unexpected agent action parsed"),
-            },
-            _ => panic!("unexpected command parsed"),
-        }
-    }
-
-    #[test]
-    fn cloud_deployment_fs_read_text_accepts_namespace() {
-        let cli = parse_cli_with_large_stack(vec![
-            "seren",
-            "agent",
-            "cloud",
-            "deployment",
-            "fs-read-text",
-            "11111111-1111-1111-1111-111111111111",
-            "--path",
-            "logs/run.txt",
-            "--namespace",
-            "artifacts",
-            "--max-bytes",
-            "1024",
-        ]);
-
-        match cli.command {
-            Commands::Agent { action, .. } => match *action {
-                AgentAction::Cloud { action } => match *action {
-                    AgentCloudAction::Deployment { action } => match action {
-                        CloudDeploymentAction::FsReadText {
-                            deployment_id,
-                            path,
-                            namespace,
-                            max_bytes,
-                        } => {
-                            assert_eq!(
-                                deployment_id,
-                                Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap()
-                            );
-                            assert_eq!(path, "logs/run.txt");
-                            assert_eq!(namespace.as_deref(), Some("artifacts"));
-                            assert_eq!(max_bytes, Some(1024));
-                        }
-                        _ => panic!("unexpected deployment action parsed"),
                     },
                     _ => panic!("unexpected cloud action parsed"),
                 },

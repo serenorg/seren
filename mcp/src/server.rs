@@ -1758,7 +1758,10 @@ async fn build_update_seren_agent_deployment_request(
         params.clear_eval_gate,
     ) {
         (Some(set_id), Some(max_age_seconds), false) => Some(seren::EvalGate {
+            block_on_failure: None,
+            drift_baseline: None,
             max_age_seconds,
+            schedule: None,
             set_id,
         }),
         (None, None, _) => None,
@@ -1793,19 +1796,29 @@ async fn build_update_seren_agent_deployment_request(
         allowed_remote_agent_origins: params.allowed_remote_agent_origins.clone(),
         approval_policy,
         clear_alert_policy: None,
+        clear_credentials: None,
         clear_dashboard_config: None,
         clear_eval_gate: params.clear_eval_gate.then_some(true),
+        clear_guardrails: None,
+        clear_memory_policy: None,
+        clear_runtime_policy: None,
         clear_session_database: None,
+        clear_tool_refs: None,
+        credentials: None,
         cron_schedule: params.cron_schedule.clone(),
         cron_timezone: params.cron_timezone.clone(),
         dashboard_config: params.dashboard_config.clone(),
         eval_gate,
+        guardrails: None,
+        memory_policy: None,
         model_policy,
         name: params.name.clone(),
         private_output_policy: None,
+        runtime_policy: None,
         session_database: None,
         template,
         tool_presets,
+        tool_refs: None,
         visibility: params.visibility.clone(),
         workload,
     })
@@ -2147,52 +2160,6 @@ pub struct CloudDeploymentAuditParams {
     /// Case-insensitive search across action, actor, and details
     #[serde(default)]
     pub q: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct CloudDeploymentFsParams {
-    /// Deployment UUID
-    pub deployment_id: Uuid,
-    /// Namespace root to inspect: artifacts or state
-    #[serde(default)]
-    pub namespace: Option<String>,
-    /// Relative path under the selected namespace root
-    #[serde(default)]
-    pub path: Option<String>,
-    /// Maximum directory entries to return
-    #[serde(default)]
-    pub limit: Option<u64>,
-}
-
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct CloudDeploymentFsReadTextParams {
-    /// Deployment UUID
-    pub deployment_id: Uuid,
-    /// Relative file path under the selected namespace root
-    pub path: String,
-    /// Namespace root to inspect: artifacts or state
-    #[serde(default)]
-    pub namespace: Option<String>,
-    /// Maximum bytes to read
-    #[serde(default)]
-    pub max_bytes: Option<u64>,
-}
-
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct CloudDeploymentFsReadBytesParams {
-    /// Deployment UUID
-    pub deployment_id: Uuid,
-    /// Relative file path under the selected namespace root
-    pub path: String,
-    /// Namespace root to inspect: artifacts or state
-    #[serde(default)]
-    pub namespace: Option<String>,
-    /// Starting byte offset
-    #[serde(default)]
-    pub offset: Option<u64>,
-    /// Maximum bytes to read
-    #[serde(default)]
-    pub length: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -7909,6 +7876,7 @@ API endpoint: {endpoint}",
             markup_multiplier: None,
             minimum_balance: None,
             ownership_tracking_enabled: None,
+            passthrough_header_rewrite: None,
             price_per_call,
             price_per_delete,
             price_per_execution,
@@ -8168,6 +8136,7 @@ API endpoint: {endpoint}",
             upstream_headers: None,
             gateway_fee_percent: None,
             ownership_tracking_enabled: None,
+            passthrough_header_rewrite: None,
             resource_id_response_path: None,
             resource_id_url_pattern: None,
             upstream_cost_response_path,
@@ -9190,7 +9159,10 @@ API endpoint: {endpoint}",
         };
         let eval_gate = match (params.eval_gate_set_id, params.eval_gate_max_age_seconds) {
             (Some(set_id), Some(max_age_seconds)) => Some(seren::EvalGate {
+                block_on_failure: None,
+                drift_baseline: None,
                 max_age_seconds,
+                schedule: None,
                 set_id,
             }),
             (None, None) => None,
@@ -9636,7 +9608,10 @@ API endpoint: {endpoint}",
             .map_err(|e| McpError::invalid_params(format!("Invalid compute_backend: {e}"), None))?;
         let eval_gate = match (params.eval_gate_set_id, params.eval_gate_max_age_seconds) {
             (Some(set_id), Some(max_age_seconds)) => Some(seren::EvalGate {
+                block_on_failure: None,
+                drift_baseline: None,
                 max_age_seconds,
+                schedule: None,
                 set_id,
             }),
             (None, None) => None,
@@ -9666,17 +9641,22 @@ API endpoint: {endpoint}",
             alert_policy: None,
             allowed_remote_agent_origins: params.allowed_remote_agent_origins,
             approval_policy,
+            credentials: None,
             cron_schedule: params.cron_schedule,
             cron_timezone: params.cron_timezone,
             dashboard_config: params.dashboard_config,
             eval_gate,
+            guardrails: None,
+            memory_policy: None,
             mode,
             model_policy,
             name: Some(params.name),
             private_output_policy: None,
+            runtime_policy: None,
             session_database: None,
             template,
             tool_presets,
+            tool_refs: None,
             visibility: params.visibility,
             workload: seren::WorkloadSpec {
                 compute_backend,
@@ -10062,76 +10042,6 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Inspect a cloud deployment filesystem within the artifacts or state namespace.",
-        annotations(read_only_hint = true, open_world_hint = false)
-    )]
-    async fn inspect_cloud_deployment_fs(
-        &self,
-        Parameters(params): Parameters<CloudDeploymentFsParams>,
-        extensions: Extensions,
-    ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
-        let response = api_client
-            .seren_cloud_deployment_fs(
-                &params.deployment_id,
-                params.limit,
-                params.namespace.as_deref(),
-                params.path.as_deref(),
-            )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
-    }
-
-    #[tool(
-        description = "Read a UTF-8 text file from a cloud deployment filesystem.",
-        annotations(read_only_hint = true, open_world_hint = false)
-    )]
-    async fn read_cloud_deployment_fs_text(
-        &self,
-        Parameters(params): Parameters<CloudDeploymentFsReadTextParams>,
-        extensions: Extensions,
-    ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
-        let response = api_client
-            .seren_cloud_deployment_fs_read_text(
-                &params.deployment_id,
-                params.max_bytes,
-                params.namespace.as_deref(),
-                &params.path,
-            )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
-    }
-
-    #[tool(
-        description = "Read a byte range from a cloud deployment filesystem.",
-        annotations(read_only_hint = true, open_world_hint = false)
-    )]
-    async fn read_cloud_deployment_fs_bytes(
-        &self,
-        Parameters(params): Parameters<CloudDeploymentFsReadBytesParams>,
-        extensions: Extensions,
-    ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
-        let response = api_client
-            .seren_cloud_deployment_fs_read_bytes(
-                &params.deployment_id,
-                params.length,
-                params.namespace.as_deref(),
-                params.offset,
-                &params.path,
-            )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
-    }
-
-    #[tool(
         description = "Start a stopped always-on cloud agent.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
@@ -10223,32 +10133,6 @@ API endpoint: {endpoint}",
         }
         content.push(json_content(&response_json)?);
         Ok(CallToolResult::success(content))
-    }
-
-    #[tool(
-        description = "Get logs from a running cloud agent's pods.",
-        annotations(read_only_hint = true, open_world_hint = false)
-    )]
-    async fn cloud_agent_logs(
-        &self,
-        Parameters(params): Parameters<CloudDeploymentIdParams>,
-        extensions: Extensions,
-    ) -> Result<CallToolResult, McpError> {
-        let api_client = self.api_client(&extensions)?;
-        let stream = api_client
-            .seren_cloud_logs(&params.deployment_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
-
-        use futures::StreamExt;
-        let mut logs = String::new();
-        let mut stream = stream;
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|e| McpError::internal_error(e.to_string(), None))?;
-            logs.push_str(&String::from_utf8_lossy(&chunk));
-        }
-        Ok(CallToolResult::success(vec![Content::text(logs)]))
     }
 
     #[tool(
@@ -11218,7 +11102,10 @@ API endpoint: {endpoint}",
             params.clear_eval_gate,
         ) {
             (Some(set_id), Some(max_age_seconds), false) => Some(seren::EvalGate {
+                block_on_failure: None,
+                drift_baseline: None,
                 max_age_seconds,
+                schedule: None,
                 set_id,
             }),
             (None, None, _) => None,

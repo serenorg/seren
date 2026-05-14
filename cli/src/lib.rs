@@ -7,7 +7,7 @@
 //!
 //! 1. **Curated top-level API** -- the short list of re-exports below
 //!    ([`run_dev_agent`], [`build_dev_agent_spec`], [`deploy_agent`],
-//!    [`tail_logs`], [`apply_catalog_entry`], etc.). These are the entry
+//!    [`run_dev_agent`], [`apply_catalog_entry`], etc.). These are the entry
 //!    points an embedder typically reaches for and they take typed argument
 //!    structs (e.g. [`DevAgentOptions`]).
 //!
@@ -72,9 +72,6 @@ pub use commands::agent::cloud_deploy as deploy_agent;
 
 /// Deploy a managed prompt-based agent through the `seren-agent` publisher.
 pub use commands::agent::cloud_deploy_prompt as deploy_prompt_agent;
-
-/// Tail the log stream for a running cloud deployment.
-pub use commands::agent::cloud_logs as tail_logs;
 
 /// Package a local instruction directory and run it in a `dev-` namespace.
 pub use commands::agent_dev::dev_agent_run as run_dev_agent;

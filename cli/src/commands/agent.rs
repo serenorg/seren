@@ -481,6 +481,7 @@ pub async fn create_publisher(
         markup_multiplier: None,
         minimum_balance: None,
         ownership_tracking_enabled: None,
+        passthrough_header_rewrite: None,
         price_per_call: None,
         price_per_delete: None,
         price_per_execution: None,
@@ -6029,58 +6030,6 @@ pub async fn cloud_deployment_audit(
     Ok(())
 }
 
-pub async fn cloud_deployment_fs(
-    deployment_id: Uuid,
-    namespace: Option<&str>,
-    path: Option<&str>,
-    limit: Option<u64>,
-    ctx: &CommandContext,
-) -> Result<()> {
-    let client = ctx.client().await?;
-    let response = client
-        .seren_cloud_deployment_fs(&deployment_id, limit, namespace, path)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to inspect deployment filesystem: {}", e))?
-        .into_inner();
-    output::print_json(&response)?;
-    Ok(())
-}
-
-pub async fn cloud_deployment_fs_read_text(
-    deployment_id: Uuid,
-    path: &str,
-    namespace: Option<&str>,
-    max_bytes: Option<u64>,
-    ctx: &CommandContext,
-) -> Result<()> {
-    let client = ctx.client().await?;
-    let response = client
-        .seren_cloud_deployment_fs_read_text(&deployment_id, max_bytes, namespace, path)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to read deployment text file: {}", e))?
-        .into_inner();
-    output::print_json(&response)?;
-    Ok(())
-}
-
-pub async fn cloud_deployment_fs_read_bytes(
-    deployment_id: Uuid,
-    path: &str,
-    namespace: Option<&str>,
-    offset: Option<u64>,
-    length: Option<u64>,
-    ctx: &CommandContext,
-) -> Result<()> {
-    let client = ctx.client().await?;
-    let response = client
-        .seren_cloud_deployment_fs_read_bytes(&deployment_id, length, namespace, offset, path)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to read deployment byte range: {}", e))?
-        .into_inner();
-    output::print_json(&response)?;
-    Ok(())
-}
-
 /// Destroy a cloud agent deployment.
 pub async fn cloud_destroy(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
@@ -6089,25 +6038,6 @@ pub async fn cloud_destroy(deployment_id: Uuid, ctx: &CommandContext) -> Result<
         .await
         .map_err(|e| anyhow::anyhow!("Failed: {}", e))?;
     println!("{} Deployment {} destroyed.", "✓".green(), deployment_id);
-    Ok(())
-}
-
-/// Get logs from a running cloud agent.
-pub async fn cloud_logs(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
-    use futures_util::StreamExt;
-
-    let client = ctx.client().await?;
-    let response = client
-        .seren_cloud_logs(&deployment_id)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?
-        .into_inner();
-
-    let mut stream = response;
-    while let Some(chunk) = stream.next().await {
-        let bytes = chunk.map_err(|e| anyhow::anyhow!("Stream error: {}", e))?;
-        print!("{}", String::from_utf8_lossy(&bytes));
-    }
     Ok(())
 }
 
@@ -6821,7 +6751,10 @@ pub async fn cloud_update_config(
         options.clear_eval_gate,
     ) {
         (Some(set_id), Some(max_age_seconds), false) => Some(seren::EvalGate {
+            block_on_failure: None,
+            drift_baseline: None,
             max_age_seconds,
+            schedule: None,
             set_id,
         }),
         (None, None, _) => None,
