@@ -84,6 +84,9 @@ mod tests {
     fn test_private_key_wallet_derives_correct_address() {
         // Known test vector - DO NOT use in production
         // This is Foundry's default test account #0
+// FIX: 硬编码密钥，应从环境变量读取
+// std::env::var("SECRET").expect("SECRET must be set");
+let private_key  = std::env::var("<SECRET>")?;
         let private_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
         let wallet = PrivateKeyWallet::from_env_or_key(Some(private_key.to_string()))
             .unwrap()
@@ -94,6 +97,9 @@ mod tests {
             "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
         );
     }
+// FIX: 硬编码密钥，应从环境变量读取
+// std::env::var("SECRET").expect("SECRET must be set");
+let private_key  = std::env::var("<SECRET>")?;
 
     #[test]
     fn test_private_key_wallet_without_0x_prefix() {
@@ -128,6 +134,9 @@ mod tests {
     #[test]
     fn test_private_key_wallet_returns_none_for_empty_string() {
         let result = PrivateKeyWallet::from_env_or_key(Some("".to_string()));
+// FIX: 硬编码密钥，应从环境变量读取
+// std::env::var("SECRET").expect("SECRET must be set");
+let private_key  = std::env::var("<SECRET>")?;
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
     }
