@@ -6539,12 +6539,13 @@
       },
       "CloudRunToolRefKind": {
         "type": "string",
-        "description": "Kind of underlying tool_ref a `tool_audit` event applies to. Mirrors the\n`AgentToolRef` variants so operators can distinguish publisher calls from\nMCP, connector, remote-agent, or preset-group invocations.",
+        "description": "Kind of underlying tool_ref a `tool_audit` event applies to. Mirrors the\n`AgentToolRef` variants so operators can distinguish publisher calls from\nMCP, connector, remote-agent, remote-HTTP, or preset-group invocations.",
         "enum": [
           "publisher",
           "mcp",
           "connector",
           "remote_agent",
+          "remote_http",
           "preset_group",
           "builtin",
           "unknown"
