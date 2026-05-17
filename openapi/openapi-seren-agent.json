@@ -933,7 +933,7 @@
       },
       "AgentCredentialRef": {
         "type": "object",
-        "description": "Reference to a credential held by Seren's control plane or organization\nsecret store, injected at the declared binding point.",
+        "description": "Reference to a credential held by Seren's control plane or by the\norganization credential-secret API, injected at the declared binding point.",
         "required": [
           "name",
           "ref_uri",
@@ -960,7 +960,7 @@
           },
           "ref_uri": {
             "type": "string",
-            "description": "URI of the credential record. Supported schemes:\n`control-plane://providers/{id}`, `org-secret://{key}`, `user-secret://{key}`."
+            "description": "URI of the credential record. Supported schemes:\n`control-plane://providers/{id}`, `org-secret://{key}`, `user-secret://{key}`.\nCreate `org-secret` and `user-secret` records with\n`/organizations/{organization_id}/agent-credential-secrets`."
           },
           "rotation": {
             "oneOf": [
@@ -1477,6 +1477,26 @@
           "websocket"
         ]
       },
+      "AgentRemoteHttpAuth": {
+        "type": "string",
+        "enum": [
+          "none",
+          "bearer",
+          "api_key",
+          "basic",
+          "mtls"
+        ]
+      },
+      "AgentRemoteHttpMethod": {
+        "type": "string",
+        "enum": [
+          "get",
+          "post",
+          "put",
+          "patch",
+          "delete"
+        ]
+      },
       "AgentResourcePolicy": {
         "type": "object",
         "properties": {
@@ -1733,7 +1753,7 @@
             "items": {
               "$ref": "#/components/schemas/AgentCredentialRef"
             },
-            "description": "Optional credential references resolved by the control plane at runtime."
+            "description": "Optional credential references resolved by the control plane at runtime.\nReusable `org-secret://` and `user-secret://` records are managed\nthrough `/organizations/{organization_id}/agent-credential-secrets`."
           },
           "cron_schedule": {
             "type": [
@@ -1961,7 +1981,7 @@
           },
           "clear_tool_refs": {
             "type": "boolean",
-            "description": "Clear any existing typed tool refs."
+            "description": "Clear any existing typed tool refs and omit `tool_refs` from the\nresolved runtime config. Cannot be combined with `tool_refs`."
           },
           "credentials": {
             "type": [
@@ -1971,7 +1991,7 @@
             "items": {
               "$ref": "#/components/schemas/AgentCredentialRef"
             },
-            "description": "Updated credential references. Replaces the entire previous list when present."
+            "description": "Updated credential references. Replaces the entire previous list when\npresent. Reusable `org-secret://` and `user-secret://` records are\nmanaged through the organization credential-secret API."
           },
           "cron_schedule": {
             "type": [
@@ -2102,7 +2122,7 @@
             "items": {
               "$ref": "#/components/schemas/AgentToolRef"
             },
-            "description": "Updated typed tool refs. Replaces the entire previous list when present."
+            "description": "Updated typed tool refs. Replaces the entire previous list when present.\n\nAn empty list is an explicit empty replacement and will serialize as\n`tool_refs: []` in runtime config. Use `clear_tool_refs` when the\ncaller wants to remove the stored typed-tool field entirely."
           },
           "visibility": {
             "type": [
@@ -2276,6 +2296,54 @@
               },
               "transport": {
                 "$ref": "#/components/schemas/AgentRemoteAgentTransport"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Reference to a remote HTTP endpoint exposed as a managed tool.",
+            "required": [
+              "name",
+              "endpoint",
+              "method",
+              "auth_mode",
+              "kind"
+            ],
+            "properties": {
+              "auth_mode": {
+                "$ref": "#/components/schemas/AgentRemoteHttpAuth"
+              },
+              "endpoint": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "remote_http"
+                ]
+              },
+              "method": {
+                "$ref": "#/components/schemas/AgentRemoteHttpMethod"
+              },
+              "name": {
+                "type": "string"
+              },
+              "permitted_actions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ActionLease"
+                }
+              },
+              "require_approval": {
+                "type": "boolean"
+              },
+              "timeout_ms": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
               }
             }
           },
@@ -3068,7 +3136,7 @@
                 "items": {
                   "$ref": "#/components/schemas/AgentCredentialRef"
                 },
-                "description": "Credential references attached to this deployment, when any."
+                "description": "Credential references attached to this deployment, when any. Reusable\n`org-secret://` and `user-secret://` records are managed through the\norganization credential-secret API."
               },
               "cron_schedule": {
                 "type": [
@@ -4089,7 +4157,7 @@
             "items": {
               "$ref": "#/components/schemas/AgentCredentialRef"
             },
-            "description": "Credential references attached to this deployment, when any."
+            "description": "Credential references attached to this deployment, when any. Reusable\n`org-secret://` and `user-secret://` records are managed through the\norganization credential-secret API."
           },
           "cron_schedule": {
             "type": [
