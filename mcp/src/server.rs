@@ -560,6 +560,58 @@ pub struct CreatePrepaidDepositParams {
     pub amount_usd: UsdAmount,
 }
 
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct WalletTransferRequestParams {
+    /// Recipient email address.
+    pub recipient_email: String,
+    /// Amount in USD (e.g., "25.00"). Prefer passing a string to avoid floating-point rounding.
+    pub amount_usd: UsdAmount,
+    /// Optional memo shown to the recipient.
+    #[serde(default)]
+    pub memo: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ExecuteWalletTransferParams {
+    /// Recipient email address.
+    pub recipient_email: String,
+    /// Amount in USD (e.g., "25.00"). Prefer passing a string to avoid floating-point rounding.
+    pub amount_usd: UsdAmount,
+    /// Optional memo shown to the recipient.
+    #[serde(default)]
+    pub memo: Option<String>,
+    /// Idempotency key for safe retries. Reuse the same key when retrying.
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ListWalletTransfersParams {
+    /// Direction filter: sent, received, or all.
+    #[serde(default)]
+    pub direction: Option<String>,
+    /// Status filter, such as settled, pending, claimed, recalled, or expired.
+    #[serde(default)]
+    pub status: Option<String>,
+    /// Cursor from a previous response.
+    #[serde(default)]
+    pub cursor: Option<String>,
+    /// Maximum number of transfers to return.
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ClaimWalletTransferParams {
+    /// Raw invite token from the claim link.
+    pub token: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct RecallWalletTransferParams {
+    /// Pending transfer ID.
+    pub pending_transfer_id: Uuid,
+}
+
 // NOTE: UserRoutingPublisherParams, EnableUserRoutingParams, DisableUserRoutingParams
 // were removed along with their corresponding routing tools (removed from the API spec).
 
@@ -571,6 +623,35 @@ pub struct CreatePrepaidDepositParams {
 pub enum UsdAmount {
     String(String),
     Number(f64),
+}
+
+fn wallet_transfer_request(
+    recipient_email: String,
+    amount_usd: &UsdAmount,
+    memo: Option<String>,
+) -> Result<seren::WalletTransferRequest, McpError> {
+    let amount_cents = match amount_usd {
+        UsdAmount::String(value) => parse_usd_to_cents(value)
+            .map_err(|e| McpError::invalid_request(format!("Invalid amount_usd: {e}"), None))?,
+        UsdAmount::Number(_) => {
+            return Err(McpError::invalid_request(
+                "amount_usd must be a string for wallet transfers to avoid rounding.".to_string(),
+                None,
+            ));
+        }
+    };
+    if amount_cents <= 0 {
+        return Err(McpError::invalid_request(
+            "Amount must be positive.".to_string(),
+            None,
+        ));
+    }
+
+    Ok(seren::WalletTransferRequest {
+        recipient_email,
+        amount_cents,
+        memo,
+    })
 }
 
 /// Operation type for unified call_publisher routing
@@ -6502,6 +6583,142 @@ impl SerenMcpServer {
         Ok(CallToolResult::success(vec![json_content(&deposit)?]))
     }
 
+    #[tool(
+        description = "Preview a SerenBucks wallet transfer before sending it. Returns whether the transfer would settle instantly or create an invite.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn preview_wallet_transfer(
+        &self,
+        Parameters(params): Parameters<WalletTransferRequestParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let request =
+            wallet_transfer_request(params.recipient_email, &params.amount_usd, params.memo)?;
+
+        let preview = api_client
+            .preview_wallet_transfer(&request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+
+        Ok(CallToolResult::success(vec![json_content(&preview)?]))
+    }
+
+    #[tool(
+        description = "Send SerenBucks to an email address. Existing verified users receive funds immediately; other recipients receive a pending invite.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn execute_wallet_transfer(
+        &self,
+        Parameters(params): Parameters<ExecuteWalletTransferParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+        let request =
+            wallet_transfer_request(params.recipient_email, &params.amount_usd, params.memo)?;
+        let idempotency_key = params.idempotency_key.trim();
+        if idempotency_key.is_empty() {
+            return Err(McpError::invalid_request(
+                "idempotency_key must not be empty".to_string(),
+                None,
+            ));
+        }
+
+        let transfer = api_client
+            .execute_wallet_transfer(idempotency_key, &request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+
+        Ok(CallToolResult::success(vec![json_content(&transfer)?]))
+    }
+
+    #[tool(
+        description = "List SerenBucks wallet transfers with optional direction, status, cursor, and limit filters.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_wallet_transfers(
+        &self,
+        Parameters(params): Parameters<ListWalletTransfersParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let direction = params
+            .direction
+            .as_deref()
+            .map(str::parse::<seren::WalletTransferDirection>)
+            .transpose()
+            .map_err(|_| {
+                McpError::invalid_request(
+                    "Invalid direction. Use sent, received, or all.".to_string(),
+                    None,
+                )
+            })?;
+
+        let transfers = api_client
+            .list_wallet_transfers(
+                params.cursor.as_deref(),
+                direction,
+                params.limit,
+                params.status.as_deref(),
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+
+        Ok(CallToolResult::success(vec![json_content(&transfers)?]))
+    }
+
+    #[tool(
+        description = "Claim a pending SerenBucks transfer invite using the raw invite token.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn claim_wallet_transfer(
+        &self,
+        Parameters(params): Parameters<ClaimWalletTransferParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+        let request = seren::WalletTransferClaimRequest {
+            token: params.token,
+        };
+
+        let claim = api_client
+            .claim_wallet_transfer(&request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+
+        Ok(CallToolResult::success(vec![json_content(&claim)?]))
+    }
+
+    #[tool(
+        description = "Recall a pending outbound SerenBucks transfer and refund the sender.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn recall_wallet_transfer(
+        &self,
+        Parameters(params): Parameters<RecallWalletTransferParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+
+        let api_client = self.api_client(&extensions)?;
+
+        let recall = api_client
+            .recall_wallet_transfer(&params.pending_transfer_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+
+        Ok(CallToolResult::success(vec![json_content(&recall)?]))
+    }
+
     // NOTE: User geographic routing tools (list_user_routing, get_user_routing,
     // enable_user_routing, disable_user_routing) were removed from the API.
     // Geographic routing is now configured at the publisher level via the
@@ -8733,7 +8950,7 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
 
         let transactions = api_client
-            .get_transactions(None, None, params.limit, params.offset, None)
+            .get_transactions(None, None, None, None, params.limit, params.offset, None)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();

@@ -788,6 +788,47 @@ pub fn print_publishers_table(publishers: &[seren::PublisherResponse]) {
     println!("{table}");
 }
 
+fn format_usd_cents(amount_cents: i64) -> String {
+    let sign = if amount_cents < 0 { "-" } else { "" };
+    let abs = amount_cents.unsigned_abs();
+    format!("{sign}${}.{:02}", abs / 100, abs % 100)
+}
+
+pub fn print_wallet_transfers_table(transfers: &[seren::WalletTransferListItem]) {
+    if transfers.is_empty() {
+        println!("No transfers found");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("Created").fg(Color::Green),
+        Cell::new("Direction").fg(Color::Green),
+        Cell::new("Status").fg(Color::Green),
+        Cell::new("Counterparty").fg(Color::Green),
+        Cell::new("Amount").fg(Color::Green),
+        Cell::new("Memo").fg(Color::Green),
+    ]);
+
+    for transfer in transfers {
+        table.add_row(vec![
+            Cell::new(transfer.created_at.to_string()),
+            Cell::new(&transfer.direction),
+            Cell::new(&transfer.status),
+            Cell::new(&transfer.counterparty),
+            Cell::new(format_usd_cents(transfer.amount_cents)),
+            Cell::new(transfer.memo.as_deref().unwrap_or("-")),
+        ]);
+    }
+
+    println!("{}", "Wallet Transfers".bold());
+    println!("{table}");
+}
+
 pub fn print_store_publisher(
     publisher: &seren::PublisherResponse,
     format: OutputFormat,

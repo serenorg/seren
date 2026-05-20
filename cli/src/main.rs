@@ -446,6 +446,60 @@ enum AgentAction {
         #[arg(long)]
         offset: Option<i64>,
     },
+    /// Preview a SerenBucks transfer before sending
+    PreviewTransfer {
+        /// Recipient email address
+        #[arg(long)]
+        recipient_email: String,
+        /// Amount in USD to send (e.g., 10.00)
+        #[arg(long)]
+        amount: UsdCents,
+        /// Optional memo shown to the recipient
+        #[arg(long)]
+        memo: Option<String>,
+    },
+    /// Send SerenBucks to another email address
+    SendTransfer {
+        /// Recipient email address
+        #[arg(long)]
+        recipient_email: String,
+        /// Amount in USD to send (e.g., 10.00)
+        #[arg(long)]
+        amount: UsdCents,
+        /// Optional memo shown to the recipient
+        #[arg(long)]
+        memo: Option<String>,
+        /// Idempotency key for safe retries. Reuse the same key when retrying.
+        #[arg(long)]
+        idempotency_key: String,
+    },
+    /// List SerenBucks transfers
+    ListTransfers {
+        /// Direction filter: sent, received, or all
+        #[arg(long)]
+        direction: Option<String>,
+        /// Status filter, such as settled, pending, claimed, recalled, or expired
+        #[arg(long)]
+        status: Option<String>,
+        /// Cursor from a previous response
+        #[arg(long)]
+        cursor: Option<String>,
+        /// Maximum number of transfers to return (default 50)
+        #[arg(long)]
+        limit: Option<i64>,
+    },
+    /// Claim a pending SerenBucks transfer invite
+    ClaimTransfer {
+        /// Raw invite token from the claim link
+        #[arg(long)]
+        token: String,
+    },
+    /// Recall a pending outbound SerenBucks transfer
+    RecallTransfer {
+        /// Pending transfer ID
+        #[arg(long)]
+        pending_transfer_id: Uuid,
+    },
 
     // =========================================================================
     // Agent Template Commands
@@ -4291,6 +4345,50 @@ async fn main() -> anyhow::Result<()> {
             AgentAction::GetTransactionHistory { limit, offset } => {
                 commands::agent::get_transaction_history(limit, offset, &ctx).await?
             }
+            AgentAction::PreviewTransfer {
+                recipient_email,
+                amount,
+                memo,
+            } => {
+                commands::agent::preview_transfer(&recipient_email, amount.0, memo.as_deref(), &ctx)
+                    .await?
+            }
+            AgentAction::SendTransfer {
+                recipient_email,
+                amount,
+                memo,
+                idempotency_key,
+            } => {
+                commands::agent::send_transfer(
+                    &recipient_email,
+                    amount.0,
+                    memo.as_deref(),
+                    &idempotency_key,
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::ListTransfers {
+                direction,
+                status,
+                cursor,
+                limit,
+            } => {
+                commands::agent::list_transfers(
+                    direction.as_deref(),
+                    status.as_deref(),
+                    cursor.as_deref(),
+                    limit,
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::ClaimTransfer { token } => {
+                commands::agent::claim_transfer(&token, &ctx).await?
+            }
+            AgentAction::RecallTransfer {
+                pending_transfer_id,
+            } => commands::agent::recall_transfer(pending_transfer_id, &ctx).await?,
             // Template commands
             AgentAction::ListTemplates {
                 language,

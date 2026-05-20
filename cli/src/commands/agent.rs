@@ -636,6 +636,12 @@ pub async fn create_prepaid_deposit(amount_cents: i64, ctx: &CommandContext) -> 
     Ok(())
 }
 
+fn format_usd_cents(amount_cents: i64) -> String {
+    let sign = if amount_cents < 0 { "-" } else { "" };
+    let abs = amount_cents.unsigned_abs();
+    format!("{sign}${}.{:02}", abs / 100, abs % 100)
+}
+
 /// Estimate the cost of a query against a publisher
 pub async fn estimate_query_cost(publisher: &str, query: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
@@ -668,6 +674,243 @@ pub async fn estimate_query_cost(publisher: &str, query: &str, ctx: &CommandCont
     Ok(())
 }
 
+fn wallet_transfer_request(
+    recipient_email: &str,
+    amount_cents: i64,
+    memo: Option<&str>,
+) -> Result<seren::WalletTransferRequest> {
+    if amount_cents <= 0 {
+        return Err(anyhow::anyhow!("Amount must be positive"));
+    }
+
+    Ok(seren::WalletTransferRequest {
+        recipient_email: recipient_email.to_string(),
+        amount_cents,
+        memo: memo.map(str::to_string),
+    })
+}
+
+/// Preview a SerenBucks wallet transfer
+pub async fn preview_transfer(
+    recipient_email: &str,
+    amount_cents: i64,
+    memo: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let body = wallet_transfer_request(recipient_email, amount_cents, memo)?;
+
+    let response = match client.preview_wallet_transfer(&body).await {
+        Ok(response) => response,
+        Err(e) => return Err(anyhow_from_seren_error("Failed to preview transfer", e).await),
+    };
+
+    let preview = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&preview)?,
+        OutputFormat::Table => match &preview.data {
+            seren::DataResponseWalletTransferPreviewResponseData::Instant {
+                amount_cents,
+                balance_after_cents,
+                daily_remaining_cents,
+                recipient,
+                ..
+            } => {
+                let rows = [
+                    ("Kind", "instant".to_string()),
+                    ("Recipient", recipient.display_name.clone()),
+                    ("Recipient ID", recipient.user_id.to_string()),
+                    ("Amount", format_usd_cents(*amount_cents)),
+                    ("Balance After", format_usd_cents(*balance_after_cents)),
+                    ("Daily Remaining", format_usd_cents(*daily_remaining_cents)),
+                ];
+                output::print_key_value_table(Some("Transfer Preview"), &rows);
+            }
+            seren::DataResponseWalletTransferPreviewResponseData::PendingInvite {
+                amount_cents,
+                balance_after_cents,
+                daily_remaining_cents,
+                expires_at_estimate,
+                recipient_email,
+                ..
+            } => {
+                let rows = [
+                    ("Kind", "pending invite".to_string()),
+                    ("Recipient Email", recipient_email.clone()),
+                    ("Amount", format_usd_cents(*amount_cents)),
+                    ("Balance After", format_usd_cents(*balance_after_cents)),
+                    ("Daily Remaining", format_usd_cents(*daily_remaining_cents)),
+                    ("Expires At", expires_at_estimate.to_string()),
+                ];
+                output::print_key_value_table(Some("Transfer Preview"), &rows);
+            }
+        },
+    }
+
+    Ok(())
+}
+
+/// Execute a SerenBucks wallet transfer
+pub async fn send_transfer(
+    recipient_email: &str,
+    amount_cents: i64,
+    memo: Option<&str>,
+    idempotency_key: &str,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let body = wallet_transfer_request(recipient_email, amount_cents, memo)?;
+    let idempotency_key = idempotency_key.trim();
+    if idempotency_key.is_empty() {
+        return Err(anyhow::anyhow!("Idempotency key must not be empty"));
+    }
+
+    let response = match client.execute_wallet_transfer(idempotency_key, &body).await {
+        Ok(response) => response,
+        Err(e) => return Err(anyhow_from_seren_error("Failed to send transfer", e).await),
+    };
+
+    let transfer = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&transfer)?,
+        OutputFormat::Table => match &transfer.data {
+            seren::DataResponseWalletTransferExecuteResponseData::Instant {
+                balance_after_cents,
+                settled_at,
+                status,
+                transfer_id,
+            } => {
+                let rows = [
+                    ("Kind", "instant".to_string()),
+                    ("Transfer ID", transfer_id.to_string()),
+                    ("Status", status.clone()),
+                    ("Settled At", settled_at.to_string()),
+                    ("Balance After", format_usd_cents(*balance_after_cents)),
+                    ("Idempotency Key", idempotency_key.to_string()),
+                ];
+                output::print_key_value_table(Some("Transfer Sent"), &rows);
+            }
+            seren::DataResponseWalletTransferExecuteResponseData::PendingInvite {
+                balance_after_cents,
+                expires_at,
+                invite_url,
+                pending_transfer_id,
+                status,
+                ..
+            } => {
+                let rows = [
+                    ("Kind", "pending invite".to_string()),
+                    ("Pending Transfer ID", pending_transfer_id.to_string()),
+                    ("Status", status.clone()),
+                    ("Expires At", expires_at.to_string()),
+                    ("Balance After", format_usd_cents(*balance_after_cents)),
+                    (
+                        "Invite URL",
+                        invite_url.clone().unwrap_or_else(|| "-".to_string()),
+                    ),
+                    ("Idempotency Key", idempotency_key.to_string()),
+                ];
+                output::print_key_value_table(Some("Transfer Invite Created"), &rows);
+            }
+        },
+    }
+
+    Ok(())
+}
+
+/// List SerenBucks wallet transfers
+pub async fn list_transfers(
+    direction: Option<&str>,
+    status: Option<&str>,
+    cursor: Option<&str>,
+    limit: Option<i64>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let direction = direction
+        .map(str::parse::<seren::WalletTransferDirection>)
+        .transpose()
+        .map_err(|_| anyhow::anyhow!("Invalid direction. Use sent, received, or all"))?;
+
+    let response = match client
+        .list_wallet_transfers(cursor, direction, limit, status)
+        .await
+    {
+        Ok(response) => response,
+        Err(e) => return Err(anyhow_from_seren_error("Failed to list transfers", e).await),
+    };
+
+    let transfers = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&transfers)?,
+        OutputFormat::Table => {
+            let data = &transfers.data;
+            output::print_wallet_transfers_table(&data.items);
+            if let Some(next_cursor) = &data.next_cursor {
+                println!("Next cursor: {next_cursor}");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Claim a pending SerenBucks transfer invite
+pub async fn claim_transfer(token: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let body = seren::WalletTransferClaimRequest {
+        token: token.to_string(),
+    };
+
+    let response = match client.claim_wallet_transfer(&body).await {
+        Ok(response) => response,
+        Err(e) => return Err(anyhow_from_seren_error("Failed to claim transfer", e).await),
+    };
+
+    let claim = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&claim)?,
+        OutputFormat::Table => {
+            let data = &claim.data;
+            let rows = [
+                ("Pending Transfer ID", data.pending_transfer_id.to_string()),
+                ("Received", format_usd_cents(data.amount_received_cents)),
+                ("Balance After", format_usd_cents(data.balance_after_cents)),
+            ];
+            output::print_key_value_table(Some("Transfer Claimed"), &rows);
+        }
+    }
+
+    Ok(())
+}
+
+/// Recall a pending outbound SerenBucks transfer
+pub async fn recall_transfer(pending_transfer_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+
+    let response = match client.recall_wallet_transfer(&pending_transfer_id).await {
+        Ok(response) => response,
+        Err(e) => return Err(anyhow_from_seren_error("Failed to recall transfer", e).await),
+    };
+
+    let recall = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&recall)?,
+        OutputFormat::Table => {
+            let data = &recall.data;
+            let rows = [
+                ("Pending Transfer ID", data.pending_transfer_id.to_string()),
+                ("Status", data.status.clone()),
+                ("Refunded", format_usd_cents(data.refunded_amount_cents)),
+                ("Balance After", format_usd_cents(data.balance_after_cents)),
+            ];
+            output::print_key_value_table(Some("Transfer Recalled"), &rows);
+        }
+    }
+
+    Ok(())
+}
+
 /// Get wallet transaction history
 pub async fn get_transaction_history(
     limit: Option<i64>,
@@ -677,7 +920,7 @@ pub async fn get_transaction_history(
     let client = ctx.client().await?;
 
     let response = client
-        .get_transactions(None, None, limit, offset, None)
+        .get_transactions(None, None, None, None, limit, offset, None)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to get transaction history: {}", e))?;
 

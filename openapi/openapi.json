@@ -1768,6 +1768,49 @@
         }
       }
     },
+    "/notifications/{notification_id}/read": {
+      "post": {
+        "tags": [
+          "notifications"
+        ],
+        "operationId": "mark_notification_read",
+        "parameters": [
+          {
+            "name": "notification_id",
+            "in": "path",
+            "description": "Notification ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notification marked read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_NotificationReadResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Notification not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/oauth/connections": {
       "get": {
         "tags": [
@@ -8700,9 +8743,30 @@
             }
           },
           {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque cursor from the previous page. When present, offset is ignored.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
             "name": "include_usage",
             "in": "query",
             "description": "Include raw usage/micropayment debits (default false).\nWhen false, usage debits are aggregated by day and publisher.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "exact_total",
+            "in": "query",
+            "description": "Compute an exact total row count. Defaults to false because exact counts\ncan require scanning large wallet histories.",
             "required": false,
             "schema": {
               "type": "boolean"
@@ -8849,6 +8913,277 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/wallet/transfers": {
+      "get": {
+        "tags": [
+          "agent-wallet"
+        ],
+        "summary": "List SerenBucks wallet transfers.",
+        "operationId": "list_wallet_transfers",
+        "parameters": [
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/WalletTransferDirection"
+                }
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transfers retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_WalletTransferListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "agent-wallet"
+        ],
+        "summary": "Execute a SerenBucks wallet transfer.",
+        "operationId": "execute_wallet_transfer",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Unique key for safely retrying transfer execution",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WalletTransferRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Transfer executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_WalletTransferExecuteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "409": {
+            "description": "Idempotency conflict"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/wallet/transfers/invite/claim": {
+      "post": {
+        "tags": [
+          "agent-wallet"
+        ],
+        "summary": "Claim a pending SerenBucks transfer invite.",
+        "operationId": "claim_wallet_transfer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WalletTransferClaimRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Pending transfer claimed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_WalletTransferClaimResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Verified email required or email mismatch"
+          },
+          "404": {
+            "description": "Invite not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/wallet/transfers/pending/{pending_transfer_id}/recall": {
+      "post": {
+        "tags": [
+          "agent-wallet"
+        ],
+        "summary": "Recall a pending SerenBucks transfer.",
+        "operationId": "recall_wallet_transfer",
+        "parameters": [
+          {
+            "name": "pending_transfer_id",
+            "in": "path",
+            "description": "Pending transfer ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pending transfer recalled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_WalletTransferRecallResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Pending transfer not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/wallet/transfers/preview": {
+      "post": {
+        "tags": [
+          "agent-wallet"
+        ],
+        "summary": "Preview a SerenBucks wallet transfer.",
+        "operationId": "preview_wallet_transfer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WalletTransferRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Transfer preview retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_WalletTransferPreviewResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
           },
           "401": {
             "description": "Unauthorized"
@@ -9334,7 +9669,10 @@
           "promo_code",
           "tier_bonus",
           "refund",
-          "publisher_payout"
+          "publisher_payout",
+          "transfer_in",
+          "transfer_recall",
+          "transfer_refund"
         ]
       },
       "AgentInfo": {
@@ -13066,6 +13404,43 @@
           }
         }
       },
+      "DataResponse_NotificationReadResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "notification_id",
+              "read_at"
+            ],
+            "properties": {
+              "notification_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "read_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_OAuthProviderResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -15107,6 +15482,17 @@
               },
               "mcp_capabilities": {
                 "description": "Cached MCP capabilities (tools, resources, prompts)"
+              },
+              "mcp_discovery": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/McpDiscoveryStatus",
+                    "description": "Last MCP discovery attempt, success, and error state."
+                  }
+                ]
               },
               "mcp_endpoint": {
                 "type": [
@@ -18010,6 +18396,17 @@
                 "mcp_capabilities": {
                   "description": "Cached MCP capabilities (tools, resources, prompts)"
                 },
+                "mcp_discovery": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/McpDiscoveryStatus",
+                      "description": "Last MCP discovery attempt, success, and error state."
+                    }
+                  ]
+                },
                 "mcp_endpoint": {
                   "type": [
                     "string",
@@ -18887,6 +19284,13 @@
               "total_purchases_usd": {
                 "type": "string"
               },
+              "unread_received_transfers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ReceivedTransferNotificationSummary"
+                },
+                "description": "Recent unread wallet transfer notifications for this account."
+              },
               "wallet_address": {
                 "type": "string"
               }
@@ -18976,6 +19380,7 @@
             "required": [
               "transactions",
               "total",
+              "total_is_exact",
               "limit",
               "offset"
             ],
@@ -18983,6 +19388,13 @@
               "limit": {
                 "type": "integer",
                 "format": "int64"
+              },
+              "next_cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Opaque cursor for the next page when another page may exist."
               },
               "offset": {
                 "type": "integer",
@@ -18992,11 +19404,352 @@
                 "type": "integer",
                 "format": "int64"
               },
+              "total_is_exact": {
+                "type": "boolean",
+                "description": "Whether `total` is an exact count. When false, `total` is a pagination\nlower bound kept for older offset-based clients."
+              },
               "transactions": {
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/WalletTransactionResponse"
                 }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_WalletTransferClaimResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "pending_transfer_id",
+              "amount_received_cents",
+              "balance_after_cents"
+            ],
+            "properties": {
+              "amount_received_cents": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "balance_after_cents": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "pending_transfer_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_WalletTransferExecuteResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "transfer_id",
+                  "status",
+                  "settled_at",
+                  "balance_after_cents",
+                  "kind"
+                ],
+                "properties": {
+                  "balance_after_cents": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "instant"
+                    ]
+                  },
+                  "settled_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "transfer_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "pending_transfer_id",
+                  "status",
+                  "expires_at",
+                  "balance_after_cents",
+                  "kind"
+                ],
+                "properties": {
+                  "balance_after_cents": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "expires_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "invite_token": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "invite_url": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "pending_invite"
+                    ]
+                  },
+                  "pending_transfer_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "status": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_WalletTransferListResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "items"
+            ],
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WalletTransferListItem"
+                }
+              },
+              "next_cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_WalletTransferPreviewResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "recipient",
+                  "amount_cents",
+                  "balance_after_cents",
+                  "daily_remaining_cents",
+                  "kind"
+                ],
+                "properties": {
+                  "amount_cents": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "balance_after_cents": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "daily_remaining_cents": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "instant"
+                    ]
+                  },
+                  "memo": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "recipient": {
+                    "$ref": "#/components/schemas/WalletTransferRecipient"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "recipient_email",
+                  "amount_cents",
+                  "balance_after_cents",
+                  "daily_remaining_cents",
+                  "expires_at_estimate",
+                  "kind"
+                ],
+                "properties": {
+                  "amount_cents": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "balance_after_cents": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "daily_remaining_cents": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "expires_at_estimate": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "pending_invite"
+                    ]
+                  },
+                  "memo": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "recipient_email": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_WalletTransferRecallResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "pending_transfer_id",
+              "status",
+              "refunded_amount_cents",
+              "balance_after_cents"
+            ],
+            "properties": {
+              "balance_after_cents": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "pending_transfer_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "refunded_amount_cents": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "status": {
+                "type": "string"
               }
             }
           },
@@ -20531,6 +21284,32 @@
           "seren_organization_database"
         ]
       },
+      "McpDiscoveryStatus": {
+        "type": "object",
+        "description": "Discovery status for an MCP publisher.",
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_attempt_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_success_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
       "McpToolInfo": {
         "type": "object",
         "description": "Information about an MCP tool",
@@ -20551,6 +21330,23 @@
           "name": {
             "type": "string",
             "description": "Tool name"
+          }
+        }
+      },
+      "NotificationReadResponse": {
+        "type": "object",
+        "required": [
+          "notification_id",
+          "read_at"
+        ],
+        "properties": {
+          "notification_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "read_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -22008,6 +22804,17 @@
                 },
                 "mcp_capabilities": {
                   "description": "Cached MCP capabilities (tools, resources, prompts)"
+                },
+                "mcp_discovery": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/McpDiscoveryStatus",
+                      "description": "Last MCP discovery attempt, success, and error state."
+                    }
+                  ]
                 },
                 "mcp_endpoint": {
                   "type": [
@@ -23606,6 +24413,17 @@
           "mcp_capabilities": {
             "description": "Cached MCP capabilities (tools, resources, prompts)"
           },
+          "mcp_discovery": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/McpDiscoveryStatus",
+                "description": "Last MCP discovery attempt, success, and error state."
+              }
+            ]
+          },
           "mcp_endpoint": {
             "type": [
               "string",
@@ -24057,6 +24875,45 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "ReceivedTransferNotificationSummary": {
+        "type": "object",
+        "required": [
+          "notification_id",
+          "transfer_id",
+          "amount_atomic",
+          "amount_usd",
+          "sender_display_name",
+          "sender_email",
+          "received_at"
+        ],
+        "properties": {
+          "amount_atomic": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "amount_usd": {
+            "type": "string"
+          },
+          "notification_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sender_display_name": {
+            "type": "string"
+          },
+          "sender_email": {
+            "type": "string"
+          },
+          "transfer_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -26542,6 +27399,13 @@
           "total_purchases_usd": {
             "type": "string"
           },
+          "unread_received_transfers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReceivedTransferNotificationSummary"
+            },
+            "description": "Recent unread wallet transfer notifications for this account."
+          },
           "wallet_address": {
             "type": "string"
           }
@@ -26637,6 +27501,7 @@
         "required": [
           "transactions",
           "total",
+          "total_is_exact",
           "limit",
           "offset"
         ],
@@ -26645,6 +27510,13 @@
             "type": "integer",
             "format": "int64"
           },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Opaque cursor for the next page when another page may exist."
+          },
           "offset": {
             "type": "integer",
             "format": "int64"
@@ -26652,6 +27524,10 @@
           "total": {
             "type": "integer",
             "format": "int64"
+          },
+          "total_is_exact": {
+            "type": "boolean",
+            "description": "Whether `total` is an exact count. When false, `total` is a pagination\nlower bound kept for older offset-based clients."
           },
           "transactions": {
             "type": "array",
@@ -26778,6 +27654,368 @@
             "description": "Remaining amount on the grant in USD (credit entries only)"
           },
           "source": {
+            "type": "string"
+          }
+        }
+      },
+      "WalletTransferClaimRequest": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "WalletTransferClaimResponse": {
+        "type": "object",
+        "required": [
+          "pending_transfer_id",
+          "amount_received_cents",
+          "balance_after_cents"
+        ],
+        "properties": {
+          "amount_received_cents": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "balance_after_cents": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pending_transfer_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "WalletTransferDirection": {
+        "type": "string",
+        "enum": [
+          "sent",
+          "received",
+          "all"
+        ]
+      },
+      "WalletTransferExecuteResponse": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "transfer_id",
+              "status",
+              "settled_at",
+              "balance_after_cents",
+              "kind"
+            ],
+            "properties": {
+              "balance_after_cents": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "instant"
+                ]
+              },
+              "settled_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "status": {
+                "type": "string"
+              },
+              "transfer_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "pending_transfer_id",
+              "status",
+              "expires_at",
+              "balance_after_cents",
+              "kind"
+            ],
+            "properties": {
+              "balance_after_cents": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "invite_token": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "invite_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "pending_invite"
+                ]
+              },
+              "pending_transfer_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "status": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "WalletTransferListItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "direction",
+          "status",
+          "counterparty",
+          "amount_cents",
+          "amount_usd",
+          "created_at"
+        ],
+        "properties": {
+          "amount_cents": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "amount_usd": {
+            "type": "string"
+          },
+          "counterparty": {
+            "type": "string"
+          },
+          "counterparty_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "memo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "WalletTransferListResponse": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WalletTransferListItem"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "WalletTransferPreviewResponse": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "recipient",
+              "amount_cents",
+              "balance_after_cents",
+              "daily_remaining_cents",
+              "kind"
+            ],
+            "properties": {
+              "amount_cents": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "balance_after_cents": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "daily_remaining_cents": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "instant"
+                ]
+              },
+              "memo": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "recipient": {
+                "$ref": "#/components/schemas/WalletTransferRecipient"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "recipient_email",
+              "amount_cents",
+              "balance_after_cents",
+              "daily_remaining_cents",
+              "expires_at_estimate",
+              "kind"
+            ],
+            "properties": {
+              "amount_cents": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "balance_after_cents": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "daily_remaining_cents": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "expires_at_estimate": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "pending_invite"
+                ]
+              },
+              "memo": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "recipient_email": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "WalletTransferRecallResponse": {
+        "type": "object",
+        "required": [
+          "pending_transfer_id",
+          "status",
+          "refunded_amount_cents",
+          "balance_after_cents"
+        ],
+        "properties": {
+          "balance_after_cents": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pending_transfer_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "refunded_amount_cents": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "WalletTransferRecipient": {
+        "type": "object",
+        "required": [
+          "user_id",
+          "display_name"
+        ],
+        "properties": {
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "WalletTransferRequest": {
+        "type": "object",
+        "required": [
+          "recipient_email",
+          "amount_cents"
+        ],
+        "properties": {
+          "amount_cents": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "memo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recipient_email": {
             "type": "string"
           }
         }
@@ -26999,6 +28237,10 @@
     {
       "name": "agent-wallet",
       "description": "Wallet (funded + promotional)"
+    },
+    {
+      "name": "notifications",
+      "description": "User notifications"
     },
     {
       "name": "publisher-payments",
