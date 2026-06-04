@@ -295,6 +295,11 @@ enum PasswordsAction {
         #[command(subcommand)]
         action: Box<PasswordItemAction>,
     },
+    /// List, download, and delete item attachments
+    Attachments {
+        #[command(subcommand)]
+        action: PasswordAttachmentAction,
+    },
     /// Provision and manage AI-agent identities for vault access
     Agent {
         #[command(subcommand)]
@@ -823,6 +828,64 @@ enum PasswordItemAction {
         body_stdin: bool,
         #[arg(long)]
         notes: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum PasswordAttachmentAction {
+    /// Encrypt and upload a file attachment to an item
+    Upload {
+        /// Vault id. Required when the account has multiple vaults.
+        #[arg(long)]
+        vault_id: Option<Uuid>,
+        /// Item id
+        #[arg(long)]
+        item_id: Uuid,
+        /// File path to upload
+        #[arg(long)]
+        path: std::path::PathBuf,
+        /// Stored filename. Defaults to the file name from --path.
+        #[arg(long)]
+        filename: Option<String>,
+        /// Stored content type. Defaults to application/octet-stream.
+        #[arg(long)]
+        content_type: Option<String>,
+    },
+    /// List decrypted attachment metadata for an item
+    List {
+        /// Vault id. Required when the account has multiple vaults.
+        #[arg(long)]
+        vault_id: Option<Uuid>,
+        /// Item id
+        #[arg(long)]
+        item_id: Uuid,
+    },
+    /// Download and decrypt one attachment
+    Download {
+        /// Vault id. Required when the account has multiple vaults.
+        #[arg(long)]
+        vault_id: Option<Uuid>,
+        /// Item id
+        #[arg(long)]
+        item_id: Uuid,
+        /// Attachment id
+        #[arg(long)]
+        attachment_id: Uuid,
+        /// Destination file path
+        #[arg(long)]
+        output: std::path::PathBuf,
+    },
+    /// Delete one attachment
+    Delete {
+        /// Vault id. Required when the account has multiple vaults.
+        #[arg(long)]
+        vault_id: Option<Uuid>,
+        /// Item id
+        #[arg(long)]
+        item_id: Uuid,
+        /// Attachment id
+        #[arg(long)]
+        attachment_id: Uuid,
     },
 }
 
@@ -4845,6 +4908,65 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             }
+            PasswordsAction::Attachments { action } => {
+                let options = commands::passwords::PasswordsOptions {
+                    master_password: commands::passwords::master_password_from_env(),
+                };
+                match action {
+                    PasswordAttachmentAction::Upload {
+                        vault_id,
+                        item_id,
+                        path,
+                        filename,
+                        content_type,
+                    } => {
+                        commands::passwords::attachment_upload(
+                            options,
+                            vault_id,
+                            item_id,
+                            path,
+                            filename,
+                            content_type,
+                            &ctx,
+                        )
+                        .await?
+                    }
+                    PasswordAttachmentAction::List { vault_id, item_id } => {
+                        commands::passwords::attachment_list(options, vault_id, item_id, &ctx)
+                            .await?
+                    }
+                    PasswordAttachmentAction::Download {
+                        vault_id,
+                        item_id,
+                        attachment_id,
+                        output,
+                    } => {
+                        commands::passwords::attachment_download(
+                            options,
+                            vault_id,
+                            item_id,
+                            attachment_id,
+                            output,
+                            &ctx,
+                        )
+                        .await?
+                    }
+                    PasswordAttachmentAction::Delete {
+                        vault_id,
+                        item_id,
+                        attachment_id,
+                    } => {
+                        commands::passwords::attachment_delete(
+                            options,
+                            vault_id,
+                            item_id,
+                            attachment_id,
+                            &ctx,
+                        )
+                        .await?
+                    }
+                }
+            }
             PasswordsAction::Agent { action } => {
                 let options = commands::passwords::PasswordsOptions {
                     master_password: commands::passwords::master_password_from_env(),
@@ -6239,6 +6361,86 @@ mod tests {
                         assert!(reveal);
                     }
                     _ => panic!("unexpected passwords item action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn passwords_attachment_commands_parse() {
+        let vault_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let item_id = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+        let attachment_id = Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap();
+        let upload = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "attachments",
+            "upload",
+            "--vault-id",
+            "11111111-1111-1111-1111-111111111111",
+            "--item-id",
+            "22222222-2222-2222-2222-222222222222",
+            "--path",
+            "attachment.bin",
+            "--filename",
+            "report.pdf",
+            "--content-type",
+            "application/pdf",
+        ]);
+        match upload.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Attachments { action } => match action {
+                    PasswordAttachmentAction::Upload {
+                        vault_id: parsed_vault,
+                        item_id: parsed_item,
+                        path,
+                        filename,
+                        content_type,
+                    } => {
+                        assert_eq!(parsed_vault, Some(vault_id));
+                        assert_eq!(parsed_item, item_id);
+                        assert_eq!(path, std::path::PathBuf::from("attachment.bin"));
+                        assert_eq!(filename.as_deref(), Some("report.pdf"));
+                        assert_eq!(content_type.as_deref(), Some("application/pdf"));
+                    }
+                    _ => panic!("unexpected passwords attachment action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let download = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "attachments",
+            "download",
+            "--vault-id",
+            "11111111-1111-1111-1111-111111111111",
+            "--item-id",
+            "22222222-2222-2222-2222-222222222222",
+            "--attachment-id",
+            "33333333-3333-3333-3333-333333333333",
+            "--output",
+            "attachment.bin",
+        ]);
+        match download.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Attachments { action } => match action {
+                    PasswordAttachmentAction::Download {
+                        vault_id: parsed_vault,
+                        item_id: parsed_item,
+                        attachment_id: parsed_attachment,
+                        output,
+                    } => {
+                        assert_eq!(parsed_vault, Some(vault_id));
+                        assert_eq!(parsed_item, item_id);
+                        assert_eq!(parsed_attachment, attachment_id);
+                        assert_eq!(output, std::path::PathBuf::from("attachment.bin"));
+                    }
+                    _ => panic!("unexpected passwords attachment action parsed"),
                 },
                 _ => panic!("unexpected passwords action parsed"),
             },
