@@ -125,7 +125,12 @@ pub fn init_subscriber(to_stderr: bool) -> Option<TelemetryGuard> {
 
     let env_filter = EnvFilter::builder()
         .with_default_directive(tracing::Level::INFO.into())
-        .from_env_lossy();
+        .from_env_lossy()
+        .add_directive(
+            "rmcp::service=info"
+                .parse()
+                .expect("rmcp service tracing directive is valid"),
+        );
 
     // Initialize OpenTelemetry (may return None if disabled)
     let (otel_layer, guard) = match otel::init_tracing() {
@@ -172,7 +177,12 @@ pub fn init_subscriber(to_stderr: bool) -> Option<TelemetryGuard> {
 
     let env_filter = EnvFilter::builder()
         .with_default_directive(tracing::Level::INFO.into())
-        .from_env_lossy();
+        .from_env_lossy()
+        .add_directive(
+            "rmcp::service=info"
+                .parse()
+                .expect("rmcp service tracing directive is valid"),
+        );
 
     match (to_stderr, use_json()) {
         (true, true) => tracing_subscriber::registry()

@@ -56,6 +56,8 @@ pub struct RestorableSessionManager {
     restoration_locks: Mutex<HashMap<SessionId, Arc<Mutex<()>>>>,
     /// API base URL for creating service instances
     api_base_url: String,
+    /// HTTPS gateway base URL for Seren Passwords vault traffic
+    passwords_api_base_url: String,
 }
 
 /// Errors that can occur during session operations.
@@ -94,10 +96,12 @@ impl RestorableSessionManager {
     /// * `store` - PostgreSQL token store for session persistence
     /// * `session_config` - Configuration for rmcp sessions
     /// * `api_base_url` - Base URL for creating SerenMcpServer instances
+    /// * `passwords_api_base_url` - HTTPS gateway base URL for Seren Passwords vault traffic
     pub fn new(
         store: Arc<TokenStore>,
         session_config: SessionConfig,
         api_base_url: String,
+        passwords_api_base_url: String,
     ) -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
@@ -105,6 +109,7 @@ impl RestorableSessionManager {
             store,
             restoration_locks: Mutex::new(HashMap::new()),
             api_base_url,
+            passwords_api_base_url,
         }
     }
 
@@ -150,8 +155,12 @@ impl RestorableSessionManager {
         let transport = WorkerTransport::spawn(worker);
 
         // Create a new service instance
-        let service = SerenMcpServer::new_oauth(&self.api_base_url)
-            .map_err(|e| RestorableSessionError::ServiceCreation(e.to_string()))?;
+        let service = SerenMcpServer::new_oauth_with_store_and_passwords_api_url(
+            &self.api_base_url,
+            &self.passwords_api_base_url,
+            Some(self.store.clone()),
+        )
+        .map_err(|e| RestorableSessionError::ServiceCreation(e.to_string()))?;
 
         // Spawn the service task to handle MCP requests and wait for it to finish the
         // MCP handshake (initialize + initialized).

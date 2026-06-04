@@ -3,11 +3,13 @@ use crate::error::{McpError, Result};
 /// OAuth client ID for upstream authentication.
 /// This identifies the MCP server as a trusted OAuth client.
 const UPSTREAM_OAUTH_CLIENT_ID: &str = crate::MCP_SERVER_NAME;
+const SEREN_PASSWORDS_PUBLISHER_SLUG: &str = "seren-passwords";
 
 #[derive(Debug, Clone)]
 pub struct Config {
     pub auth: AuthConfig,
     pub api_base_url: String,
+    pub passwords_api_base_url: String,
     pub oauth_redirect_base_url: String,
     pub host: String,
     pub port: u16,
@@ -30,6 +32,11 @@ impl Config {
     pub fn from_env_for_command(command: &str) -> Result<Self> {
         let api_base_url =
             std::env::var("API_URL").unwrap_or_else(|_| "https://api.serendb.com".into());
+        let passwords_api_base_url = std::env::var("SEREN_PASSWORDS_API_URL")
+            .map(|base_url| publisher_api_base_url(&base_url, SEREN_PASSWORDS_PUBLISHER_SLUG))
+            .unwrap_or_else(|_| {
+                publisher_api_base_url(&api_base_url, SEREN_PASSWORDS_PUBLISHER_SLUG)
+            });
         let oauth_redirect_base_url =
             std::env::var("OAUTH_REDIRECT_URL").unwrap_or_else(|_| api_base_url.clone());
 
@@ -60,6 +67,7 @@ impl Config {
         Ok(Self {
             auth,
             api_base_url,
+            passwords_api_base_url,
             oauth_redirect_base_url,
             host: std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into()),
             port: std::env::var("PORT")
@@ -67,6 +75,16 @@ impl Config {
                 .parse()
                 .map_err(|_| McpError::Config("Invalid PORT".into()))?,
         })
+    }
+}
+
+fn publisher_api_base_url(api_base_url: &str, publisher_slug: &str) -> String {
+    let publisher_prefix = format!("/publishers/{publisher_slug}");
+    let trimmed = api_base_url.trim_end_matches('/');
+    if trimmed.ends_with(&publisher_prefix) {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}{publisher_prefix}")
     }
 }
 
@@ -90,6 +108,7 @@ mod tests {
                 ("HOST", None),
                 ("PORT", None),
                 ("API_URL", None),
+                ("SEREN_PASSWORDS_API_URL", None),
             ],
             || {
                 let cfg = Config::from_env_for_command("start").unwrap();
@@ -97,6 +116,49 @@ mod tests {
                 assert_eq!(cfg.host, "0.0.0.0");
                 assert_eq!(cfg.port, 3000);
                 assert_eq!(cfg.api_base_url, "https://api.serendb.com");
+                assert_eq!(
+                    cfg.passwords_api_base_url,
+                    "https://api.serendb.com/publishers/seren-passwords"
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn start_default_passwords_api_url_does_not_duplicate_prefix() {
+        temp_env::with_vars(
+            [
+                ("API_KEY", Some("test-key")),
+                (
+                    "API_URL",
+                    Some("https://api.serendb.com/publishers/seren-passwords/"),
+                ),
+                ("SEREN_PASSWORDS_API_URL", None),
+            ],
+            || {
+                let cfg = Config::from_env_for_command("start").unwrap();
+                assert_eq!(
+                    cfg.passwords_api_base_url,
+                    "https://api.serendb.com/publishers/seren-passwords"
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn start_configured_passwords_api_url_appends_publisher_prefix() {
+        temp_env::with_vars(
+            [
+                ("API_KEY", Some("test-key")),
+                ("API_URL", Some("http://internal-api.invalid")),
+                ("SEREN_PASSWORDS_API_URL", Some("https://api.serendb.com/")),
+            ],
+            || {
+                let cfg = Config::from_env_for_command("start").unwrap();
+                assert_eq!(
+                    cfg.passwords_api_base_url,
+                    "https://api.serendb.com/publishers/seren-passwords"
+                );
             },
         );
     }
@@ -115,7 +177,11 @@ mod tests {
             [
                 ("DATABASE_URL", Some("postgres://localhost/test")),
                 ("PUBLIC_URL", Some("https://mcp.serendb.com")),
-                ("API_URL", Some("https://example.com")),
+                ("API_URL", Some("http://internal-api.invalid")),
+                (
+                    "SEREN_PASSWORDS_API_URL",
+                    Some("https://api.serendb.com/publishers/seren-passwords"),
+                ),
             ],
             || {
                 let cfg = Config::from_env_for_command("start:server").unwrap();
@@ -131,7 +197,11 @@ mod tests {
                     }
                     _ => panic!("expected OAuth config"),
                 }
-                assert_eq!(cfg.api_base_url, "https://example.com");
+                assert_eq!(cfg.api_base_url, "http://internal-api.invalid");
+                assert_eq!(
+                    cfg.passwords_api_base_url,
+                    "https://api.serendb.com/publishers/seren-passwords"
+                );
             },
         );
     }

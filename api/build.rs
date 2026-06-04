@@ -85,6 +85,39 @@ fn normalize_binary_content_schemas(value: &mut serde_json::Value) {
     }
 }
 
+/// Progenitor models optional nullable parameters as `Option<Option<T>>`, but
+/// its header serialization path cannot render that shape. Optional parameters
+/// already model absence, so strip the redundant null variant before codegen.
+fn normalize_nullable_parameters(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if map.get("in").is_some()
+                && map.get("required").and_then(|v| v.as_bool()) == Some(false)
+                && let Some(serde_json::Value::Object(schema)) = map.get_mut("schema")
+            {
+                if let Some(serde_json::Value::Array(types)) = schema.get_mut("type") {
+                    types.retain(|kind| kind.as_str() != Some("null"));
+                    if types.len() == 1 {
+                        let kind = types[0].clone();
+                        schema.insert("type".to_string(), kind);
+                    }
+                }
+                schema.remove("nullable");
+            }
+
+            for v in map.values_mut() {
+                normalize_nullable_parameters(v);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                normalize_nullable_parameters(v);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn ensure_schema(components: &mut openapiv3::Components, name: &str, schema: Schema) {
     components
         .schemas
@@ -407,7 +440,7 @@ fn merge_publisher_spec(
     remap_publisher_refs(&mut publisher);
 
     // Merge paths.
-    // Publisher specs now use relative paths; convert to absolute paths under
+    // Publisher specs use relative paths; convert to absolute paths under
     // /publishers/<slug> when composing the monolithic client spec.
     if let (Some(main_paths), Some(pub_paths)) = (
         main.get_mut("paths").and_then(|v| v.as_object_mut()),
@@ -457,6 +490,7 @@ fn main() -> anyhow::Result<()> {
     println!("cargo:rerun-if-changed=../openapi/openapi-seren-agent.json");
     println!("cargo:rerun-if-changed=../openapi/openapi-seren-models.json");
     println!("cargo:rerun-if-changed=../openapi/openapi-seren-private-models.json");
+    println!("cargo:rerun-if-changed=../openapi/openapi-seren-passwords.json");
 
     let spec_str = fs::read_to_string("../openapi/openapi.json")?;
     let mut raw_json: serde_json::Value = serde_json::from_str(&spec_str)?;
@@ -487,12 +521,18 @@ fn main() -> anyhow::Result<()> {
         "../openapi/openapi-seren-private-models.json",
         "seren-private-models",
     )?;
+    merge_publisher_spec(
+        &mut raw_json,
+        "../openapi/openapi-seren-passwords.json",
+        "seren-passwords",
+    )?;
 
     // Replace inline schemas in DataResponse_* wrappers with $ref to named equivalents.
     // This must run after merging publisher specs so all schemas are present.
     dedup_data_response_schemas(&mut raw_json);
 
     // Normalize OpenAPI 3.1 nullable syntax before deserializing with openapiv3.
+    normalize_nullable_parameters(&mut raw_json);
     downconvert_31_to_30(&mut raw_json);
     raw_json["openapi"] = serde_json::json!("3.0.3");
 
@@ -568,8 +608,6 @@ fn main() -> anyhow::Result<()> {
     let tokens = generator.generate_tokens(&spec)?;
 
     let syntax: syn::File = syn::parse2(tokens)?;
-    // Generate full client with types - no longer filtering to types only
-
     let formatted = prettyplease::unparse(&syntax);
 
     // Replace chrono with jiff in the generated code

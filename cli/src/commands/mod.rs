@@ -15,6 +15,7 @@ pub mod operations;
 pub mod org_oauth_providers;
 pub mod org_skills;
 pub mod organizations;
+pub mod passwords;
 pub mod projects;
 pub mod rbac;
 pub mod replication;

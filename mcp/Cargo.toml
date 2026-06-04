@@ -84,6 +84,12 @@ hex = { workspace = true }
 toml = { workspace = true }
 etcetera = { workspace = true }
 
+# Seren Passwords (end-to-end-encrypted vault access)
+seren-secrets-crypto   = { git = "https://github.com/serenorg/seren-secrets.git", tag = "v0.1.0" }
+seren-secrets-resolver = { git = "https://github.com/serenorg/seren-secrets.git", tag = "v0.1.0" }
+zeroize = "1"
+rpassword = "7.4"
+
 # Utils
 uuid = { workspace = true }
 rand = { workspace = true }

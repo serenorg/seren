@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use alloy::primitives::U256;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use futures::TryStreamExt;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
@@ -28,10 +29,11 @@ use rmcp::{
     tool, tool_router,
 };
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use tracing::instrument;
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 use crate::money::{format_usd_micros, parse_usd_to_cents, usd_f64_to_cents};
 use crate::wallet::{
@@ -47,9 +49,10 @@ enum SerenAuth {
 /// Seren MCP Server
 #[derive(Clone)]
 pub struct SerenMcpServer {
-    api_base_url: String,
+    pub(crate) api_base_url: String,
+    passwords_api_base_url: String,
     auth: SerenAuth,
-    http_client: reqwest::Client,
+    pub(crate) http_client: reqwest::Client,
     tool_router: ToolRouter<Self>,
     /// Optional local wallet for x402 payments when running locally.
     /// Loaded from WALLET_PRIVATE_KEY environment variable.
@@ -57,6 +60,14 @@ pub struct SerenMcpServer {
     wallet: Option<Arc<PrivateKeyWallet>>,
     /// Signer configuration (auto-approve threshold, etc.)
     signer_config: SignerConfig,
+    /// true for local run modes (stdio, start:http); false for hosted start:server.
+    pub(crate) passwords_local_mode: bool,
+    /// User-mode (master-password) unlocked session; None until passwords_unlock (added later).
+    passwords_session: Arc<tokio::sync::Mutex<Option<crate::passwords::PasswordsSession>>>,
+    /// Provisioned agent identity (agent-key mode), loaded once at startup.
+    passwords_agent: Option<Arc<crate::passwords::PasswordsAgentIdentity>>,
+    /// Hosted token-vault storage for remote MCP passwords agent credentials.
+    pub(crate) passwords_hosted_store: Option<Arc<crate::oauth::store::TokenStore>>,
 }
 
 // ============================================================================
@@ -2799,7 +2810,7 @@ struct SqlBatchRequest {
 // Helper to convert to JSON content
 // ============================================================================
 
-fn json_content<T: Serialize>(data: &T) -> Result<Content, McpError> {
+pub(crate) fn json_content<T: Serialize>(data: &T) -> Result<Content, McpError> {
     let text = serde_json::to_string_pretty(data)
         .map_err(|e| McpError::internal_error(e.to_string(), None))?;
     Ok(Content::text(text))
@@ -2814,40 +2825,16 @@ fn truncate_for_client(value: &str, max_chars: usize) -> String {
     format!("{truncated}... (truncated)")
 }
 
-/// Convert a seren SDK error to an MCP error, extracting response body for better diagnostics.
-///
-/// This properly handles `UnexpectedResponse` errors by reading the response body,
-/// which is not included in the default `Display` implementation.
-async fn seren_error_to_mcp_error<T: std::fmt::Debug>(e: seren::Error<T>) -> McpError {
+/// Convert a seren SDK error to an MCP error without forwarding server response bodies.
+pub(crate) async fn seren_error_to_mcp_error<T: std::fmt::Debug>(e: seren::Error<T>) -> McpError {
     match e {
         seren::Error::UnexpectedResponse(response) => {
             let status = response.status();
-            let headers = response.headers().clone();
-            let body = response.text().await.unwrap_or_default();
-
-            // Try to extract a meaningful error message from JSON body
-            let error_message = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
-                // Try common error message fields
-                json.get("message")
-                    .or_else(|| json.get("error"))
-                    .or_else(|| json.get("detail"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| truncate_for_client(&body, 1200))
-            } else if body.is_empty() {
-                format!(
-                    "Empty response body (content-length: {:?})",
-                    headers.get("content-length")
-                )
-            } else {
-                truncate_for_client(&body, 1200)
-            };
-
-            McpError::internal_error(format!("API error {status}: {error_message}"), None)
+            McpError::internal_error(format!("API error {status}"), None)
         }
         seren::Error::ErrorResponse(resp) => {
             let status = resp.status();
-            McpError::internal_error(format!("API error {status}: {:?}", resp.into_inner()), None)
+            McpError::internal_error(format!("API error {status}"), None)
         }
         seren::Error::InvalidRequest(msg) => {
             McpError::invalid_params(format!("Invalid request: {msg}"), None)
@@ -2866,6 +2853,41 @@ async fn seren_error_to_mcp_error<T: std::fmt::Debug>(e: seren::Error<T>) -> Mcp
         }
         seren::Error::Custom(msg) => McpError::internal_error(format!("Custom error: {msg}"), None),
     }
+}
+
+pub(crate) fn decode_publisher_gateway_body<T>(bytes: &[u8]) -> Result<T, String>
+where
+    T: DeserializeOwned,
+{
+    if let Ok(response) = serde_json::from_slice::<T>(bytes) {
+        return Ok(response);
+    }
+
+    let value: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|e| format!("invalid JSON body: {e}"))?;
+    let data = value
+        .get("data")
+        .ok_or_else(|| "missing data field".to_string())?;
+    let status = data.get("status").and_then(serde_json::Value::as_u64);
+    if status != Some(200) {
+        return Err(format!(
+            "gateway returned upstream status {}",
+            status
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "unknown".to_string())
+        ));
+    }
+    let body = data
+        .get("body")
+        .ok_or_else(|| "missing data.body field".to_string())?;
+    let body = match body.as_str() {
+        Some(raw) => serde_json::from_str::<serde_json::Value>(raw)
+            .map_err(|e| format!("invalid JSON in data.body: {e}"))?,
+        None => body.clone(),
+    };
+
+    serde_json::from_value::<T>(body)
+        .map_err(|e| format!("invalid typed response in data.body: {e}"))
 }
 
 /// Check if a seren SDK error is retryable (transient connection/timeout errors).
@@ -3231,7 +3253,7 @@ fn is_read_only(extensions: &Extensions) -> bool {
         .is_some_and(|v| v == "1" || v == "true" || v == "yes" || v == "on")
 }
 
-fn ensure_writes_allowed(extensions: &Extensions) -> Result<(), McpError> {
+pub(crate) fn ensure_writes_allowed(extensions: &Extensions) -> Result<(), McpError> {
     if is_read_only(extensions) {
         return Err(McpError::invalid_request(
             "Read-only mode: write operations are disabled",
@@ -3344,6 +3366,15 @@ fn extract_bearer_token_from_extensions(extensions: &Extensions) -> Option<Strin
     } else {
         None
     }
+}
+
+pub(crate) fn extract_user_id_from_extensions(extensions: &Extensions) -> Option<Uuid> {
+    let parts = extensions.get::<axum::http::request::Parts>()?;
+    let header = parts
+        .headers
+        .get(axum::http::HeaderName::from_static("x-user-id"))?;
+    let user_id = header.to_str().ok()?.trim();
+    Uuid::parse_str(user_id).ok()
 }
 
 /// Agent metadata extracted from OAuth client registration
@@ -3678,12 +3709,172 @@ fn validate_token_cache_ttl_seconds(value: Option<i32>) -> Result<Option<i32>, M
 // ============================================================================
 
 impl SerenMcpServer {
-    fn bearer_token(&self, extensions: &Extensions) -> Result<String, McpError> {
+    pub(crate) fn bearer_token(&self, extensions: &Extensions) -> Result<String, McpError> {
         match &self.auth {
             SerenAuth::StaticToken(token) => Ok(token.clone()),
             SerenAuth::FromRequestBearer => extract_bearer_token_from_extensions(extensions)
                 .ok_or_else(|| McpError::invalid_request("Missing Bearer token", None)),
         }
+    }
+
+    pub(crate) fn api_client_for_bearer(
+        &self,
+        bearer: &str,
+        extensions: &Extensions,
+    ) -> Result<seren::Client, McpError> {
+        let agent_metadata = extract_agent_metadata_from_extensions(extensions);
+        let http_client = self.build_http_client(bearer, &agent_metadata)?;
+        Ok(seren::Client::new_with_client(
+            &self.api_base_url,
+            http_client,
+        ))
+    }
+
+    /// Build a Seren Passwords vault client for the active credential.
+    ///
+    /// A fresh in-memory user-mode session takes priority: a deliberate
+    /// `passwords_unlock` selects user mode and stores only the derived KEM
+    /// private key (the session expires after the idle TTL). Otherwise agent-key
+    /// mode (loaded at startup) is the default. The server never holds or emits
+    /// the unwrapped key material.
+    pub(crate) async fn passwords_vault_client(
+        &self,
+        extensions: &Extensions,
+    ) -> Result<seren_secrets_resolver::VaultClient, McpError> {
+        use seren_secrets_resolver::{VaultClient, VaultClientConfig, VaultKeySource};
+
+        let (bearer, kem_private) = self.passwords_vault_auth(extensions).await?;
+
+        VaultClient::new(VaultClientConfig {
+            base_url: self.passwords_api_base_url.clone(),
+            bearer_token: bearer,
+            key_source: VaultKeySource::AgentKey { kem_private },
+        })
+        .map_err(crate::passwords::vault_err)
+    }
+
+    pub(crate) async fn passwords_vault_auth(
+        &self,
+        extensions: &Extensions,
+    ) -> Result<(String, seren_secrets_crypto::keys::IdentityKemPrivateKey), McpError> {
+        let session_kem = {
+            let mut guard = self.passwords_session.lock().await;
+            match guard.as_mut() {
+                Some(session) => {
+                    if session.last_activity.elapsed() > crate::passwords::SESSION_IDLE_TTL {
+                        *guard = None;
+                        return Err(McpError::invalid_request(
+                            "Vault session expired. Call passwords_unlock again.",
+                            None,
+                        ));
+                    }
+                    session.last_activity = std::time::Instant::now();
+                    Some(session.kem_private.clone())
+                }
+                None => None,
+            }
+        };
+
+        if let Some(kem_private) = session_kem {
+            let bearer = self.bearer_token(extensions)?;
+            Ok((bearer, kem_private))
+        } else if let Some(agent) = &self.passwords_agent {
+            Ok((agent.api_key.as_str().to_owned(), agent.kem_private.clone()))
+        } else if let Some(store) = &self.passwords_hosted_store {
+            let user_id = extract_user_id_from_extensions(extensions).ok_or_else(|| {
+                McpError::invalid_request(
+                    "Missing authenticated user for hosted vault access",
+                    None,
+                )
+            })?;
+            let agent = store
+                .get_hosted_passwords_agent(user_id)
+                .await
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?
+                .ok_or_else(|| {
+                    McpError::invalid_request(
+                        "Hosted vault access is not configured. Call passwords_request_access and open the returned consent URL.",
+                        None,
+                    )
+                })?;
+            let kem_bytes =
+                Zeroizing::new(BASE64.decode(agent.kem_private.as_bytes()).map_err(|_| {
+                    McpError::internal_error("Stored hosted agent key is invalid", None)
+                })?);
+            let kem_private = seren_secrets_crypto::keys::IdentityKemPrivateKey::from_slice(
+                &kem_bytes,
+            )
+            .map_err(|_| McpError::internal_error("Stored hosted agent key is invalid", None))?;
+            Ok((agent.api_key.as_str().to_owned(), kem_private))
+        } else if !self.passwords_local_mode {
+            Err(McpError::invalid_request(
+                "Vault access requires a delegated agent key in hosted mode.",
+                None,
+            ))
+        } else {
+            Err(McpError::invalid_request(
+                "Vault locked. Configure an agent key or call passwords_unlock.",
+                None,
+            ))
+        }
+    }
+
+    /// Establish a user-mode (master-password) unlocked session.
+    ///
+    /// The master password is sourced outside tool arguments and dropped after
+    /// deriving the identity KEM private key. User mode is forbidden in hosted mode.
+    pub(crate) async fn passwords_unlock_session(
+        &self,
+        extensions: &Extensions,
+    ) -> Result<(), McpError> {
+        if !self.passwords_local_mode {
+            return Err(McpError::invalid_request(
+                "passwords_unlock is only available in local MCP modes (stdio, start:http); hosted mode must use an agent key.",
+                None,
+            ));
+        }
+
+        let master_password = crate::passwords::read_master_password().await?;
+        let bearer = self.bearer_token(extensions)?;
+        let key_source = seren_secrets_resolver::fetch_master_password_key_source(
+            &self.passwords_api_base_url,
+            &bearer,
+            master_password,
+        )
+        .await
+        .map_err(crate::passwords::vault_err)?;
+        let kem_private = tokio::task::spawn_blocking(move || {
+            key_source.kem_private().map(|kem| kem.into_owned())
+        })
+        .await
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        let mut guard = self.passwords_session.lock().await;
+        // One active session slot needs at most one idle reaper.
+        let needs_reaper = guard.is_none();
+        *guard = Some(crate::passwords::PasswordsSession {
+            kem_private,
+            last_activity: std::time::Instant::now(),
+        });
+        drop(guard);
+
+        // Proactively zeroize the session after the idle TTL even if no further
+        // tool call arrives to drive the lazy check.
+        if needs_reaper {
+            tokio::spawn(crate::passwords::reap_idle_session(
+                self.passwords_session.clone(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Discard any user-mode session, zeroizing its derived key material.
+    ///
+    /// Idempotent and allowed in any mode.
+    pub(crate) async fn passwords_lock_session(&self) {
+        let mut guard = self.passwords_session.lock().await;
+        *guard = None;
     }
 
     fn insert_agent_metadata_headers(
@@ -3803,7 +3994,7 @@ impl SerenMcpServer {
             })
     }
 
-    fn api_client(&self, extensions: &Extensions) -> Result<seren::Client, McpError> {
+    pub(crate) fn api_client(&self, extensions: &Extensions) -> Result<seren::Client, McpError> {
         let token = self.bearer_token(extensions)?;
         let agent_metadata = extract_agent_metadata_from_extensions(extensions);
         let http_client = self.build_http_client(&token, &agent_metadata)?;
@@ -4637,14 +4828,14 @@ impl SerenMcpServer {
     ///
     /// The private key should be a hex string (with or without 0x prefix).
     ///
-    /// SECURITY: The private key is NEVER logged, even on error.
+    /// The private key is not logged, including on parse failure.
     fn load_wallet_from_env() -> Option<PrivateKeyWallet> {
         match std::env::var("WALLET_PRIVATE_KEY") {
             Ok(key) => match PrivateKeyWallet::from_env_or_key(Some(key)) {
                 Ok(Some(w)) => Some(w),
                 Ok(None) => None,
                 Err(e) => {
-                    // SECURITY: Do not log the key, only the error type
+                    // Keep key material out of diagnostics.
                     tracing::error!("Failed to load wallet from WALLET_PRIVATE_KEY: {}", e);
                     None
                 }
@@ -4657,12 +4848,22 @@ impl SerenMcpServer {
     ///
     /// In stdio mode, the optional wallet from WALLET_PRIVATE_KEY is loaded
     /// to enable local x402 payment signing.
-    #[allow(clippy::result_large_err)]
+    #[allow(clippy::result_large_err, dead_code)]
     pub fn new(api_key: &str, api_base_url: &str) -> Result<Self, seren::Error> {
+        Self::new_with_passwords_api_url(api_key, api_base_url, api_base_url)
+    }
+
+    /// Create a new Seren MCP Server with a separate passwords gateway URL.
+    #[allow(clippy::result_large_err)]
+    pub fn new_with_passwords_api_url(
+        api_key: &str,
+        api_base_url: &str,
+        passwords_api_base_url: &str,
+    ) -> Result<Self, seren::Error> {
         let wallet = Self::load_wallet_from_env();
         let signer_config = SignerConfig::load_or_create();
 
-        // Log wallet status (but NEVER the key itself)
+        // Log only derived wallet status.
         if let Some(ref w) = wallet {
             tracing::info!(
                 wallet_address = %w.address(),
@@ -4683,11 +4884,16 @@ impl SerenMcpServer {
 
         Ok(Self {
             api_base_url: api_base_url.to_string(),
+            passwords_api_base_url: passwords_api_base_url.to_string(),
             auth: SerenAuth::StaticToken(api_key.to_string()),
             http_client,
-            tool_router: Self::tool_router(),
+            tool_router: Self::tool_router() + Self::passwords_tool_router(),
             wallet: wallet.map(Arc::new),
             signer_config,
+            passwords_local_mode: true,
+            passwords_session: Arc::new(tokio::sync::Mutex::new(None)),
+            passwords_agent: crate::passwords::load_agent_identity(),
+            passwords_hosted_store: None,
         })
     }
 
@@ -4698,8 +4904,31 @@ impl SerenMcpServer {
     ///
     /// NOTE: Local wallet is DISABLED in hosted mode for security.
     /// Users must use prepaid balance or the hosted wallet API.
-    #[allow(clippy::result_large_err)]
+    #[allow(clippy::result_large_err, dead_code)]
     pub fn new_oauth(api_base_url: &str) -> Result<Self, seren::Error> {
+        Self::new_oauth_with_store(api_base_url, None)
+    }
+
+    /// Create a new Seren MCP Server in OAuth mode with hosted credential storage.
+    #[allow(clippy::result_large_err)]
+    pub fn new_oauth_with_store(
+        api_base_url: &str,
+        passwords_hosted_store: Option<Arc<crate::oauth::store::TokenStore>>,
+    ) -> Result<Self, seren::Error> {
+        Self::new_oauth_with_store_and_passwords_api_url(
+            api_base_url,
+            api_base_url,
+            passwords_hosted_store,
+        )
+    }
+
+    /// Create a new Seren MCP Server in OAuth mode with a separate passwords gateway URL.
+    #[allow(clippy::result_large_err)]
+    pub fn new_oauth_with_store_and_passwords_api_url(
+        api_base_url: &str,
+        passwords_api_base_url: &str,
+        passwords_hosted_store: Option<Arc<crate::oauth::store::TokenStore>>,
+    ) -> Result<Self, seren::Error> {
         // Hosted mode: explicitly disable local wallet
         tracing::debug!("X402 local signing disabled (hosted mode)");
 
@@ -4713,11 +4942,17 @@ impl SerenMcpServer {
 
         Ok(Self {
             api_base_url: api_base_url.to_string(),
+            passwords_api_base_url: passwords_api_base_url.to_string(),
             auth: SerenAuth::FromRequestBearer,
             http_client,
-            tool_router: Self::tool_router(),
+            tool_router: Self::tool_router() + Self::passwords_tool_router(),
             wallet: None,
             signer_config: SignerConfig::default(),
+            // Local agent-key signing is DISABLED in hosted mode (mirrors wallet).
+            passwords_local_mode: false,
+            passwords_session: Arc::new(tokio::sync::Mutex::new(None)),
+            passwords_agent: None,
+            passwords_hosted_store,
         })
     }
 
@@ -11464,11 +11699,16 @@ mod tests {
     fn server_with_http_client(http_client: reqwest::Client) -> SerenMcpServer {
         SerenMcpServer {
             api_base_url: "https://api.serendb.com".to_string(),
+            passwords_api_base_url: "https://api.serendb.com".to_string(),
             auth: SerenAuth::StaticToken("test-key".to_string()),
             http_client,
-            tool_router: SerenMcpServer::tool_router(),
+            tool_router: SerenMcpServer::tool_router() + SerenMcpServer::passwords_tool_router(),
             wallet: None,
             signer_config: SignerConfig::default(),
+            passwords_local_mode: true,
+            passwords_session: Arc::new(tokio::sync::Mutex::new(None)),
+            passwords_agent: None,
+            passwords_hosted_store: None,
         }
     }
 
@@ -12548,5 +12788,26 @@ mod tests {
             seren::CloudRunApprovalDecisionValue::Reject
         );
         assert_eq!(approval_decisions[1].id, "approval-2");
+    }
+
+    #[tokio::test]
+    async fn passwords_unlock_is_rejected_in_hosted_mode() {
+        // Hosted mode uses delegated agent keys only.
+        let server = SerenMcpServer::new_oauth("https://api.serendb.com").unwrap();
+        assert!(!server.passwords_local_mode);
+
+        let extensions = extensions_with_headers(&[("authorization", "Bearer test-token")]);
+        let err = server
+            .passwords_unlock_session(&extensions)
+            .await
+            .expect_err("passwords_unlock must be rejected in hosted mode");
+        assert!(
+            err.message.contains("hosted mode must use an agent key"),
+            "unexpected error message: {}",
+            err.message
+        );
+
+        // The hosted-mode gate leaves the session untouched.
+        assert!(server.passwords_session.lock().await.is_none());
     }
 }

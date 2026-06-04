@@ -12,6 +12,7 @@ use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 /// PKCE code challenge methods (RFC 7636)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
@@ -207,6 +208,64 @@ pub struct PendingConsent {
     pub created_at: OffsetDateTime,
 }
 
+/// Hosted Seren Passwords agent credential decrypted from the token vault.
+///
+/// The secret fields are wrapped in `Zeroizing` so they are scrubbed when the
+/// request-scoped value is dropped.
+#[derive(Clone)]
+pub struct HostedPasswordsAgent {
+    pub kem_private: Zeroizing<String>,
+    pub api_key: Zeroizing<String>,
+}
+
+/// Pending hosted agent keypair waiting for browser-side vault consent.
+#[derive(Clone)]
+pub struct HostedPasswordsAgentRequest {
+    pub kem_public: String,
+    pub signing_public: String,
+    pub kem_private: Zeroizing<String>,
+}
+
+pub struct PendingHostedPasswordsAgentRequest<'a> {
+    pub user_id: Uuid,
+    pub request_id: Uuid,
+    pub display_name: &'a str,
+    pub kem_public: &'a str,
+    pub signing_public: &'a str,
+    pub kem_private: &'a str,
+    pub expires_at: OffsetDateTime,
+}
+
+#[derive(Serialize, Deserialize)]
+struct HostedPasswordsAgentSecretBundle {
+    user_id: Uuid,
+    identity_id: Uuid,
+    kem_private: String,
+    api_key: String,
+}
+
+#[derive(Serialize)]
+struct HostedPasswordsAgentSecretBundleRef<'a> {
+    user_id: Uuid,
+    identity_id: Uuid,
+    kem_private: &'a str,
+    api_key: &'a str,
+}
+
+#[derive(Serialize, Deserialize)]
+struct HostedPasswordsAgentRequestSecretBundle {
+    user_id: Uuid,
+    request_id: Uuid,
+    kem_private: String,
+}
+
+#[derive(Serialize)]
+struct HostedPasswordsAgentRequestSecretBundleRef<'a> {
+    user_id: Uuid,
+    request_id: Uuid,
+    kem_private: &'a str,
+}
+
 /// Token store backed by PostgreSQL with LRU cache for client metadata
 #[derive(Clone)]
 pub struct TokenStore {
@@ -290,6 +349,15 @@ impl TokenStore {
         }
     }
 
+    #[allow(clippy::result_large_err)]
+    fn hosted_passwords_agent_cipher(&self, action: &str) -> Result<&TokenCipher> {
+        self.token_cipher.as_ref().ok_or_else(|| {
+            McpError::Config(format!(
+                "OAUTH_TOKEN_ENCRYPTION_KEYS must be configured before {action} hosted Seren Passwords agents"
+            ))
+        })
+    }
+
     // === Client operations ===
 
     /// Get a client by ID
@@ -323,6 +391,338 @@ impl TokenStore {
         }
 
         Ok(client)
+    }
+
+    /// Store or replace a hosted Seren Passwords agent credential for a user.
+    ///
+    /// The caller must pass plaintext secret fields only in request-scoped
+    /// buffers. This method encrypts them before they reach Postgres.
+    pub async fn upsert_hosted_passwords_agent(
+        &self,
+        user_id: Uuid,
+        identity_id: Uuid,
+        display_name: &str,
+        kem_private: &str,
+        api_key: &str,
+        granted_vaults: &serde_json::Value,
+    ) -> Result<()> {
+        let credential_bundle = HostedPasswordsAgentSecretBundleRef {
+            user_id,
+            identity_id,
+            kem_private,
+            api_key,
+        };
+        let credential_json =
+            Zeroizing::new(serde_json::to_string(&credential_bundle).map_err(|e| {
+                McpError::Config(format!("Hosted passwords credential encode failed: {e}"))
+            })?);
+        let credential_ciphertext = self
+            .hosted_passwords_agent_cipher("storing")?
+            .encrypt(&credential_json)?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO mcp_oauth.hosted_passwords_agents
+                (user_id, identity_id, display_name, credential_ciphertext, granted_vaults)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (user_id, identity_id)
+            DO UPDATE SET
+                display_name = EXCLUDED.display_name,
+                credential_ciphertext = EXCLUDED.credential_ciphertext,
+                granted_vaults = EXCLUDED.granted_vaults
+            "#,
+        )
+        .bind(user_id)
+        .bind(identity_id)
+        .bind(display_name)
+        .bind(&credential_ciphertext)
+        .bind(granted_vaults)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(())
+    }
+
+    pub async fn upsert_pending_hosted_passwords_agent(
+        &self,
+        request: PendingHostedPasswordsAgentRequest<'_>,
+    ) -> Result<()> {
+        let credential_bundle = HostedPasswordsAgentRequestSecretBundleRef {
+            user_id: request.user_id,
+            request_id: request.request_id,
+            kem_private: request.kem_private,
+        };
+        let credential_json =
+            Zeroizing::new(serde_json::to_string(&credential_bundle).map_err(|e| {
+                McpError::Config(format!("Hosted passwords request encode failed: {e}"))
+            })?);
+        let credential_ciphertext = self
+            .hosted_passwords_agent_cipher("storing pending")?
+            .encrypt(&credential_json)?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO mcp_oauth.hosted_passwords_agent_requests
+                (user_id, request_id, display_name, kem_public, signing_public,
+                    credential_ciphertext, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (user_id)
+            DO UPDATE SET
+                request_id = EXCLUDED.request_id,
+                display_name = EXCLUDED.display_name,
+                kem_public = EXCLUDED.kem_public,
+                signing_public = EXCLUDED.signing_public,
+                credential_ciphertext = EXCLUDED.credential_ciphertext,
+                expires_at = EXCLUDED.expires_at,
+                finalizing_at = NULL,
+                created_at = NOW()
+            "#,
+        )
+        .bind(request.user_id)
+        .bind(request.request_id)
+        .bind(request.display_name)
+        .bind(request.kem_public)
+        .bind(request.signing_public)
+        .bind(&credential_ciphertext)
+        .bind(request.expires_at)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(())
+    }
+
+    pub async fn get_pending_hosted_passwords_agent(
+        &self,
+        user_id: Uuid,
+        request_id: Uuid,
+    ) -> Result<Option<HostedPasswordsAgentRequest>> {
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            request_id: Uuid,
+            kem_public: String,
+            signing_public: String,
+            credential_ciphertext: String,
+        }
+
+        let row = sqlx::query_as::<_, Row>(
+            r#"
+            SELECT request_id, kem_public, signing_public, credential_ciphertext
+            FROM mcp_oauth.hosted_passwords_agent_requests
+            WHERE user_id = $1 AND request_id = $2 AND expires_at > NOW()
+            "#,
+        )
+        .bind(user_id)
+        .bind(request_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        if !TokenCipher::is_encrypted(&row.credential_ciphertext) {
+            return Err(McpError::Config(
+                "Hosted passwords pending credential is not encrypted".into(),
+            ));
+        }
+        let credential_json = Zeroizing::new(
+            self.hosted_passwords_agent_cipher("reading pending")?
+                .decrypt_or_plain(&row.credential_ciphertext)?,
+        );
+        let bundle: HostedPasswordsAgentRequestSecretBundle =
+            serde_json::from_str(&credential_json).map_err(|e| {
+                McpError::Config(format!("Hosted passwords request decode failed: {e}"))
+            })?;
+        if bundle.user_id != user_id || bundle.request_id != row.request_id {
+            return Err(McpError::Config(
+                "Hosted passwords pending credential binding mismatch".into(),
+            ));
+        }
+
+        Ok(Some(HostedPasswordsAgentRequest {
+            kem_public: row.kem_public,
+            signing_public: row.signing_public,
+            kem_private: Zeroizing::new(bundle.kem_private),
+        }))
+    }
+
+    pub async fn claim_pending_hosted_passwords_agent(
+        &self,
+        user_id: Uuid,
+        request_id: Uuid,
+    ) -> Result<Option<HostedPasswordsAgentRequest>> {
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            request_id: Uuid,
+            kem_public: String,
+            signing_public: String,
+            credential_ciphertext: String,
+        }
+
+        let row = sqlx::query_as::<_, Row>(
+            r#"
+            UPDATE mcp_oauth.hosted_passwords_agent_requests
+            SET finalizing_at = NOW()
+            WHERE user_id = $1
+                AND request_id = $2
+                AND expires_at > NOW()
+                AND (
+                    finalizing_at IS NULL
+                    OR finalizing_at < NOW() - INTERVAL '5 minutes'
+                )
+            RETURNING request_id, kem_public, signing_public, credential_ciphertext
+            "#,
+        )
+        .bind(user_id)
+        .bind(request_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        if !TokenCipher::is_encrypted(&row.credential_ciphertext) {
+            return Err(McpError::Config(
+                "Hosted passwords pending credential is not encrypted".into(),
+            ));
+        }
+        let credential_json = Zeroizing::new(
+            self.hosted_passwords_agent_cipher("reading pending")?
+                .decrypt_or_plain(&row.credential_ciphertext)?,
+        );
+        let bundle: HostedPasswordsAgentRequestSecretBundle =
+            serde_json::from_str(&credential_json).map_err(|e| {
+                McpError::Config(format!("Hosted passwords request decode failed: {e}"))
+            })?;
+        if bundle.user_id != user_id || bundle.request_id != row.request_id {
+            return Err(McpError::Config(
+                "Hosted passwords pending credential binding mismatch".into(),
+            ));
+        }
+
+        Ok(Some(HostedPasswordsAgentRequest {
+            kem_public: row.kem_public,
+            signing_public: row.signing_public,
+            kem_private: Zeroizing::new(bundle.kem_private),
+        }))
+    }
+
+    pub async fn delete_pending_hosted_passwords_agent(
+        &self,
+        user_id: Uuid,
+        request_id: Uuid,
+    ) -> Result<u64> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM mcp_oauth.hosted_passwords_agent_requests
+            WHERE user_id = $1 AND request_id = $2
+            "#,
+        )
+        .bind(user_id)
+        .bind(request_id)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+        Ok(result.rows_affected())
+    }
+
+    pub async fn delete_expired_pending_hosted_passwords_agents(&self) -> Result<u64> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM mcp_oauth.hosted_passwords_agent_requests
+            WHERE expires_at <= NOW()
+            "#,
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+        Ok(result.rows_affected())
+    }
+
+    /// Return the most recently uploaded hosted Seren Passwords agent for a user.
+    pub async fn get_hosted_passwords_agent(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Option<HostedPasswordsAgent>> {
+        #[derive(sqlx::FromRow)]
+        struct HostedPasswordsAgentRow {
+            identity_id: Uuid,
+            credential_ciphertext: String,
+        }
+
+        let row = sqlx::query_as::<_, HostedPasswordsAgentRow>(
+            r#"
+            SELECT
+                identity_id,
+                credential_ciphertext
+            FROM mcp_oauth.hosted_passwords_agents
+            WHERE user_id = $1
+            ORDER BY updated_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+
+        if !TokenCipher::is_encrypted(&row.credential_ciphertext) {
+            tracing::error!(
+                event = "plaintext_hosted_passwords_agent_credential_detected",
+                user_id = %user_id,
+                identity_id = %row.identity_id,
+                "Hosted Seren Passwords agent credential is not encrypted"
+            );
+            return Err(McpError::Config(
+                "Hosted passwords agent credential is not encrypted".into(),
+            ));
+        }
+        let credential_json = Zeroizing::new(
+            self.hosted_passwords_agent_cipher("reading")?
+                .decrypt_or_plain(&row.credential_ciphertext)?,
+        );
+        let bundle: HostedPasswordsAgentSecretBundle = serde_json::from_str(&credential_json)
+            .map_err(|e| {
+                McpError::Config(format!("Hosted passwords credential decode failed: {e}"))
+            })?;
+        if bundle.user_id != user_id || bundle.identity_id != row.identity_id {
+            return Err(McpError::Config(
+                "Hosted passwords agent credential binding mismatch".into(),
+            ));
+        }
+
+        Ok(Some(HostedPasswordsAgent {
+            kem_private: Zeroizing::new(bundle.kem_private),
+            api_key: Zeroizing::new(bundle.api_key),
+        }))
+    }
+
+    /// Delete a hosted Seren Passwords agent credential for a user.
+    pub async fn delete_hosted_passwords_agent(
+        &self,
+        user_id: Uuid,
+        identity_id: Uuid,
+    ) -> Result<u64> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM mcp_oauth.hosted_passwords_agents
+            WHERE user_id = $1 AND identity_id = $2
+            "#,
+        )
+        .bind(user_id)
+        .bind(identity_id)
+        .execute(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        Ok(result.rows_affected())
     }
 
     // === Authorization request operations ===
@@ -1163,6 +1563,29 @@ impl TokenStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn store_without_token_cipher() -> TokenStore {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgresql://localhost/seren_mcp_test")
+            .expect("lazy pool");
+        TokenStore::new(pool)
+    }
+
+    #[tokio::test]
+    async fn hosted_passwords_agent_storage_requires_token_cipher() {
+        let store = store_without_token_cipher();
+        let err = match store.hosted_passwords_agent_cipher("storing") {
+            Ok(_) => panic!("missing token cipher must fail closed"),
+            Err(err) => err,
+        };
+        match err {
+            McpError::Config(message) => {
+                assert!(message.contains("OAUTH_TOKEN_ENCRYPTION_KEYS"));
+                assert!(message.contains("storing"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
 
     #[test]
     fn test_verify_pkce_s256() {

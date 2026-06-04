@@ -6,6 +6,7 @@ mod metrics;
 mod middleware;
 mod money;
 mod oauth;
+mod passwords;
 mod server;
 mod telemetry;
 mod wallet;
@@ -22,6 +23,7 @@ use server::SerenMcpServer;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use uuid::Uuid;
 
 /// Canonical name for the MCP server binary/service.
 pub(crate) const MCP_SERVER_NAME: &str = "seren-mcp";
@@ -85,6 +87,61 @@ struct OAuthAuthState {
     api_key_cache: Arc<Mutex<LruCache<String, CachedApiKeyValidation>>>,
     /// Shared OAuth state for endpoints and configuration.
     oauth_state: Arc<OAuthState>,
+}
+
+type JsonError = (axum::http::StatusCode, axum::Json<serde_json::Value>);
+
+fn authenticated_user_id_from_headers(
+    headers: &axum::http::HeaderMap,
+) -> std::result::Result<Uuid, JsonError> {
+    let user_id = headers
+        .get(axum::http::HeaderName::from_static("x-user-id"))
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| Uuid::parse_str(v.trim()).ok())
+        .ok_or_else(|| {
+            (
+                axum::http::StatusCode::UNAUTHORIZED,
+                axum::Json(serde_json::json!({
+                    "error": "unauthorized",
+                    "error_description": "Authenticated user is missing",
+                })),
+            )
+        })?;
+    Ok(user_id)
+}
+
+/// Delete a hosted Seren Passwords agent credential for the authenticated user.
+async fn delete_hosted_passwords_agent(
+    State(state): State<OAuthAuthState>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(identity_id): axum::extract::Path<Uuid>,
+) -> std::result::Result<axum::http::StatusCode, JsonError> {
+    let user_id = authenticated_user_id_from_headers(&headers)?;
+
+    state
+        .store
+        .delete_hosted_passwords_agent(user_id, identity_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                event = "hosted_passwords_agent_delete_failed",
+                user_id = %user_id,
+                identity_id = %identity_id,
+                error = %e,
+                "Failed to delete hosted Seren Passwords agent"
+            );
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                axum::Json(serde_json::json!({
+                    "error": "server_error",
+                    "error_description": "Could not delete hosted passwords agent",
+                })),
+            )
+        })?;
+
+    // NO_CONTENT whether or not a row existed: delete is idempotent so a CLI
+    // revoke that runs after the row is already gone still succeeds.
+    Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
 impl OAuthAuthState {
@@ -284,9 +341,16 @@ async fn require_simple_auth(
     req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
+    use subtle::ConstantTimeEq;
+
     let token = extract_bearer_token(&req);
 
-    if token != Some(state.token.as_str()) {
+    // Avoid token-dependent timing in the auth comparison.
+    let authorized = match token {
+        Some(token) => bool::from(token.as_bytes().ct_eq(state.token.as_bytes())),
+        None => false,
+    };
+    if !authorized {
         return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
@@ -311,6 +375,13 @@ async fn require_oauth_auth(
         uri = %uri,
         "Starting OAuth authentication"
     );
+
+    // Identity headers are owned by this middleware, not by callers.
+    {
+        let headers = req.headers_mut();
+        headers.remove(axum::http::header::HeaderName::from_static("x-user-id"));
+        headers.remove(axum::http::header::HeaderName::from_static("x-user-email"));
+    }
 
     let session_id = req
         .headers()
@@ -1106,7 +1177,11 @@ async fn run_stdio(config: Config) -> Result<()> {
         }
     };
 
-    let server = SerenMcpServer::new(&api_key, &config.api_base_url)?;
+    let server = SerenMcpServer::new_with_passwords_api_url(
+        &api_key,
+        &config.api_base_url,
+        &config.passwords_api_base_url,
+    )?;
 
     // Use rmcp's stdio transport
     let service = server.serve(rmcp::transport::stdio()).await?;
@@ -1134,6 +1209,7 @@ async fn run_http(config: Config) -> Result<()> {
         .map_err(|_| anyhow::anyhow!("AUTH_TOKEN is required for start:http"))?;
 
     let api_base_url = config.api_base_url.clone();
+    let passwords_api_base_url = config.passwords_api_base_url.clone();
     let ct = CancellationToken::new();
 
     tokio::spawn({
@@ -1159,7 +1235,14 @@ async fn run_http(config: Config) -> Result<()> {
 
     // Create streamable HTTP service - it's a tower Service
     let mcp_service = StreamableHttpService::new(
-        move || SerenMcpServer::new(&api_key, &api_base_url).map_err(std::io::Error::other),
+        move || {
+            SerenMcpServer::new_with_passwords_api_url(
+                &api_key,
+                &api_base_url,
+                &passwords_api_base_url,
+            )
+            .map_err(std::io::Error::other)
+        },
         session_manager,
         http_config,
     );
@@ -1277,9 +1360,12 @@ async fn run_oauth(config: Config) -> Result<()> {
     tracing::info!("Database migrations completed");
 
     let api_base_url = config.api_base_url.clone();
+    let passwords_api_base_url = config.passwords_api_base_url.clone();
     let oauth_redirect_base_url = config.oauth_redirect_base_url.clone();
     let api_base_url_for_service = api_base_url.clone();
+    let passwords_api_base_url_for_service = passwords_api_base_url.clone();
     let api_base_url_for_session_manager = api_base_url.clone();
+    let passwords_api_base_url_for_session_manager = passwords_api_base_url.clone();
 
     let ct = CancellationToken::new();
 
@@ -1323,6 +1409,7 @@ async fn run_oauth(config: Config) -> Result<()> {
         Arc::new(store.clone()),
         SessionConfig::default(),
         api_base_url_for_session_manager,
+        passwords_api_base_url_for_session_manager,
     ));
 
     // Log initial session count (sessions from previous instance can now be restored)
@@ -1355,8 +1442,16 @@ async fn run_oauth(config: Config) -> Result<()> {
     };
 
     // Create streamable HTTP service with persistent session manager
+    let store_for_service = Arc::new(store.clone());
     let mcp_service = StreamableHttpService::new(
-        move || SerenMcpServer::new_oauth(&api_base_url_for_service).map_err(std::io::Error::other),
+        move || {
+            SerenMcpServer::new_oauth_with_store_and_passwords_api_url(
+                &api_base_url_for_service,
+                &passwords_api_base_url_for_service,
+                Some(store_for_service.clone()),
+            )
+            .map_err(std::io::Error::other)
+        },
         session_manager,
         http_config,
     );
@@ -1448,6 +1543,11 @@ async fn run_oauth(config: Config) -> Result<()> {
     let api_key_cache = Arc::new(Mutex::new(LruCache::new(
         NonZeroUsize::new(API_KEY_CACHE_SIZE).expect("API_KEY_CACHE_SIZE must be > 0"),
     )));
+    let oauth_auth_state = OAuthAuthState {
+        store,
+        api_key_cache,
+        oauth_state: oauth_state.clone(),
+    };
 
     // Wrap with StaleSessionRecoveryService to handle stale sessions after pod restarts
     let mcp_router = axum::Router::new()
@@ -1458,12 +1558,13 @@ async fn run_oauth(config: Config) -> Result<()> {
                     .service(middleware::StaleSessionRecoveryService::new(mcp_service)),
             ),
         )
+        .route(
+            "/passwords/hosted-agent/{identity_id}",
+            axum::routing::delete(delete_hosted_passwords_agent),
+        )
+        .with_state(oauth_auth_state.clone())
         .layer(axum::middleware::from_fn_with_state(
-            OAuthAuthState {
-                store,
-                api_key_cache,
-                oauth_state: oauth_state.clone(),
-            },
+            oauth_auth_state,
             require_oauth_auth,
         ));
 

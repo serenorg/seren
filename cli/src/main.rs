@@ -157,6 +157,11 @@ enum Commands {
         #[command(subcommand)]
         action: SessionAction,
     },
+    /// Manage Seren Passwords vault entries
+    Passwords {
+        #[command(subcommand)]
+        action: PasswordsAction,
+    },
     /// Manage webhooks for an organization
     Webhooks {
         /// Organization ID
@@ -275,6 +280,355 @@ enum SkillsAction {
         /// Directory to create skill in
         #[arg(long)]
         path: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum PasswordsAction {
+    /// List password vaults available to the current account
+    Vaults {
+        #[command(subcommand)]
+        action: PasswordVaultAction,
+    },
+    /// Create encrypted password items
+    Items {
+        #[command(subcommand)]
+        action: Box<PasswordItemAction>,
+    },
+    /// Provision and manage AI-agent identities for vault access
+    Agent {
+        #[command(subcommand)]
+        action: PasswordAgentAction,
+    },
+    /// Inspect Seren Passwords audit events
+    Audit {
+        #[command(subcommand)]
+        action: PasswordAuditAction,
+    },
+    /// Manage password approval requests
+    Approvals {
+        #[command(subcommand)]
+        action: PasswordApprovalAction,
+    },
+    /// Inspect and revoke vault memberships
+    Memberships {
+        #[command(subcommand)]
+        action: PasswordMembershipAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum PasswordVaultAction {
+    /// List vaults and decrypted vault names
+    List,
+    /// Soft-archive a vault. Requires admin membership.
+    Archive {
+        /// Vault id to archive
+        vault_id: Uuid,
+    },
+}
+
+#[derive(Subcommand)]
+enum PasswordAgentAction {
+    /// Provision a new agent identity and grant it vault access
+    Provision {
+        /// Vault id to grant, or "all" for every vault you can access
+        #[arg(long)]
+        vault: String,
+        /// Access level to grant the agent
+        #[arg(long, value_enum, default_value_t = AgentAccessArg::Write)]
+        access: AgentAccessArg,
+        /// Human-readable name for the agent identity
+        #[arg(long, default_value = "seren-cli agent")]
+        name: String,
+        /// Days until the minted agent API key expires. Omit for a non-expiring
+        /// key (a warning is printed); expiry bounds the lifetime of a leaked key.
+        #[arg(long)]
+        expires_in_days: Option<u32>,
+    },
+    /// List the agent identities you have provisioned and their vault grants
+    List,
+    /// Revoke every active agent identity you own
+    Freeze,
+    /// Revoke an agent's vault membership (with --vault) or the whole identity
+    Revoke {
+        /// Agent identity id to revoke
+        agent_id: Uuid,
+        /// Revoke only this vault membership; omit to revoke the whole identity
+        #[arg(long)]
+        vault: Option<Uuid>,
+    },
+}
+
+#[derive(Subcommand)]
+enum PasswordAuditAction {
+    /// List password-vault audit events visible to your account
+    List {
+        /// Filter by exact audit action
+        #[arg(long)]
+        action: Option<String>,
+        /// Filter by actor identity id
+        #[arg(long)]
+        actor_identity_id: Option<Uuid>,
+        /// Filter by target kind
+        #[arg(long)]
+        target_kind: Option<String>,
+        /// Filter by target id
+        #[arg(long)]
+        target_id: Option<Uuid>,
+        /// Start timestamp, for example 2026-06-04T00:00:00Z
+        #[arg(long)]
+        from: Option<String>,
+        /// End timestamp, for example 2026-06-04T23:59:59Z
+        #[arg(long)]
+        to: Option<String>,
+        /// Maximum audit entries to return
+        #[arg(long, default_value = "50")]
+        limit: i64,
+        /// Pagination offset
+        #[arg(long, default_value = "0")]
+        offset: i64,
+    },
+    /// Verify the password-vault audit hash chain
+    Verify,
+}
+
+#[derive(Copy, Clone, Debug, clap::ValueEnum, PartialEq, Eq)]
+enum PasswordApprovalTargetKindArg {
+    Vault,
+    Item,
+}
+
+impl From<PasswordApprovalTargetKindArg> for seren::ApprovalTargetKind {
+    fn from(value: PasswordApprovalTargetKindArg) -> Self {
+        match value {
+            PasswordApprovalTargetKindArg::Vault => seren::ApprovalTargetKind::Vault,
+            PasswordApprovalTargetKindArg::Item => seren::ApprovalTargetKind::Item,
+        }
+    }
+}
+
+#[derive(Subcommand)]
+enum PasswordApprovalAction {
+    /// Request approval for a vault or item target
+    Request {
+        /// Target kind to request approval for
+        #[arg(long, value_enum)]
+        target_kind: PasswordApprovalTargetKindArg,
+        /// Target vault or item id
+        #[arg(long)]
+        target_id: Uuid,
+        /// Seconds before the request expires
+        #[arg(long)]
+        timeout_seconds: Option<i32>,
+    },
+    /// List pending approvals visible to your account
+    List,
+    /// Fetch one approval request
+    Get {
+        /// Approval request id
+        approval_id: Uuid,
+    },
+    /// Deny a pending approval request
+    Deny {
+        /// Approval request id
+        approval_id: Uuid,
+    },
+}
+
+#[derive(Subcommand)]
+enum PasswordMembershipAction {
+    /// List active memberships for a vault
+    List {
+        /// Vault id
+        vault_id: Uuid,
+    },
+    /// Revoke an identity's vault membership. Requires admin membership.
+    Revoke {
+        /// Vault id
+        vault_id: Uuid,
+        /// Identity id to revoke from the vault
+        identity_id: Uuid,
+    },
+}
+
+#[derive(Copy, Clone, Debug, clap::ValueEnum, PartialEq, Eq)]
+enum AgentAccessArg {
+    Read,
+    Write,
+}
+
+#[derive(Subcommand)]
+enum PasswordItemAction {
+    /// Create a login item
+    #[command(name = "create-login")]
+    Login {
+        /// Destination vault id. Required when the account has multiple vaults.
+        #[arg(long)]
+        vault_id: Option<Uuid>,
+        /// Item title
+        #[arg(long)]
+        title: String,
+        /// Login username
+        #[arg(long, default_value = "")]
+        username: String,
+        /// Login password. Prefer --password-stdin to avoid shell history.
+        #[arg(long, hide = true)]
+        password: Option<String>,
+        /// Read the login password from stdin
+        #[arg(long)]
+        password_stdin: bool,
+        /// Associated login URL. Repeat or comma-separate.
+        #[arg(long = "url", value_delimiter = ',')]
+        urls: Vec<String>,
+        /// Plain-text notes to encrypt into the item body
+        #[arg(long)]
+        notes: Option<String>,
+        /// Tag. Repeat or comma-separate.
+        #[arg(long = "tag", value_delimiter = ',')]
+        tags: Vec<String>,
+        /// Mark the item as sensitive for server-side approval policy
+        #[arg(long)]
+        sensitive: bool,
+    },
+    /// Create an API credential item
+    #[command(name = "create-api-key")]
+    ApiKey {
+        /// Destination vault id. Required when the account has multiple vaults.
+        #[arg(long)]
+        vault_id: Option<Uuid>,
+        /// Item title
+        #[arg(long)]
+        title: String,
+        /// API key value. Prefer --key-stdin to avoid shell history.
+        #[arg(long, hide = true)]
+        key: Option<String>,
+        /// Read the API key from stdin
+        #[arg(long)]
+        key_stdin: bool,
+        /// Credential kind: api_key, oauth2_token, basic, mtls, aws_sig_v4, gcp_service_account
+        #[arg(long, default_value = "api_key")]
+        credential_kind: String,
+        /// Plain-text notes to encrypt into the item body
+        #[arg(long)]
+        notes: Option<String>,
+        /// Tag. Repeat or comma-separate.
+        #[arg(long = "tag", value_delimiter = ',')]
+        tags: Vec<String>,
+        /// Mark the item as sensitive for server-side approval policy
+        #[arg(long)]
+        sensitive: bool,
+    },
+    /// Create a secure note item
+    #[command(name = "create-note")]
+    Note {
+        /// Destination vault id. Required when the account has multiple vaults.
+        #[arg(long)]
+        vault_id: Option<Uuid>,
+        /// Item title
+        #[arg(long)]
+        title: String,
+        /// Note body. Prefer --body-stdin for multi-line input.
+        #[arg(long)]
+        body: Option<String>,
+        /// Read note body from stdin
+        #[arg(long)]
+        body_stdin: bool,
+        /// Tag. Repeat or comma-separate.
+        #[arg(long = "tag", value_delimiter = ',')]
+        tags: Vec<String>,
+        /// Mark the item as sensitive for server-side approval policy
+        #[arg(long)]
+        sensitive: bool,
+    },
+    /// List items in a vault
+    List {
+        /// Vault id. Required when the account has multiple vaults.
+        #[arg(long)]
+        vault_id: Option<Uuid>,
+    },
+    /// Get and decrypt a single item
+    Get {
+        /// Vault id. Required when the account has multiple vaults.
+        #[arg(long)]
+        vault_id: Option<Uuid>,
+        /// Item id
+        #[arg(long)]
+        item_id: Uuid,
+        /// Reveal decrypted secret content (off by default)
+        #[arg(long)]
+        reveal: bool,
+    },
+    /// Soft-delete (trash) an item
+    Delete {
+        #[arg(long)]
+        vault_id: Option<Uuid>,
+        #[arg(long)]
+        item_id: Uuid,
+    },
+    /// Restore a trashed item
+    Restore {
+        #[arg(long)]
+        vault_id: Option<Uuid>,
+        #[arg(long)]
+        item_id: Uuid,
+    },
+    /// Duplicate an item into another vault
+    Duplicate {
+        /// Source vault id. Required when the account has multiple vaults.
+        #[arg(long)]
+        vault_id: Option<Uuid>,
+        #[arg(long)]
+        item_id: Uuid,
+        /// Destination vault id
+        #[arg(long)]
+        target_vault_id: Uuid,
+    },
+    /// Move an item into another vault
+    Move {
+        /// Source vault id. Required when the account has multiple vaults.
+        #[arg(long)]
+        vault_id: Option<Uuid>,
+        #[arg(long)]
+        item_id: Uuid,
+        /// Destination vault id
+        #[arg(long)]
+        target_vault_id: Uuid,
+    },
+    /// Update fields on an existing item (only provided fields change)
+    Update {
+        #[arg(long)]
+        vault_id: Option<Uuid>,
+        #[arg(long)]
+        item_id: Uuid,
+        #[arg(long)]
+        title: Option<String>,
+        /// Replace tags. Repeat or comma-separate. Omit to keep existing tags.
+        #[arg(long = "tag", value_delimiter = ',')]
+        tags: Option<Vec<String>>,
+        /// Set sensitivity (true/false). Omit to keep existing.
+        #[arg(long)]
+        sensitive: Option<bool>,
+        #[arg(long, hide = true)]
+        password: Option<String>,
+        #[arg(long)]
+        password_stdin: bool,
+        #[arg(long)]
+        username: Option<String>,
+        #[arg(long = "url", value_delimiter = ',')]
+        urls: Option<Vec<String>>,
+        #[arg(long, hide = true)]
+        key: Option<String>,
+        #[arg(long)]
+        key_stdin: bool,
+        #[arg(long)]
+        credential_kind: Option<String>,
+        #[arg(long)]
+        body: Option<String>,
+        #[arg(long)]
+        body_stdin: bool,
+        #[arg(long)]
+        notes: Option<String>,
     },
 }
 
@@ -4051,6 +4405,282 @@ async fn main() -> anyhow::Result<()> {
             }
             SessionAction::RevokeAll => commands::sessions::revoke_all(&ctx).await?,
         },
+        Commands::Passwords { action } => match action {
+            PasswordsAction::Vaults { action } => {
+                let options = commands::passwords::PasswordsOptions {
+                    master_password: commands::passwords::master_password_from_env(),
+                };
+                match action {
+                    PasswordVaultAction::List => {
+                        commands::passwords::list_vaults(options, &ctx).await?
+                    }
+                    PasswordVaultAction::Archive { vault_id } => {
+                        commands::passwords::archive_vault(vault_id, &ctx).await?
+                    }
+                }
+            }
+            PasswordsAction::Items { action } => {
+                let options = commands::passwords::PasswordsOptions {
+                    master_password: commands::passwords::master_password_from_env(),
+                };
+                match *action {
+                    PasswordItemAction::Login {
+                        vault_id,
+                        title,
+                        username,
+                        password,
+                        password_stdin,
+                        urls,
+                        notes,
+                        tags,
+                        sensitive,
+                    } => {
+                        commands::passwords::create_login(
+                            options,
+                            commands::passwords::LoginCreateOptions {
+                                vault_id,
+                                title,
+                                username,
+                                password,
+                                password_stdin,
+                                urls,
+                                notes,
+                                tags,
+                                sensitive,
+                            },
+                            &ctx,
+                        )
+                        .await?
+                    }
+                    PasswordItemAction::ApiKey {
+                        vault_id,
+                        title,
+                        key,
+                        key_stdin,
+                        credential_kind,
+                        notes,
+                        tags,
+                        sensitive,
+                    } => {
+                        commands::passwords::create_api_credential(
+                            options,
+                            commands::passwords::ApiCredentialCreateOptions {
+                                vault_id,
+                                title,
+                                key,
+                                key_stdin,
+                                credential_kind,
+                                notes,
+                                tags,
+                                sensitive,
+                            },
+                            &ctx,
+                        )
+                        .await?
+                    }
+                    PasswordItemAction::Note {
+                        vault_id,
+                        title,
+                        body,
+                        body_stdin,
+                        tags,
+                        sensitive,
+                    } => {
+                        commands::passwords::create_secure_note(
+                            options,
+                            commands::passwords::SecureNoteCreateOptions {
+                                vault_id,
+                                title,
+                                body,
+                                body_stdin,
+                                tags,
+                                sensitive,
+                            },
+                            &ctx,
+                        )
+                        .await?
+                    }
+                    PasswordItemAction::List { vault_id } => {
+                        commands::passwords::list_items(options, vault_id, &ctx).await?
+                    }
+                    PasswordItemAction::Get {
+                        vault_id,
+                        item_id,
+                        reveal,
+                    } => {
+                        commands::passwords::get_item(options, vault_id, item_id, reveal, &ctx)
+                            .await?
+                    }
+                    PasswordItemAction::Delete { vault_id, item_id } => {
+                        commands::passwords::delete_item(options, vault_id, item_id, &ctx).await?
+                    }
+                    PasswordItemAction::Restore { vault_id, item_id } => {
+                        commands::passwords::restore_item(options, vault_id, item_id, &ctx).await?
+                    }
+                    PasswordItemAction::Duplicate {
+                        vault_id,
+                        item_id,
+                        target_vault_id,
+                    } => {
+                        commands::passwords::copy_item(
+                            options,
+                            vault_id,
+                            item_id,
+                            target_vault_id,
+                            &ctx,
+                        )
+                        .await?
+                    }
+                    PasswordItemAction::Move {
+                        vault_id,
+                        item_id,
+                        target_vault_id,
+                    } => {
+                        commands::passwords::move_item(
+                            options,
+                            vault_id,
+                            item_id,
+                            target_vault_id,
+                            &ctx,
+                        )
+                        .await?
+                    }
+                    PasswordItemAction::Update {
+                        vault_id,
+                        item_id,
+                        title,
+                        tags,
+                        sensitive,
+                        password,
+                        password_stdin,
+                        username,
+                        urls,
+                        key,
+                        key_stdin,
+                        credential_kind,
+                        body,
+                        body_stdin,
+                        notes,
+                    } => {
+                        commands::passwords::update_item(
+                            options,
+                            commands::passwords::ItemUpdateOptions {
+                                vault_id,
+                                item_id,
+                                title,
+                                tags,
+                                sensitive,
+                                password,
+                                password_stdin,
+                                username,
+                                urls,
+                                key,
+                                key_stdin,
+                                credential_kind,
+                                body,
+                                body_stdin,
+                                notes,
+                            },
+                            &ctx,
+                        )
+                        .await?
+                    }
+                }
+            }
+            PasswordsAction::Agent { action } => {
+                let options = commands::passwords::PasswordsOptions {
+                    master_password: commands::passwords::master_password_from_env(),
+                };
+                match action {
+                    PasswordAgentAction::Provision {
+                        vault,
+                        access,
+                        name,
+                        expires_in_days,
+                    } => {
+                        let access = match access {
+                            AgentAccessArg::Read => "read",
+                            AgentAccessArg::Write => "write",
+                        };
+                        commands::passwords::agent_provision(
+                            options,
+                            commands::passwords::AgentProvisionOptions {
+                                vault,
+                                access: access.to_string(),
+                                name,
+                                expires_in_days,
+                            },
+                            &ctx,
+                        )
+                        .await?
+                    }
+                    PasswordAgentAction::List => commands::passwords::agent_list(&ctx).await?,
+                    PasswordAgentAction::Freeze => commands::passwords::agent_freeze(&ctx).await?,
+                    PasswordAgentAction::Revoke { agent_id, vault } => {
+                        commands::passwords::agent_revoke(agent_id, vault, &ctx).await?
+                    }
+                }
+            }
+            PasswordsAction::Audit { action } => match action {
+                PasswordAuditAction::List {
+                    action,
+                    actor_identity_id,
+                    target_kind,
+                    target_id,
+                    from,
+                    to,
+                    limit,
+                    offset,
+                } => {
+                    commands::passwords::audit_list(
+                        commands::passwords::PasswordAuditListOptions {
+                            action,
+                            actor_identity_id,
+                            target_kind,
+                            target_id,
+                            from,
+                            to,
+                            limit,
+                            offset,
+                        },
+                        &ctx,
+                    )
+                    .await?
+                }
+                PasswordAuditAction::Verify => commands::passwords::audit_verify(&ctx).await?,
+            },
+            PasswordsAction::Approvals { action } => match action {
+                PasswordApprovalAction::Request {
+                    target_kind,
+                    target_id,
+                    timeout_seconds,
+                } => {
+                    commands::passwords::approval_request(
+                        target_kind.into(),
+                        target_id,
+                        timeout_seconds,
+                        &ctx,
+                    )
+                    .await?
+                }
+                PasswordApprovalAction::List => commands::passwords::approval_list(&ctx).await?,
+                PasswordApprovalAction::Get { approval_id } => {
+                    commands::passwords::approval_get(approval_id, &ctx).await?
+                }
+                PasswordApprovalAction::Deny { approval_id } => {
+                    commands::passwords::approval_deny(approval_id, &ctx).await?
+                }
+            },
+            PasswordsAction::Memberships { action } => match action {
+                PasswordMembershipAction::List { vault_id } => {
+                    commands::passwords::membership_list(vault_id, &ctx).await?
+                }
+                PasswordMembershipAction::Revoke {
+                    vault_id,
+                    identity_id,
+                } => commands::passwords::membership_revoke(vault_id, identity_id, &ctx).await?,
+            },
+        },
         Commands::Webhooks { org_id, action } => match action {
             WebhookAction::List => commands::webhooks::list(&org_id, &ctx).await?,
             WebhookAction::Get { webhook_id } => {
@@ -5144,6 +5774,475 @@ mod tests {
                     }
                 }
                 _ => panic!("unexpected org action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn passwords_create_login_accepts_safe_secret_input_flags() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "items",
+            "create-login",
+            "--vault-id",
+            "11111111-1111-1111-1111-111111111111",
+            "--title",
+            "Example",
+            "--username",
+            "alice",
+            "--password-stdin",
+            "--url",
+            "https://example.com",
+            "--tag",
+            "prod,api",
+            "--sensitive",
+        ]);
+
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Items { action, .. } => match *action {
+                    PasswordItemAction::Login {
+                        vault_id,
+                        title,
+                        username,
+                        password_stdin,
+                        urls,
+                        tags,
+                        sensitive,
+                        ..
+                    } => {
+                        assert_eq!(
+                            vault_id,
+                            Some(Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap())
+                        );
+                        assert_eq!(title, "Example");
+                        assert_eq!(username, "alice");
+                        assert!(password_stdin);
+                        assert_eq!(urls, vec!["https://example.com"]);
+                        assert_eq!(tags, vec!["prod", "api"]);
+                        assert!(sensitive);
+                    }
+                    _ => panic!("unexpected passwords item action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn passwords_get_item_parses_reveal_flag() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "items",
+            "get",
+            "--vault-id",
+            "11111111-1111-1111-1111-111111111111",
+            "--item-id",
+            "22222222-2222-2222-2222-222222222222",
+            "--reveal",
+        ]);
+
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Items { action, .. } => match *action {
+                    PasswordItemAction::Get {
+                        vault_id,
+                        item_id,
+                        reveal,
+                    } => {
+                        assert_eq!(
+                            vault_id,
+                            Some(Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap())
+                        );
+                        assert_eq!(
+                            item_id,
+                            Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap()
+                        );
+                        assert!(reveal);
+                    }
+                    _ => panic!("unexpected passwords item action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn passwords_update_item_parses_partial_fields() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "items",
+            "update",
+            "--item-id",
+            "22222222-2222-2222-2222-222222222222",
+            "--title",
+            "New Title",
+            "--tag",
+            "a,b",
+        ]);
+
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Items { action, .. } => match *action {
+                    PasswordItemAction::Update {
+                        item_id,
+                        title,
+                        tags,
+                        sensitive,
+                        ..
+                    } => {
+                        assert_eq!(
+                            item_id,
+                            Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap()
+                        );
+                        assert_eq!(title, Some("New Title".to_string()));
+                        assert_eq!(tags, Some(vec!["a".to_string(), "b".to_string()]));
+                        assert_eq!(sensitive, None);
+                    }
+                    _ => panic!("unexpected passwords item action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn passwords_agent_provision_parses_flags() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "agent",
+            "provision",
+            "--vault",
+            "all",
+            "--access",
+            "read",
+            "--name",
+            "ci-bot",
+        ]);
+
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Agent { action, .. } => match action {
+                    PasswordAgentAction::Provision {
+                        vault,
+                        access,
+                        name,
+                        expires_in_days,
+                    } => {
+                        assert_eq!(vault, "all");
+                        assert_eq!(access, AgentAccessArg::Read);
+                        assert_eq!(name, "ci-bot");
+                        assert_eq!(expires_in_days, None);
+                    }
+                    _ => panic!("unexpected passwords agent action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn passwords_agent_freeze_parses() {
+        let cli = parse_cli_with_large_stack(vec!["seren", "passwords", "agent", "freeze"]);
+
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Agent { action, .. } => match action {
+                    PasswordAgentAction::Freeze => {}
+                    _ => panic!("unexpected passwords agent action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn passwords_audit_commands_parse() {
+        let actor = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let target = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "audit",
+            "list",
+            "--action",
+            "identity.agent.freeze",
+            "--actor-identity-id",
+            "11111111-1111-1111-1111-111111111111",
+            "--target-kind",
+            "identity",
+            "--target-id",
+            "22222222-2222-2222-2222-222222222222",
+            "--from",
+            "2030-01-01T00:00:00Z",
+            "--to",
+            "2030-01-01T23:59:59Z",
+            "--limit",
+            "10",
+            "--offset",
+            "5",
+        ]);
+
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Audit { action, .. } => match action {
+                    PasswordAuditAction::List {
+                        action,
+                        actor_identity_id,
+                        target_kind,
+                        target_id,
+                        from,
+                        to,
+                        limit,
+                        offset,
+                    } => {
+                        assert_eq!(action.as_deref(), Some("identity.agent.freeze"));
+                        assert_eq!(actor_identity_id, Some(actor));
+                        assert_eq!(target_kind.as_deref(), Some("identity"));
+                        assert_eq!(target_id, Some(target));
+                        assert_eq!(from.as_deref(), Some("2030-01-01T00:00:00Z"));
+                        assert_eq!(to.as_deref(), Some("2030-01-01T23:59:59Z"));
+                        assert_eq!(limit, 10);
+                        assert_eq!(offset, 5);
+                    }
+                    _ => panic!("unexpected passwords audit action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let cli = parse_cli_with_large_stack(vec!["seren", "passwords", "audit", "verify"]);
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Audit { action, .. } => match action {
+                    PasswordAuditAction::Verify => {}
+                    _ => panic!("unexpected passwords audit action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn passwords_approval_commands_parse() {
+        let target = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "approvals",
+            "request",
+            "--target-kind",
+            "item",
+            "--target-id",
+            "22222222-2222-2222-2222-222222222222",
+            "--timeout-seconds",
+            "60",
+        ]);
+
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Approvals { action } => match action {
+                    PasswordApprovalAction::Request {
+                        target_kind,
+                        target_id,
+                        timeout_seconds,
+                    } => {
+                        assert_eq!(target_kind, PasswordApprovalTargetKindArg::Item);
+                        assert_eq!(target_id, target);
+                        assert_eq!(timeout_seconds, Some(60));
+                    }
+                    _ => panic!("unexpected passwords approval action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let approval_id = Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap();
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "approvals",
+            "deny",
+            "33333333-3333-3333-3333-333333333333",
+        ]);
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Approvals { action } => match action {
+                    PasswordApprovalAction::Deny {
+                        approval_id: parsed,
+                    } => {
+                        assert_eq!(parsed, approval_id);
+                    }
+                    _ => panic!("unexpected passwords approval action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn passwords_membership_and_vault_admin_commands_parse() {
+        let vault_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let identity_id = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "memberships",
+            "revoke",
+            "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222",
+        ]);
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Memberships { action } => match action {
+                    PasswordMembershipAction::Revoke {
+                        vault_id: parsed_vault,
+                        identity_id: parsed_identity,
+                    } => {
+                        assert_eq!(parsed_vault, vault_id);
+                        assert_eq!(parsed_identity, identity_id);
+                    }
+                    _ => panic!("unexpected passwords membership action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "vaults",
+            "archive",
+            "11111111-1111-1111-1111-111111111111",
+        ]);
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Vaults { action } => match action {
+                    PasswordVaultAction::Archive {
+                        vault_id: parsed_vault,
+                    } => assert_eq!(parsed_vault, vault_id),
+                    _ => panic!("unexpected passwords vault action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn passwords_item_transfer_commands_parse() {
+        let item_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let source = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+        let target = Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap();
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "items",
+            "duplicate",
+            "--vault-id",
+            "22222222-2222-2222-2222-222222222222",
+            "--item-id",
+            "11111111-1111-1111-1111-111111111111",
+            "--target-vault-id",
+            "33333333-3333-3333-3333-333333333333",
+        ]);
+
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Items { action, .. } => match *action {
+                    PasswordItemAction::Duplicate {
+                        vault_id,
+                        item_id: parsed_item,
+                        target_vault_id,
+                    } => {
+                        assert_eq!(vault_id, Some(source));
+                        assert_eq!(parsed_item, item_id);
+                        assert_eq!(target_vault_id, target);
+                    }
+                    _ => panic!("unexpected passwords item action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "items",
+            "move",
+            "--vault-id",
+            "22222222-2222-2222-2222-222222222222",
+            "--item-id",
+            "11111111-1111-1111-1111-111111111111",
+            "--target-vault-id",
+            "33333333-3333-3333-3333-333333333333",
+        ]);
+
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Items { action, .. } => match *action {
+                    PasswordItemAction::Move {
+                        vault_id,
+                        item_id: parsed_item,
+                        target_vault_id,
+                    } => {
+                        assert_eq!(vault_id, Some(source));
+                        assert_eq!(parsed_item, item_id);
+                        assert_eq!(target_vault_id, target);
+                    }
+                    _ => panic!("unexpected passwords item action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn passwords_agent_revoke_parses_membership_scope() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "agent",
+            "revoke",
+            "33333333-3333-3333-3333-333333333333",
+            "--vault",
+            "44444444-4444-4444-4444-444444444444",
+        ]);
+
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Agent { action, .. } => match action {
+                    PasswordAgentAction::Revoke { agent_id, vault } => {
+                        assert_eq!(
+                            agent_id,
+                            Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap()
+                        );
+                        assert_eq!(
+                            vault,
+                            Some(Uuid::parse_str("44444444-4444-4444-4444-444444444444").unwrap())
+                        );
+                    }
+                    _ => panic!("unexpected passwords agent action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
             },
             _ => panic!("unexpected command parsed"),
         }

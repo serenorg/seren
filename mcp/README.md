@@ -65,6 +65,8 @@ Download pre-built binaries from GitHub Releases (tagged versions): https://gith
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `API_URL` | SerenAI API base URL | `https://api.serendb.com` |
+| `SEREN_PASSWORDS_API_URL` | HTTPS Seren API gateway base URL for Seren Passwords vault traffic | Defaults to `API_URL` |
+| `SEREN_PASSWORDS_URL` | Seren Passwords browser app base URL for hosted delegation consent | `https://passwords.serendb.com` |
 | `API_KEY` | SerenAI API key (for `start`/`start:http`) | Required |
 | `AUTH_TOKEN` | Auth token for `start:http` (bearer) | Required for `start:http` |
 | `DATABASE_URL` | Postgres URL for OAuth token storage | Required for `start:server` |

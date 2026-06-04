@@ -1301,6 +1301,56 @@
         ]
       }
     },
+    "/eval/community-prior": {
+      "get": {
+        "tags": [
+          "Eval"
+        ],
+        "summary": "Get an aggregate community routing prior for a task/model pair.",
+        "operationId": "get_community_prior",
+        "parameters": [
+          {
+            "name": "task_type",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TaskType"
+            }
+          },
+          {
+            "name": "model_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Community routing prior",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CommunityPriorResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameters"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/eval/matrix": {
       "get": {
         "tags": [
@@ -10139,6 +10189,14 @@
           }
         }
       },
+      "ApiKeyType": {
+        "type": "string",
+        "description": "Actor kind for an API key.",
+        "enum": [
+          "user",
+          "agent"
+        ]
+      },
       "ApplyReferralRequest": {
         "type": "object",
         "description": "Request to apply a referral code",
@@ -10452,6 +10510,39 @@
           }
         }
       },
+      "CommunityPriorResponse": {
+        "type": "object",
+        "required": [
+          "alpha",
+          "beta",
+          "sample_size",
+          "sufficient_population"
+        ],
+        "properties": {
+          "alpha": {
+            "type": "number",
+            "format": "double"
+          },
+          "beta": {
+            "type": "number",
+            "format": "double"
+          },
+          "last_updated": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "sample_size": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sufficient_population": {
+            "type": "boolean"
+          }
+        }
+      },
       "ComputeType": {
         "type": "string",
         "description": "Compute type - specific compute offering when publisher_category = Compute",
@@ -10626,6 +10717,14 @@
           "name"
         ],
         "properties": {
+          "agent_identity_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Required when `key_type` is `\"agent\"`. The seren-passwords identity the agent acts as."
+          },
           "expires_in_days": {
             "type": [
               "integer",
@@ -10633,8 +10732,29 @@
             ],
             "format": "int64"
           },
+          "key_type": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiKeyType",
+                "description": "Actor kind: omit or `\"user\"` for a normal CLI key; `\"agent\"` for an agent key."
+              }
+            ]
+          },
           "name": {
             "type": "string"
+          },
+          "scopes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Granular permission scopes for the key. Meaningful for agent keys."
           }
         }
       },
@@ -12512,6 +12632,59 @@
                 "type": "string"
               },
               "success": {
+                "type": "boolean"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CommunityPriorResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "alpha",
+              "beta",
+              "sample_size",
+              "sufficient_population"
+            ],
+            "properties": {
+              "alpha": {
+                "type": "number",
+                "format": "double"
+              },
+              "beta": {
+                "type": "number",
+                "format": "double"
+              },
+              "last_updated": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "sample_size": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "sufficient_population": {
                 "type": "boolean"
               }
             }
