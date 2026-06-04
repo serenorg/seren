@@ -365,9 +365,9 @@ pub struct PasswordsAuditEventsListParams {
     pub target_kind: Option<String>,
     /// Filter by target id.
     pub target_id: Option<Uuid>,
-    /// Start timestamp, for example 2026-06-04T00:00:00Z.
+    /// Start timestamp, for example 2030-01-01T00:00:00Z.
     pub from: Option<String>,
-    /// End timestamp, for example 2026-06-04T23:59:59Z.
+    /// End timestamp, for example 2030-01-01T23:59:59Z.
     pub to: Option<String>,
     /// Maximum events to return. Defaults to the server default.
     pub limit: Option<i64>,
@@ -488,6 +488,20 @@ pub struct PasswordsInvitationsListParams {
 pub struct PasswordsInvitationRedeemParams {
     /// Invitation token.
     pub token: String,
+}
+
+/// Parameters for listing outbound live shares.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct PasswordsSharesOutboundListParams {
+    /// Vault ID (UUID). Omit to list all outbound shares visible to the caller.
+    pub vault_id: Option<Uuid>,
+}
+
+/// Parameters for fetching or revoking a live share.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct PasswordsShareIdParams {
+    /// Share ID.
+    pub share_id: Uuid,
 }
 
 // ============================================================================
@@ -1338,6 +1352,83 @@ impl SerenMcpServer {
 
         Ok(CallToolResult::success(vec![crate::server::json_content(
             &invitation,
+        )?]))
+    }
+
+    #[tool(
+        description = "List outbound Seren Passwords live shares visible to the current user",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn passwords_shares_outbound_list(
+        &self,
+        Parameters(params): Parameters<PasswordsSharesOutboundListParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let client = self.api_client(&extensions)?;
+        let shares =
+            passwords_gateway_data(client.share_list_outbound(params.vault_id.as_ref()).await)
+                .await?
+                .data;
+
+        Ok(CallToolResult::success(vec![crate::server::json_content(
+            &shares,
+        )?]))
+    }
+
+    #[tool(
+        description = "List received Seren Passwords live shares visible to the current user",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn passwords_shares_received_list(
+        &self,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let client = self.api_client(&extensions)?;
+        let shares = passwords_gateway_data(client.share_list_received().await)
+            .await?
+            .data;
+
+        Ok(CallToolResult::success(vec![crate::server::json_content(
+            &shares,
+        )?]))
+    }
+
+    #[tool(
+        description = "Get one Seren Passwords live share record visible to the current user",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn passwords_share_get(
+        &self,
+        Parameters(params): Parameters<PasswordsShareIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let client = self.api_client(&extensions)?;
+        let share = passwords_gateway_data(client.share_get(&params.share_id).await)
+            .await?
+            .data;
+
+        Ok(CallToolResult::success(vec![crate::server::json_content(
+            &share,
+        )?]))
+    }
+
+    #[tool(
+        description = "Revoke a Seren Passwords live share visible to the current user",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn passwords_share_revoke(
+        &self,
+        Parameters(params): Parameters<PasswordsShareIdParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        crate::server::ensure_writes_allowed(&extensions)?;
+        let client = self.api_client(&extensions)?;
+        let share = passwords_gateway_data(client.share_revoke(&params.share_id).await)
+            .await?
+            .data;
+
+        Ok(CallToolResult::success(vec![crate::server::json_content(
+            &share,
         )?]))
     }
 

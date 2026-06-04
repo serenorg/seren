@@ -350,6 +350,11 @@ enum PasswordsAction {
         #[arg(long = "no-capitalize-first", default_value_t = true, action = ArgAction::SetFalse)]
         capitalize_first: bool,
     },
+    /// Inspect and revoke live item shares
+    Shares {
+        #[command(subcommand)]
+        action: PasswordShareAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -587,6 +592,23 @@ enum PasswordInvitationAction {
         vault_id: Uuid,
         /// Invitation id
         invitation_id: Uuid,
+    },
+}
+
+#[derive(Subcommand)]
+enum PasswordShareAction {
+    /// List live shares you have sent
+    Outbound {
+        /// Filter by vault id
+        #[arg(long)]
+        vault_id: Option<Uuid>,
+    },
+    /// List live shares you have received
+    Received,
+    /// Revoke a live share you sent
+    Revoke {
+        /// Share id
+        share_id: Uuid,
     },
 }
 
@@ -5011,6 +5033,17 @@ async fn main() -> anyhow::Result<()> {
                 },
                 &ctx,
             )?,
+            PasswordsAction::Shares { action } => match action {
+                PasswordShareAction::Outbound { vault_id } => {
+                    commands::passwords::share_list_outbound(vault_id, &ctx).await?
+                }
+                PasswordShareAction::Received => {
+                    commands::passwords::share_list_received(&ctx).await?
+                }
+                PasswordShareAction::Revoke { share_id } => {
+                    commands::passwords::share_revoke(share_id, &ctx).await?
+                }
+            },
         },
         Commands::Webhooks { org_id, action } => match action {
             WebhookAction::List => commands::webhooks::list(&org_id, &ctx).await?,
@@ -6815,6 +6848,52 @@ mod tests {
                     assert_eq!(separator, '_');
                     assert!(!capitalize_first);
                 }
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn passwords_share_commands_parse() {
+        let vault_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "shares",
+            "outbound",
+            "--vault-id",
+            "11111111-1111-1111-1111-111111111111",
+        ]);
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Shares { action } => match action {
+                    PasswordShareAction::Outbound {
+                        vault_id: parsed_vault,
+                    } => assert_eq!(parsed_vault, Some(vault_id)),
+                    _ => panic!("unexpected passwords share action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let share_id = Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap();
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "shares",
+            "revoke",
+            "33333333-3333-3333-3333-333333333333",
+        ]);
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Shares { action } => match action {
+                    PasswordShareAction::Revoke { share_id: parsed } => {
+                        assert_eq!(parsed, share_id);
+                    }
+                    _ => panic!("unexpected passwords share action parsed"),
+                },
                 _ => panic!("unexpected passwords action parsed"),
             },
             _ => panic!("unexpected command parsed"),

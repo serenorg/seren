@@ -2458,6 +2458,91 @@ fn print_invitation_record(
     Ok(())
 }
 
+pub async fn share_list_outbound(vault_id: Option<Uuid>, ctx: &CommandContext) -> Result<()> {
+    let client = passwords_api_client(ctx).await?;
+    let shares = passwords_gateway_data(
+        client.share_list_outbound(vault_id.as_ref()).await,
+        "failed to list outbound password shares",
+    )?
+    .data;
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&shares)?,
+        OutputFormat::Table => {
+            if shares.is_empty() {
+                println!("No outbound password shares found");
+            } else {
+                let rows = shares
+                    .iter()
+                    .map(|share| {
+                        format!(
+                            "{} | item {} | vault {} | status {} | recipient {}",
+                            share.share_id,
+                            share.owner_item_id,
+                            share.owner_vault_id,
+                            share.status,
+                            optional_uuid(share.recipient_identity_id)
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                output::print_list_table(Some("Outbound password shares"), "Share", &rows);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn share_list_received(ctx: &CommandContext) -> Result<()> {
+    let client = passwords_api_client(ctx).await?;
+    let shares = passwords_gateway_data(
+        client.share_list_received().await,
+        "failed to list received password shares",
+    )?
+    .data;
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&shares)?,
+        OutputFormat::Table => {
+            if shares.is_empty() {
+                println!("No received password shares found");
+            } else {
+                let rows = shares
+                    .iter()
+                    .map(|share| {
+                        format!(
+                            "{} | item {} | owner vault {} | status {}",
+                            share.share_id, share.owner_item_id, share.owner_vault_id, share.status
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                output::print_list_table(Some("Received password shares"), "Share", &rows);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn share_revoke(share_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = passwords_api_client(ctx).await?;
+    let share = passwords_gateway_data(
+        client.share_revoke(&share_id).await,
+        "failed to revoke password share",
+    )?
+    .data;
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&share)?,
+        OutputFormat::Table => println!(
+            "{}",
+            format!("Revoked password share {share_id}").green().bold()
+        ),
+    }
+
+    Ok(())
+}
+
 pub async fn agent_revoke(
     agent_id: Uuid,
     vault_id: Option<Uuid>,
