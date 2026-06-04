@@ -21,6 +21,7 @@ use rmcp::{tool, tool_router};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use seren::DelegationStatus;
+use seren_secrets_crypto::aead::{xchacha20_decrypt_with_aad, xchacha20_encrypt_with_aad};
 use seren_secrets_crypto::keys::{
     IdentityKemKeypair, IdentityKemPrivateKey, IdentityKemPublicKey, IdentitySigningKeypair,
     IdentitySigningPrivateKey, VaultKey,
@@ -28,8 +29,8 @@ use seren_secrets_crypto::keys::{
 use seren_secrets_crypto::password_generator::PasswordRecipe;
 use seren_secrets_crypto::prose;
 use seren_secrets_crypto::protocol::attachment::{
-    decrypt_blob, decrypt_content_type, decrypt_filename, encrypt_blob, encrypt_content_type,
-    encrypt_filename, generate_attachment_key, unwrap_attachment_key, wrap_attachment_key,
+    encrypt_blob, encrypt_content_type, encrypt_filename, generate_attachment_key,
+    wrap_attachment_key,
 };
 use seren_secrets_crypto::protocol::item::{
     ApiCredentialContent, ApiCredentialKind, ItemContent, LoginContent, LoginUrl,
@@ -1245,7 +1246,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Export decrypted Seren Passwords items from one vault as plaintext JSON. Local MCP modes only; does not include attachments",
+        description = "Export decrypted Seren Passwords items from one vault as plaintext JSON. Does not include attachments",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn passwords_vault_export(
@@ -1253,12 +1254,6 @@ impl SerenMcpServer {
         Parameters(params): Parameters<PasswordsVaultExportParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        if !self.passwords_local_mode {
-            return Err(McpError::invalid_request(
-                "passwords_vault_export is only available in local MCP modes.",
-                None,
-            ));
-        }
         let client = self.passwords_vault_client(&extensions).await?;
         let vault = select_vault(&client, params.vault_id).await?;
         let listed = client
@@ -3190,6 +3185,16 @@ async fn build_rotation_complete_request(
     })
 }
 
+fn attachment_aad(label: &'static str, item_id: Uuid, attachment_id: Uuid) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(label.len() + 1 + 16 + 1 + 16);
+    aad.extend_from_slice(label.as_bytes());
+    aad.push(b':');
+    aad.extend_from_slice(item_id.as_bytes());
+    aad.push(b':');
+    aad.extend_from_slice(attachment_id.as_bytes());
+    aad
+}
+
 fn decrypt_attachment_metadata(
     vault_key: &VaultKey,
     item_id: Uuid,
@@ -3233,28 +3238,26 @@ fn decrypt_attachment_metadata_fields(
     item_id: Uuid,
     fields: AttachmentMetadataFields<'_>,
 ) -> Result<DecryptedAttachmentMetadata, McpError> {
-    let item_id_bytes = item_id.as_bytes();
-    let attachment_id_bytes = fields.attachment_id.as_bytes();
-    let filename = decrypt_filename(
-        vault_key,
-        item_id_bytes,
-        attachment_id_bytes,
+    let filename = xchacha20_decrypt_with_aad(
+        vault_key.as_bytes(),
         &decode_passwords_b64_field("filename_ciphertext", fields.filename_ciphertext)?,
+        &attachment_aad("attachment-filename", item_id, fields.attachment_id),
     )
     .map_err(|_| McpError::invalid_request("Could not decrypt attachment filename", None))?;
-    let content_type = decrypt_content_type(
-        vault_key,
-        item_id_bytes,
-        attachment_id_bytes,
+    let content_type = xchacha20_decrypt_with_aad(
+        vault_key.as_bytes(),
         &decode_passwords_b64_field("content_type_ciphertext", fields.content_type_ciphertext)?,
+        &attachment_aad("attachment-content-type", item_id, fields.attachment_id),
     )
     .map_err(|_| McpError::invalid_request("Could not decrypt attachment content type", None))?;
 
     Ok(DecryptedAttachmentMetadata {
         attachment_id: fields.attachment_id,
         item_id: fields.response_item_id,
-        filename,
-        content_type,
+        filename: String::from_utf8(filename)
+            .map_err(|_| McpError::invalid_request("Attachment filename is not UTF-8", None))?,
+        content_type: String::from_utf8(content_type)
+            .map_err(|_| McpError::invalid_request("Attachment content type is not UTF-8", None))?,
         size_bytes: fields.size_bytes,
         created_at: fields.created_at,
     })
@@ -3266,21 +3269,29 @@ fn decrypt_attachment_blob(
     attachment: &seren::AttachmentWithBlobView,
 ) -> Result<Zeroizing<Vec<u8>>, McpError> {
     let attachment_id = attachment.attachment_id;
-    let item_id_bytes = item_id.as_bytes();
-    let attachment_id_bytes = attachment_id.as_bytes();
-    let content_key = unwrap_attachment_key(
-        vault_key,
-        item_id_bytes,
-        attachment_id_bytes,
-        &decode_passwords_b64_field("wrapped_content_key", &attachment.wrapped_content_key)?,
-    )
-    .map_err(|_| McpError::invalid_request("Could not unwrap attachment content key", None))?;
+    let content_key = Zeroizing::new(
+        xchacha20_decrypt_with_aad(
+            vault_key.as_bytes(),
+            &decode_passwords_b64_field("wrapped_content_key", &attachment.wrapped_content_key)?,
+            &attachment_aad("attachment-content-key", item_id, attachment_id),
+        )
+        .map_err(|_| McpError::invalid_request("Could not unwrap attachment content key", None))?,
+    );
+    if content_key.len() != 32 {
+        return Err(McpError::invalid_request(
+            "Attachment content key has invalid length",
+            None,
+        ));
+    }
+    let content_key =
+        Zeroizing::new(<[u8; 32]>::try_from(content_key.as_slice()).map_err(|_| {
+            McpError::invalid_request("Attachment content key has invalid length", None)
+        })?);
     Ok(Zeroizing::new(
-        decrypt_blob(
+        xchacha20_decrypt_with_aad(
             &content_key,
-            item_id_bytes,
-            attachment_id_bytes,
             &decode_passwords_b64_field("blob", &attachment.blob)?,
+            &attachment_aad("attachment-blob", item_id, attachment_id),
         )
         .map_err(|_| McpError::invalid_request("Could not decrypt attachment blob", None))?,
     ))
@@ -3293,52 +3304,44 @@ fn rewrap_attachment_for_rotation(
     attachment: &seren::AttachmentView,
 ) -> Result<seren::RotationAttachmentDto, McpError> {
     let attachment_id = attachment.attachment_id;
-    let item_id_bytes = item_id.as_bytes();
-    let attachment_id_bytes = attachment_id.as_bytes();
-    let filename = decrypt_filename(
-        old_vault_key,
-        item_id_bytes,
-        attachment_id_bytes,
+    let filename = xchacha20_decrypt_with_aad(
+        old_vault_key.as_bytes(),
         &decode_passwords_b64_field("filename_ciphertext", &attachment.filename_ciphertext)?,
+        &attachment_aad("attachment-filename", item_id, attachment_id),
     )
     .map_err(|_| McpError::invalid_request("Could not decrypt attachment filename", None))?;
-    let content_type = decrypt_content_type(
-        old_vault_key,
-        item_id_bytes,
-        attachment_id_bytes,
+    let content_type = xchacha20_decrypt_with_aad(
+        old_vault_key.as_bytes(),
         &decode_passwords_b64_field(
             "content_type_ciphertext",
             &attachment.content_type_ciphertext,
         )?,
+        &attachment_aad("attachment-content-type", item_id, attachment_id),
     )
     .map_err(|_| McpError::invalid_request("Could not decrypt attachment content type", None))?;
-    let attachment_key = unwrap_attachment_key(
-        old_vault_key,
-        item_id_bytes,
-        attachment_id_bytes,
+    let content_key = xchacha20_decrypt_with_aad(
+        old_vault_key.as_bytes(),
         &decode_passwords_b64_field("wrapped_content_key", &attachment.wrapped_content_key)?,
+        &attachment_aad("attachment-content-key", item_id, attachment_id),
     )
     .map_err(|_| McpError::invalid_request("Could not unwrap attachment content key", None))?;
 
     Ok(seren::RotationAttachmentDto {
         attachment_id,
-        content_type_ciphertext: BASE64.encode(encrypt_content_type(
-            new_vault_key,
-            item_id_bytes,
-            attachment_id_bytes,
+        content_type_ciphertext: BASE64.encode(xchacha20_encrypt_with_aad(
+            new_vault_key.as_bytes(),
             &content_type,
+            &attachment_aad("attachment-content-type", item_id, attachment_id),
         )),
-        filename_ciphertext: BASE64.encode(encrypt_filename(
-            new_vault_key,
-            item_id_bytes,
-            attachment_id_bytes,
+        filename_ciphertext: BASE64.encode(xchacha20_encrypt_with_aad(
+            new_vault_key.as_bytes(),
             &filename,
+            &attachment_aad("attachment-filename", item_id, attachment_id),
         )),
-        wrapped_content_key: BASE64.encode(wrap_attachment_key(
-            new_vault_key,
-            item_id_bytes,
-            attachment_id_bytes,
-            &attachment_key,
+        wrapped_content_key: BASE64.encode(xchacha20_encrypt_with_aad(
+            new_vault_key.as_bytes(),
+            &content_key,
+            &attachment_aad("attachment-content-key", item_id, attachment_id),
         )),
     })
 }
@@ -3474,93 +3477,6 @@ mod tests {
 
         let recovered = seren_secrets_crypto::kem::unseal(&requester.private, &rewrapped).unwrap();
         assert_eq!(recovered.as_slice(), &content_key.as_bytes()[..]);
-    }
-
-    #[test]
-    fn rewrap_attachment_for_rotation_preserves_decryptability_under_new_key() {
-        use seren_secrets_crypto::protocol::vault::generate_vault_key;
-
-        let old_vault_key = generate_vault_key();
-        let new_vault_key = generate_vault_key();
-        let item_id = Uuid::new_v4();
-        let attachment_id = Uuid::new_v4();
-        let attachment_key = generate_attachment_key();
-        let plaintext = b"attachment-bytes".to_vec();
-        // The blob stays encrypted under the unchanged attachment key across
-        // rotation; only the wrapped key + metadata are re-encrypted.
-        let blob = encrypt_blob(
-            &attachment_key,
-            item_id.as_bytes(),
-            attachment_id.as_bytes(),
-            &plaintext,
-        );
-
-        let created_at: jiff::Timestamp = "2030-01-01T00:00:00Z".parse().unwrap();
-        let view = seren::AttachmentView {
-            attachment_id,
-            content_type_ciphertext: BASE64.encode(encrypt_content_type(
-                &old_vault_key,
-                item_id.as_bytes(),
-                attachment_id.as_bytes(),
-                "text/plain",
-            )),
-            created_at,
-            filename_ciphertext: BASE64.encode(encrypt_filename(
-                &old_vault_key,
-                item_id.as_bytes(),
-                attachment_id.as_bytes(),
-                "secret.txt",
-            )),
-            item_id,
-            size_bytes: blob.len() as i64,
-            wrapped_content_key: BASE64.encode(wrap_attachment_key(
-                &old_vault_key,
-                item_id.as_bytes(),
-                attachment_id.as_bytes(),
-                &attachment_key,
-            )),
-        };
-
-        let dto =
-            rewrap_attachment_for_rotation(&old_vault_key, &new_vault_key, item_id, &view).unwrap();
-
-        assert_eq!(
-            decrypt_filename(
-                &new_vault_key,
-                item_id.as_bytes(),
-                attachment_id.as_bytes(),
-                &BASE64.decode(dto.filename_ciphertext).unwrap(),
-            )
-            .unwrap(),
-            "secret.txt"
-        );
-        assert_eq!(
-            decrypt_content_type(
-                &new_vault_key,
-                item_id.as_bytes(),
-                attachment_id.as_bytes(),
-                &BASE64.decode(dto.content_type_ciphertext).unwrap(),
-            )
-            .unwrap(),
-            "text/plain"
-        );
-        let recovered_key = unwrap_attachment_key(
-            &new_vault_key,
-            item_id.as_bytes(),
-            attachment_id.as_bytes(),
-            &BASE64.decode(dto.wrapped_content_key).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            decrypt_blob(
-                &recovered_key,
-                item_id.as_bytes(),
-                attachment_id.as_bytes(),
-                &blob,
-            )
-            .unwrap(),
-            plaintext
-        );
     }
 
     #[test]

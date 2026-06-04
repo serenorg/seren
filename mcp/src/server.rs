@@ -3733,10 +3733,9 @@ impl SerenMcpServer {
     /// Build a Seren Passwords vault client for the active credential.
     ///
     /// A fresh in-memory user-mode session takes priority: a deliberate
-    /// `passwords_unlock` selects user mode and stores only the derived KEM
-    /// private key (the session expires after the idle TTL). Otherwise agent-key
-    /// mode (loaded at startup) is the default. The server never holds or emits
-    /// the unwrapped key material.
+    /// `passwords_unlock` selects user mode and stores derived identity keys
+    /// until the idle TTL expires. Otherwise agent-key mode (loaded at startup)
+    /// is the default. The server never emits unwrapped key material.
     pub(crate) async fn passwords_vault_client(
         &self,
         extensions: &Extensions,
@@ -3819,10 +3818,57 @@ impl SerenMcpServer {
         }
     }
 
+    pub(crate) async fn passwords_user_signing_auth(
+        &self,
+        extensions: &Extensions,
+    ) -> Result<
+        (
+            String,
+            seren_secrets_crypto::keys::IdentityKemPrivateKey,
+            seren_secrets_crypto::keys::IdentitySigningPrivateKey,
+        ),
+        McpError,
+    > {
+        if !self.passwords_local_mode {
+            return Err(McpError::invalid_request(
+                "This operation is only available in local MCP modes after passwords_unlock.",
+                None,
+            ));
+        }
+
+        let session_keys = {
+            let mut guard = self.passwords_session.lock().await;
+            match guard.as_mut() {
+                Some(session) => {
+                    if session.last_activity.elapsed() > crate::passwords::SESSION_IDLE_TTL {
+                        *guard = None;
+                        return Err(McpError::invalid_request(
+                            "Vault session expired. Call passwords_unlock again.",
+                            None,
+                        ));
+                    }
+                    session.last_activity = std::time::Instant::now();
+                    Some((session.kem_private.clone(), session.signing_private.clone()))
+                }
+                None => None,
+            }
+        };
+
+        if let Some((kem_private, signing_private)) = session_keys {
+            let bearer = self.bearer_token(extensions)?;
+            Ok((bearer, kem_private, signing_private))
+        } else {
+            Err(McpError::invalid_request(
+                "Vault locked. Call passwords_unlock before this local-only operation.",
+                None,
+            ))
+        }
+    }
+
     /// Establish a user-mode (master-password) unlocked session.
     ///
     /// The master password is sourced outside tool arguments and dropped after
-    /// deriving the identity KEM private key. User mode is forbidden in hosted mode.
+    /// deriving the identity keys. User mode is forbidden in hosted mode.
     pub(crate) async fn passwords_unlock_session(
         &self,
         extensions: &Extensions,
@@ -3843,8 +3889,25 @@ impl SerenMcpServer {
         )
         .await
         .map_err(crate::passwords::vault_err)?;
-        let kem_private = tokio::task::spawn_blocking(move || {
-            key_source.kem_private().map(|kem| kem.into_owned())
+        let (kem_private, signing_private) = tokio::task::spawn_blocking(move || {
+            use seren_secrets_resolver::VaultKeySource;
+
+            match key_source {
+                VaultKeySource::MasterPassword {
+                    secrets,
+                    master_password,
+                } => seren_secrets_crypto::protocol::account::unlock_account(
+                    &master_password,
+                    &secrets,
+                )
+                .map(|unlocked| (unlocked.kem_private, unlocked.signing_private))
+                .map_err(seren_secrets_resolver::ResolverError::Crypto),
+                VaultKeySource::AgentKey { .. } => {
+                    Err(seren_secrets_resolver::ResolverError::NotImplemented(
+                        "passwords_unlock with agent-key source",
+                    ))
+                }
+            }
         })
         .await
         .map_err(|e| McpError::internal_error(e.to_string(), None))?
@@ -3855,6 +3918,7 @@ impl SerenMcpServer {
         let needs_reaper = guard.is_none();
         *guard = Some(crate::passwords::PasswordsSession {
             kem_private,
+            signing_private,
             last_activity: std::time::Instant::now(),
         });
         drop(guard);
@@ -12808,6 +12872,26 @@ mod tests {
         );
 
         // The hosted-mode gate leaves the session untouched.
+        assert!(server.passwords_session.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn passwords_user_signing_auth_is_rejected_in_hosted_mode() {
+        let server = SerenMcpServer::new_oauth("https://api.serendb.com").unwrap();
+        assert!(!server.passwords_local_mode);
+
+        let extensions = extensions_with_headers(&[("authorization", "Bearer test-token")]);
+        let err = server
+            .passwords_user_signing_auth(&extensions)
+            .await
+            .expect_err("hosted mode must not expose local signing operations");
+        assert!(
+            err.message
+                .contains("only available in local MCP modes after passwords_unlock"),
+            "unexpected error message: {}",
+            err.message
+        );
+
         assert!(server.passwords_session.lock().await.is_none());
     }
 }
