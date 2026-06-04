@@ -360,6 +360,24 @@ enum PasswordsAction {
         #[command(subcommand)]
         action: PasswordShareAction,
     },
+    /// Export decrypted vault items to a plaintext JSON file. Attachments are excluded.
+    Export {
+        /// Vault id. Required when the account has multiple vaults.
+        #[arg(long)]
+        vault_id: Option<Uuid>,
+        /// Destination JSON file. The file must not already exist.
+        #[arg(long)]
+        output: std::path::PathBuf,
+    },
+    /// Import plaintext JSON items into a vault. Attachments are excluded.
+    Import {
+        /// Vault id. Required when the account has multiple vaults.
+        #[arg(long)]
+        vault_id: Option<Uuid>,
+        /// Source JSON file produced by `passwords export`.
+        #[arg(long)]
+        input: std::path::PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -5166,6 +5184,18 @@ async fn main() -> anyhow::Result<()> {
                     commands::passwords::share_revoke(share_id, &ctx).await?
                 }
             },
+            PasswordsAction::Export { vault_id, output } => {
+                let options = commands::passwords::PasswordsOptions {
+                    master_password: commands::passwords::master_password_from_env(),
+                };
+                commands::passwords::export_vault(options, vault_id, output, &ctx).await?
+            }
+            PasswordsAction::Import { vault_id, input } => {
+                let options = commands::passwords::PasswordsOptions {
+                    master_password: commands::passwords::master_password_from_env(),
+                };
+                commands::passwords::import_vault(options, vault_id, input, &ctx).await?
+            }
         },
         Commands::Webhooks { org_id, action } => match action {
             WebhookAction::List => commands::webhooks::list(&org_id, &ctx).await?,
@@ -7096,6 +7126,56 @@ mod tests {
                     }
                     _ => panic!("unexpected passwords share action parsed"),
                 },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn passwords_import_export_commands_parse() {
+        let vault_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let export = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "export",
+            "--vault-id",
+            "11111111-1111-1111-1111-111111111111",
+            "--output",
+            "vault-export.json",
+        ]);
+        match export.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Export {
+                    vault_id: parsed_vault,
+                    output,
+                } => {
+                    assert_eq!(parsed_vault, Some(vault_id));
+                    assert_eq!(output, std::path::PathBuf::from("vault-export.json"));
+                }
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let import = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "import",
+            "--vault-id",
+            "11111111-1111-1111-1111-111111111111",
+            "--input",
+            "vault-export.json",
+        ]);
+        match import.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Import {
+                    vault_id: parsed_vault,
+                    input,
+                } => {
+                    assert_eq!(parsed_vault, Some(vault_id));
+                    assert_eq!(input, std::path::PathBuf::from("vault-export.json"));
+                }
                 _ => panic!("unexpected passwords action parsed"),
             },
             _ => panic!("unexpected command parsed"),

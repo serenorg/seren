@@ -6,6 +6,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use colored::Colorize;
 use etcetera::base_strategy::{BaseStrategy, choose_base_strategy};
+use seren_secrets_crypto::aead::{xchacha20_decrypt_with_aad, xchacha20_encrypt_with_aad};
 use seren_secrets_crypto::keys::{
     IdentityKemKeypair, IdentityKemPrivateKey, IdentityKemPublicKey, IdentitySigningKeypair,
     IdentitySigningPrivateKey, VaultKey,
@@ -13,8 +14,8 @@ use seren_secrets_crypto::keys::{
 use seren_secrets_crypto::password_generator::PasswordRecipe;
 use seren_secrets_crypto::prose;
 use seren_secrets_crypto::protocol::attachment::{
-    decrypt_blob, decrypt_content_type, decrypt_filename, encrypt_blob, encrypt_content_type,
-    encrypt_filename, generate_attachment_key, unwrap_attachment_key, wrap_attachment_key,
+    encrypt_blob, encrypt_content_type, encrypt_filename, generate_attachment_key,
+    wrap_attachment_key,
 };
 use seren_secrets_crypto::protocol::item::{
     ApiCredentialContent, ApiCredentialKind, ItemContent, LoginContent, LoginUrl,
@@ -2519,6 +2520,16 @@ async fn build_rotation_complete_request(
     })
 }
 
+fn attachment_aad(label: &'static str, item_id: Uuid, attachment_id: Uuid) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(label.len() + 1 + 16 + 1 + 16);
+    aad.extend_from_slice(label.as_bytes());
+    aad.push(b':');
+    aad.extend_from_slice(item_id.as_bytes());
+    aad.push(b':');
+    aad.extend_from_slice(attachment_id.as_bytes());
+    aad
+}
+
 fn decrypt_attachment_metadata(
     vault_key: &VaultKey,
     item_id: Uuid,
@@ -2562,28 +2573,25 @@ fn decrypt_attachment_metadata_fields(
     item_id: Uuid,
     fields: AttachmentMetadataFields<'_>,
 ) -> Result<DecryptedAttachmentMetadata> {
-    let item_id_bytes = item_id.as_bytes();
-    let attachment_id_bytes = fields.attachment_id.as_bytes();
-    let filename = decrypt_filename(
-        vault_key,
-        item_id_bytes,
-        attachment_id_bytes,
+    let filename = xchacha20_decrypt_with_aad(
+        vault_key.as_bytes(),
         &decode_passwords_b64_field("filename_ciphertext", fields.filename_ciphertext)?,
+        &attachment_aad("attachment-filename", item_id, fields.attachment_id),
     )
     .context("could not decrypt attachment filename")?;
-    let content_type = decrypt_content_type(
-        vault_key,
-        item_id_bytes,
-        attachment_id_bytes,
+    let content_type = xchacha20_decrypt_with_aad(
+        vault_key.as_bytes(),
         &decode_passwords_b64_field("content_type_ciphertext", fields.content_type_ciphertext)?,
+        &attachment_aad("attachment-content-type", item_id, fields.attachment_id),
     )
     .context("could not decrypt attachment content type")?;
 
     Ok(DecryptedAttachmentMetadata {
         attachment_id: fields.attachment_id,
         item_id: fields.response_item_id,
-        filename,
-        content_type,
+        filename: String::from_utf8(filename).context("attachment filename is not UTF-8")?,
+        content_type: String::from_utf8(content_type)
+            .context("attachment content type is not UTF-8")?,
         size_bytes: fields.size_bytes,
         created_at: fields.created_at,
     })
@@ -2595,21 +2603,23 @@ fn decrypt_attachment_blob(
     attachment: &seren::AttachmentWithBlobView,
 ) -> Result<Zeroizing<Vec<u8>>> {
     let attachment_id = attachment.attachment_id;
-    let item_id_bytes = item_id.as_bytes();
-    let attachment_id_bytes = attachment_id.as_bytes();
-    let content_key = unwrap_attachment_key(
-        vault_key,
-        item_id_bytes,
-        attachment_id_bytes,
-        &decode_passwords_b64_field("wrapped_content_key", &attachment.wrapped_content_key)?,
-    )
-    .context("could not unwrap attachment content key")?;
+    let content_key = Zeroizing::new(
+        xchacha20_decrypt_with_aad(
+            vault_key.as_bytes(),
+            &decode_passwords_b64_field("wrapped_content_key", &attachment.wrapped_content_key)?,
+            &attachment_aad("attachment-content-key", item_id, attachment_id),
+        )
+        .context("could not unwrap attachment content key")?,
+    );
+    let content_key = Zeroizing::new(
+        <[u8; 32]>::try_from(content_key.as_slice())
+            .map_err(|_| anyhow::anyhow!("attachment content key has invalid length"))?,
+    );
     Ok(Zeroizing::new(
-        decrypt_blob(
+        xchacha20_decrypt_with_aad(
             &content_key,
-            item_id_bytes,
-            attachment_id_bytes,
             &decode_passwords_b64_field("blob", &attachment.blob)?,
+            &attachment_aad("attachment-blob", item_id, attachment_id),
         )
         .context("could not decrypt attachment blob")?,
     ))
@@ -2622,52 +2632,44 @@ fn rewrap_attachment_for_rotation(
     attachment: &seren::AttachmentView,
 ) -> Result<seren::RotationAttachmentDto> {
     let attachment_id = attachment.attachment_id;
-    let item_id_bytes = item_id.as_bytes();
-    let attachment_id_bytes = attachment_id.as_bytes();
-    let filename = decrypt_filename(
-        old_vault_key,
-        item_id_bytes,
-        attachment_id_bytes,
+    let filename = xchacha20_decrypt_with_aad(
+        old_vault_key.as_bytes(),
         &decode_passwords_b64_field("filename_ciphertext", &attachment.filename_ciphertext)?,
+        &attachment_aad("attachment-filename", item_id, attachment_id),
     )
     .context("could not decrypt attachment filename for rotation")?;
-    let content_type = decrypt_content_type(
-        old_vault_key,
-        item_id_bytes,
-        attachment_id_bytes,
+    let content_type = xchacha20_decrypt_with_aad(
+        old_vault_key.as_bytes(),
         &decode_passwords_b64_field(
             "content_type_ciphertext",
             &attachment.content_type_ciphertext,
         )?,
+        &attachment_aad("attachment-content-type", item_id, attachment_id),
     )
     .context("could not decrypt attachment content type for rotation")?;
-    let attachment_key = unwrap_attachment_key(
-        old_vault_key,
-        item_id_bytes,
-        attachment_id_bytes,
+    let content_key = xchacha20_decrypt_with_aad(
+        old_vault_key.as_bytes(),
         &decode_passwords_b64_field("wrapped_content_key", &attachment.wrapped_content_key)?,
+        &attachment_aad("attachment-content-key", item_id, attachment_id),
     )
     .context("could not unwrap attachment content key for rotation")?;
 
     Ok(seren::RotationAttachmentDto {
         attachment_id,
-        content_type_ciphertext: BASE64.encode(encrypt_content_type(
-            new_vault_key,
-            item_id_bytes,
-            attachment_id_bytes,
+        content_type_ciphertext: BASE64.encode(xchacha20_encrypt_with_aad(
+            new_vault_key.as_bytes(),
             &content_type,
+            &attachment_aad("attachment-content-type", item_id, attachment_id),
         )),
-        filename_ciphertext: BASE64.encode(encrypt_filename(
-            new_vault_key,
-            item_id_bytes,
-            attachment_id_bytes,
+        filename_ciphertext: BASE64.encode(xchacha20_encrypt_with_aad(
+            new_vault_key.as_bytes(),
             &filename,
+            &attachment_aad("attachment-filename", item_id, attachment_id),
         )),
-        wrapped_content_key: BASE64.encode(wrap_attachment_key(
-            new_vault_key,
-            item_id_bytes,
-            attachment_id_bytes,
-            &attachment_key,
+        wrapped_content_key: BASE64.encode(xchacha20_encrypt_with_aad(
+            new_vault_key.as_bytes(),
+            &content_key,
+            &attachment_aad("attachment-content-key", item_id, attachment_id),
         )),
     })
 }
@@ -3523,16 +3525,13 @@ fn atty_stdin() -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        BASE64, PasswordsVaultImport, decode_passwords_gateway_body,
+        BASE64, PasswordsVaultImport, attachment_aad, decode_passwords_gateway_body,
         ensure_distinct_transfer_vaults, membership_grant_signature, passwords_api_base_url,
         rewrap_attachment_for_rotation, validate_passwords_import_metadata,
     };
     use base64::Engine;
+    use seren_secrets_crypto::aead::xchacha20_decrypt_with_aad;
     use seren_secrets_crypto::keys::{IdentitySigningKeypair, IdentitySigningPrivateKey};
-    use seren_secrets_crypto::protocol::attachment::{
-        decrypt_blob, decrypt_content_type, decrypt_filename, encrypt_blob, encrypt_content_type,
-        encrypt_filename, generate_attachment_key, unwrap_attachment_key, wrap_attachment_key,
-    };
     use seren_secrets_crypto::protocol::vault::generate_vault_key;
     use uuid::Uuid;
 
@@ -3593,87 +3592,80 @@ mod tests {
     }
 
     #[test]
-    fn attachment_rotation_preserves_decryptability_under_new_key() {
+    fn attachment_rotation_rewraps_with_expected_aad() {
         let old_vault_key = generate_vault_key();
         let new_vault_key = generate_vault_key();
         let item_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
         let attachment_id = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
-        let attachment_key = generate_attachment_key();
-        let plaintext = b"report-bytes".to_vec();
-        // The blob stays under the unchanged attachment key; rotation only
-        // re-encrypts the wrapped key + metadata under the new vault key.
-        let blob = encrypt_blob(
-            &attachment_key,
-            item_id.as_bytes(),
-            attachment_id.as_bytes(),
-            &plaintext,
-        );
 
+        let filename_aad = attachment_aad("attachment-filename", item_id, attachment_id);
+        assert_eq!(&filename_aad[..20], b"attachment-filename:");
+        assert_eq!(&filename_aad[20..36], item_id.as_bytes());
+        assert_eq!(filename_aad[36], b':');
+        assert_eq!(&filename_aad[37..], attachment_id.as_bytes());
+
+        let filename = b"report.pdf";
+        let content_type = b"application/pdf";
+        let content_key = [9u8; 32];
         let attachment = seren::AttachmentView {
             attachment_id,
-            content_type_ciphertext: BASE64.encode(encrypt_content_type(
-                &old_vault_key,
-                item_id.as_bytes(),
-                attachment_id.as_bytes(),
-                "application/pdf",
-            )),
+            content_type_ciphertext: BASE64.encode(
+                seren_secrets_crypto::aead::xchacha20_encrypt_with_aad(
+                    old_vault_key.as_bytes(),
+                    content_type,
+                    &attachment_aad("attachment-content-type", item_id, attachment_id),
+                ),
+            ),
             created_at: "2030-01-01T00:00:00Z".parse().unwrap(),
-            filename_ciphertext: BASE64.encode(encrypt_filename(
-                &old_vault_key,
-                item_id.as_bytes(),
-                attachment_id.as_bytes(),
-                "report.pdf",
-            )),
+            filename_ciphertext: BASE64.encode(
+                seren_secrets_crypto::aead::xchacha20_encrypt_with_aad(
+                    old_vault_key.as_bytes(),
+                    filename,
+                    &filename_aad,
+                ),
+            ),
             item_id,
-            size_bytes: blob.len() as i64,
-            wrapped_content_key: BASE64.encode(wrap_attachment_key(
-                &old_vault_key,
-                item_id.as_bytes(),
-                attachment_id.as_bytes(),
-                &attachment_key,
-            )),
+            size_bytes: 123,
+            wrapped_content_key: BASE64.encode(
+                seren_secrets_crypto::aead::xchacha20_encrypt_with_aad(
+                    old_vault_key.as_bytes(),
+                    &content_key,
+                    &attachment_aad("attachment-content-key", item_id, attachment_id),
+                ),
+            ),
         };
 
         let rotated =
             rewrap_attachment_for_rotation(&old_vault_key, &new_vault_key, item_id, &attachment)
                 .unwrap();
 
-        assert_eq!(
-            decrypt_filename(
-                &new_vault_key,
-                item_id.as_bytes(),
-                attachment_id.as_bytes(),
-                &BASE64.decode(rotated.filename_ciphertext).unwrap(),
-            )
-            .unwrap(),
-            "report.pdf"
+        let rotated_filename = BASE64.decode(rotated.filename_ciphertext).unwrap();
+        assert!(
+            xchacha20_decrypt_with_aad(old_vault_key.as_bytes(), &rotated_filename, &filename_aad)
+                .is_err()
         );
         assert_eq!(
-            decrypt_content_type(
-                &new_vault_key,
-                item_id.as_bytes(),
-                attachment_id.as_bytes(),
+            xchacha20_decrypt_with_aad(new_vault_key.as_bytes(), &rotated_filename, &filename_aad)
+                .unwrap(),
+            filename
+        );
+        assert_eq!(
+            xchacha20_decrypt_with_aad(
+                new_vault_key.as_bytes(),
                 &BASE64.decode(rotated.content_type_ciphertext).unwrap(),
+                &attachment_aad("attachment-content-type", item_id, attachment_id),
             )
             .unwrap(),
-            "application/pdf"
+            content_type
         );
-        let recovered_key = unwrap_attachment_key(
-            &new_vault_key,
-            item_id.as_bytes(),
-            attachment_id.as_bytes(),
-            &BASE64.decode(rotated.wrapped_content_key).unwrap(),
-        )
-        .unwrap();
         assert_eq!(
-            decrypt_blob(
-                &recovered_key,
-                item_id.as_bytes(),
-                attachment_id.as_bytes(),
-                &blob,
+            xchacha20_decrypt_with_aad(
+                new_vault_key.as_bytes(),
+                &BASE64.decode(rotated.wrapped_content_key).unwrap(),
+                &attachment_aad("attachment-content-key", item_id, attachment_id),
             )
             .unwrap(),
-            plaintext
+            content_key
         );
     }
 
