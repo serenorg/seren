@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{self, Read};
 
 use anyhow::{Context, Result, bail};
@@ -5,14 +6,26 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use colored::Colorize;
 use etcetera::base_strategy::{BaseStrategy, choose_base_strategy};
-use seren_secrets_crypto::keys::{IdentityKemKeypair, IdentitySigningKeypair};
+use seren_secrets_crypto::aead::{xchacha20_decrypt_with_aad, xchacha20_encrypt_with_aad};
+use seren_secrets_crypto::keys::{
+    IdentityKemKeypair, IdentityKemPrivateKey, IdentityKemPublicKey, IdentitySigningKeypair,
+    IdentitySigningPrivateKey, VaultKey,
+};
+use seren_secrets_crypto::password_generator::PasswordRecipe;
 use seren_secrets_crypto::prose;
 use seren_secrets_crypto::protocol::item::{
-    ApiCredentialContent, ApiCredentialKind, ItemContent, LoginContent, LoginUrl, SecureNoteContent,
+    ApiCredentialContent, ApiCredentialKind, ItemContent, LoginContent, LoginUrl,
+    SecureNoteContent, decrypt_metadata_json, decrypt_tags, decrypt_title, encrypt_metadata_json,
+    encrypt_tags, encrypt_title, unwrap_item_content_key, wrap_item_content_key,
+};
+use seren_secrets_crypto::protocol::vault::{
+    decrypt_vault_description, decrypt_vault_name, encrypt_vault_description,
+    encrypt_vault_invitation_email, encrypt_vault_name, generate_vault_key, unwrap_vault_key,
+    wrap_vault_key_for_identity,
 };
 use seren_secrets_resolver::{
-    VaultClient, VaultClientConfig, create_agent_identity, fetch_master_password_key_source,
-    grant_membership, revoke_agent_identity, revoke_membership,
+    VaultClient, VaultClientConfig, VaultKeySource, create_agent_identity,
+    fetch_master_password_key_source, grant_membership, revoke_agent_identity, revoke_membership,
 };
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
@@ -25,6 +38,18 @@ const SEREN_PASSWORDS_PUBLISHER_SLUG: &str = "seren-passwords";
 #[derive(Clone)]
 pub struct PasswordsOptions {
     pub master_password: Option<Zeroizing<String>>,
+}
+
+pub struct PasswordGenerateOptions {
+    pub mode: String,
+    pub length: Option<u32>,
+    pub upper: bool,
+    pub lower: bool,
+    pub digits: bool,
+    pub symbols: bool,
+    pub word_count: u32,
+    pub separator: char,
+    pub capitalize_first: bool,
 }
 
 #[derive(Clone)]
@@ -101,6 +126,59 @@ pub struct PasswordAuditListOptions {
     pub to: Option<String>,
     pub limit: i64,
     pub offset: i64,
+}
+
+#[derive(Clone)]
+pub struct VaultUpdateOptions {
+    pub master_password: Option<Zeroizing<String>>,
+    pub vault_id: Uuid,
+    pub name: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct VaultCreateOptions {
+    pub master_password: Option<Zeroizing<String>>,
+    pub name: String,
+    pub description: Option<String>,
+    pub requires_approval: Option<seren::VaultApprovalMode>,
+}
+
+#[derive(Clone)]
+pub struct VaultRotationCancelOptions {
+    pub vault_id: Uuid,
+    pub rotation_token: Uuid,
+}
+
+#[derive(Clone)]
+pub struct VaultRotationCompleteOptions {
+    pub master_password: Option<Zeroizing<String>>,
+    pub vault_id: Uuid,
+    pub rotation_token: Option<Uuid>,
+}
+
+#[derive(Clone)]
+pub struct MembershipGrantOptions {
+    pub master_password: Option<Zeroizing<String>>,
+    pub vault_id: Uuid,
+    pub identity_id: Uuid,
+    pub access_level: seren::AccessLevel,
+}
+
+#[derive(Clone)]
+pub struct InvitationCreateOptions {
+    pub master_password: Option<Zeroizing<String>>,
+    pub vault_id: Uuid,
+    pub email: String,
+    pub access_level: seren::AccessLevel,
+    pub expires_in_hours: Option<i64>,
+}
+
+#[derive(Clone)]
+pub struct InvitationCompleteOptions {
+    pub master_password: Option<Zeroizing<String>>,
+    pub vault_id: Uuid,
+    pub invitation_id: Uuid,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -226,6 +304,279 @@ pub async fn archive_vault(vault_id: Uuid, ctx: &CommandContext) -> Result<()> {
         OutputFormat::Table => println!(
             "{}",
             format!("Archived password vault {vault_id}").green().bold()
+        ),
+    }
+
+    Ok(())
+}
+
+pub async fn update_vault(options: VaultUpdateOptions, ctx: &CommandContext) -> Result<()> {
+    if options.name.is_none() && options.description.is_none() {
+        bail!("pass --name, --description, or both");
+    }
+
+    let vault_client = build_vault_client(
+        PasswordsOptions {
+            master_password: options.master_password,
+        },
+        ctx,
+    )
+    .await?;
+    let vault = select_vault(&vault_client, Some(options.vault_id)).await?;
+
+    let mut patch = seren::VaultPatchRequest {
+        name_ciphertext: None,
+        description_ciphertext: None,
+    };
+    if let Some(name) = options.name {
+        let name = name.trim();
+        if name.is_empty() {
+            bail!("--name cannot be empty");
+        }
+        patch.name_ciphertext = Some(BASE64.encode(encrypt_vault_name(
+            &vault.key,
+            vault.vault_id.as_bytes(),
+            name,
+        )));
+    }
+    if let Some(description) = options.description {
+        patch.description_ciphertext = Some(BASE64.encode(encrypt_vault_description(
+            &vault.key,
+            vault.vault_id.as_bytes(),
+            description.trim(),
+        )));
+    }
+
+    let client = passwords_api_client(ctx).await?;
+    let result = passwords_gateway_data(
+        client.vault_update(&vault.vault_id, &patch).await,
+        "failed to update password vault",
+    )?
+    .data;
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&result)?,
+        OutputFormat::Table => println!(
+            "{}",
+            format!("Updated password vault {}", vault.vault_id)
+                .green()
+                .bold()
+        ),
+    }
+
+    Ok(())
+}
+
+pub async fn create_vault(options: VaultCreateOptions, ctx: &CommandContext) -> Result<()> {
+    let name = options.name.trim();
+    if name.is_empty() {
+        bail!("--name cannot be empty");
+    }
+
+    let (_passwords_base_url, _bearer, key_source) = build_vault_key_source(
+        PasswordsOptions {
+            master_password: options.master_password,
+        },
+        ctx,
+    )
+    .await?;
+    let signing_private = account_signing_private_from_key_source(&key_source)?;
+    let client = passwords_api_client(ctx).await?;
+    let identity = passwords_gateway_data(
+        client.identity_get_me().await,
+        "failed to load password identity",
+    )?
+    .data;
+    let identity_public = decode_kem_public_key_field("kem_public_key", &identity.kem_public_key)?;
+    let vault_id = Uuid::new_v4();
+    let vault_key = generate_vault_key();
+    let wrapped = wrap_vault_key_for_identity(&vault_key, &identity_public);
+    let granted_signature = membership_grant_signature(
+        &signing_private,
+        vault_id,
+        identity.identity_id,
+        seren::AccessLevel::Admin,
+        &wrapped,
+    );
+    let description = options.description.as_deref().map(str::trim);
+    let description_ciphertext = description.filter(|value| !value.is_empty()).map(|value| {
+        BASE64.encode(encrypt_vault_description(
+            &vault_key,
+            vault_id.as_bytes(),
+            value,
+        ))
+    });
+    let result = passwords_gateway_data(
+        client
+            .vault_create(&seren::CreateVaultRequest {
+                access_level: seren::AccessLevel::Admin,
+                description_ciphertext,
+                granted_signature,
+                initial_wrapped_vault_key: BASE64.encode(wrapped),
+                name_ciphertext: BASE64.encode(encrypt_vault_name(
+                    &vault_key,
+                    vault_id.as_bytes(),
+                    name,
+                )),
+                owner_kind: seren::VaultOwnerKind::User,
+                requires_approval: options.requires_approval,
+                vault_id,
+            })
+            .await,
+        "failed to create password vault",
+    )?
+    .data;
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&result)?,
+        OutputFormat::Table => output::print_key_value_table(
+            Some("Created password vault"),
+            &[
+                ("Vault ID", vault_id.to_string()),
+                ("Name", name.to_string()),
+            ],
+        ),
+    }
+
+    Ok(())
+}
+
+pub async fn vault_rotation_initiate(vault_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = passwords_api_client(ctx).await?;
+    let response = passwords_gateway_data(
+        client.vault_rotation_initiate(&vault_id).await,
+        "failed to start password vault key rotation",
+    )?
+    .data;
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => output::print_key_value_table(
+            Some("Started password vault key rotation"),
+            &[
+                ("Vault ID", response.vault_id.to_string()),
+                ("Rotation token", response.rotation_token.to_string()),
+            ],
+        ),
+    }
+
+    Ok(())
+}
+
+pub async fn vault_rotation_cancel(
+    options: VaultRotationCancelOptions,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = passwords_api_client(ctx).await?;
+    let response = passwords_gateway_data(
+        client
+            .vault_rotation_cancel(
+                &options.vault_id,
+                &seren::RotationCancelRequest {
+                    rotation_token: options.rotation_token,
+                },
+            )
+            .await,
+        "failed to cancel password vault key rotation",
+    )?
+    .data;
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => println!(
+            "{}",
+            format!(
+                "Cancelled password vault key rotation {}",
+                options.rotation_token
+            )
+            .green()
+            .bold()
+        ),
+    }
+
+    Ok(())
+}
+
+pub async fn vault_rotation_complete(
+    options: VaultRotationCompleteOptions,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let (_, _, key_source) = build_vault_key_source(
+        PasswordsOptions {
+            master_password: options.master_password,
+        },
+        ctx,
+    )
+    .await?;
+    let signing_private = account_signing_private_from_key_source(&key_source)?;
+    let kem_private = key_source
+        .kem_private()
+        .context("could not unlock vault key source")?
+        .into_owned();
+    let client = passwords_api_client(ctx).await?;
+    let initiated_here = options.rotation_token.is_none();
+    let rotation_token = match options.rotation_token {
+        Some(token) => token,
+        None => {
+            passwords_gateway_data(
+                client.vault_rotation_initiate(&options.vault_id).await,
+                "failed to start password vault key rotation",
+            )?
+            .data
+            .rotation_token
+        }
+    };
+
+    let complete_result = build_rotation_complete_request(
+        &client,
+        options.vault_id,
+        rotation_token,
+        &kem_private,
+        &signing_private,
+    )
+    .await;
+
+    let body = match complete_result {
+        Ok(body) => body,
+        Err(error) => {
+            if initiated_here {
+                let _ = client
+                    .vault_rotation_cancel(
+                        &options.vault_id,
+                        &seren::RotationCancelRequest { rotation_token },
+                    )
+                    .await;
+            }
+            return Err(error);
+        }
+    };
+    let response = match passwords_gateway_data(
+        client
+            .vault_rotation_complete(&options.vault_id, &body)
+            .await,
+        "failed to complete password vault key rotation",
+    ) {
+        Ok(response) => response.data,
+        Err(error) => {
+            if initiated_here {
+                let _ = client
+                    .vault_rotation_cancel(
+                        &options.vault_id,
+                        &seren::RotationCancelRequest { rotation_token },
+                    )
+                    .await;
+            }
+            return Err(error);
+        }
+    };
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => println!(
+            "{}",
+            format!("Completed password vault key rotation {}", rotation_token)
+                .green()
+                .bold()
         ),
     }
 
@@ -1332,6 +1683,38 @@ pub async fn approval_get(approval_id: Uuid, ctx: &CommandContext) -> Result<()>
     print_approval_record("Password approval", &approval, ctx)
 }
 
+pub async fn approval_approve(
+    options: PasswordsOptions,
+    approval_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let (_, _, key_source) = build_vault_key_source(options, ctx).await?;
+    let kem_private = key_source
+        .kem_private()
+        .context("could not unlock vault key source")?
+        .into_owned();
+    let client = passwords_api_client(ctx).await?;
+    let approve_context = passwords_gateway_data(
+        client.approval_approve_context(&approval_id).await,
+        "failed to load password approval context",
+    )?
+    .data;
+    let one_shot_wrapped_key = build_approval_wrapped_key(&kem_private, &approve_context)?;
+    let approval = passwords_gateway_data(
+        client
+            .approval_approve(
+                &approval_id,
+                &seren::ApprovalDecisionRequest {
+                    one_shot_wrapped_key: BASE64.encode(one_shot_wrapped_key),
+                },
+            )
+            .await,
+        "failed to approve password approval",
+    )?
+    .data;
+    print_approval_record("Approved password approval", &approval, ctx)
+}
+
 pub async fn approval_deny(approval_id: Uuid, ctx: &CommandContext) -> Result<()> {
     let client = passwords_api_client(ctx).await?;
     let approval = passwords_gateway_data(
@@ -1383,6 +1766,349 @@ fn print_approval_record(
     Ok(())
 }
 
+fn build_approval_wrapped_key(
+    kem_private: &IdentityKemPrivateKey,
+    context: &seren::ApproveContext,
+) -> Result<Vec<u8>> {
+    let requester_public = decode_kem_public_key(&context.requester_kem_public_key)?;
+    let approver_wrapped_vault_key = decode_passwords_b64_field(
+        "approver_wrapped_vault_key",
+        &context.approver_wrapped_vault_key,
+    )?;
+    let vault_key = unwrap_vault_key(kem_private, &approver_wrapped_vault_key)
+        .context("could not unwrap approver vault key")?;
+
+    match context.target_kind {
+        seren::ApprovalTargetKind::Vault => {
+            Ok(wrap_vault_key_for_identity(&vault_key, &requester_public))
+        }
+        seren::ApprovalTargetKind::Item => {
+            let item_id = context
+                .item_id
+                .context("approval context missing item_id")?;
+            let content_key_wrap = context
+                .content_key_wrap
+                .as_ref()
+                .context("approval context missing content_key_wrap")?;
+            let content_key_wrap =
+                decode_passwords_b64_field("content_key_wrap", content_key_wrap)?;
+            let content_key =
+                unwrap_item_content_key(&vault_key, item_id.as_bytes(), &content_key_wrap)
+                    .context("could not unwrap item content key")?;
+            Ok(seren_secrets_crypto::kem::seal(
+                &requester_public,
+                content_key.as_bytes(),
+            ))
+        }
+    }
+}
+
+fn decode_kem_public_key(encoded: &str) -> Result<IdentityKemPublicKey> {
+    let bytes = decode_passwords_b64_field("requester_kem_public_key", encoded)?;
+    IdentityKemPublicKey::from_slice(&bytes).context("invalid requester KEM public key")
+}
+
+fn decode_kem_public_key_field(field: &'static str, encoded: &str) -> Result<IdentityKemPublicKey> {
+    let bytes = decode_passwords_b64_field(field, encoded)?;
+    IdentityKemPublicKey::from_slice(&bytes).with_context(|| format!("invalid {field}"))
+}
+
+fn decode_passwords_b64_field(field: &'static str, encoded: &str) -> Result<Vec<u8>> {
+    BASE64
+        .decode(encoded.as_bytes())
+        .with_context(|| format!("invalid base64 field {field}"))
+}
+
+async fn build_rotation_complete_request(
+    client: &seren::Client,
+    vault_id: Uuid,
+    rotation_token: Uuid,
+    kem_private: &IdentityKemPrivateKey,
+    signing_private: &IdentitySigningPrivateKey,
+) -> Result<seren::RotationCompleteRequest> {
+    let sync = passwords_gateway_data(
+        client.sync_get().await,
+        "failed to load password sync data for rotation",
+    )?
+    .data;
+    let vault = sync
+        .vaults
+        .iter()
+        .find(|vault| vault.vault_id == vault_id)
+        .with_context(|| format!("vault {vault_id} is not available to this account"))?;
+    let old_wrapped_key = vault
+        .wrapped_vault_key
+        .as_deref()
+        .context("vault response missing wrapped_vault_key")?;
+    let old_vault_key = unwrap_vault_key(
+        kem_private,
+        &decode_passwords_b64_field("wrapped_vault_key", old_wrapped_key)?,
+    )
+    .context("could not unwrap current vault key")?;
+    let new_vault_key = generate_vault_key();
+    let identities = sync
+        .identities
+        .iter()
+        .map(|identity| (identity.identity_id, identity))
+        .collect::<HashMap<_, _>>();
+
+    let memberships = sync
+        .memberships
+        .iter()
+        .filter(|membership| membership.vault_id == vault_id && membership.revoked_at.is_none())
+        .map(|membership| {
+            let identity = identities
+                .get(&membership.identity_id)
+                .with_context(|| format!("identity {} is not visible", membership.identity_id))?;
+            let recipient_public =
+                decode_kem_public_key_field("kem_public_key", &identity.kem_public_key)?;
+            let wrapped = wrap_vault_key_for_identity(&new_vault_key, &recipient_public);
+            Ok(seren::RotationMembershipDto {
+                access_level: membership.access_level,
+                granted_signature: membership_grant_signature(
+                    signing_private,
+                    vault_id,
+                    membership.identity_id,
+                    membership.access_level,
+                    &wrapped,
+                ),
+                identity_id: membership.identity_id,
+                wrapped_vault_key: BASE64.encode(wrapped),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if memberships.is_empty() {
+        bail!("vault has no active memberships to rotate");
+    }
+
+    let mut items = Vec::new();
+    let mut attachments = Vec::new();
+    for state in [
+        seren::ListStateParam::Active,
+        seren::ListStateParam::Trashed,
+    ] {
+        let summaries = passwords_gateway_data(
+            client.item_list(&vault_id, Some(state), None, None).await,
+            "failed to list password vault items for rotation",
+        )?
+        .data;
+        for summary in summaries {
+            let item = passwords_gateway_data(
+                client.item_get(&vault_id, &summary.item_id).await,
+                "failed to fetch password item for rotation",
+            )?
+            .data;
+            let item_id = item.item_id;
+            let item_id_bytes = item_id.as_bytes();
+            let title = decrypt_title(
+                &old_vault_key,
+                item_id_bytes,
+                &decode_passwords_b64_field("title_ciphertext", &item.title_ciphertext)?,
+            )
+            .context("could not decrypt item title for rotation")?;
+            let tags_ciphertext = item
+                .tags_ciphertext
+                .as_deref()
+                .map(|tags| {
+                    let tags = decrypt_tags(
+                        &old_vault_key,
+                        item_id_bytes,
+                        &decode_passwords_b64_field("tags_ciphertext", tags)?,
+                    )
+                    .context("could not decrypt item tags for rotation")?;
+                    let ciphertext = encrypt_tags(&new_vault_key, item_id_bytes, &tags)
+                        .context("could not encrypt item tags for rotation")?;
+                    Ok::<String, anyhow::Error>(BASE64.encode(ciphertext))
+                })
+                .transpose()?;
+            let metadata_json = decrypt_metadata_json(
+                &old_vault_key,
+                item_id_bytes,
+                &decode_passwords_b64_field("metadata_ciphertext", &item.metadata_ciphertext)?,
+            )
+            .context("could not decrypt item metadata for rotation")?;
+            let content_key = unwrap_item_content_key(
+                &old_vault_key,
+                item_id_bytes,
+                &decode_passwords_b64_field("content_key_wrap", &item.content_key_wrap)?,
+            )
+            .context("could not unwrap item content key for rotation")?;
+            items.push(seren::RotationItemDto {
+                content_key_wrap: BASE64.encode(wrap_item_content_key(
+                    &new_vault_key,
+                    item_id_bytes,
+                    &content_key,
+                )),
+                item_id,
+                metadata_ciphertext: BASE64.encode(encrypt_metadata_json(
+                    &new_vault_key,
+                    item_id_bytes,
+                    &metadata_json,
+                )),
+                tags_ciphertext,
+                title_blind_index: item.title_blind_index,
+                title_ciphertext: BASE64.encode(encrypt_title(
+                    &new_vault_key,
+                    item_id_bytes,
+                    &title,
+                )),
+            });
+
+            let listed_attachments = passwords_gateway_data(
+                client.attachment_list(&vault_id, &item_id).await,
+                "failed to list password item attachments for rotation",
+            )?
+            .data;
+            for attachment in listed_attachments {
+                attachments.push(rewrap_attachment_for_rotation(
+                    &old_vault_key,
+                    &new_vault_key,
+                    item_id,
+                    &attachment,
+                )?);
+            }
+        }
+    }
+
+    let vault_name = decrypt_vault_name(
+        &old_vault_key,
+        vault_id.as_bytes(),
+        &decode_passwords_b64_field("name_ciphertext", &vault.name_ciphertext)?,
+    )
+    .context("could not decrypt vault name for rotation")?;
+    let vault_description_ciphertext = vault
+        .description_ciphertext
+        .as_deref()
+        .map(|description| {
+            let description = decrypt_vault_description(
+                &old_vault_key,
+                vault_id.as_bytes(),
+                &decode_passwords_b64_field("description_ciphertext", description)?,
+            )
+            .context("could not decrypt vault description for rotation")?;
+            Ok::<String, anyhow::Error>(BASE64.encode(encrypt_vault_description(
+                &new_vault_key,
+                vault_id.as_bytes(),
+                &description,
+            )))
+        })
+        .transpose()?;
+
+    Ok(seren::RotationCompleteRequest {
+        attachments,
+        items,
+        memberships,
+        rotation_token,
+        vault_description_ciphertext,
+        vault_name_ciphertext: BASE64.encode(encrypt_vault_name(
+            &new_vault_key,
+            vault_id.as_bytes(),
+            &vault_name,
+        )),
+    })
+}
+
+fn attachment_aad(label: &'static str, item_id: Uuid, attachment_id: Uuid) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(label.len() + 1 + 16 + 1 + 16);
+    aad.extend_from_slice(label.as_bytes());
+    aad.push(b':');
+    aad.extend_from_slice(item_id.as_bytes());
+    aad.push(b':');
+    aad.extend_from_slice(attachment_id.as_bytes());
+    aad
+}
+
+fn rewrap_attachment_for_rotation(
+    old_vault_key: &VaultKey,
+    new_vault_key: &VaultKey,
+    item_id: Uuid,
+    attachment: &seren::AttachmentView,
+) -> Result<seren::RotationAttachmentDto> {
+    let attachment_id = attachment.attachment_id;
+    let filename = xchacha20_decrypt_with_aad(
+        old_vault_key.as_bytes(),
+        &decode_passwords_b64_field("filename_ciphertext", &attachment.filename_ciphertext)?,
+        &attachment_aad("attachment-filename", item_id, attachment_id),
+    )
+    .context("could not decrypt attachment filename for rotation")?;
+    let content_type = xchacha20_decrypt_with_aad(
+        old_vault_key.as_bytes(),
+        &decode_passwords_b64_field(
+            "content_type_ciphertext",
+            &attachment.content_type_ciphertext,
+        )?,
+        &attachment_aad("attachment-content-type", item_id, attachment_id),
+    )
+    .context("could not decrypt attachment content type for rotation")?;
+    let content_key = xchacha20_decrypt_with_aad(
+        old_vault_key.as_bytes(),
+        &decode_passwords_b64_field("wrapped_content_key", &attachment.wrapped_content_key)?,
+        &attachment_aad("attachment-content-key", item_id, attachment_id),
+    )
+    .context("could not unwrap attachment content key for rotation")?;
+
+    Ok(seren::RotationAttachmentDto {
+        attachment_id,
+        content_type_ciphertext: BASE64.encode(xchacha20_encrypt_with_aad(
+            new_vault_key.as_bytes(),
+            &content_type,
+            &attachment_aad("attachment-content-type", item_id, attachment_id),
+        )),
+        filename_ciphertext: BASE64.encode(xchacha20_encrypt_with_aad(
+            new_vault_key.as_bytes(),
+            &filename,
+            &attachment_aad("attachment-filename", item_id, attachment_id),
+        )),
+        wrapped_content_key: BASE64.encode(xchacha20_encrypt_with_aad(
+            new_vault_key.as_bytes(),
+            &content_key,
+            &attachment_aad("attachment-content-key", item_id, attachment_id),
+        )),
+    })
+}
+
+fn account_signing_private_from_key_source(
+    key_source: &VaultKeySource,
+) -> Result<IdentitySigningPrivateKey> {
+    match key_source {
+        VaultKeySource::MasterPassword {
+            secrets,
+            master_password,
+        } => Ok(
+            seren_secrets_crypto::protocol::account::unlock_account(master_password, secrets)?
+                .signing_private,
+        ),
+        _ => bail!("membership grants require master-password authentication"),
+    }
+}
+
+fn membership_grant_signature(
+    signing_private: &IdentitySigningPrivateKey,
+    vault_id: Uuid,
+    identity_id: Uuid,
+    access_level: seren::AccessLevel,
+    wrapped_vault_key: &[u8],
+) -> String {
+    const DOMAIN: &[u8] = b"seren-secrets/membership-grant";
+
+    let access_level_byte = match access_level {
+        seren::AccessLevel::Admin => 0,
+        seren::AccessLevel::Write => 1,
+        seren::AccessLevel::Read => 2,
+    };
+    let mut payload = Vec::with_capacity(DOMAIN.len() + 16 + 16 + 1 + wrapped_vault_key.len());
+    payload.extend_from_slice(DOMAIN);
+    payload.extend_from_slice(vault_id.as_bytes());
+    payload.extend_from_slice(identity_id.as_bytes());
+    payload.push(access_level_byte);
+    payload.extend_from_slice(wrapped_vault_key);
+
+    BASE64.encode(seren_secrets_crypto::signing::sign(
+        signing_private,
+        &payload,
+    ))
+}
+
 pub async fn membership_list(vault_id: Uuid, ctx: &CommandContext) -> Result<()> {
     let client = passwords_api_client(ctx).await?;
     let memberships = passwords_gateway_data(
@@ -1417,6 +2143,69 @@ pub async fn membership_list(vault_id: Uuid, ctx: &CommandContext) -> Result<()>
     Ok(())
 }
 
+pub async fn membership_grant(options: MembershipGrantOptions, ctx: &CommandContext) -> Result<()> {
+    let (passwords_base_url, bearer, key_source) = build_vault_key_source(
+        PasswordsOptions {
+            master_password: options.master_password,
+        },
+        ctx,
+    )
+    .await?;
+    let signing_private = account_signing_private_from_key_source(&key_source)?;
+    let vault_client = VaultClient::new(VaultClientConfig {
+        base_url: passwords_base_url,
+        bearer_token: bearer,
+        key_source,
+    })
+    .context("could not build vault client")?;
+    let vault = select_vault(&vault_client, Some(options.vault_id)).await?;
+    let client = passwords_api_client(ctx).await?;
+    let identity = passwords_gateway_data(
+        client.identity_get(&options.identity_id).await,
+        "failed to load password identity",
+    )?
+    .data;
+    let recipient_public = decode_kem_public_key_field("kem_public_key", &identity.kem_public_key)?;
+    let wrapped = wrap_vault_key_for_identity(&vault.key, &recipient_public);
+    let granted_signature = membership_grant_signature(
+        &signing_private,
+        vault.vault_id,
+        options.identity_id,
+        options.access_level,
+        &wrapped,
+    );
+    let result = passwords_gateway_data(
+        client
+            .membership_grant(
+                &vault.vault_id,
+                &seren::MembershipGrantRequest {
+                    access_level: options.access_level,
+                    granted_signature,
+                    identity_id: options.identity_id,
+                    wrapped_vault_key: BASE64.encode(wrapped),
+                },
+            )
+            .await,
+        "failed to grant password vault membership",
+    )?
+    .data;
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&result)?,
+        OutputFormat::Table => println!(
+            "{}",
+            format!(
+                "Granted {} access to identity {} in vault {}",
+                options.access_level, options.identity_id, vault.vault_id
+            )
+            .green()
+            .bold()
+        ),
+    }
+
+    Ok(())
+}
+
 pub async fn membership_revoke(
     vault_id: Uuid,
     identity_id: Uuid,
@@ -1436,6 +2225,233 @@ pub async fn membership_revoke(
             format!("Revoked identity {identity_id} from vault {vault_id}")
                 .green()
                 .bold()
+        ),
+    }
+
+    Ok(())
+}
+
+pub async fn invitation_create(
+    options: InvitationCreateOptions,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let email = options.email.trim().to_ascii_lowercase();
+    if !email.contains('@') {
+        bail!("--email must be a valid email address");
+    }
+    let vault_client = build_vault_client(
+        PasswordsOptions {
+            master_password: options.master_password,
+        },
+        ctx,
+    )
+    .await?;
+    let vault = select_vault(&vault_client, Some(options.vault_id)).await?;
+    let invitation_id = Uuid::new_v4();
+    let email_ciphertext = encrypt_vault_invitation_email(
+        &vault.key,
+        vault.vault_id.as_bytes(),
+        invitation_id.as_bytes(),
+        &email,
+    );
+    let client = passwords_api_client(ctx).await?;
+    let created = passwords_gateway_data(
+        client
+            .invitation_create(
+                &vault.vault_id,
+                &seren::CreateInvitationRequest {
+                    access_level: options.access_level,
+                    expires_in_hours: options.expires_in_hours,
+                    invitation_id,
+                    invitee_email_ciphertext: BASE64.encode(email_ciphertext),
+                },
+            )
+            .await,
+        "failed to create password invitation",
+    )?
+    .data;
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&created)?,
+        OutputFormat::Table => output::print_key_value_table(
+            Some("Created password invitation"),
+            &[
+                ("Invitation ID", created.invitation_id.to_string()),
+                ("Vault ID", created.vault_id.to_string()),
+                ("Email", email),
+                ("Access", created.access_level.to_string()),
+                ("Token", created.invitation_token),
+            ],
+        ),
+    }
+
+    Ok(())
+}
+
+pub async fn invitation_list(vault_id: Option<Uuid>, ctx: &CommandContext) -> Result<()> {
+    let client = passwords_api_client(ctx).await?;
+    let invitations = if let Some(vault_id) = vault_id {
+        passwords_gateway_data(
+            client.invitation_list_for_vault(&vault_id).await,
+            "failed to list password vault invitations",
+        )?
+        .data
+    } else {
+        passwords_gateway_data(
+            client.invitation_list_pending().await,
+            "failed to list pending password invitations",
+        )?
+        .data
+    };
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&invitations)?,
+        OutputFormat::Table => {
+            if invitations.is_empty() {
+                println!("No password invitations found");
+            } else {
+                let rows = invitations
+                    .iter()
+                    .map(|invitation| {
+                        format!(
+                            "{} | vault {} | access {} | redeemed {}",
+                            invitation.invitation_id,
+                            invitation.vault_id,
+                            invitation.access_level,
+                            optional_uuid(invitation.redeemed_by_identity)
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                output::print_list_table(Some("Password invitations"), "Invitation", &rows);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn invitation_redeem(token: String, ctx: &CommandContext) -> Result<()> {
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        bail!("invitation token is required");
+    }
+    let client = passwords_api_client(ctx).await?;
+    let invitation = passwords_gateway_data(
+        client
+            .invitation_redeem(&seren::RedeemRequest {
+                invitation_token: token,
+            })
+            .await,
+        "failed to redeem password invitation",
+    )?
+    .data;
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&invitation)?,
+        OutputFormat::Table => {
+            print_invitation_record("Redeemed password invitation", &invitation, ctx)?
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn invitation_complete(
+    options: InvitationCompleteOptions,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let (passwords_base_url, bearer, key_source) = build_vault_key_source(
+        PasswordsOptions {
+            master_password: options.master_password,
+        },
+        ctx,
+    )
+    .await?;
+    let signing_private = account_signing_private_from_key_source(&key_source)?;
+    let vault_client = VaultClient::new(VaultClientConfig {
+        base_url: passwords_base_url,
+        bearer_token: bearer,
+        key_source,
+    })
+    .context("could not build vault client")?;
+    let vault = select_vault(&vault_client, Some(options.vault_id)).await?;
+    let client = passwords_api_client(ctx).await?;
+    let invitations = passwords_gateway_data(
+        client.invitation_list_for_vault(&vault.vault_id).await,
+        "failed to list password vault invitations",
+    )?
+    .data;
+    let invitation = invitations
+        .into_iter()
+        .find(|invitation| invitation.invitation_id == options.invitation_id)
+        .with_context(|| format!("invitation {} is not available", options.invitation_id))?;
+    let identity_id = invitation
+        .redeemed_by_identity
+        .context("invitation has not been redeemed")?;
+    let identity = passwords_gateway_data(
+        client.identity_get(&identity_id).await,
+        "failed to load invitee identity",
+    )?
+    .data;
+    let recipient_public = decode_kem_public_key_field("kem_public_key", &identity.kem_public_key)?;
+    let wrapped = wrap_vault_key_for_identity(&vault.key, &recipient_public);
+    let granted_signature = membership_grant_signature(
+        &signing_private,
+        vault.vault_id,
+        identity_id,
+        invitation.access_level,
+        &wrapped,
+    );
+    let result = passwords_gateway_data(
+        client
+            .membership_grant(
+                &vault.vault_id,
+                &seren::MembershipGrantRequest {
+                    access_level: invitation.access_level,
+                    granted_signature,
+                    identity_id,
+                    wrapped_vault_key: BASE64.encode(wrapped),
+                },
+            )
+            .await,
+        "failed to complete password invitation",
+    )?
+    .data;
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&result)?,
+        OutputFormat::Table => println!(
+            "{}",
+            format!(
+                "Completed invitation {} for identity {}",
+                options.invitation_id, identity_id
+            )
+            .green()
+            .bold()
+        ),
+    }
+
+    Ok(())
+}
+
+fn print_invitation_record(
+    title: &str,
+    invitation: &seren::InvitationView,
+    ctx: &CommandContext,
+) -> Result<()> {
+    match ctx.format {
+        OutputFormat::Json => output::print_json(invitation)?,
+        OutputFormat::Table => output::print_key_value_table(
+            Some(title),
+            &[
+                ("Invitation ID", invitation.invitation_id.to_string()),
+                ("Vault ID", invitation.vault_id.to_string()),
+                ("Access", invitation.access_level.to_string()),
+                (
+                    "Redeemed by",
+                    optional_uuid(invitation.redeemed_by_identity),
+                ),
+            ],
         ),
     }
 
@@ -1484,6 +2500,36 @@ pub async fn agent_revoke(
     Ok(())
 }
 
+pub fn generate_password(options: PasswordGenerateOptions, ctx: &CommandContext) -> Result<()> {
+    let recipe = match options.mode.as_str() {
+        "random" => PasswordRecipe::Random {
+            length: options.length.unwrap_or(20),
+            upper: options.upper,
+            lower: options.lower,
+            digits: options.digits,
+            symbols: options.symbols,
+        },
+        "passphrase" => PasswordRecipe::Passphrase {
+            word_count: options.word_count,
+            separator: options.separator,
+            capitalize_first: options.capitalize_first,
+        },
+        "hex" => PasswordRecipe::Hex {
+            length: options.length.unwrap_or(32),
+        },
+        other => bail!("unknown generator mode: {other}"),
+    };
+    let password = seren_secrets_crypto::password_generator::generate(&recipe)
+        .context("failed to generate password")?;
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&serde_json::json!({ "password": password }))?,
+        OutputFormat::Table => println!("{password}"),
+    }
+
+    Ok(())
+}
+
 fn passwords_api_base_url(api_base_url: &str) -> String {
     publisher_api_base_url(api_base_url, SEREN_PASSWORDS_PUBLISHER_SLUG)
 }
@@ -1522,8 +2568,9 @@ where
     match result {
         Ok(response) => Ok(response.into_inner()),
         Err(seren::Error::InvalidResponsePayload(bytes, _)) => {
-            decode_passwords_gateway_body::<T>(&bytes)
-                .map_err(|_| anyhow::anyhow!("{context}: unexpected response shape from gateway"))
+            decode_passwords_gateway_body::<T>(&bytes).map_err(|e| {
+                anyhow::anyhow!("{context}: unexpected response shape from gateway: {e}")
+            })
         }
         Err(seren::Error::UnexpectedResponse(response)) => Err(anyhow::anyhow!(
             "{context}: API error {}",
@@ -1542,7 +2589,7 @@ where
 
 /// Parse a Seren Passwords publisher response that may be a direct
 /// `DataResponse<T>` or a metered publisher gateway envelope.
-fn decode_passwords_gateway_body<T>(bytes: &[u8]) -> Result<T, ()>
+fn decode_passwords_gateway_body<T>(bytes: &[u8]) -> Result<T, String>
 where
     T: serde::de::DeserializeOwned,
 {
@@ -1550,17 +2597,29 @@ where
         return Ok(value);
     }
 
-    let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| ())?;
-    let data = value.get("data").ok_or(())?;
+    let value: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|e| format!("invalid JSON body: {e}"))?;
+    let data = value
+        .get("data")
+        .ok_or_else(|| "missing data field".to_string())?;
     if data.get("status").and_then(serde_json::Value::as_u64) != Some(200) {
-        return Err(());
+        let status = data
+            .get("status")
+            .and_then(serde_json::Value::as_u64)
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        return Err(format!("gateway returned upstream status {status}"));
     }
-    let body = data.get("body").ok_or(())?;
+    let body = data
+        .get("body")
+        .ok_or_else(|| "missing data.body field".to_string())?;
     let body = match body.as_str() {
-        Some(raw) => serde_json::from_str::<serde_json::Value>(raw).map_err(|_| ())?,
+        Some(raw) => serde_json::from_str::<serde_json::Value>(raw)
+            .map_err(|e| format!("invalid JSON in data.body: {e}"))?,
         None => body.clone(),
     };
-    serde_json::from_value::<T>(body).map_err(|_| ())
+    serde_json::from_value::<T>(body)
+        .map_err(|e| format!("invalid typed response in data.body: {e}"))
 }
 
 fn parse_timestamp_arg(name: &str, value: Option<&str>) -> Result<Option<jiff::Timestamp>> {
@@ -1576,6 +2635,19 @@ async fn build_vault_client(
     options: PasswordsOptions,
     ctx: &CommandContext,
 ) -> Result<VaultClient> {
+    let (passwords_base_url, bearer, key_source) = build_vault_key_source(options, ctx).await?;
+    VaultClient::new(VaultClientConfig {
+        base_url: passwords_base_url,
+        bearer_token: bearer,
+        key_source,
+    })
+    .context("could not build vault client")
+}
+
+async fn build_vault_key_source(
+    options: PasswordsOptions,
+    ctx: &CommandContext,
+) -> Result<(String, String, VaultKeySource)> {
     let master_password = read_master_password(options.master_password)?;
     let base_url = ctx.api_base();
     let passwords_base_url = passwords_api_base_url(&base_url);
@@ -1584,12 +2656,7 @@ async fn build_vault_client(
         fetch_master_password_key_source(&passwords_base_url, &bearer, master_password)
             .await
             .context("could not fetch account secrets")?;
-    VaultClient::new(VaultClientConfig {
-        base_url: passwords_base_url,
-        bearer_token: bearer,
-        key_source,
-    })
-    .context("could not build vault client")
+    Ok((passwords_base_url, bearer, key_source))
 }
 
 async fn select_vault(
@@ -1766,8 +2833,13 @@ fn atty_stdin() -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_passwords_gateway_body, ensure_distinct_transfer_vaults, passwords_api_base_url,
+        BASE64, attachment_aad, decode_passwords_gateway_body, ensure_distinct_transfer_vaults,
+        membership_grant_signature, passwords_api_base_url, rewrap_attachment_for_rotation,
     };
+    use base64::Engine;
+    use seren_secrets_crypto::aead::xchacha20_decrypt_with_aad;
+    use seren_secrets_crypto::keys::{IdentitySigningKeypair, IdentitySigningPrivateKey};
+    use seren_secrets_crypto::protocol::vault::generate_vault_key;
     use uuid::Uuid;
 
     #[test]
@@ -1792,6 +2864,115 @@ mod tests {
         assert_eq!(
             passwords_api_base_url("https://api.serendb.com/publishers/seren-passwords/"),
             "https://api.serendb.com/publishers/seren-passwords"
+        );
+    }
+
+    #[test]
+    fn membership_grant_signature_uses_canonical_access_bytes() {
+        let signing_private = IdentitySigningPrivateKey::from_slice(&[7; 32]).unwrap();
+        let signing_public = IdentitySigningKeypair::from_private(signing_private.clone()).public;
+        let vault_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let identity_id = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+        let wrapped_vault_key = [3, 4, 5, 6];
+
+        for (access_level, access_level_byte) in [
+            (seren::AccessLevel::Admin, 0),
+            (seren::AccessLevel::Write, 1),
+            (seren::AccessLevel::Read, 2),
+        ] {
+            let signature = membership_grant_signature(
+                &signing_private,
+                vault_id,
+                identity_id,
+                access_level,
+                &wrapped_vault_key,
+            );
+            let signature = BASE64.decode(signature).unwrap();
+            let mut payload = b"seren-secrets/membership-grant".to_vec();
+            payload.extend_from_slice(vault_id.as_bytes());
+            payload.extend_from_slice(identity_id.as_bytes());
+            payload.push(access_level_byte);
+            payload.extend_from_slice(&wrapped_vault_key);
+
+            seren_secrets_crypto::signing::verify(&signing_public, &payload, &signature).unwrap();
+        }
+    }
+
+    #[test]
+    fn attachment_rotation_rewraps_with_expected_aad() {
+        let old_vault_key = generate_vault_key();
+        let new_vault_key = generate_vault_key();
+        let item_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let attachment_id = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+
+        let filename_aad = attachment_aad("attachment-filename", item_id, attachment_id);
+        assert_eq!(&filename_aad[..20], b"attachment-filename:");
+        assert_eq!(&filename_aad[20..36], item_id.as_bytes());
+        assert_eq!(filename_aad[36], b':');
+        assert_eq!(&filename_aad[37..], attachment_id.as_bytes());
+
+        let filename = b"report.pdf";
+        let content_type = b"application/pdf";
+        let content_key = [9u8; 32];
+        let attachment = seren::AttachmentView {
+            attachment_id,
+            content_type_ciphertext: BASE64.encode(
+                seren_secrets_crypto::aead::xchacha20_encrypt_with_aad(
+                    old_vault_key.as_bytes(),
+                    content_type,
+                    &attachment_aad("attachment-content-type", item_id, attachment_id),
+                ),
+            ),
+            created_at: "2030-01-01T00:00:00Z".parse().unwrap(),
+            filename_ciphertext: BASE64.encode(
+                seren_secrets_crypto::aead::xchacha20_encrypt_with_aad(
+                    old_vault_key.as_bytes(),
+                    filename,
+                    &filename_aad,
+                ),
+            ),
+            item_id,
+            size_bytes: 123,
+            wrapped_content_key: BASE64.encode(
+                seren_secrets_crypto::aead::xchacha20_encrypt_with_aad(
+                    old_vault_key.as_bytes(),
+                    &content_key,
+                    &attachment_aad("attachment-content-key", item_id, attachment_id),
+                ),
+            ),
+        };
+
+        let rotated =
+            rewrap_attachment_for_rotation(&old_vault_key, &new_vault_key, item_id, &attachment)
+                .unwrap();
+
+        let rotated_filename = BASE64.decode(rotated.filename_ciphertext).unwrap();
+        assert!(
+            xchacha20_decrypt_with_aad(old_vault_key.as_bytes(), &rotated_filename, &filename_aad)
+                .is_err()
+        );
+        assert_eq!(
+            xchacha20_decrypt_with_aad(new_vault_key.as_bytes(), &rotated_filename, &filename_aad)
+                .unwrap(),
+            filename
+        );
+        assert_eq!(
+            xchacha20_decrypt_with_aad(
+                new_vault_key.as_bytes(),
+                &BASE64.decode(rotated.content_type_ciphertext).unwrap(),
+                &attachment_aad("attachment-content-type", item_id, attachment_id),
+            )
+            .unwrap(),
+            content_type
+        );
+        assert_eq!(
+            xchacha20_decrypt_with_aad(
+                new_vault_key.as_bytes(),
+                &BASE64.decode(rotated.wrapped_content_key).unwrap(),
+                &attachment_aad("attachment-content-key", item_id, attachment_id),
+            )
+            .unwrap(),
+            content_key
         );
     }
 

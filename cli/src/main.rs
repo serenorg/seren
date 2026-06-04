@@ -288,7 +288,7 @@ enum PasswordsAction {
     /// List password vaults available to the current account
     Vaults {
         #[command(subcommand)]
-        action: PasswordVaultAction,
+        action: Box<PasswordVaultAction>,
     },
     /// Create encrypted password items
     Items {
@@ -315,16 +315,103 @@ enum PasswordsAction {
         #[command(subcommand)]
         action: PasswordMembershipAction,
     },
+    /// Create, redeem, and complete vault invitations
+    Invitations {
+        #[command(subcommand)]
+        action: PasswordInvitationAction,
+    },
+    /// Generate a strong password or passphrase locally without storing it.
+    GeneratePassword {
+        /// Generator mode: random, passphrase, or hex.
+        #[arg(long, default_value = "random", value_parser = ["random", "passphrase", "hex"])]
+        mode: String,
+        /// Random or hex length. Random defaults to 20; hex defaults to 32.
+        #[arg(long)]
+        length: Option<u32>,
+        /// Exclude uppercase letters in random mode.
+        #[arg(long = "no-upper", default_value_t = true, action = ArgAction::SetFalse)]
+        upper: bool,
+        /// Exclude lowercase letters in random mode.
+        #[arg(long = "no-lower", default_value_t = true, action = ArgAction::SetFalse)]
+        lower: bool,
+        /// Exclude digits in random mode.
+        #[arg(long = "no-digits", default_value_t = true, action = ArgAction::SetFalse)]
+        digits: bool,
+        /// Exclude symbols in random mode.
+        #[arg(long = "no-symbols", default_value_t = true, action = ArgAction::SetFalse)]
+        symbols: bool,
+        /// Word count for passphrase mode.
+        #[arg(long, default_value_t = 5)]
+        word_count: u32,
+        /// Word separator for passphrase mode.
+        #[arg(long, default_value_t = '-')]
+        separator: char,
+        /// Do not capitalize passphrase words.
+        #[arg(long = "no-capitalize-first", default_value_t = true, action = ArgAction::SetFalse)]
+        capitalize_first: bool,
+    },
 }
 
 #[derive(Subcommand)]
 enum PasswordVaultAction {
     /// List vaults and decrypted vault names
     List,
+    /// Create a new encrypted user vault
+    Create {
+        /// Vault name
+        #[arg(long)]
+        name: String,
+        /// Vault description
+        #[arg(long)]
+        description: Option<String>,
+        /// Approval policy for reads
+        #[arg(long, value_enum)]
+        requires_approval: Option<PasswordVaultApprovalModeArg>,
+    },
+    /// Update encrypted vault display metadata. Requires admin membership.
+    Update {
+        /// Vault id to update
+        vault_id: Uuid,
+        /// New vault name
+        #[arg(long)]
+        name: Option<String>,
+        /// New vault description
+        #[arg(long)]
+        description: Option<String>,
+    },
     /// Soft-archive a vault. Requires admin membership.
     Archive {
         /// Vault id to archive
         vault_id: Uuid,
+    },
+    /// Rotate a vault key. Requires admin membership.
+    Rotate {
+        #[command(subcommand)]
+        action: PasswordVaultRotateAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum PasswordVaultRotateAction {
+    /// Start a two-phase rotation and print the rotation token
+    Initiate {
+        /// Vault id to rotate
+        vault_id: Uuid,
+    },
+    /// Complete a rotation, starting one first when no token is supplied
+    Complete {
+        /// Vault id to rotate
+        vault_id: Uuid,
+        /// Existing rotation token from `rotate initiate`
+        #[arg(long)]
+        rotation_token: Option<Uuid>,
+    },
+    /// Cancel an in-progress rotation
+    Cancel {
+        /// Vault id to cancel
+        vault_id: Uuid,
+        /// Rotation token from `rotate initiate`
+        rotation_token: Uuid,
     },
 }
 
@@ -376,10 +463,10 @@ enum PasswordAuditAction {
         /// Filter by target id
         #[arg(long)]
         target_id: Option<Uuid>,
-        /// Start timestamp, for example 2026-06-04T00:00:00Z
+        /// Start timestamp, for example 2030-01-01T00:00:00Z
         #[arg(long)]
         from: Option<String>,
-        /// End timestamp, for example 2026-06-04T23:59:59Z
+        /// End timestamp, for example 2030-01-01T23:59:59Z
         #[arg(long)]
         to: Option<String>,
         /// Maximum audit entries to return
@@ -419,13 +506,18 @@ enum PasswordApprovalAction {
         #[arg(long)]
         target_id: Uuid,
         /// Seconds before the request expires
-        #[arg(long)]
+        #[arg(long, value_parser = clap::value_parser!(i32).range(1..=3600))]
         timeout_seconds: Option<i32>,
     },
     /// List pending approvals visible to your account
     List,
     /// Fetch one approval request
     Get {
+        /// Approval request id
+        approval_id: Uuid,
+    },
+    /// Approve a pending approval request
+    Approve {
         /// Approval request id
         approval_id: Uuid,
     },
@@ -443,6 +535,16 @@ enum PasswordMembershipAction {
         /// Vault id
         vault_id: Uuid,
     },
+    /// Grant an identity access to a vault. Requires admin membership.
+    Grant {
+        /// Vault id
+        vault_id: Uuid,
+        /// Identity id to grant
+        identity_id: Uuid,
+        /// Access level to grant
+        #[arg(long, value_enum, default_value_t = PasswordAccessArg::Write)]
+        access: PasswordAccessArg,
+    },
     /// Revoke an identity's vault membership. Requires admin membership.
     Revoke {
         /// Vault id
@@ -452,10 +554,80 @@ enum PasswordMembershipAction {
     },
 }
 
+#[derive(Subcommand)]
+enum PasswordInvitationAction {
+    /// Create an invitation token for a vault
+    Create {
+        /// Vault id
+        vault_id: Uuid,
+        /// Invitee email address
+        #[arg(long)]
+        email: String,
+        /// Access level to grant once completed
+        #[arg(long, value_enum, default_value_t = PasswordAccessArg::Read)]
+        access: PasswordAccessArg,
+        /// Hours until expiration. Omit for server default.
+        #[arg(long, value_parser = clap::value_parser!(i64).range(1..=8760))]
+        expires_in_hours: Option<i64>,
+    },
+    /// List pending invitations for this identity, or invitations for a vault
+    List {
+        /// Vault id. When omitted, lists pending redeemed invitations.
+        #[arg(long)]
+        vault_id: Option<Uuid>,
+    },
+    /// Redeem an invitation token as the current identity
+    Redeem {
+        /// Invitation token
+        token: String,
+    },
+    /// Complete a redeemed invitation by granting the redeemer vault access
+    Complete {
+        /// Vault id
+        vault_id: Uuid,
+        /// Invitation id
+        invitation_id: Uuid,
+    },
+}
+
 #[derive(Copy, Clone, Debug, clap::ValueEnum, PartialEq, Eq)]
 enum AgentAccessArg {
     Read,
     Write,
+}
+
+#[derive(Copy, Clone, Debug, clap::ValueEnum, PartialEq, Eq)]
+enum PasswordAccessArg {
+    Read,
+    Write,
+    Admin,
+}
+
+impl From<PasswordAccessArg> for seren::AccessLevel {
+    fn from(value: PasswordAccessArg) -> Self {
+        match value {
+            PasswordAccessArg::Read => seren::AccessLevel::Read,
+            PasswordAccessArg::Write => seren::AccessLevel::Write,
+            PasswordAccessArg::Admin => seren::AccessLevel::Admin,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, clap::ValueEnum, PartialEq, Eq)]
+enum PasswordVaultApprovalModeArg {
+    Never,
+    SensitiveOnly,
+    Always,
+}
+
+impl From<PasswordVaultApprovalModeArg> for seren::VaultApprovalMode {
+    fn from(value: PasswordVaultApprovalModeArg) -> Self {
+        match value {
+            PasswordVaultApprovalModeArg::Never => seren::VaultApprovalMode::Never,
+            PasswordVaultApprovalModeArg::SensitiveOnly => seren::VaultApprovalMode::SensitiveOnly,
+            PasswordVaultApprovalModeArg::Always => seren::VaultApprovalMode::Always,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -4410,13 +4582,77 @@ async fn main() -> anyhow::Result<()> {
                 let options = commands::passwords::PasswordsOptions {
                     master_password: commands::passwords::master_password_from_env(),
                 };
-                match action {
+                match *action {
                     PasswordVaultAction::List => {
                         commands::passwords::list_vaults(options, &ctx).await?
+                    }
+                    PasswordVaultAction::Create {
+                        name,
+                        description,
+                        requires_approval,
+                    } => {
+                        commands::passwords::create_vault(
+                            commands::passwords::VaultCreateOptions {
+                                master_password: options.master_password,
+                                name,
+                                description,
+                                requires_approval: requires_approval.map(Into::into),
+                            },
+                            &ctx,
+                        )
+                        .await?
+                    }
+                    PasswordVaultAction::Update {
+                        vault_id,
+                        name,
+                        description,
+                    } => {
+                        commands::passwords::update_vault(
+                            commands::passwords::VaultUpdateOptions {
+                                master_password: options.master_password,
+                                vault_id,
+                                name,
+                                description,
+                            },
+                            &ctx,
+                        )
+                        .await?
                     }
                     PasswordVaultAction::Archive { vault_id } => {
                         commands::passwords::archive_vault(vault_id, &ctx).await?
                     }
+                    PasswordVaultAction::Rotate { action } => match action {
+                        PasswordVaultRotateAction::Initiate { vault_id } => {
+                            commands::passwords::vault_rotation_initiate(vault_id, &ctx).await?
+                        }
+                        PasswordVaultRotateAction::Complete {
+                            vault_id,
+                            rotation_token,
+                        } => {
+                            commands::passwords::vault_rotation_complete(
+                                commands::passwords::VaultRotationCompleteOptions {
+                                    master_password: options.master_password,
+                                    vault_id,
+                                    rotation_token,
+                                },
+                                &ctx,
+                            )
+                            .await?
+                        }
+                        PasswordVaultRotateAction::Cancel {
+                            vault_id,
+                            rotation_token,
+                        } => {
+                            commands::passwords::vault_rotation_cancel(
+                                commands::passwords::VaultRotationCancelOptions {
+                                    vault_id,
+                                    rotation_token,
+                                },
+                                &ctx,
+                            )
+                            .await?
+                        }
+                    },
                 }
             }
             PasswordsAction::Items { action } => {
@@ -4667,6 +4903,12 @@ async fn main() -> anyhow::Result<()> {
                 PasswordApprovalAction::Get { approval_id } => {
                     commands::passwords::approval_get(approval_id, &ctx).await?
                 }
+                PasswordApprovalAction::Approve { approval_id } => {
+                    let options = commands::passwords::PasswordsOptions {
+                        master_password: commands::passwords::master_password_from_env(),
+                    };
+                    commands::passwords::approval_approve(options, approval_id, &ctx).await?
+                }
                 PasswordApprovalAction::Deny { approval_id } => {
                     commands::passwords::approval_deny(approval_id, &ctx).await?
                 }
@@ -4675,11 +4917,100 @@ async fn main() -> anyhow::Result<()> {
                 PasswordMembershipAction::List { vault_id } => {
                     commands::passwords::membership_list(vault_id, &ctx).await?
                 }
+                PasswordMembershipAction::Grant {
+                    vault_id,
+                    identity_id,
+                    access,
+                } => {
+                    let options = commands::passwords::PasswordsOptions {
+                        master_password: commands::passwords::master_password_from_env(),
+                    };
+                    commands::passwords::membership_grant(
+                        commands::passwords::MembershipGrantOptions {
+                            master_password: options.master_password,
+                            vault_id,
+                            identity_id,
+                            access_level: access.into(),
+                        },
+                        &ctx,
+                    )
+                    .await?
+                }
                 PasswordMembershipAction::Revoke {
                     vault_id,
                     identity_id,
                 } => commands::passwords::membership_revoke(vault_id, identity_id, &ctx).await?,
             },
+            PasswordsAction::Invitations { action } => match action {
+                PasswordInvitationAction::Create {
+                    vault_id,
+                    email,
+                    access,
+                    expires_in_hours,
+                } => {
+                    let options = commands::passwords::PasswordsOptions {
+                        master_password: commands::passwords::master_password_from_env(),
+                    };
+                    commands::passwords::invitation_create(
+                        commands::passwords::InvitationCreateOptions {
+                            master_password: options.master_password,
+                            vault_id,
+                            email,
+                            access_level: access.into(),
+                            expires_in_hours,
+                        },
+                        &ctx,
+                    )
+                    .await?
+                }
+                PasswordInvitationAction::List { vault_id } => {
+                    commands::passwords::invitation_list(vault_id, &ctx).await?
+                }
+                PasswordInvitationAction::Redeem { token } => {
+                    commands::passwords::invitation_redeem(token, &ctx).await?
+                }
+                PasswordInvitationAction::Complete {
+                    vault_id,
+                    invitation_id,
+                } => {
+                    let options = commands::passwords::PasswordsOptions {
+                        master_password: commands::passwords::master_password_from_env(),
+                    };
+                    commands::passwords::invitation_complete(
+                        commands::passwords::InvitationCompleteOptions {
+                            master_password: options.master_password,
+                            vault_id,
+                            invitation_id,
+                        },
+                        &ctx,
+                    )
+                    .await?
+                }
+            },
+            PasswordsAction::GeneratePassword {
+                mode,
+                length,
+                upper,
+                lower,
+                digits,
+                symbols,
+                word_count,
+                separator,
+                capitalize_first,
+            } => commands::passwords::generate_password(
+                commands::passwords::PasswordGenerateOptions {
+                    mode,
+                    length,
+                    upper,
+                    lower,
+                    digits,
+                    symbols,
+                    word_count,
+                    separator,
+                    capitalize_first,
+                },
+                &ctx,
+            )?,
         },
         Commands::Webhooks { org_id, action } => match action {
             WebhookAction::List => commands::webhooks::list(&org_id, &ctx).await?,
@@ -5394,6 +5725,16 @@ mod tests {
             .expect("parser thread panicked")
     }
 
+    fn try_parse_cli_with_large_stack(args: Vec<&'static str>) -> Result<Cli, clap::Error> {
+        std::thread::Builder::new()
+            .name("cli-try-parse-test".to_string())
+            .stack_size(8 * 1024 * 1024)
+            .spawn(move || Cli::try_parse_from(args))
+            .expect("failed to spawn parser thread")
+            .join()
+            .expect("parser thread panicked")
+    }
+
     #[test]
     fn role_reset_password_accepts_no_password_flag() {
         let cli = parse_cli_with_large_stack(vec![
@@ -6070,6 +6411,34 @@ mod tests {
             _ => panic!("unexpected command parsed"),
         }
 
+        let too_short = try_parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "approvals",
+            "request",
+            "--target-kind",
+            "item",
+            "--target-id",
+            "22222222-2222-2222-2222-222222222222",
+            "--timeout-seconds",
+            "0",
+        ]);
+        assert!(too_short.is_err());
+
+        let too_long = try_parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "approvals",
+            "request",
+            "--target-kind",
+            "item",
+            "--target-id",
+            "22222222-2222-2222-2222-222222222222",
+            "--timeout-seconds",
+            "3601",
+        ]);
+        assert!(too_long.is_err());
+
         let approval_id = Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap();
         let cli = parse_cli_with_large_stack(vec![
             "seren",
@@ -6082,6 +6451,28 @@ mod tests {
             Commands::Passwords { action } => match action {
                 PasswordsAction::Approvals { action } => match action {
                     PasswordApprovalAction::Deny {
+                        approval_id: parsed,
+                    } => {
+                        assert_eq!(parsed, approval_id);
+                    }
+                    _ => panic!("unexpected passwords approval action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "approvals",
+            "approve",
+            "33333333-3333-3333-3333-333333333333",
+        ]);
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Approvals { action } => match action {
+                    PasswordApprovalAction::Approve {
                         approval_id: parsed,
                     } => {
                         assert_eq!(parsed, approval_id);
@@ -6127,18 +6518,303 @@ mod tests {
         let cli = parse_cli_with_large_stack(vec![
             "seren",
             "passwords",
+            "memberships",
+            "grant",
+            "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222",
+            "--access",
+            "admin",
+        ]);
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Memberships { action } => match action {
+                    PasswordMembershipAction::Grant {
+                        vault_id: parsed_vault,
+                        identity_id: parsed_identity,
+                        access,
+                    } => {
+                        assert_eq!(parsed_vault, vault_id);
+                        assert_eq!(parsed_identity, identity_id);
+                        assert_eq!(access, PasswordAccessArg::Admin);
+                    }
+                    _ => panic!("unexpected passwords membership action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
             "vaults",
             "archive",
             "11111111-1111-1111-1111-111111111111",
         ]);
         match cli.command {
             Commands::Passwords { action } => match action {
-                PasswordsAction::Vaults { action } => match action {
+                PasswordsAction::Vaults { action } => match *action {
                     PasswordVaultAction::Archive {
                         vault_id: parsed_vault,
                     } => assert_eq!(parsed_vault, vault_id),
                     _ => panic!("unexpected passwords vault action parsed"),
                 },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "vaults",
+            "create",
+            "--name",
+            "Shared Ops",
+            "--description",
+            "Operational credentials",
+            "--requires-approval",
+            "always",
+        ]);
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Vaults { action } => match *action {
+                    PasswordVaultAction::Create {
+                        name,
+                        description,
+                        requires_approval,
+                    } => {
+                        assert_eq!(name, "Shared Ops");
+                        assert_eq!(description.as_deref(), Some("Operational credentials"));
+                        assert_eq!(
+                            requires_approval,
+                            Some(PasswordVaultApprovalModeArg::Always)
+                        );
+                    }
+                    _ => panic!("unexpected passwords vault action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let rotation_token = Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap();
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "vaults",
+            "rotate",
+            "complete",
+            "11111111-1111-1111-1111-111111111111",
+            "--rotation-token",
+            "33333333-3333-3333-3333-333333333333",
+        ]);
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Vaults { action } => match *action {
+                    PasswordVaultAction::Rotate { action } => match action {
+                        PasswordVaultRotateAction::Complete {
+                            vault_id: parsed_vault,
+                            rotation_token: parsed_token,
+                        } => {
+                            assert_eq!(parsed_vault, vault_id);
+                            assert_eq!(parsed_token, Some(rotation_token));
+                        }
+                        _ => panic!("unexpected passwords vault rotate action parsed"),
+                    },
+                    _ => panic!("unexpected passwords vault action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn passwords_vault_update_command_parse() {
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                let vault_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+                let cli = Cli::parse_from([
+                    "seren",
+                    "passwords",
+                    "vaults",
+                    "update",
+                    "11111111-1111-1111-1111-111111111111",
+                    "--name",
+                    "Shared Ops",
+                    "--description",
+                    "Operational credentials",
+                ]);
+                match cli.command {
+                    Commands::Passwords { action } => match action {
+                        PasswordsAction::Vaults { action } => match *action {
+                            PasswordVaultAction::Update {
+                                vault_id: parsed_vault,
+                                name,
+                                description,
+                            } => {
+                                assert_eq!(parsed_vault, vault_id);
+                                assert_eq!(name.as_deref(), Some("Shared Ops"));
+                                assert_eq!(description.as_deref(), Some("Operational credentials"));
+                            }
+                            _ => panic!("unexpected passwords vault action parsed"),
+                        },
+                        _ => panic!("unexpected passwords action parsed"),
+                    },
+                    _ => panic!("unexpected command parsed"),
+                }
+            })
+            .expect("spawn parse test thread")
+            .join()
+            .expect("parse test thread");
+    }
+
+    #[test]
+    fn passwords_invitation_commands_parse() {
+        let vault_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let invitation_id = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "invitations",
+            "create",
+            "11111111-1111-1111-1111-111111111111",
+            "--email",
+            "ops@example.com",
+            "--access",
+            "write",
+            "--expires-in-hours",
+            "24",
+        ]);
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Invitations { action } => match action {
+                    PasswordInvitationAction::Create {
+                        vault_id: parsed_vault,
+                        email,
+                        access,
+                        expires_in_hours,
+                    } => {
+                        assert_eq!(parsed_vault, vault_id);
+                        assert_eq!(email, "ops@example.com");
+                        assert_eq!(access, PasswordAccessArg::Write);
+                        assert_eq!(expires_in_hours, Some(24));
+                    }
+                    _ => panic!("unexpected passwords invitation action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let too_short = try_parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "invitations",
+            "create",
+            "11111111-1111-1111-1111-111111111111",
+            "--email",
+            "ops@example.com",
+            "--expires-in-hours",
+            "0",
+        ]);
+        assert!(too_short.is_err());
+
+        let too_long = try_parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "invitations",
+            "create",
+            "11111111-1111-1111-1111-111111111111",
+            "--email",
+            "ops@example.com",
+            "--expires-in-hours",
+            "8761",
+        ]);
+        assert!(too_long.is_err());
+
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "invitations",
+            "complete",
+            "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222",
+        ]);
+        match cli.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::Invitations { action } => match action {
+                    PasswordInvitationAction::Complete {
+                        vault_id: parsed_vault,
+                        invitation_id: parsed_invitation,
+                    } => {
+                        assert_eq!(parsed_vault, vault_id);
+                        assert_eq!(parsed_invitation, invitation_id);
+                    }
+                    _ => panic!("unexpected passwords invitation action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn passwords_generate_password_command_parses() {
+        let random = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "generate-password",
+            "--length",
+            "24",
+            "--no-symbols",
+        ]);
+        match random.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::GeneratePassword {
+                    mode,
+                    length,
+                    symbols,
+                    ..
+                } => {
+                    assert_eq!(mode, "random");
+                    assert_eq!(length, Some(24));
+                    assert!(!symbols);
+                }
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let passphrase = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "generate-password",
+            "--mode",
+            "passphrase",
+            "--word-count",
+            "4",
+            "--separator",
+            "_",
+            "--no-capitalize-first",
+        ]);
+        match passphrase.command {
+            Commands::Passwords { action } => match action {
+                PasswordsAction::GeneratePassword {
+                    mode,
+                    word_count,
+                    separator,
+                    capitalize_first,
+                    ..
+                } => {
+                    assert_eq!(mode, "passphrase");
+                    assert_eq!(word_count, 4);
+                    assert_eq!(separator, '_');
+                    assert!(!capitalize_first);
+                }
                 _ => panic!("unexpected passwords action parsed"),
             },
             _ => panic!("unexpected command parsed"),
