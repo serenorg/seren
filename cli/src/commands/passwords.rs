@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
 
 use anyhow::{Context, Result, bail};
@@ -6,7 +6,6 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use colored::Colorize;
 use etcetera::base_strategy::{BaseStrategy, choose_base_strategy};
-use seren_secrets_crypto::aead::{xchacha20_decrypt_with_aad, xchacha20_encrypt_with_aad};
 use seren_secrets_crypto::keys::{
     IdentityKemKeypair, IdentityKemPrivateKey, IdentityKemPublicKey, IdentitySigningKeypair,
     IdentitySigningPrivateKey, VaultKey,
@@ -14,8 +13,8 @@ use seren_secrets_crypto::keys::{
 use seren_secrets_crypto::password_generator::PasswordRecipe;
 use seren_secrets_crypto::prose;
 use seren_secrets_crypto::protocol::attachment::{
-    encrypt_blob, encrypt_content_type, encrypt_filename, generate_attachment_key,
-    wrap_attachment_key,
+    decrypt_blob, decrypt_content_type, decrypt_filename, encrypt_blob, encrypt_content_type,
+    encrypt_filename, generate_attachment_key, unwrap_attachment_key, wrap_attachment_key,
 };
 use seren_secrets_crypto::protocol::item::{
     ApiCredentialContent, ApiCredentialKind, ItemContent, LoginContent, LoginUrl,
@@ -41,6 +40,7 @@ const SEREN_PASSWORDS_PUBLISHER_SLUG: &str = "seren-passwords";
 const MAX_ATTACHMENT_CIPHERTEXT_BYTES: usize = 100 * 1024 * 1024;
 const PASSWORDS_EXPORT_FORMAT: &str = "seren-passwords-mcp-export";
 const PASSWORDS_EXPORT_VERSION: u32 = 1;
+const ATTACHMENT_URI_SCHEME: &str = "seren-secrets://attachment/";
 
 #[derive(Clone)]
 pub struct PasswordsOptions {
@@ -782,6 +782,10 @@ struct PasswordsVaultExport {
     version: u32,
     vault: PasswordsVaultExportVault,
     attachments_included: bool,
+    attachment_count: usize,
+    attachment_bytes: usize,
+    attachments_omitted_count: usize,
+    attachments_omitted_bytes: usize,
     items: Vec<PasswordsVaultExportItem>,
 }
 
@@ -801,7 +805,29 @@ struct PasswordsVaultExportItem {
     tags: Vec<String>,
     #[serde(default)]
     sensitive: bool,
+    #[serde(default)]
+    favorite: bool,
     content: serde_json::Value,
+    #[serde(default)]
+    attachments: Vec<PasswordsVaultExportAttachment>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct PasswordsVaultExportAttachment {
+    #[serde(default)]
+    attachment_id: Option<Uuid>,
+    filename: String,
+    content_type: String,
+    size_bytes: usize,
+    content_base64: String,
+}
+
+struct PasswordsPreparedImportAttachment {
+    attachment_id: Uuid,
+    filename: String,
+    content_type: String,
+    size_bytes: usize,
+    content_base64: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -812,6 +838,10 @@ struct PasswordsVaultImport {
     version: Option<u32>,
     #[serde(default)]
     attachments_included: Option<bool>,
+    #[serde(default)]
+    attachment_count: Option<usize>,
+    #[serde(default)]
+    attachment_bytes: Option<usize>,
     items: Vec<PasswordsVaultExportItem>,
 }
 
@@ -819,6 +849,7 @@ struct PasswordsVaultImport {
 struct PasswordsVaultImportOutput {
     vault_id: Uuid,
     imported_count: usize,
+    attachment_count: usize,
     items: Vec<PasswordsVaultImportedItem>,
 }
 
@@ -826,6 +857,7 @@ struct PasswordsVaultImportOutput {
 struct PasswordsVaultImportedItem {
     item_id: Uuid,
     title: String,
+    attachment_count: usize,
 }
 
 struct AttachmentMetadataFields<'a> {
@@ -872,51 +904,17 @@ pub async fn attachment_upload(
         .filter(|value| !value.is_empty())
         .unwrap_or("application/octet-stream");
 
-    let attachment_id = Uuid::new_v4();
-    let attachment_key = generate_attachment_key();
-    let item_id_bytes = item_id.as_bytes();
-    let attachment_id_bytes = attachment_id.as_bytes();
-    let encrypted_blob = encrypt_blob(
-        &attachment_key,
-        item_id_bytes,
-        attachment_id_bytes,
-        &plaintext,
-    );
-    if encrypted_blob.len() > MAX_ATTACHMENT_CIPHERTEXT_BYTES {
-        bail!("encrypted attachment exceeds the 100 MiB upload limit");
-    }
-    let request = seren::CreateAttachmentRequest {
-        attachment_id,
-        blob: BASE64.encode(encrypted_blob),
-        content_type_ciphertext: BASE64.encode(encrypt_content_type(
-            &vault.key,
-            item_id_bytes,
-            attachment_id_bytes,
-            content_type,
-        )),
-        filename_ciphertext: BASE64.encode(encrypt_filename(
-            &vault.key,
-            item_id_bytes,
-            attachment_id_bytes,
-            filename,
-        )),
-        wrapped_content_key: BASE64.encode(wrap_attachment_key(
-            &vault.key,
-            item_id_bytes,
-            attachment_id_bytes,
-            &attachment_key,
-        )),
-    };
-
     let client = passwords_api_client(ctx).await?;
-    let created = passwords_gateway_data(
-        client
-            .attachment_create(&vault.vault_id, &item_id, &request)
-            .await,
-        "failed to upload password item attachment",
-    )?
-    .data;
-    let metadata = decrypt_attachment_metadata(&vault.key, item_id, &created)?;
+    let metadata = upload_plaintext_attachment(
+        &client,
+        &vault,
+        item_id,
+        None,
+        filename,
+        content_type,
+        &plaintext,
+    )
+    .await?;
     let output = UploadedAttachmentOutput {
         vault_id: vault.vault_id,
         item_id,
@@ -940,6 +938,79 @@ pub async fn attachment_upload(
     }
 
     Ok(())
+}
+
+async fn upload_plaintext_attachment(
+    client: &seren::Client,
+    vault: &seren_secrets_resolver::vault::DecryptedVault,
+    item_id: Uuid,
+    attachment_id: Option<Uuid>,
+    filename: &str,
+    content_type: &str,
+    plaintext: &[u8],
+) -> Result<DecryptedAttachmentMetadata> {
+    let attachment_id = attachment_id.unwrap_or_else(Uuid::new_v4);
+    let request = build_attachment_create_request(
+        &vault.key,
+        item_id,
+        attachment_id,
+        filename,
+        content_type,
+        plaintext,
+    )?;
+
+    let created = passwords_gateway_data(
+        client
+            .attachment_create(&vault.vault_id, &item_id, &request)
+            .await,
+        "failed to upload password item attachment",
+    )?
+    .data;
+    decrypt_attachment_metadata(&vault.key, item_id, &created)
+}
+
+fn build_attachment_create_request(
+    vault_key: &VaultKey,
+    item_id: Uuid,
+    attachment_id: Uuid,
+    filename: &str,
+    content_type: &str,
+    plaintext: &[u8],
+) -> Result<seren::CreateAttachmentRequest> {
+    let attachment_key = generate_attachment_key();
+    let item_id_bytes = item_id.as_bytes();
+    let attachment_id_bytes = attachment_id.as_bytes();
+    let encrypted_blob = encrypt_blob(
+        &attachment_key,
+        item_id_bytes,
+        attachment_id_bytes,
+        plaintext,
+    );
+    if encrypted_blob.len() > MAX_ATTACHMENT_CIPHERTEXT_BYTES {
+        bail!("encrypted attachment exceeds the 100 MiB upload limit");
+    }
+    Ok(seren::CreateAttachmentRequest {
+        attachment_id,
+        blob: BASE64.encode(encrypted_blob),
+        content_type_ciphertext: BASE64.encode(encrypt_content_type(
+            vault_key,
+            item_id_bytes,
+            attachment_id_bytes,
+            content_type,
+        )),
+        filename_ciphertext: BASE64.encode(encrypt_filename(
+            vault_key,
+            item_id_bytes,
+            attachment_id_bytes,
+            filename,
+        )),
+        wrapped_content_key: BASE64.encode(wrap_attachment_key(
+            vault_key,
+            item_id_bytes,
+            attachment_id_bytes,
+            &attachment_key,
+        )),
+    })
 }
 
 pub async fn attachment_list(
@@ -1076,25 +1147,96 @@ pub async fn export_vault(
     options: PasswordsOptions,
     vault_id: Option<Uuid>,
     output_path: std::path::PathBuf,
+    exclude_attachments: bool,
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = build_vault_client(options, ctx).await?;
     let vault = select_vault(&client, vault_id).await?;
+    let api_client = passwords_api_client(ctx).await?;
     let listed = client.list_items(vault.vault_id, &vault.key).await?;
     let mut items = Vec::with_capacity(listed.len());
+    let mut attachment_plan = Vec::new();
+    let include_attachments = !exclude_attachments;
+    let mut attachment_count = 0usize;
+    let mut attachment_bytes = 0usize;
+    let mut attachments_omitted_count = 0usize;
+    let mut attachments_omitted_bytes = 0usize;
     for (item_id, _) in listed {
         let item = client.get_item(vault.vault_id, item_id, &vault.key).await?;
-        let sensitive = serde_json::from_str::<serde_json::Value>(&item.metadata_json)
-            .ok()
-            .and_then(|value| value.get("sensitive").and_then(serde_json::Value::as_bool))
-            .unwrap_or(false);
+        let metadata = serde_json::from_str::<serde_json::Value>(&item.metadata_json).ok();
+        let sensitive = metadata_bool(metadata.as_ref(), "sensitive");
+        let favorite = metadata_bool(metadata.as_ref(), "favorite");
+        let item_index = items.len();
         items.push(PasswordsVaultExportItem {
             item_id: Some(item.item_id),
             title: item.title,
             tags: item.tags,
             sensitive,
+            favorite,
             content: serde_json::to_value(item.content)?,
+            attachments: Vec::new(),
         });
+        let attachments = passwords_gateway_data(
+            api_client
+                .attachment_list(&vault.vault_id, &item.item_id)
+                .await,
+            "failed to list password item attachments for export",
+        )?
+        .data;
+        let item_attachment_bytes = attachments
+            .iter()
+            .map(|attachment| usize::try_from(attachment.size_bytes.max(0)).unwrap_or(0))
+            .sum::<usize>();
+        if include_attachments {
+            attachment_count += attachments.len();
+            attachment_bytes += item_attachment_bytes;
+            attachment_plan.push((item_index, item.item_id, attachments));
+        } else {
+            attachments_omitted_count += attachments.len();
+            attachments_omitted_bytes += item_attachment_bytes;
+        }
+    }
+
+    if include_attachments && attachment_count > 0 && matches!(ctx.format, OutputFormat::Table) {
+        eprintln!(
+            "warning: export will include {} attachments totaling about {} before base64 encoding",
+            attachment_count,
+            format_bytes(attachment_bytes),
+        );
+    } else if !include_attachments
+        && attachments_omitted_count > 0
+        && matches!(ctx.format, OutputFormat::Table)
+    {
+        eprintln!(
+            "warning: export will omit {} attachments totaling about {}",
+            attachments_omitted_count,
+            format_bytes(attachments_omitted_bytes),
+        );
+    }
+
+    let mut exported_attachment_bytes = 0usize;
+    for (item_index, item_id, attachments) in attachment_plan {
+        let mut exported_attachments = Vec::with_capacity(attachments.len());
+        for attachment in attachments {
+            let attachment = passwords_gateway_data(
+                api_client
+                    .attachment_get(&vault.vault_id, &item_id, &attachment.attachment_id)
+                    .await,
+                "failed to download password item attachment for export",
+            )?
+            .data;
+            let metadata = decrypt_attachment_metadata_with_blob(&vault.key, item_id, &attachment)?;
+            let plaintext = decrypt_attachment_blob(&vault.key, item_id, &attachment)?;
+            exported_attachment_bytes += plaintext.len();
+            exported_attachments.push(PasswordsVaultExportAttachment {
+                attachment_id: Some(metadata.attachment_id),
+                filename: metadata.filename,
+                content_type: metadata.content_type,
+                size_bytes: plaintext.len(),
+                content_base64: BASE64.encode(&plaintext),
+            });
+        }
+        items[item_index].attachments = exported_attachments;
     }
 
     let export = PasswordsVaultExport {
@@ -1105,7 +1247,11 @@ pub async fn export_vault(
             name: vault.name,
             key_version: vault.key_version,
         },
-        attachments_included: false,
+        attachments_included: include_attachments,
+        attachment_count,
+        attachment_bytes: exported_attachment_bytes,
+        attachments_omitted_count,
+        attachments_omitted_bytes,
         items,
     };
     let file = create_plaintext_export_file(&output_path)?;
@@ -1123,7 +1269,11 @@ pub async fn export_vault(
         OutputFormat::Json => output::print_json(&serde_json::json!({
             "vault_id": export.vault.vault_id,
             "exported_count": export.items.len(),
-            "attachments_included": false,
+            "attachments_included": export.attachments_included,
+            "attachment_count": export.attachment_count,
+            "attachment_bytes": export.attachment_bytes,
+            "attachments_omitted_count": export.attachments_omitted_count,
+            "attachments_omitted_bytes": export.attachments_omitted_bytes,
             "output": output_path.display().to_string(),
         }))?,
         OutputFormat::Table => output::print_key_value_table(
@@ -1131,7 +1281,20 @@ pub async fn export_vault(
             &[
                 ("Vault ID", export.vault.vault_id.to_string()),
                 ("Items", export.items.len().to_string()),
-                ("Attachments included", "false".to_string()),
+                (
+                    "Attachments included",
+                    export.attachments_included.to_string(),
+                ),
+                ("Attachments", export.attachment_count.to_string()),
+                ("Attachment bytes", format_bytes(export.attachment_bytes)),
+                (
+                    "Attachments omitted",
+                    export.attachments_omitted_count.to_string(),
+                ),
+                (
+                    "Omitted attachment bytes",
+                    format_bytes(export.attachments_omitted_bytes),
+                ),
                 ("Output", output_path.display().to_string()),
             ],
         ),
@@ -1148,6 +1311,7 @@ pub async fn import_vault(
 ) -> Result<()> {
     let client = build_vault_client(options, ctx).await?;
     let vault = select_vault(&client, vault_id).await?;
+    let api_client = passwords_api_client(ctx).await?;
     let file = std::fs::File::open(&input_path)
         .with_context(|| format!("could not open {}", input_path.display()))?;
     let import: PasswordsVaultImport = serde_json::from_reader(file)
@@ -1159,32 +1323,91 @@ pub async fn import_vault(
 
     let mut imported = Vec::with_capacity(import.items.len());
     for item in import.items {
-        let title = item.title.trim();
+        let title = item.title.trim().to_string();
         if title.is_empty() {
             bail!("import item title cannot be empty");
         }
-        let content: ItemContent = serde_json::from_value(item.content)
+        let tags = item.tags;
+        let sensitive = item.sensitive;
+        let favorite = item.favorite;
+        let (content_value, attachments) =
+            prepare_passwords_import_item_content(item.content, item.attachments);
+        let content: ItemContent = serde_json::from_value(content_value)
             .context("could not parse exported item content")?;
+        let item_kind = item_content_kind(&content);
         let item_id = client
             .create_item(
                 vault.vault_id,
                 &vault.key,
                 content,
-                title,
-                &item.tags,
-                item.sensitive,
+                &title,
+                &tags,
+                sensitive,
                 vault.key_version,
             )
             .await?;
+        let upload = async {
+            if favorite {
+                restore_imported_item_favorite(&api_client, &vault, item_id, item_kind, sensitive)
+                    .await?;
+            }
+            let mut imported_attachment_count = 0usize;
+            for attachment in attachments {
+                let filename = attachment.filename.trim();
+                if filename.is_empty() {
+                    bail!("import attachment filename cannot be empty");
+                }
+                let content_type = attachment.content_type.trim();
+                if content_type.is_empty() {
+                    bail!("import attachment content_type cannot be empty");
+                }
+                let plaintext = Zeroizing::new(decode_passwords_b64_field(
+                    "attachment.content_base64",
+                    &attachment.content_base64,
+                )?);
+                if plaintext.len() != attachment.size_bytes {
+                    bail!(
+                        "import attachment {} size mismatch",
+                        attachment.attachment_id
+                    );
+                }
+                upload_plaintext_attachment(
+                    &api_client,
+                    &vault,
+                    item_id,
+                    Some(attachment.attachment_id),
+                    filename,
+                    content_type,
+                    &plaintext,
+                )
+                .await?;
+                imported_attachment_count += 1;
+            }
+            Ok::<usize, anyhow::Error>(imported_attachment_count)
+        }
+        .await;
+        let imported_attachment_count = match upload {
+            Ok(count) => count,
+            Err(error) => {
+                cleanup_imported_item(&client, vault.vault_id, item_id).await;
+                return Err(error);
+            }
+        };
         imported.push(PasswordsVaultImportedItem {
             item_id,
-            title: title.to_string(),
+            title,
+            attachment_count: imported_attachment_count,
         });
     }
 
+    let imported_attachment_count = imported
+        .iter()
+        .map(|item| item.attachment_count)
+        .sum::<usize>();
     let output = PasswordsVaultImportOutput {
         vault_id: vault.vault_id,
         imported_count: imported.len(),
+        attachment_count: imported_attachment_count,
         items: imported,
     };
     match ctx.format {
@@ -1194,6 +1417,7 @@ pub async fn import_vault(
             &[
                 ("Vault ID", output.vault_id.to_string()),
                 ("Items", output.imported_count.to_string()),
+                ("Attachments", output.attachment_count.to_string()),
             ],
         ),
     }
@@ -1231,6 +1455,135 @@ fn create_plaintext_export_file(path: &std::path::Path) -> Result<std::fs::File>
     }
 }
 
+fn prepare_passwords_import_item_content(
+    content: serde_json::Value,
+    attachments: Vec<PasswordsVaultExportAttachment>,
+) -> (serde_json::Value, Vec<PasswordsPreparedImportAttachment>) {
+    let mut id_map = HashMap::new();
+    let attachments = attachments
+        .into_iter()
+        .map(|attachment| {
+            let target_id = Uuid::new_v4();
+            if let Some(source_id) = attachment.attachment_id {
+                id_map.insert(source_id.to_string(), target_id.to_string());
+            }
+            PasswordsPreparedImportAttachment {
+                attachment_id: target_id,
+                filename: attachment.filename,
+                content_type: attachment.content_type,
+                size_bytes: attachment.size_bytes,
+                content_base64: attachment.content_base64,
+            }
+        })
+        .collect();
+    (rewrite_attachment_references(content, &id_map), attachments)
+}
+
+fn metadata_bool(metadata: Option<&serde_json::Value>, field: &str) -> bool {
+    metadata
+        .and_then(|value| value.get(field))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn item_content_kind(content: &ItemContent) -> &'static str {
+    match content {
+        ItemContent::Login(_) => "login",
+        ItemContent::SecureNote(_) => "secure_note",
+        ItemContent::ApiCredential(_) => "api_credential",
+        ItemContent::Identity(_) => "identity",
+        ItemContent::Card(_) => "card",
+        ItemContent::SshKey(_) => "ssh_key",
+        ItemContent::Document(_) => "document",
+        ItemContent::BankAccount(_) => "bank_account",
+        ItemContent::Passport(_) => "passport",
+        ItemContent::DriverLicense(_) => "driver_license",
+        ItemContent::CryptoWallet(_) => "crypto_wallet",
+        ItemContent::Server(_) => "server",
+        ItemContent::Database(_) => "database",
+    }
+}
+
+async fn restore_imported_item_favorite(
+    client: &seren::Client,
+    vault: &seren_secrets_resolver::vault::DecryptedVault,
+    item_id: Uuid,
+    item_kind: &str,
+    sensitive: bool,
+) -> Result<()> {
+    let record = passwords_gateway_data(
+        client.item_get(&vault.vault_id, &item_id).await,
+        "failed to load imported password item",
+    )?
+    .data;
+    let metadata_json = format!(
+        r#"{{"item_kind":"{item_kind}","favorite":true,"sensitive":{sensitive},"reprompt":false}}"#
+    );
+    let request = seren::UpdateItemRequest {
+        content_ciphertext: record.content_ciphertext,
+        content_key_wrap: record.content_key_wrap,
+        metadata_ciphertext: BASE64.encode(encrypt_metadata_json(
+            &vault.key,
+            item_id.as_bytes(),
+            &metadata_json,
+        )),
+        sensitive,
+        tags_ciphertext: record.tags_ciphertext,
+        title_blind_index: record.title_blind_index,
+        title_ciphertext: record.title_ciphertext,
+        wrapping_key_version: Some(vault.key_version),
+    };
+    passwords_gateway_data(
+        client
+            .item_update(&vault.vault_id, &item_id, None, &request)
+            .await,
+        "failed to restore imported password item flags",
+    )?;
+    Ok(())
+}
+
+async fn cleanup_imported_item(client: &VaultClient, vault_id: Uuid, item_id: Uuid) {
+    // A second delete removes an already-trashed item, keeping failed imports
+    // out of the trash.
+    let _ = client.delete_item(vault_id, item_id).await;
+    let _ = client.delete_item(vault_id, item_id).await;
+}
+
+fn rewrite_attachment_references(
+    value: serde_json::Value,
+    id_map: &HashMap<String, String>,
+) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(value) => {
+            serde_json::Value::String(rewrite_attachment_string(value, id_map))
+        }
+        serde_json::Value::Array(values) => serde_json::Value::Array(
+            values
+                .into_iter()
+                .map(|value| rewrite_attachment_references(value, id_map))
+                .collect(),
+        ),
+        serde_json::Value::Object(values) => serde_json::Value::Object(
+            values
+                .into_iter()
+                .map(|(key, value)| (key, rewrite_attachment_references(value, id_map)))
+                .collect(),
+        ),
+        value => value,
+    }
+}
+
+fn rewrite_attachment_string(value: String, id_map: &HashMap<String, String>) -> String {
+    let mut rewritten = value;
+    for (source_id, target_id) in id_map {
+        rewritten = rewritten.replace(
+            &format!("{ATTACHMENT_URI_SCHEME}{source_id}"),
+            &format!("{ATTACHMENT_URI_SCHEME}{target_id}"),
+        );
+    }
+    rewritten
+}
+
 fn validate_passwords_import_metadata(import: &PasswordsVaultImport) -> Result<()> {
     if let Some(format) = import.format.as_deref()
         && format != PASSWORDS_EXPORT_FORMAT
@@ -1242,12 +1595,60 @@ fn validate_passwords_import_metadata(import: &PasswordsVaultImport) -> Result<(
     {
         bail!("unsupported import version: {version}");
     }
-    if import.attachments_included.unwrap_or(false) {
-        bail!(
-            "import files with attachments are not supported; import items and upload attachments separately"
-        );
+    if !import.attachments_included.unwrap_or(true)
+        && import.items.iter().any(|item| !item.attachments.is_empty())
+    {
+        bail!("import metadata says attachments are excluded but attachments were found");
+    }
+    let exported_count = import
+        .items
+        .iter()
+        .map(|item| item.attachments.len())
+        .sum::<usize>();
+    let exported_bytes = import
+        .items
+        .iter()
+        .flat_map(|item| &item.attachments)
+        .map(|attachment| attachment.size_bytes)
+        .sum::<usize>();
+    let mut seen_attachment_ids = HashSet::new();
+    for attachment_id in import
+        .items
+        .iter()
+        .flat_map(|item| &item.attachments)
+        .filter_map(|attachment| attachment.attachment_id)
+    {
+        if !seen_attachment_ids.insert(attachment_id) {
+            bail!("import contains duplicate attachment_id: {attachment_id}");
+        }
+    }
+    if let Some(declared_count) = import.attachment_count
+        && declared_count != exported_count
+    {
+        bail!("import attachment_count does not match items");
+    }
+    if let Some(declared_bytes) = import.attachment_bytes
+        && declared_bytes != exported_bytes
+    {
+        bail!("import attachment_bytes does not match items");
     }
     Ok(())
+}
+
+fn format_bytes(bytes: usize) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = KIB * 1024.0;
+    const GIB: f64 = MIB * 1024.0;
+    let bytes_f = bytes as f64;
+    if bytes_f >= GIB {
+        format!("{:.1} GiB", bytes_f / GIB)
+    } else if bytes_f >= MIB {
+        format!("{:.1} MiB", bytes_f / MIB)
+    } else if bytes_f >= KIB {
+        format!("{:.1} KiB", bytes_f / KIB)
+    } else {
+        format!("{bytes} bytes")
+    }
 }
 
 pub async fn copy_item(
@@ -2520,16 +2921,6 @@ async fn build_rotation_complete_request(
     })
 }
 
-fn attachment_aad(label: &'static str, item_id: Uuid, attachment_id: Uuid) -> Vec<u8> {
-    let mut aad = Vec::with_capacity(label.len() + 1 + 16 + 1 + 16);
-    aad.extend_from_slice(label.as_bytes());
-    aad.push(b':');
-    aad.extend_from_slice(item_id.as_bytes());
-    aad.push(b':');
-    aad.extend_from_slice(attachment_id.as_bytes());
-    aad
-}
-
 fn decrypt_attachment_metadata(
     vault_key: &VaultKey,
     item_id: Uuid,
@@ -2573,25 +2964,28 @@ fn decrypt_attachment_metadata_fields(
     item_id: Uuid,
     fields: AttachmentMetadataFields<'_>,
 ) -> Result<DecryptedAttachmentMetadata> {
-    let filename = xchacha20_decrypt_with_aad(
-        vault_key.as_bytes(),
+    let item_id_bytes = item_id.as_bytes();
+    let attachment_id_bytes = fields.attachment_id.as_bytes();
+    let filename = decrypt_filename(
+        vault_key,
+        item_id_bytes,
+        attachment_id_bytes,
         &decode_passwords_b64_field("filename_ciphertext", fields.filename_ciphertext)?,
-        &attachment_aad("attachment-filename", item_id, fields.attachment_id),
     )
     .context("could not decrypt attachment filename")?;
-    let content_type = xchacha20_decrypt_with_aad(
-        vault_key.as_bytes(),
+    let content_type = decrypt_content_type(
+        vault_key,
+        item_id_bytes,
+        attachment_id_bytes,
         &decode_passwords_b64_field("content_type_ciphertext", fields.content_type_ciphertext)?,
-        &attachment_aad("attachment-content-type", item_id, fields.attachment_id),
     )
     .context("could not decrypt attachment content type")?;
 
     Ok(DecryptedAttachmentMetadata {
         attachment_id: fields.attachment_id,
         item_id: fields.response_item_id,
-        filename: String::from_utf8(filename).context("attachment filename is not UTF-8")?,
-        content_type: String::from_utf8(content_type)
-            .context("attachment content type is not UTF-8")?,
+        filename,
+        content_type,
         size_bytes: fields.size_bytes,
         created_at: fields.created_at,
     })
@@ -2603,23 +2997,21 @@ fn decrypt_attachment_blob(
     attachment: &seren::AttachmentWithBlobView,
 ) -> Result<Zeroizing<Vec<u8>>> {
     let attachment_id = attachment.attachment_id;
-    let content_key = Zeroizing::new(
-        xchacha20_decrypt_with_aad(
-            vault_key.as_bytes(),
-            &decode_passwords_b64_field("wrapped_content_key", &attachment.wrapped_content_key)?,
-            &attachment_aad("attachment-content-key", item_id, attachment_id),
-        )
-        .context("could not unwrap attachment content key")?,
-    );
-    let content_key = Zeroizing::new(
-        <[u8; 32]>::try_from(content_key.as_slice())
-            .map_err(|_| anyhow::anyhow!("attachment content key has invalid length"))?,
-    );
+    let item_id_bytes = item_id.as_bytes();
+    let attachment_id_bytes = attachment_id.as_bytes();
+    let content_key = unwrap_attachment_key(
+        vault_key,
+        item_id_bytes,
+        attachment_id_bytes,
+        &decode_passwords_b64_field("wrapped_content_key", &attachment.wrapped_content_key)?,
+    )
+    .context("could not unwrap attachment content key")?;
     Ok(Zeroizing::new(
-        xchacha20_decrypt_with_aad(
+        decrypt_blob(
             &content_key,
+            item_id_bytes,
+            attachment_id_bytes,
             &decode_passwords_b64_field("blob", &attachment.blob)?,
-            &attachment_aad("attachment-blob", item_id, attachment_id),
         )
         .context("could not decrypt attachment blob")?,
     ))
@@ -2632,44 +3024,52 @@ fn rewrap_attachment_for_rotation(
     attachment: &seren::AttachmentView,
 ) -> Result<seren::RotationAttachmentDto> {
     let attachment_id = attachment.attachment_id;
-    let filename = xchacha20_decrypt_with_aad(
-        old_vault_key.as_bytes(),
+    let item_id_bytes = item_id.as_bytes();
+    let attachment_id_bytes = attachment_id.as_bytes();
+    let filename = decrypt_filename(
+        old_vault_key,
+        item_id_bytes,
+        attachment_id_bytes,
         &decode_passwords_b64_field("filename_ciphertext", &attachment.filename_ciphertext)?,
-        &attachment_aad("attachment-filename", item_id, attachment_id),
     )
     .context("could not decrypt attachment filename for rotation")?;
-    let content_type = xchacha20_decrypt_with_aad(
-        old_vault_key.as_bytes(),
+    let content_type = decrypt_content_type(
+        old_vault_key,
+        item_id_bytes,
+        attachment_id_bytes,
         &decode_passwords_b64_field(
             "content_type_ciphertext",
             &attachment.content_type_ciphertext,
         )?,
-        &attachment_aad("attachment-content-type", item_id, attachment_id),
     )
     .context("could not decrypt attachment content type for rotation")?;
-    let content_key = xchacha20_decrypt_with_aad(
-        old_vault_key.as_bytes(),
+    let attachment_key = unwrap_attachment_key(
+        old_vault_key,
+        item_id_bytes,
+        attachment_id_bytes,
         &decode_passwords_b64_field("wrapped_content_key", &attachment.wrapped_content_key)?,
-        &attachment_aad("attachment-content-key", item_id, attachment_id),
     )
     .context("could not unwrap attachment content key for rotation")?;
 
     Ok(seren::RotationAttachmentDto {
         attachment_id,
-        content_type_ciphertext: BASE64.encode(xchacha20_encrypt_with_aad(
-            new_vault_key.as_bytes(),
+        content_type_ciphertext: BASE64.encode(encrypt_content_type(
+            new_vault_key,
+            item_id_bytes,
+            attachment_id_bytes,
             &content_type,
-            &attachment_aad("attachment-content-type", item_id, attachment_id),
         )),
-        filename_ciphertext: BASE64.encode(xchacha20_encrypt_with_aad(
-            new_vault_key.as_bytes(),
+        filename_ciphertext: BASE64.encode(encrypt_filename(
+            new_vault_key,
+            item_id_bytes,
+            attachment_id_bytes,
             &filename,
-            &attachment_aad("attachment-filename", item_id, attachment_id),
         )),
-        wrapped_content_key: BASE64.encode(xchacha20_encrypt_with_aad(
-            new_vault_key.as_bytes(),
-            &content_key,
-            &attachment_aad("attachment-content-key", item_id, attachment_id),
+        wrapped_content_key: BASE64.encode(wrap_attachment_key(
+            new_vault_key,
+            item_id_bytes,
+            attachment_id_bytes,
+            &attachment_key,
         )),
     })
 }
@@ -3525,13 +3925,18 @@ fn atty_stdin() -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        BASE64, PasswordsVaultImport, attachment_aad, decode_passwords_gateway_body,
-        ensure_distinct_transfer_vaults, membership_grant_signature, passwords_api_base_url,
+        ATTACHMENT_URI_SCHEME, BASE64, PasswordsVaultExportAttachment, PasswordsVaultImport,
+        build_attachment_create_request, decode_passwords_gateway_body,
+        ensure_distinct_transfer_vaults, membership_grant_signature, metadata_bool,
+        passwords_api_base_url, prepare_passwords_import_item_content,
         rewrap_attachment_for_rotation, validate_passwords_import_metadata,
     };
     use base64::Engine;
-    use seren_secrets_crypto::aead::xchacha20_decrypt_with_aad;
     use seren_secrets_crypto::keys::{IdentitySigningKeypair, IdentitySigningPrivateKey};
+    use seren_secrets_crypto::protocol::attachment::{
+        decrypt_blob, decrypt_content_type, decrypt_filename, encrypt_blob, encrypt_content_type,
+        encrypt_filename, generate_attachment_key, unwrap_attachment_key, wrap_attachment_key,
+    };
     use seren_secrets_crypto::protocol::vault::generate_vault_key;
     use uuid::Uuid;
 
@@ -3592,80 +3997,144 @@ mod tests {
     }
 
     #[test]
-    fn attachment_rotation_rewraps_with_expected_aad() {
+    fn attachment_rotation_preserves_decryptability_under_new_key() {
         let old_vault_key = generate_vault_key();
         let new_vault_key = generate_vault_key();
         let item_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
         let attachment_id = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+        let attachment_key = generate_attachment_key();
+        let plaintext = b"report-bytes".to_vec();
+        // The blob stays under the unchanged attachment key; rotation only
+        // re-encrypts the wrapped key + metadata under the new vault key.
+        let blob = encrypt_blob(
+            &attachment_key,
+            item_id.as_bytes(),
+            attachment_id.as_bytes(),
+            &plaintext,
+        );
 
-        let filename_aad = attachment_aad("attachment-filename", item_id, attachment_id);
-        assert_eq!(&filename_aad[..20], b"attachment-filename:");
-        assert_eq!(&filename_aad[20..36], item_id.as_bytes());
-        assert_eq!(filename_aad[36], b':');
-        assert_eq!(&filename_aad[37..], attachment_id.as_bytes());
-
-        let filename = b"report.pdf";
-        let content_type = b"application/pdf";
-        let content_key = [9u8; 32];
         let attachment = seren::AttachmentView {
             attachment_id,
-            content_type_ciphertext: BASE64.encode(
-                seren_secrets_crypto::aead::xchacha20_encrypt_with_aad(
-                    old_vault_key.as_bytes(),
-                    content_type,
-                    &attachment_aad("attachment-content-type", item_id, attachment_id),
-                ),
-            ),
+            content_type_ciphertext: BASE64.encode(encrypt_content_type(
+                &old_vault_key,
+                item_id.as_bytes(),
+                attachment_id.as_bytes(),
+                "application/pdf",
+            )),
             created_at: "2030-01-01T00:00:00Z".parse().unwrap(),
-            filename_ciphertext: BASE64.encode(
-                seren_secrets_crypto::aead::xchacha20_encrypt_with_aad(
-                    old_vault_key.as_bytes(),
-                    filename,
-                    &filename_aad,
-                ),
-            ),
+            filename_ciphertext: BASE64.encode(encrypt_filename(
+                &old_vault_key,
+                item_id.as_bytes(),
+                attachment_id.as_bytes(),
+                "report.pdf",
+            )),
             item_id,
-            size_bytes: 123,
-            wrapped_content_key: BASE64.encode(
-                seren_secrets_crypto::aead::xchacha20_encrypt_with_aad(
-                    old_vault_key.as_bytes(),
-                    &content_key,
-                    &attachment_aad("attachment-content-key", item_id, attachment_id),
-                ),
-            ),
+            size_bytes: blob.len() as i64,
+            wrapped_content_key: BASE64.encode(wrap_attachment_key(
+                &old_vault_key,
+                item_id.as_bytes(),
+                attachment_id.as_bytes(),
+                &attachment_key,
+            )),
         };
 
         let rotated =
             rewrap_attachment_for_rotation(&old_vault_key, &new_vault_key, item_id, &attachment)
                 .unwrap();
 
-        let rotated_filename = BASE64.decode(rotated.filename_ciphertext).unwrap();
-        assert!(
-            xchacha20_decrypt_with_aad(old_vault_key.as_bytes(), &rotated_filename, &filename_aad)
-                .is_err()
+        assert_eq!(
+            decrypt_filename(
+                &new_vault_key,
+                item_id.as_bytes(),
+                attachment_id.as_bytes(),
+                &BASE64.decode(rotated.filename_ciphertext).unwrap(),
+            )
+            .unwrap(),
+            "report.pdf"
         );
         assert_eq!(
-            xchacha20_decrypt_with_aad(new_vault_key.as_bytes(), &rotated_filename, &filename_aad)
-                .unwrap(),
-            filename
-        );
-        assert_eq!(
-            xchacha20_decrypt_with_aad(
-                new_vault_key.as_bytes(),
+            decrypt_content_type(
+                &new_vault_key,
+                item_id.as_bytes(),
+                attachment_id.as_bytes(),
                 &BASE64.decode(rotated.content_type_ciphertext).unwrap(),
-                &attachment_aad("attachment-content-type", item_id, attachment_id),
             )
             .unwrap(),
-            content_type
+            "application/pdf"
+        );
+        let recovered_key = unwrap_attachment_key(
+            &new_vault_key,
+            item_id.as_bytes(),
+            attachment_id.as_bytes(),
+            &BASE64.decode(rotated.wrapped_content_key).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            decrypt_blob(
+                &recovered_key,
+                item_id.as_bytes(),
+                attachment_id.as_bytes(),
+                &blob,
+            )
+            .unwrap(),
+            plaintext
+        );
+    }
+
+    #[test]
+    fn attachment_create_request_preserves_supplied_attachment_id() {
+        let vault_key = generate_vault_key();
+        let item_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let attachment_id = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+        let plaintext = b"linked-document-bytes";
+
+        let request = build_attachment_create_request(
+            &vault_key,
+            item_id,
+            attachment_id,
+            "document.pdf",
+            "application/pdf",
+            plaintext,
+        )
+        .unwrap();
+
+        assert_eq!(request.attachment_id, attachment_id);
+        assert_eq!(
+            decrypt_filename(
+                &vault_key,
+                item_id.as_bytes(),
+                attachment_id.as_bytes(),
+                &BASE64.decode(&request.filename_ciphertext).unwrap(),
+            )
+            .unwrap(),
+            "document.pdf"
         );
         assert_eq!(
-            xchacha20_decrypt_with_aad(
-                new_vault_key.as_bytes(),
-                &BASE64.decode(rotated.wrapped_content_key).unwrap(),
-                &attachment_aad("attachment-content-key", item_id, attachment_id),
+            decrypt_content_type(
+                &vault_key,
+                item_id.as_bytes(),
+                attachment_id.as_bytes(),
+                &BASE64.decode(&request.content_type_ciphertext).unwrap(),
             )
             .unwrap(),
-            content_key
+            "application/pdf"
+        );
+        let recovered_key = unwrap_attachment_key(
+            &vault_key,
+            item_id.as_bytes(),
+            attachment_id.as_bytes(),
+            &BASE64.decode(&request.wrapped_content_key).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            decrypt_blob(
+                &recovered_key,
+                item_id.as_bytes(),
+                attachment_id.as_bytes(),
+                &BASE64.decode(&request.blob).unwrap(),
+            )
+            .unwrap(),
+            plaintext
         );
     }
 
@@ -3728,11 +4197,43 @@ mod tests {
                     "title": "GitHub",
                     "tags": ["work"],
                     "sensitive": true,
+                    "favorite": true,
                     "content": { "type": "login" }
                 }
             ]
         });
         let parsed: PasswordsVaultImport = serde_json::from_value(export).unwrap();
+        assert!(parsed.items[0].favorite);
+        validate_passwords_import_metadata(&parsed).unwrap();
+
+        let export = serde_json::json!({
+            "format": "seren-passwords-mcp-export",
+            "version": 1,
+            "attachments_included": true,
+            "attachment_count": 1,
+            "attachment_bytes": 7,
+            "items": [
+                {
+                    "item_id": "11111111-1111-1111-1111-111111111111",
+                    "title": "GitHub",
+                    "tags": ["work"],
+                    "sensitive": true,
+                    "favorite": true,
+                    "content": { "type": "login" },
+                    "attachments": [
+                        {
+                            "attachment_id": "22222222-2222-2222-2222-222222222222",
+                            "filename": "example.txt",
+                            "content_type": "text/plain",
+                            "size_bytes": 7,
+                            "content_base64": "ZXhhbXBsZQ=="
+                        }
+                    ]
+                }
+            ]
+        });
+        let parsed: PasswordsVaultImport = serde_json::from_value(export).unwrap();
+        assert!(parsed.items[0].favorite);
         validate_passwords_import_metadata(&parsed).unwrap();
 
         let mcp_params_shape = serde_json::json!({
@@ -3748,20 +4249,123 @@ mod tests {
     }
 
     #[test]
+    fn import_preparation_remaps_attachment_references() {
+        let source_id = Uuid::parse_str("22222222-2222-4222-8222-222222222222").unwrap();
+        let content = serde_json::json!({
+            "type": "document",
+            "attachment_uri": format!("{ATTACHMENT_URI_SCHEME}{source_id}"),
+            "doc": {
+                "content": [
+                    {
+                        "attrs": {
+                            "src": format!("{ATTACHMENT_URI_SCHEME}{source_id}")
+                        }
+                    }
+                ]
+            }
+        });
+        let (content, attachments) = prepare_passwords_import_item_content(
+            content,
+            vec![PasswordsVaultExportAttachment {
+                attachment_id: Some(source_id),
+                filename: "doc.pdf".to_string(),
+                content_type: "application/pdf".to_string(),
+                size_bytes: 7,
+                content_base64: "ZXhhbXBsZQ==".to_string(),
+            }],
+        );
+
+        let target_id = attachments[0].attachment_id;
+        assert_ne!(target_id, source_id);
+        assert_eq!(
+            content["attachment_uri"],
+            format!("{ATTACHMENT_URI_SCHEME}{target_id}")
+        );
+        assert_eq!(
+            content["doc"]["content"][0]["attrs"]["src"],
+            format!("{ATTACHMENT_URI_SCHEME}{target_id}")
+        );
+    }
+
+    #[test]
+    fn metadata_bool_parses_item_flags() {
+        let metadata = serde_json::json!({
+            "favorite": true,
+            "sensitive": false
+        });
+        assert!(metadata_bool(Some(&metadata), "favorite"));
+        assert!(!metadata_bool(Some(&metadata), "sensitive"));
+        assert!(!metadata_bool(Some(&metadata), "reprompt"));
+        assert!(!metadata_bool(None, "favorite"));
+    }
+
+    #[test]
     fn import_metadata_rejects_unsupported_exports() {
-        let with_attachments: PasswordsVaultImport = serde_json::from_value(serde_json::json!({
-            "format": "seren-passwords-mcp-export",
-            "version": 1,
-            "attachments_included": true,
-            "items": [
-                {
-                    "title": "GitHub",
-                    "content": { "type": "login" }
-                }
-            ]
-        }))
-        .unwrap();
-        assert!(validate_passwords_import_metadata(&with_attachments).is_err());
+        let excluded_with_attachments: PasswordsVaultImport =
+            serde_json::from_value(serde_json::json!({
+                "format": "seren-passwords-mcp-export",
+                "version": 1,
+                "attachments_included": false,
+                "items": [
+                    {
+                        "title": "GitHub",
+                        "content": { "type": "login" },
+                        "attachments": [
+                            {
+                                "filename": "example.txt",
+                                "content_type": "text/plain",
+                                "size_bytes": 7,
+                                "content_base64": "ZXhhbXBsZQ=="
+                            }
+                        ]
+                    }
+                ]
+            }))
+            .unwrap();
+        assert!(validate_passwords_import_metadata(&excluded_with_attachments).is_err());
+
+        let mismatched_attachment_count: PasswordsVaultImport =
+            serde_json::from_value(serde_json::json!({
+                "format": "seren-passwords-mcp-export",
+                "version": 1,
+                "attachment_count": 1,
+                "items": []
+            }))
+            .unwrap();
+        assert!(validate_passwords_import_metadata(&mismatched_attachment_count).is_err());
+
+        let duplicate_attachment_id: PasswordsVaultImport =
+            serde_json::from_value(serde_json::json!({
+                "format": "seren-passwords-mcp-export",
+                "version": 1,
+                "attachments_included": true,
+                "attachment_count": 2,
+                "attachment_bytes": 14,
+                "items": [
+                    {
+                        "title": "GitHub",
+                        "content": { "type": "login" },
+                        "attachments": [
+                            {
+                                "attachment_id": "22222222-2222-2222-2222-222222222222",
+                                "filename": "one.txt",
+                                "content_type": "text/plain",
+                                "size_bytes": 7,
+                                "content_base64": "ZXhhbXBsZQ=="
+                            },
+                            {
+                                "attachment_id": "22222222-2222-2222-2222-222222222222",
+                                "filename": "two.txt",
+                                "content_type": "text/plain",
+                                "size_bytes": 7,
+                                "content_base64": "ZXhhbXBsZQ=="
+                            }
+                        ]
+                    }
+                ]
+            }))
+            .unwrap();
+        assert!(validate_passwords_import_metadata(&duplicate_attachment_id).is_err());
 
         let unsupported_version: PasswordsVaultImport = serde_json::from_value(serde_json::json!({
             "format": "seren-passwords-mcp-export",

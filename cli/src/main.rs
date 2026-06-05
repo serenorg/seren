@@ -360,7 +360,7 @@ enum PasswordsAction {
         #[command(subcommand)]
         action: PasswordShareAction,
     },
-    /// Export decrypted vault items to a plaintext JSON file. Attachments are excluded.
+    /// Export decrypted vault items and attachments to a plaintext JSON file.
     Export {
         /// Vault id. Required when the account has multiple vaults.
         #[arg(long)]
@@ -368,8 +368,11 @@ enum PasswordsAction {
         /// Destination JSON file. The file must not already exist.
         #[arg(long)]
         output: std::path::PathBuf,
+        /// Exclude attachments from the export.
+        #[arg(long)]
+        exclude_attachments: bool,
     },
-    /// Import plaintext JSON items into a vault. Attachments are excluded.
+    /// Import plaintext JSON items and attachments into a vault.
     Import {
         /// Vault id. Required when the account has multiple vaults.
         #[arg(long)]
@@ -5184,11 +5187,22 @@ async fn main() -> anyhow::Result<()> {
                     commands::passwords::share_revoke(share_id, &ctx).await?
                 }
             },
-            PasswordsAction::Export { vault_id, output } => {
+            PasswordsAction::Export {
+                vault_id,
+                output,
+                exclude_attachments,
+            } => {
                 let options = commands::passwords::PasswordsOptions {
                     master_password: commands::passwords::master_password_from_env(),
                 };
-                commands::passwords::export_vault(options, vault_id, output, &ctx).await?
+                commands::passwords::export_vault(
+                    options,
+                    vault_id,
+                    output,
+                    exclude_attachments,
+                    &ctx,
+                )
+                .await?
             }
             PasswordsAction::Import { vault_id, input } => {
                 let options = commands::passwords::PasswordsOptions {
@@ -7149,9 +7163,11 @@ mod tests {
                 PasswordsAction::Export {
                     vault_id: parsed_vault,
                     output,
+                    exclude_attachments,
                 } => {
                     assert_eq!(parsed_vault, Some(vault_id));
                     assert_eq!(output, std::path::PathBuf::from("vault-export.json"));
+                    assert!(!exclude_attachments);
                 }
                 _ => panic!("unexpected passwords action parsed"),
             },
