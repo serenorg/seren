@@ -2,6 +2,69 @@
 
 Changes to Seren are documented in this file.
 
+## [0.8.0] - 2026-06-05
+
+Seren Passwords CLI, MCP, and SDK integration release.
+
+This release adds end-to-end encrypted Seren Passwords workflows across the CLI and MCP server, including hosted MCP delegation consent, local MCP user-mode unlocks, vault and item operations, attachments, live shares, approvals, invitations, membership management, vault key rotation, and native import/export. It also refreshes bundled OpenAPI specs so the generated SDK exposes the publisher and core methods used by these flows.
+
+Alongside Seren Passwords, this release adds a profile-scoped `seren agent dev` workflow, direct seren-cloud bundle and runtime deployment across the CLI and MCP, managed agent bundle delivery, and MCP publisher fixes.
+
+### Added
+
+- Seren Passwords CLI command groups for vaults, items, attachments, agents, audit logs, approvals, memberships, invitations, live shares, import, export, and local password generation
+- Hosted Seren Passwords MCP delegation flow with browser consent, grant status polling, hosted agent credential storage, and UI handoff URLs for hosted-only signing or bulk plaintext operations
+- Local MCP Seren Passwords user mode with `passwords_unlock`, local-only vault creation, membership grants, invitation completion, and vault key rotation
+- MCP Seren Passwords tools for vault and item access, attachments, approvals, invitations, memberships, live shares, import/export in local mode, and hosted handoffs where account signing or bulk plaintext should stay in the browser
+- Attachment upload, list, download, delete, rotation re-wrap, and native import/export support across CLI and MCP
+- Native plaintext vault import/export format with attachment inclusion by default and `--exclude-attachments` support
+- Vault key rotation workflows for the CLI and local MCP
+- Live item share inspection and revocation in the CLI and MCP
+- CLI `seren passwords generate-password` for local random, hex, and passphrase generation
+- CLI `--master-password-stdin` and `--master-password-file` options for noninteractive Seren Passwords unlocks
+- Local MCP `--passwords-master-password-file` startup option for `seren-mcp start` and `seren-mcp start:http`
+- Generated SDK support for Seren Passwords delegation requests, agent identities, attachments, vault rotation, and create-agent fields
+- Generated SDK support for create-default-organization API keys with agent key type, agent identity id, and publisher scopes
+- Wallet transfer client methods exposed through the generated SDK
+- CLI `seren agent dev` packages a directory of instruction files and deploys it to a per-user `dev-` namespace, keeping developers in one org from colliding on a shared dev agent
+- Direct seren-cloud bundle and runtime deployment from the CLI and MCP, with presigned bundle uploads and runtime overrides (auto, python, javascript, typescript, rust, rust_wasm_adk)
+- `seren agent cloud deployment bundle get` for uploaded deployment bundle metadata, plus revision bundle download
+- Managed agent bundle delivery across the CLI and MCP
+- Generated SDK support for seren-agent instruction patch updates
+
+### Changed
+
+- Seren Passwords API calls in the CLI and MCP now use generated SDK methods instead of hand-rolled HTTP calls
+- Publisher OpenAPI specs are merged under the generated `/publishers/<slug>` path convention, including the Seren Passwords publisher prefix
+- CLI and MCP password export/import flows preserve attachment references by remapping attachment ids on import
+- Hosted MCP uses UI handoffs for operations that require account signing keys or would return whole-vault plaintext
+- Local MCP keeps account signing operations local-only and rejects hosted `passwords_unlock`
+- CLI master password source precedence is explicit input flag, then `SEREN_PASSWORDS_MASTER_PASSWORD`, then interactive prompt
+- CLI and MCP master password file reads strip exactly one terminal newline while preserving intentional password content
+- MCP hosted mode rejects local master-password-file startup configuration
+
+### Fixed
+
+- Seren Passwords hosted delegation requests now use the generated publisher-prefixed endpoint instead of an unprefixed gateway path
+- CLI and MCP gateway envelope parsing handles direct data responses, metered gateway envelopes, and stringified gateway bodies
+- CLI and MCP import paths clean up newly created items when attachment upload fails
+- CLI rejects attempts to read both the master password and an item secret from the same stdin stream
+- Export shapes are aligned across CLI, MCP, and UI-compatible native format fields
+- Generated SDK response parsing preserves useful upstream status and body diagnostics through CLI and MCP error mapping
+- MCP bounds publisher logo upload hangs with a request timeout
+- MCP supports raw (non-JSON) request bodies for publisher calls
+
+### Security
+
+- Hosted MCP stores hosted agent credentials encrypted at rest and keeps account signing keys out of hosted mode
+- Password item output remains redact-by-default unless explicitly revealed
+- Native import/export writes plaintext vault exports only to explicit files and avoids stdout secret dumps
+- Local MCP and CLI derive account keys from the master password only for local user-mode operations and keep derived sessions in memory
+
+### Documentation
+
+- Bundled OpenAPI specs synced for Seren Passwords, Seren Agent, seren-cloud, credential secrets, remote HTTP audit kinds, and core API key fields used by generated SDK clients
+
 ## [0.7.0] - 2026-05-01
 
 seren-models SDK support and managed agent lifecycle controls.
