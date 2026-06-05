@@ -159,6 +159,14 @@ enum Commands {
     },
     /// Manage Seren Passwords vault entries
     Passwords {
+        /// Read the Seren Passwords master password from stdin.
+        #[arg(long)]
+        master_password_stdin: bool,
+
+        /// Read the Seren Passwords master password from a file.
+        #[arg(long)]
+        master_password_file: Option<std::path::PathBuf>,
+
         #[command(subcommand)]
         action: PasswordsAction,
     },
@@ -4683,88 +4691,123 @@ async fn main() -> anyhow::Result<()> {
             }
             SessionAction::RevokeAll => commands::sessions::revoke_all(&ctx).await?,
         },
-        Commands::Passwords { action } => match action {
-            PasswordsAction::Vaults { action } => {
-                let options = commands::passwords::PasswordsOptions {
-                    master_password: commands::passwords::master_password_from_env(),
-                };
-                match *action {
-                    PasswordVaultAction::List => {
-                        commands::passwords::list_vaults(options, &ctx).await?
+        Commands::Passwords {
+            master_password_stdin,
+            master_password_file,
+            action,
+        } => match action {
+            PasswordsAction::Vaults { action } => match *action {
+                PasswordVaultAction::List => {
+                    let options = commands::passwords::PasswordsOptions::from_input(
+                        master_password_stdin,
+                        master_password_file.as_deref(),
+                    )?;
+                    commands::passwords::list_vaults(options, &ctx).await?
+                }
+                PasswordVaultAction::Create {
+                    name,
+                    description,
+                    requires_approval,
+                } => {
+                    let options = commands::passwords::PasswordsOptions::from_input(
+                        master_password_stdin,
+                        master_password_file.as_deref(),
+                    )?;
+                    commands::passwords::create_vault(
+                        commands::passwords::VaultCreateOptions {
+                            master_password: options.master_password,
+                            name,
+                            description,
+                            requires_approval: requires_approval.map(Into::into),
+                        },
+                        &ctx,
+                    )
+                    .await?
+                }
+                PasswordVaultAction::Update {
+                    vault_id,
+                    name,
+                    description,
+                } => {
+                    let options = commands::passwords::PasswordsOptions::from_input(
+                        master_password_stdin,
+                        master_password_file.as_deref(),
+                    )?;
+                    commands::passwords::update_vault(
+                        commands::passwords::VaultUpdateOptions {
+                            master_password: options.master_password,
+                            vault_id,
+                            name,
+                            description,
+                        },
+                        &ctx,
+                    )
+                    .await?
+                }
+                PasswordVaultAction::Archive { vault_id } => {
+                    commands::passwords::archive_vault(vault_id, &ctx).await?
+                }
+                PasswordVaultAction::Rotate { action } => match action {
+                    PasswordVaultRotateAction::Initiate { vault_id } => {
+                        commands::passwords::vault_rotation_initiate(vault_id, &ctx).await?
                     }
-                    PasswordVaultAction::Create {
-                        name,
-                        description,
-                        requires_approval,
-                    } => {
-                        commands::passwords::create_vault(
-                            commands::passwords::VaultCreateOptions {
-                                master_password: options.master_password,
-                                name,
-                                description,
-                                requires_approval: requires_approval.map(Into::into),
-                            },
-                            &ctx,
-                        )
-                        .await?
-                    }
-                    PasswordVaultAction::Update {
+                    PasswordVaultRotateAction::Complete {
                         vault_id,
-                        name,
-                        description,
+                        rotation_token,
                     } => {
-                        commands::passwords::update_vault(
-                            commands::passwords::VaultUpdateOptions {
+                        let options = commands::passwords::PasswordsOptions::from_input(
+                            master_password_stdin,
+                            master_password_file.as_deref(),
+                        )?;
+                        commands::passwords::vault_rotation_complete(
+                            commands::passwords::VaultRotationCompleteOptions {
                                 master_password: options.master_password,
                                 vault_id,
-                                name,
-                                description,
+                                rotation_token,
                             },
                             &ctx,
                         )
                         .await?
                     }
-                    PasswordVaultAction::Archive { vault_id } => {
-                        commands::passwords::archive_vault(vault_id, &ctx).await?
+                    PasswordVaultRotateAction::Cancel {
+                        vault_id,
+                        rotation_token,
+                    } => {
+                        commands::passwords::vault_rotation_cancel(
+                            commands::passwords::VaultRotationCancelOptions {
+                                vault_id,
+                                rotation_token,
+                            },
+                            &ctx,
+                        )
+                        .await?
                     }
-                    PasswordVaultAction::Rotate { action } => match action {
-                        PasswordVaultRotateAction::Initiate { vault_id } => {
-                            commands::passwords::vault_rotation_initiate(vault_id, &ctx).await?
-                        }
-                        PasswordVaultRotateAction::Complete {
-                            vault_id,
-                            rotation_token,
-                        } => {
-                            commands::passwords::vault_rotation_complete(
-                                commands::passwords::VaultRotationCompleteOptions {
-                                    master_password: options.master_password,
-                                    vault_id,
-                                    rotation_token,
-                                },
-                                &ctx,
-                            )
-                            .await?
-                        }
-                        PasswordVaultRotateAction::Cancel {
-                            vault_id,
-                            rotation_token,
-                        } => {
-                            commands::passwords::vault_rotation_cancel(
-                                commands::passwords::VaultRotationCancelOptions {
-                                    vault_id,
-                                    rotation_token,
-                                },
-                                &ctx,
-                            )
-                            .await?
-                        }
-                    },
-                }
-            }
+                },
+            },
             PasswordsAction::Items { action } => {
-                let options = commands::passwords::PasswordsOptions {
-                    master_password: commands::passwords::master_password_from_env(),
+                // A single stdin stream has no framing to split the master
+                // password from an item secret, so reject reading both from it.
+                let leaf_reads_stdin = match action.as_ref() {
+                    PasswordItemAction::Login { password_stdin, .. } => *password_stdin,
+                    PasswordItemAction::ApiKey { key_stdin, .. } => *key_stdin,
+                    PasswordItemAction::Note { body_stdin, .. } => *body_stdin,
+                    PasswordItemAction::Update {
+                        password_stdin,
+                        key_stdin,
+                        body_stdin,
+                        ..
+                    } => *password_stdin || *key_stdin || *body_stdin,
+                    _ => false,
                 };
+                if master_password_stdin && leaf_reads_stdin {
+                    anyhow::bail!(
+                        "cannot read the master password and an item secret from stdin at once; use --master-password-file with --password-stdin, --key-stdin, or --body-stdin"
+                    );
+                }
+                let options = commands::passwords::PasswordsOptions::from_input(
+                    master_password_stdin,
+                    master_password_file.as_deref(),
+                )?;
                 match *action {
                     PasswordItemAction::Login {
                         vault_id,
@@ -4930,9 +4973,10 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             PasswordsAction::Attachments { action } => {
-                let options = commands::passwords::PasswordsOptions {
-                    master_password: commands::passwords::master_password_from_env(),
-                };
+                let options = commands::passwords::PasswordsOptions::from_input(
+                    master_password_stdin,
+                    master_password_file.as_deref(),
+                )?;
                 match action {
                     PasswordAttachmentAction::Upload {
                         vault_id,
@@ -4988,40 +5032,39 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            PasswordsAction::Agent { action } => {
-                let options = commands::passwords::PasswordsOptions {
-                    master_password: commands::passwords::master_password_from_env(),
-                };
-                match action {
-                    PasswordAgentAction::Provision {
-                        vault,
-                        access,
-                        name,
-                        expires_in_days,
-                    } => {
-                        let access = match access {
-                            AgentAccessArg::Read => "read",
-                            AgentAccessArg::Write => "write",
-                        };
-                        commands::passwords::agent_provision(
-                            options,
-                            commands::passwords::AgentProvisionOptions {
-                                vault,
-                                access: access.to_string(),
-                                name,
-                                expires_in_days,
-                            },
-                            &ctx,
-                        )
-                        .await?
-                    }
-                    PasswordAgentAction::List => commands::passwords::agent_list(&ctx).await?,
-                    PasswordAgentAction::Freeze => commands::passwords::agent_freeze(&ctx).await?,
-                    PasswordAgentAction::Revoke { agent_id, vault } => {
-                        commands::passwords::agent_revoke(agent_id, vault, &ctx).await?
-                    }
+            PasswordsAction::Agent { action } => match action {
+                PasswordAgentAction::Provision {
+                    vault,
+                    access,
+                    name,
+                    expires_in_days,
+                } => {
+                    let options = commands::passwords::PasswordsOptions::from_input(
+                        master_password_stdin,
+                        master_password_file.as_deref(),
+                    )?;
+                    let access = match access {
+                        AgentAccessArg::Read => "read",
+                        AgentAccessArg::Write => "write",
+                    };
+                    commands::passwords::agent_provision(
+                        options,
+                        commands::passwords::AgentProvisionOptions {
+                            vault,
+                            access: access.to_string(),
+                            name,
+                            expires_in_days,
+                        },
+                        &ctx,
+                    )
+                    .await?
                 }
-            }
+                PasswordAgentAction::List => commands::passwords::agent_list(&ctx).await?,
+                PasswordAgentAction::Freeze => commands::passwords::agent_freeze(&ctx).await?,
+                PasswordAgentAction::Revoke { agent_id, vault } => {
+                    commands::passwords::agent_revoke(agent_id, vault, &ctx).await?
+                }
+            },
             PasswordsAction::Audit { action } => match action {
                 PasswordAuditAction::List {
                     action,
@@ -5069,9 +5112,10 @@ async fn main() -> anyhow::Result<()> {
                     commands::passwords::approval_get(approval_id, &ctx).await?
                 }
                 PasswordApprovalAction::Approve { approval_id } => {
-                    let options = commands::passwords::PasswordsOptions {
-                        master_password: commands::passwords::master_password_from_env(),
-                    };
+                    let options = commands::passwords::PasswordsOptions::from_input(
+                        master_password_stdin,
+                        master_password_file.as_deref(),
+                    )?;
                     commands::passwords::approval_approve(options, approval_id, &ctx).await?
                 }
                 PasswordApprovalAction::Deny { approval_id } => {
@@ -5087,9 +5131,10 @@ async fn main() -> anyhow::Result<()> {
                     identity_id,
                     access,
                 } => {
-                    let options = commands::passwords::PasswordsOptions {
-                        master_password: commands::passwords::master_password_from_env(),
-                    };
+                    let options = commands::passwords::PasswordsOptions::from_input(
+                        master_password_stdin,
+                        master_password_file.as_deref(),
+                    )?;
                     commands::passwords::membership_grant(
                         commands::passwords::MembershipGrantOptions {
                             master_password: options.master_password,
@@ -5113,9 +5158,10 @@ async fn main() -> anyhow::Result<()> {
                     access,
                     expires_in_hours,
                 } => {
-                    let options = commands::passwords::PasswordsOptions {
-                        master_password: commands::passwords::master_password_from_env(),
-                    };
+                    let options = commands::passwords::PasswordsOptions::from_input(
+                        master_password_stdin,
+                        master_password_file.as_deref(),
+                    )?;
                     commands::passwords::invitation_create(
                         commands::passwords::InvitationCreateOptions {
                             master_password: options.master_password,
@@ -5138,9 +5184,10 @@ async fn main() -> anyhow::Result<()> {
                     vault_id,
                     invitation_id,
                 } => {
-                    let options = commands::passwords::PasswordsOptions {
-                        master_password: commands::passwords::master_password_from_env(),
-                    };
+                    let options = commands::passwords::PasswordsOptions::from_input(
+                        master_password_stdin,
+                        master_password_file.as_deref(),
+                    )?;
                     commands::passwords::invitation_complete(
                         commands::passwords::InvitationCompleteOptions {
                             master_password: options.master_password,
@@ -5192,9 +5239,10 @@ async fn main() -> anyhow::Result<()> {
                 output,
                 exclude_attachments,
             } => {
-                let options = commands::passwords::PasswordsOptions {
-                    master_password: commands::passwords::master_password_from_env(),
-                };
+                let options = commands::passwords::PasswordsOptions::from_input(
+                    master_password_stdin,
+                    master_password_file.as_deref(),
+                )?;
                 commands::passwords::export_vault(
                     options,
                     vault_id,
@@ -5205,9 +5253,10 @@ async fn main() -> anyhow::Result<()> {
                 .await?
             }
             PasswordsAction::Import { vault_id, input } => {
-                let options = commands::passwords::PasswordsOptions {
-                    master_password: commands::passwords::master_password_from_env(),
-                };
+                let options = commands::passwords::PasswordsOptions::from_input(
+                    master_password_stdin,
+                    master_password_file.as_deref(),
+                )?;
                 commands::passwords::import_vault(options, vault_id, input, &ctx).await?
             }
         },
@@ -6341,7 +6390,7 @@ mod tests {
         ]);
 
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Items { action, .. } => match *action {
                     PasswordItemAction::Login {
                         vault_id,
@@ -6373,6 +6422,70 @@ mod tests {
     }
 
     #[test]
+    fn passwords_accepts_master_password_stdin_flag() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "--master-password-stdin",
+            "vaults",
+            "list",
+        ]);
+
+        match cli.command {
+            Commands::Passwords {
+                master_password_stdin,
+                master_password_file,
+                action,
+            } => {
+                assert!(master_password_stdin);
+                assert!(master_password_file.is_none());
+                match action {
+                    PasswordsAction::Vaults { action } => match *action {
+                        PasswordVaultAction::List => {}
+                        _ => panic!("unexpected passwords vault action parsed"),
+                    },
+                    _ => panic!("unexpected passwords action parsed"),
+                }
+            }
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn passwords_accepts_master_password_file_flag() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "--master-password-file",
+            "/tmp/seren-passwords-master",
+            "items",
+            "list",
+        ]);
+
+        match cli.command {
+            Commands::Passwords {
+                master_password_stdin,
+                master_password_file,
+                action,
+            } => {
+                assert!(!master_password_stdin);
+                assert_eq!(
+                    master_password_file,
+                    Some(std::path::PathBuf::from("/tmp/seren-passwords-master"))
+                );
+                match action {
+                    PasswordsAction::Items { action } => match *action {
+                        PasswordItemAction::List { vault_id } => assert!(vault_id.is_none()),
+                        _ => panic!("unexpected passwords item action parsed"),
+                    },
+                    _ => panic!("unexpected passwords action parsed"),
+                }
+            }
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
     fn passwords_get_item_parses_reveal_flag() {
         let cli = parse_cli_with_large_stack(vec![
             "seren",
@@ -6387,7 +6500,7 @@ mod tests {
         ]);
 
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Items { action, .. } => match *action {
                     PasswordItemAction::Get {
                         vault_id,
@@ -6434,7 +6547,7 @@ mod tests {
             "application/pdf",
         ]);
         match upload.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Attachments { action } => match action {
                     PasswordAttachmentAction::Upload {
                         vault_id: parsed_vault,
@@ -6471,7 +6584,7 @@ mod tests {
             "attachment.bin",
         ]);
         match download.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Attachments { action } => match action {
                     PasswordAttachmentAction::Download {
                         vault_id: parsed_vault,
@@ -6508,7 +6621,7 @@ mod tests {
         ]);
 
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Items { action, .. } => match *action {
                     PasswordItemAction::Update {
                         item_id,
@@ -6549,7 +6662,7 @@ mod tests {
         ]);
 
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Agent { action, .. } => match action {
                     PasswordAgentAction::Provision {
                         vault,
@@ -6575,7 +6688,7 @@ mod tests {
         let cli = parse_cli_with_large_stack(vec!["seren", "passwords", "agent", "freeze"]);
 
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Agent { action, .. } => match action {
                     PasswordAgentAction::Freeze => {}
                     _ => panic!("unexpected passwords agent action parsed"),
@@ -6614,7 +6727,7 @@ mod tests {
         ]);
 
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Audit { action, .. } => match action {
                     PasswordAuditAction::List {
                         action,
@@ -6644,7 +6757,7 @@ mod tests {
 
         let cli = parse_cli_with_large_stack(vec!["seren", "passwords", "audit", "verify"]);
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Audit { action, .. } => match action {
                     PasswordAuditAction::Verify => {}
                     _ => panic!("unexpected passwords audit action parsed"),
@@ -6672,7 +6785,7 @@ mod tests {
         ]);
 
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Approvals { action } => match action {
                     PasswordApprovalAction::Request {
                         target_kind,
@@ -6727,7 +6840,7 @@ mod tests {
             "33333333-3333-3333-3333-333333333333",
         ]);
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Approvals { action } => match action {
                     PasswordApprovalAction::Deny {
                         approval_id: parsed,
@@ -6749,7 +6862,7 @@ mod tests {
             "33333333-3333-3333-3333-333333333333",
         ]);
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Approvals { action } => match action {
                     PasswordApprovalAction::Approve {
                         approval_id: parsed,
@@ -6778,7 +6891,7 @@ mod tests {
             "22222222-2222-2222-2222-222222222222",
         ]);
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Memberships { action } => match action {
                     PasswordMembershipAction::Revoke {
                         vault_id: parsed_vault,
@@ -6805,7 +6918,7 @@ mod tests {
             "admin",
         ]);
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Memberships { action } => match action {
                     PasswordMembershipAction::Grant {
                         vault_id: parsed_vault,
@@ -6831,7 +6944,7 @@ mod tests {
             "11111111-1111-1111-1111-111111111111",
         ]);
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Vaults { action } => match *action {
                     PasswordVaultAction::Archive {
                         vault_id: parsed_vault,
@@ -6856,7 +6969,7 @@ mod tests {
             "always",
         ]);
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Vaults { action } => match *action {
                     PasswordVaultAction::Create {
                         name,
@@ -6889,7 +7002,7 @@ mod tests {
             "33333333-3333-3333-3333-333333333333",
         ]);
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Vaults { action } => match *action {
                     PasswordVaultAction::Rotate { action } => match action {
                         PasswordVaultRotateAction::Complete {
@@ -6927,7 +7040,7 @@ mod tests {
                     "Operational credentials",
                 ]);
                 match cli.command {
-                    Commands::Passwords { action } => match action {
+                    Commands::Passwords { action, .. } => match action {
                         PasswordsAction::Vaults { action } => match *action {
                             PasswordVaultAction::Update {
                                 vault_id: parsed_vault,
@@ -6969,7 +7082,7 @@ mod tests {
             "24",
         ]);
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Invitations { action } => match action {
                     PasswordInvitationAction::Create {
                         vault_id: parsed_vault,
@@ -7024,7 +7137,7 @@ mod tests {
             "22222222-2222-2222-2222-222222222222",
         ]);
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Invitations { action } => match action {
                     PasswordInvitationAction::Complete {
                         vault_id: parsed_vault,
@@ -7052,7 +7165,7 @@ mod tests {
             "--no-symbols",
         ]);
         match random.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::GeneratePassword {
                     mode,
                     length,
@@ -7081,7 +7194,7 @@ mod tests {
             "--no-capitalize-first",
         ]);
         match passphrase.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::GeneratePassword {
                     mode,
                     word_count,
@@ -7112,7 +7225,7 @@ mod tests {
             "11111111-1111-1111-1111-111111111111",
         ]);
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Shares { action } => match action {
                     PasswordShareAction::Outbound {
                         vault_id: parsed_vault,
@@ -7133,7 +7246,7 @@ mod tests {
             "33333333-3333-3333-3333-333333333333",
         ]);
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Shares { action } => match action {
                     PasswordShareAction::Revoke { share_id: parsed } => {
                         assert_eq!(parsed, share_id);
@@ -7159,7 +7272,7 @@ mod tests {
             "vault-export.json",
         ]);
         match export.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Export {
                     vault_id: parsed_vault,
                     output,
@@ -7184,7 +7297,7 @@ mod tests {
             "vault-export.json",
         ]);
         match import.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Import {
                     vault_id: parsed_vault,
                     input,
@@ -7217,7 +7330,7 @@ mod tests {
         ]);
 
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Items { action, .. } => match *action {
                     PasswordItemAction::Duplicate {
                         vault_id,
@@ -7249,7 +7362,7 @@ mod tests {
         ]);
 
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Items { action, .. } => match *action {
                     PasswordItemAction::Move {
                         vault_id,
@@ -7281,7 +7394,7 @@ mod tests {
         ]);
 
         match cli.command {
-            Commands::Passwords { action } => match action {
+            Commands::Passwords { action, .. } => match action {
                 PasswordsAction::Agent { action, .. } => match action {
                     PasswordAgentAction::Revoke { agent_id, vault } => {
                         assert_eq!(

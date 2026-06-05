@@ -1,4 +1,5 @@
 use crate::error::{McpError, Result};
+use std::path::PathBuf;
 
 /// OAuth client ID for upstream authentication.
 /// This identifies the MCP server as a trusted OAuth client.
@@ -11,6 +12,7 @@ pub struct Config {
     pub api_base_url: String,
     pub passwords_api_base_url: String,
     pub oauth_redirect_base_url: String,
+    pub passwords_master_password_file: Option<PathBuf>,
     pub host: String,
     pub port: u16,
 }
@@ -69,6 +71,7 @@ impl Config {
             api_base_url,
             passwords_api_base_url,
             oauth_redirect_base_url,
+            passwords_master_password_file: None,
             host: std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into()),
             port: std::env::var("PORT")
                 .unwrap_or_else(|_| "3000".into())

@@ -11,6 +11,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -64,6 +65,7 @@ pub struct SerenMcpServer {
     pub(crate) passwords_local_mode: bool,
     /// User-mode (master-password) unlocked session; None until passwords_unlock (added later).
     passwords_session: Arc<tokio::sync::Mutex<Option<crate::passwords::PasswordsSession>>>,
+    passwords_master_password_file: Option<PathBuf>,
     /// Provisioned agent identity (agent-key mode), loaded once at startup.
     passwords_agent: Option<Arc<crate::passwords::PasswordsAgentIdentity>>,
     /// Hosted token-vault storage for remote MCP passwords agent credentials.
@@ -3880,7 +3882,9 @@ impl SerenMcpServer {
             ));
         }
 
-        let master_password = crate::passwords::read_master_password().await?;
+        let master_password =
+            crate::passwords::read_master_password(self.passwords_master_password_file.as_deref())
+                .await?;
         let bearer = self.bearer_token(extensions)?;
         let key_source = seren_secrets_resolver::fetch_master_password_key_source(
             &self.passwords_api_base_url,
@@ -4924,6 +4928,22 @@ impl SerenMcpServer {
         api_base_url: &str,
         passwords_api_base_url: &str,
     ) -> Result<Self, seren::Error> {
+        Self::new_with_passwords_api_url_and_master_password_file(
+            api_key,
+            api_base_url,
+            passwords_api_base_url,
+            None,
+        )
+    }
+
+    /// Create a new Seren MCP Server with a separate passwords gateway URL and unlock file.
+    #[allow(clippy::result_large_err)]
+    pub fn new_with_passwords_api_url_and_master_password_file(
+        api_key: &str,
+        api_base_url: &str,
+        passwords_api_base_url: &str,
+        passwords_master_password_file: Option<PathBuf>,
+    ) -> Result<Self, seren::Error> {
         let wallet = Self::load_wallet_from_env();
         let signer_config = SignerConfig::load_or_create();
 
@@ -4956,6 +4976,7 @@ impl SerenMcpServer {
             signer_config,
             passwords_local_mode: true,
             passwords_session: Arc::new(tokio::sync::Mutex::new(None)),
+            passwords_master_password_file,
             passwords_agent: crate::passwords::load_agent_identity(),
             passwords_hosted_store: None,
         })
@@ -5015,6 +5036,7 @@ impl SerenMcpServer {
             // Local agent-key signing is DISABLED in hosted mode (mirrors wallet).
             passwords_local_mode: false,
             passwords_session: Arc::new(tokio::sync::Mutex::new(None)),
+            passwords_master_password_file: None,
             passwords_agent: None,
             passwords_hosted_store,
         })
@@ -11771,6 +11793,7 @@ mod tests {
             signer_config: SignerConfig::default(),
             passwords_local_mode: true,
             passwords_session: Arc::new(tokio::sync::Mutex::new(None)),
+            passwords_master_password_file: None,
             passwords_agent: None,
             passwords_hosted_store: None,
         }

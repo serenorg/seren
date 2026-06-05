@@ -9,6 +9,7 @@
 //! item bodies are returned only when `reveal == true`.
 
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -3096,7 +3097,35 @@ fn url_is_loopback(url: &reqwest::Url) -> bool {
 ///
 /// The master password is sourced outside tool arguments, wrapped in
 /// `Zeroizing`, and never logged. Mirrors the CLI `read_master_password`.
-pub(crate) async fn read_master_password() -> Result<Zeroizing<Vec<u8>>, McpError> {
+pub(crate) async fn read_master_password(
+    master_password_file: Option<&Path>,
+) -> Result<Zeroizing<Vec<u8>>, McpError> {
+    if let Some(path) = master_password_file {
+        let path = path.to_path_buf();
+        let password = tokio::task::spawn_blocking(move || {
+            let mut value = std::fs::read_to_string(&path).map_err(|e| {
+                McpError::internal_error(
+                    format!(
+                        "failed to read master password file {}: {e}",
+                        path.display()
+                    ),
+                    None,
+                )
+            })?;
+            strip_one_terminal_newline(&mut value);
+            if value.is_empty() {
+                return Err(McpError::invalid_request(
+                    format!("master password file {} is empty", path.display()),
+                    None,
+                ));
+            }
+            Ok(value)
+        })
+        .await
+        .map_err(|e| McpError::internal_error(e.to_string(), None))??;
+        return Ok(Zeroizing::new(password.into_bytes()));
+    }
+
     if let Ok(value) = std::env::var("SEREN_PASSWORDS_MASTER_PASSWORD")
         && !value.is_empty()
     {
@@ -3114,9 +3143,20 @@ pub(crate) async fn read_master_password() -> Result<Zeroizing<Vec<u8>>, McpErro
     }
 
     Err(McpError::invalid_request(
-        "No master password source: set SEREN_PASSWORDS_MASTER_PASSWORD or run with an attached terminal.",
+        "No master password source: set SEREN_PASSWORDS_MASTER_PASSWORD, start local MCP with --passwords-master-password-file, or run with an attached terminal.",
         None,
     ))
+}
+
+fn strip_one_terminal_newline(value: &mut String) {
+    if value.ends_with('\n') {
+        value.pop();
+        if value.ends_with('\r') {
+            value.pop();
+        }
+    } else if value.ends_with('\r') {
+        value.pop();
+    }
 }
 
 /// Map `VaultClient` errors without surfacing upstream response bodies.
@@ -4540,5 +4580,23 @@ mod tests {
 
         assert_eq!(parsed.display_name, "Hosted MCP");
         assert_eq!(parsed.status, seren::DelegationStatus::Pending);
+    }
+
+    #[tokio::test]
+    async fn read_master_password_reads_file_and_strips_one_newline() {
+        use std::io::Write;
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        writeln!(file, "hunter2").unwrap();
+        let value = read_master_password(Some(file.path())).await.unwrap();
+        assert_eq!(value.as_slice(), b"hunter2".as_slice());
+    }
+
+    #[tokio::test]
+    async fn read_master_password_rejects_empty_file() {
+        use std::io::Write;
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        writeln!(file).unwrap();
+        let err = read_master_password(Some(file.path())).await.unwrap_err();
+        assert!(err.message.contains("empty"));
     }
 }

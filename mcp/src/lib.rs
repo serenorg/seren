@@ -1112,12 +1112,23 @@ pub enum McpMode {
     Server,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct RunOptions {
+    pub passwords_master_password_file: Option<std::path::PathBuf>,
+}
+
 /// Start the MCP server in the given mode.
 #[allow(clippy::result_large_err)]
 pub async fn run(mode: McpMode) -> Result<()> {
+    run_with_options(mode, RunOptions::default()).await
+}
+
+#[allow(clippy::result_large_err)]
+pub async fn run_with_options(mode: McpMode, options: RunOptions) -> Result<()> {
     match mode {
         McpMode::Stdio => {
-            let config = Config::from_env_for_command("start")?;
+            let mut config = Config::from_env_for_command("start")?;
+            config.passwords_master_password_file = options.passwords_master_password_file;
 
             // Stdio mode: log to stderr to avoid interfering with JSON-RPC on stdout
             let _guard = telemetry::init_subscriber(true);
@@ -1126,7 +1137,8 @@ pub async fn run(mode: McpMode) -> Result<()> {
             run_stdio(config).await
         }
         McpMode::Http => {
-            let config = Config::from_env_for_command("start:http")?;
+            let mut config = Config::from_env_for_command("start:http")?;
+            config.passwords_master_password_file = options.passwords_master_password_file;
 
             // HTTP mode with simple token auth: log to stdout normally
             let _guard = telemetry::init_subscriber(false);
@@ -1135,6 +1147,11 @@ pub async fn run(mode: McpMode) -> Result<()> {
             run_http(config).await
         }
         McpMode::Server => {
+            if options.passwords_master_password_file.is_some() {
+                anyhow::bail!(
+                    "--passwords-master-password-file is only available in local MCP modes"
+                );
+            }
             let config = Config::from_env_for_command("start:server")?;
 
             // HTTP mode with full OAuth 2.1: log to stdout normally
@@ -1151,22 +1168,64 @@ pub async fn run(mode: McpMode) -> Result<()> {
 /// Parses the mode from the first CLI argument (`start`, `start:http`, `start:server`,
 /// or the legacy alias `start:oauth`) and delegates to [`run`].
 pub async fn run_cli() -> Result<()> {
-    let command = std::env::args().nth(1);
-    let mode = match command.as_deref().unwrap_or("start") {
-        "start" => McpMode::Stdio,
-        "start:http" => McpMode::Http,
-        "start:server" | "start:oauth" => McpMode::Server,
-        cmd => {
-            eprintln!("Usage: seren-mcp [start|start:http|start:server]");
-            eprintln!();
-            eprintln!("Commands:");
-            eprintln!("  start         Start in stdio mode (local, default)");
-            eprintln!("  start:http    Start in HTTP mode with simple token auth");
-            eprintln!("  start:server  Start in HTTP mode with full OAuth 2.1");
-            anyhow::bail!("Unknown MCP command: {}", cmd);
+    let (mode, options) = parse_cli_args(std::env::args().skip(1))?;
+    run_with_options(mode, options).await
+}
+
+fn parse_cli_args<I>(args: I) -> Result<(McpMode, RunOptions)>
+where
+    I: IntoIterator<Item = String>,
+{
+    let mut mode = None;
+    let mut options = RunOptions::default();
+    let mut args = args.into_iter();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "start" => set_mode(&mut mode, McpMode::Stdio)?,
+            "start:http" => set_mode(&mut mode, McpMode::Http)?,
+            "start:server" | "start:oauth" => set_mode(&mut mode, McpMode::Server)?,
+            "--passwords-master-password-file" => {
+                let path = args.next().ok_or_else(|| {
+                    usage_error("--passwords-master-password-file requires a path")
+                })?;
+                options.passwords_master_password_file = Some(path.into());
+            }
+            "--help" | "-h" => {
+                print_usage();
+                std::process::exit(0);
+            }
+            cmd => return Err(usage_error(format!("Unknown MCP command or option: {cmd}"))),
         }
-    };
-    run(mode).await
+    }
+
+    Ok((mode.unwrap_or(McpMode::Stdio), options))
+}
+
+fn set_mode(mode: &mut Option<McpMode>, next: McpMode) -> Result<()> {
+    if mode.replace(next).is_some() {
+        return Err(usage_error("pass only one MCP command"));
+    }
+    Ok(())
+}
+
+fn usage_error(message: impl Into<String>) -> anyhow::Error {
+    print_usage();
+    anyhow::anyhow!(message.into())
+}
+
+fn print_usage() {
+    eprintln!("Usage: seren-mcp [start|start:http|start:server] [OPTIONS]");
+    eprintln!();
+    eprintln!("Commands:");
+    eprintln!("  start         Start in stdio mode (local, default)");
+    eprintln!("  start:http    Start in HTTP mode with simple token auth");
+    eprintln!("  start:server  Start in HTTP mode with full OAuth 2.1");
+    eprintln!();
+    eprintln!("Options:");
+    eprintln!(
+        "  --passwords-master-password-file <PATH>  Read the Seren Passwords master password from a file in local MCP modes"
+    );
 }
 
 async fn run_stdio(config: Config) -> Result<()> {
@@ -1177,10 +1236,11 @@ async fn run_stdio(config: Config) -> Result<()> {
         }
     };
 
-    let server = SerenMcpServer::new_with_passwords_api_url(
+    let server = SerenMcpServer::new_with_passwords_api_url_and_master_password_file(
         &api_key,
         &config.api_base_url,
         &config.passwords_api_base_url,
+        config.passwords_master_password_file,
     )?;
 
     // Use rmcp's stdio transport
@@ -1210,6 +1270,7 @@ async fn run_http(config: Config) -> Result<()> {
 
     let api_base_url = config.api_base_url.clone();
     let passwords_api_base_url = config.passwords_api_base_url.clone();
+    let passwords_master_password_file = config.passwords_master_password_file.clone();
     let ct = CancellationToken::new();
 
     tokio::spawn({
@@ -1236,10 +1297,11 @@ async fn run_http(config: Config) -> Result<()> {
     // Create streamable HTTP service - it's a tower Service
     let mcp_service = StreamableHttpService::new(
         move || {
-            SerenMcpServer::new_with_passwords_api_url(
+            SerenMcpServer::new_with_passwords_api_url_and_master_password_file(
                 &api_key,
                 &api_base_url,
                 &passwords_api_base_url,
+                passwords_master_password_file.clone(),
             )
             .map_err(std::io::Error::other)
         },
@@ -1656,6 +1718,37 @@ mod tests {
         assert_eq!(extract_bearer_token(&request), None);
     }
 
+    #[test]
+    fn parse_cli_args_accepts_passwords_master_password_file() {
+        let (mode, options) = parse_cli_args([
+            "start".to_string(),
+            "--passwords-master-password-file".to_string(),
+            "/tmp/password".to_string(),
+        ])
+        .unwrap();
+
+        assert_eq!(mode, McpMode::Stdio);
+        assert_eq!(
+            options.passwords_master_password_file,
+            Some(std::path::PathBuf::from("/tmp/password"))
+        );
+    }
+
+    #[test]
+    fn parse_cli_args_defaults_to_start_with_passwords_file() {
+        let (mode, options) = parse_cli_args([
+            "--passwords-master-password-file".to_string(),
+            "/tmp/password".to_string(),
+        ])
+        .unwrap();
+
+        assert_eq!(mode, McpMode::Stdio);
+        assert_eq!(
+            options.passwords_master_password_file,
+            Some(std::path::PathBuf::from("/tmp/password"))
+        );
+    }
+
     #[tokio::test]
     async fn require_simple_auth_enforces_bearer_token() {
         let app = axum::Router::new()
@@ -1741,5 +1834,53 @@ mod tests {
         ));
         assert!(header.contains(r#"error="invalid_token""#));
         assert!(header.contains(r#"error_description="Bad \"token\" try again""#));
+    }
+
+    #[test]
+    fn parse_cli_args_parses_server_mode_with_file() {
+        // Parsing is permissive; run_with_options enforces the hosted rejection.
+        let (mode, options) = parse_cli_args([
+            "start:server".to_string(),
+            "--passwords-master-password-file".to_string(),
+            "/tmp/password".to_string(),
+        ])
+        .unwrap();
+
+        assert_eq!(mode, McpMode::Server);
+        assert_eq!(
+            options.passwords_master_password_file,
+            Some(std::path::PathBuf::from("/tmp/password"))
+        );
+    }
+
+    #[test]
+    fn parse_cli_args_requires_file_value() {
+        let err = parse_cli_args([
+            "start".to_string(),
+            "--passwords-master-password-file".to_string(),
+        ])
+        .unwrap_err();
+        assert!(err.to_string().contains("requires a path"));
+    }
+
+    #[test]
+    fn parse_cli_args_rejects_two_modes() {
+        let err = parse_cli_args(["start".to_string(), "start:http".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("only one MCP command"));
+    }
+
+    #[tokio::test]
+    async fn run_with_options_rejects_master_password_file_in_server_mode() {
+        let options = RunOptions {
+            passwords_master_password_file: Some(std::path::PathBuf::from("/tmp/password")),
+        };
+
+        let err = run_with_options(McpMode::Server, options)
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("only available in local MCP modes")
+        );
     }
 }

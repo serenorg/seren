@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use base64::Engine;
@@ -45,6 +46,20 @@ const ATTACHMENT_URI_SCHEME: &str = "seren-secrets://attachment/";
 #[derive(Clone)]
 pub struct PasswordsOptions {
     pub master_password: Option<Zeroizing<String>>,
+}
+
+impl PasswordsOptions {
+    pub fn from_input(
+        master_password_stdin: bool,
+        master_password_file: Option<&Path>,
+    ) -> Result<Self> {
+        Ok(Self {
+            master_password: master_password_from_input(
+                master_password_stdin,
+                master_password_file,
+            )?,
+        })
+    }
 }
 
 pub struct PasswordGenerateOptions {
@@ -3857,6 +3872,35 @@ pub fn master_password_from_env() -> Option<Zeroizing<String>> {
     }
 }
 
+pub fn master_password_from_input(
+    master_password_stdin: bool,
+    master_password_file: Option<&Path>,
+) -> Result<Option<Zeroizing<String>>> {
+    if master_password_stdin && master_password_file.is_some() {
+        bail!("pass only one of --master-password-stdin or --master-password-file");
+    }
+
+    if master_password_stdin {
+        let value = read_stdin_trimmed()?;
+        if value.is_empty() {
+            bail!("master password read from stdin is empty");
+        }
+        return Ok(Some(Zeroizing::new(value)));
+    }
+
+    if let Some(path) = master_password_file {
+        let mut value = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read master password file {}", path.display()))?;
+        strip_one_terminal_newline(&mut value);
+        if value.is_empty() {
+            bail!("master password file {} is empty", path.display());
+        }
+        return Ok(Some(Zeroizing::new(value)));
+    }
+
+    Ok(master_password_from_env())
+}
+
 fn read_master_password(master_password: Option<Zeroizing<String>>) -> Result<Zeroizing<Vec<u8>>> {
     Ok(Zeroizing::new(match master_password {
         Some(value) => value.as_bytes().to_vec(),
@@ -3905,17 +3949,20 @@ fn read_stdin() -> Result<String> {
 }
 
 fn read_stdin_trimmed() -> Result<String> {
-    // Strip one terminal newline without trimming intentional secret content.
     let mut s = read_stdin()?;
-    if s.ends_with('\n') {
-        s.pop();
-        if s.ends_with('\r') {
-            s.pop();
-        }
-    } else if s.ends_with('\r') {
-        s.pop();
-    }
+    strip_one_terminal_newline(&mut s);
     Ok(s)
+}
+
+fn strip_one_terminal_newline(value: &mut String) {
+    if value.ends_with('\n') {
+        value.pop();
+        if value.ends_with('\r') {
+            value.pop();
+        }
+    } else if value.ends_with('\r') {
+        value.pop();
+    }
 }
 
 fn atty_stdin() -> bool {
@@ -3939,6 +3986,34 @@ mod tests {
     };
     use seren_secrets_crypto::protocol::vault::generate_vault_key;
     use uuid::Uuid;
+
+    #[test]
+    fn master_password_from_input_rejects_both_sources() {
+        let err =
+            super::master_password_from_input(true, Some(std::path::Path::new("/nonexistent")))
+                .unwrap_err();
+        assert!(err.to_string().contains("only one of"));
+    }
+
+    #[test]
+    fn master_password_from_input_reads_file_and_strips_one_newline() {
+        use std::io::Write;
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        writeln!(file, "hunter2").unwrap();
+        let value = super::master_password_from_input(false, Some(file.path()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(value.as_str(), "hunter2");
+    }
+
+    #[test]
+    fn master_password_from_input_rejects_empty_file() {
+        use std::io::Write;
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        writeln!(file).unwrap();
+        let err = super::master_password_from_input(false, Some(file.path())).unwrap_err();
+        assert!(err.to_string().contains("empty"));
+    }
 
     #[test]
     fn transfer_requires_distinct_vaults() {
