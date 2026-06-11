@@ -773,6 +773,12 @@ pub struct EndpointDefinitionParam {
     /// Endpoint-specific upstream Content-Type.
     #[serde(default)]
     pub request_content_type: Option<String>,
+    /// Gateway access policy for this endpoint.
+    ///
+    /// Defaults to `authenticated` when omitted. Use `public_anonymous` only
+    /// for unprotected GET endpoints.
+    #[serde(default)]
+    pub access: Option<EndpointAccessParam>,
     /// If true, this endpoint is blocked (documented but not accessible)
     #[serde(default)]
     pub is_protected: bool,
@@ -783,6 +789,14 @@ pub struct EndpointDefinitionParam {
     /// If set, takes precedence over method-level pricing (price_per_post, etc.)
     #[serde(default)]
     pub price: Option<String>,
+}
+
+/// Endpoint gateway access policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EndpointAccessParam {
+    Authenticated,
+    PublicAnonymous,
 }
 
 /// Query parameter definition for endpoint documentation
@@ -871,8 +885,28 @@ fn endpoint_param_to_definition(
             .collect::<Vec<_>>()
     });
 
+    if param.access == Some(EndpointAccessParam::PublicAnonymous)
+        && method != seren::HttpMethod::Get
+    {
+        return Err(McpError::invalid_params(
+            "endpoints[].access='public_anonymous' is only valid for GET endpoints",
+            None,
+        ));
+    }
+    if param.access == Some(EndpointAccessParam::PublicAnonymous) && param.is_protected {
+        return Err(McpError::invalid_params(
+            "endpoints[].access='public_anonymous' cannot be combined with is_protected=true",
+            None,
+        ));
+    }
+
+    let access = match param.access.unwrap_or(EndpointAccessParam::Authenticated) {
+        EndpointAccessParam::Authenticated => "authenticated",
+        EndpointAccessParam::PublicAnonymous => "public_anonymous",
+    };
+
     let endpoint = serde_json::json!({
-        "access": null,
+        "access": access,
         "method": method,
         "path": path,
         "description": param.description,
@@ -11848,6 +11882,61 @@ mod tests {
         assert!(validate_resource_name("", "branch").is_err());
         assert!(validate_resource_name("_starts_with_underscore", "branch").is_err());
         assert!(validate_resource_name("bad/char", "branch").is_err());
+    }
+
+    fn endpoint_param(method: &str, path: &str) -> EndpointDefinitionParam {
+        EndpointDefinitionParam {
+            method: method.to_string(),
+            path: path.to_string(),
+            description: None,
+            query_params: None,
+            request_content_type: None,
+            access: None,
+            is_protected: false,
+            protection_reason: None,
+            price: None,
+        }
+    }
+
+    #[test]
+    fn endpoint_param_to_definition_preserves_public_anonymous_access() {
+        let mut param = endpoint_param("GET", "/skills/{slug}/download/manifest");
+        param.access = Some(EndpointAccessParam::PublicAnonymous);
+
+        let endpoint = endpoint_param_to_definition(param).unwrap();
+        let value = serde_json::to_value(endpoint).unwrap();
+
+        assert_eq!(value["access"], "public_anonymous");
+    }
+
+    #[test]
+    fn endpoint_param_to_definition_defaults_access_when_omitted() {
+        let endpoint = endpoint_param_to_definition(endpoint_param("GET", "/skills")).unwrap();
+        let value = serde_json::to_value(endpoint).unwrap();
+
+        assert_eq!(value["access"], "authenticated");
+    }
+
+    #[test]
+    fn endpoint_param_to_definition_rejects_public_anonymous_post() {
+        let mut param = endpoint_param("POST", "/organizations/{org_id}/folder/transfer");
+        param.access = Some(EndpointAccessParam::PublicAnonymous);
+
+        let error = endpoint_param_to_definition(param).expect_err("POST cannot be public");
+
+        assert!(error.to_string().contains("only valid for GET endpoints"));
+    }
+
+    #[test]
+    fn endpoint_param_to_definition_rejects_public_anonymous_protected_endpoint() {
+        let mut param = endpoint_param("GET", "/skills/{slug}/download");
+        param.access = Some(EndpointAccessParam::PublicAnonymous);
+        param.is_protected = true;
+
+        let error =
+            endpoint_param_to_definition(param).expect_err("protected endpoint cannot be public");
+
+        assert!(error.to_string().contains("cannot be combined"));
     }
 
     #[test]
