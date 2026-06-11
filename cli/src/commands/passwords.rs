@@ -2153,6 +2153,7 @@ pub async fn agent_provision(
             grant_membership(
                 &passwords_base_url,
                 &bearer,
+                &owner_signing_private,
                 vault.vault_id,
                 identity_id,
                 &vault.key,
@@ -3111,24 +3112,27 @@ fn membership_grant_signature(
     access_level: seren::AccessLevel,
     wrapped_vault_key: &[u8],
 ) -> String {
-    const DOMAIN: &[u8] = b"seren-secrets/membership-grant";
-
     let access_level_byte = match access_level {
-        seren::AccessLevel::Admin => 0,
-        seren::AccessLevel::Write => 1,
-        seren::AccessLevel::Read => 2,
+        seren::AccessLevel::Read => {
+            seren_secrets_crypto::protocol::membership_grant::ACCESS_LEVEL_READ
+        }
+        seren::AccessLevel::Write => {
+            seren_secrets_crypto::protocol::membership_grant::ACCESS_LEVEL_WRITE
+        }
+        seren::AccessLevel::Admin => {
+            seren_secrets_crypto::protocol::membership_grant::ACCESS_LEVEL_ADMIN
+        }
     };
-    let mut payload = Vec::with_capacity(DOMAIN.len() + 16 + 16 + 1 + wrapped_vault_key.len());
-    payload.extend_from_slice(DOMAIN);
-    payload.extend_from_slice(vault_id.as_bytes());
-    payload.extend_from_slice(identity_id.as_bytes());
-    payload.push(access_level_byte);
-    payload.extend_from_slice(wrapped_vault_key);
 
-    BASE64.encode(seren_secrets_crypto::signing::sign(
-        signing_private,
-        &payload,
-    ))
+    BASE64.encode(
+        seren_secrets_crypto::protocol::membership_grant::sign_membership_grant(
+            signing_private,
+            vault_id.as_bytes(),
+            identity_id.as_bytes(),
+            access_level_byte,
+            wrapped_vault_key,
+        ),
+    )
 }
 
 pub async fn membership_list(vault_id: Uuid, ctx: &CommandContext) -> Result<()> {
@@ -4049,9 +4053,18 @@ mod tests {
         let wrapped_vault_key = [3, 4, 5, 6];
 
         for (access_level, access_level_byte) in [
-            (seren::AccessLevel::Admin, 0),
-            (seren::AccessLevel::Write, 1),
-            (seren::AccessLevel::Read, 2),
+            (
+                seren::AccessLevel::Read,
+                seren_secrets_crypto::protocol::membership_grant::ACCESS_LEVEL_READ,
+            ),
+            (
+                seren::AccessLevel::Write,
+                seren_secrets_crypto::protocol::membership_grant::ACCESS_LEVEL_WRITE,
+            ),
+            (
+                seren::AccessLevel::Admin,
+                seren_secrets_crypto::protocol::membership_grant::ACCESS_LEVEL_ADMIN,
+            ),
         ] {
             let signature = membership_grant_signature(
                 &signing_private,

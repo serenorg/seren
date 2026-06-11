@@ -23,8 +23,8 @@ telemetry = ["seren-mcp/telemetry"]
 [dependencies]
 seren = { path = "../api" }
 seren-mcp = { path = "../mcp" }
-seren-secrets-crypto = { git = "https://github.com/serenorg/seren-secrets.git", tag = "v0.1.0" }
-seren-secrets-resolver = { git = "https://github.com/serenorg/seren-secrets.git", tag = "v0.1.0" }
+seren-secrets-crypto = { git = "https://github.com/serenorg/seren-secrets.git", tag = "v0.2.0" }
+seren-secrets-resolver = { git = "https://github.com/serenorg/seren-secrets.git", tag = "v0.2.0" }
 tokio = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
