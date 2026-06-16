@@ -401,7 +401,7 @@ pub async fn user_discriminator_from_auth(ctx: &CommandContext) -> Option<String
 /// wiring up real auth.
 pub fn hash_user_discriminator(identity: &str) -> String {
     let digest = Sha256::digest(identity.as_bytes());
-    let hex = format!("{digest:x}");
+    let hex = hex::encode(digest);
     hex[..USER_DISCRIMINATOR_LEN].to_string()
 }
 

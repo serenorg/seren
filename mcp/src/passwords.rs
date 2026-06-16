@@ -35,8 +35,9 @@ use seren_secrets_crypto::protocol::attachment::{
 };
 use seren_secrets_crypto::protocol::item::{
     ApiCredentialContent, ApiCredentialKind, ItemContent, LoginContent, LoginUrl,
-    SecureNoteContent, decrypt_metadata_json, decrypt_tags, decrypt_title, encrypt_metadata_json,
-    encrypt_tags, encrypt_title, unwrap_item_content_key, wrap_item_content_key,
+    SecureNoteContent, decrypt_metadata_json, decrypt_tags, decrypt_title,
+    encrypt_item_with_content_key, encrypt_metadata_json, encrypt_tags, encrypt_title,
+    unwrap_item_content_key, wrap_item_content_key,
 };
 use seren_secrets_crypto::protocol::vault::{
     decrypt_vault_description, decrypt_vault_name, encrypt_vault_description,
@@ -2671,20 +2672,12 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         crate::server::ensure_writes_allowed(&extensions)?;
         let client = self.passwords_vault_client(&extensions).await?;
+        let api_client = self.passwords_api_client(&extensions).await?;
         let source = select_vault(&client, params.vault_id).await?;
         let target = select_vault(&client, Some(params.target_vault_id)).await?;
         ensure_distinct_transfer_vaults(source.vault_id, target.vault_id)?;
-        let new_item_id = client
-            .copy_item(
-                source.vault_id,
-                params.item_id,
-                &source.key,
-                target.vault_id,
-                &target.key,
-                target.key_version,
-            )
-            .await
-            .map_err(vault_err)?;
+        let new_item_id =
+            duplicate_item_via_api(&api_client, &client, &source, params.item_id, &target).await?;
 
         let output = serde_json::json!({
             "source_vault_id": source.vault_id,
@@ -2710,26 +2703,18 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         crate::server::ensure_writes_allowed(&extensions)?;
         let client = self.passwords_vault_client(&extensions).await?;
+        let api_client = self.passwords_api_client(&extensions).await?;
         let source = select_vault(&client, params.vault_id).await?;
         let target = select_vault(&client, Some(params.target_vault_id)).await?;
         ensure_distinct_transfer_vaults(source.vault_id, target.vault_id)?;
-        let new_item_id = client
-            .move_item(
-                source.vault_id,
-                params.item_id,
-                &source.key,
-                target.vault_id,
-                &target.key,
-                target.key_version,
-            )
-            .await
-            .map_err(vault_err)?;
+        let moved_item_id =
+            move_item_via_api(&api_client, &client, &source, params.item_id, &target).await?;
 
         let output = serde_json::json!({
             "source_vault_id": source.vault_id,
             "source_item_id": params.item_id,
             "target_vault_id": target.vault_id,
-            "item_id": new_item_id,
+            "item_id": moved_item_id,
             "moved": true,
         });
 
@@ -2947,6 +2932,276 @@ attached terminal), never from tool arguments. Local MCP modes only.",
         Ok(CallToolResult::success(vec![crate::server::json_content(
             &serde_json::json!({ "password": generated }),
         )?]))
+    }
+}
+
+async fn duplicate_item_via_api(
+    api_client: &seren::Client,
+    vault_client: &seren_secrets_resolver::VaultClient,
+    source: &seren_secrets_resolver::vault::DecryptedVault,
+    item_id: Uuid,
+    target: &seren_secrets_resolver::vault::DecryptedVault,
+) -> Result<Uuid, McpError> {
+    let item = vault_client
+        .get_item(source.vault_id, item_id, &source.key)
+        .await
+        .map_err(vault_err)?;
+    let record = fetch_password_item_record(api_client, source.vault_id, item_id).await?;
+    ensure_item_record_matches(&record, source.vault_id, item_id)?;
+    let content_key = unwrap_item_content_key(
+        &source.key,
+        item_id.as_bytes(),
+        &decode_passwords_b64_field("content_key_wrap", &record.content_key_wrap)?,
+    )
+    .map_err(|_| McpError::invalid_request("Could not unwrap item content key", None))?;
+    let new_item_id = Uuid::new_v4();
+    let (attachments, attachment_id_map) =
+        duplicate_item_attachments(api_client, source, item_id, target, new_item_id).await?;
+
+    let mut content = item.content;
+    if !attachment_id_map.is_empty() {
+        let content_value = serde_json::to_value(&content)
+            .map_err(|_| McpError::internal_error("Could not serialize item content", None))?;
+        let rewritten = rewrite_attachment_references(content_value, &attachment_id_map);
+        content = serde_json::from_value(rewritten).map_err(|_| {
+            McpError::internal_error("Could not rewrite attachment references", None)
+        })?;
+    }
+
+    let request = seren::DuplicateItemRequest {
+        attachments,
+        content_ciphertext: BASE64.encode(
+            encrypt_item_with_content_key(&content_key, new_item_id.as_bytes(), &content)
+                .map_err(|_| McpError::invalid_request("Could not encrypt item content", None))?,
+        ),
+        content_key_wrap: BASE64.encode(wrap_item_content_key(
+            &target.key,
+            new_item_id.as_bytes(),
+            &content_key,
+        )),
+        item_id: new_item_id,
+        metadata_ciphertext: BASE64.encode(encrypt_metadata_json(
+            &target.key,
+            new_item_id.as_bytes(),
+            &item.metadata_json,
+        )),
+        tags_ciphertext: encrypt_tags_for_transfer(&target.key, new_item_id, &item.tags)?,
+        target_vault_id: Some(target.vault_id),
+        title_blind_index: String::new(),
+        title_ciphertext: BASE64.encode(encrypt_title(
+            &target.key,
+            new_item_id.as_bytes(),
+            &item.title,
+        )),
+        wrapping_key_version: Some(target.key_version),
+    };
+
+    let created = passwords_gateway_data(
+        api_client
+            .item_duplicate(&source.vault_id, &item_id, &request)
+            .await,
+    )
+    .await?
+    .data;
+    if created.item_id != new_item_id || created.vault_id != target.vault_id {
+        return Err(McpError::internal_error(
+            "Password item duplicate response did not match requested destination",
+            None,
+        ));
+    }
+    Ok(created.item_id)
+}
+
+async fn move_item_via_api(
+    api_client: &seren::Client,
+    vault_client: &seren_secrets_resolver::VaultClient,
+    source: &seren_secrets_resolver::vault::DecryptedVault,
+    item_id: Uuid,
+    target: &seren_secrets_resolver::vault::DecryptedVault,
+) -> Result<Uuid, McpError> {
+    let item = vault_client
+        .get_item(source.vault_id, item_id, &source.key)
+        .await
+        .map_err(vault_err)?;
+    let record = fetch_password_item_record(api_client, source.vault_id, item_id).await?;
+    ensure_item_record_matches(&record, source.vault_id, item_id)?;
+    let content_key = unwrap_item_content_key(
+        &source.key,
+        item_id.as_bytes(),
+        &decode_passwords_b64_field("content_key_wrap", &record.content_key_wrap)?,
+    )
+    .map_err(|_| McpError::invalid_request("Could not unwrap item content key", None))?;
+    let attachments = move_item_attachments(api_client, source, item_id, target).await?;
+
+    let request = seren::MoveItemRequest {
+        attachments,
+        content_key_wrap: BASE64.encode(wrap_item_content_key(
+            &target.key,
+            item_id.as_bytes(),
+            &content_key,
+        )),
+        metadata_ciphertext: BASE64.encode(encrypt_metadata_json(
+            &target.key,
+            item_id.as_bytes(),
+            &item.metadata_json,
+        )),
+        tags_ciphertext: encrypt_tags_for_transfer(&target.key, item_id, &item.tags)?,
+        target_vault_id: target.vault_id,
+        title_blind_index: String::new(),
+        title_ciphertext: BASE64.encode(encrypt_title(
+            &target.key,
+            item_id.as_bytes(),
+            &item.title,
+        )),
+        wrapping_key_version: Some(target.key_version),
+    };
+
+    let moved = passwords_gateway_data(
+        api_client
+            .item_move(&source.vault_id, &item_id, &request)
+            .await,
+    )
+    .await?
+    .data;
+    if moved.item_id != item_id || moved.vault_id != target.vault_id {
+        return Err(McpError::internal_error(
+            "Password item move response did not match requested destination",
+            None,
+        ));
+    }
+    Ok(moved.item_id)
+}
+
+async fn fetch_password_item_record(
+    api_client: &seren::Client,
+    vault_id: Uuid,
+    item_id: Uuid,
+) -> Result<seren::ItemRecord, McpError> {
+    Ok(
+        passwords_gateway_data(api_client.item_get(&vault_id, &item_id).await)
+            .await?
+            .data,
+    )
+}
+
+fn ensure_item_record_matches(
+    record: &seren::ItemRecord,
+    expected_vault_id: Uuid,
+    expected_item_id: Uuid,
+) -> Result<(), McpError> {
+    if record.vault_id != expected_vault_id || record.item_id != expected_item_id {
+        return Err(McpError::internal_error(
+            "Password item response did not match requested item",
+            None,
+        ));
+    }
+    Ok(())
+}
+
+async fn duplicate_item_attachments(
+    api_client: &seren::Client,
+    source: &seren_secrets_resolver::vault::DecryptedVault,
+    source_item_id: Uuid,
+    target: &seren_secrets_resolver::vault::DecryptedVault,
+    target_item_id: Uuid,
+) -> Result<
+    (
+        Vec<seren::DuplicateItemAttachmentRequest>,
+        HashMap<String, String>,
+    ),
+    McpError,
+> {
+    let attachments = passwords_gateway_data(
+        api_client
+            .attachment_list(&source.vault_id, &source_item_id)
+            .await,
+    )
+    .await?
+    .data;
+    let mut requests = Vec::with_capacity(attachments.len());
+    let mut id_map = HashMap::with_capacity(attachments.len());
+
+    for attachment in attachments {
+        let source_attachment_id = attachment.attachment_id;
+        let attachment_with_blob = passwords_gateway_data(
+            api_client
+                .attachment_get(&source.vault_id, &source_item_id, &source_attachment_id)
+                .await,
+        )
+        .await?
+        .data;
+        let metadata = decrypt_attachment_metadata_with_blob(
+            &source.key,
+            source_item_id,
+            &attachment_with_blob,
+        )?;
+        let plaintext =
+            decrypt_attachment_blob(&source.key, source_item_id, &attachment_with_blob)?;
+        let target_attachment_id = Uuid::new_v4();
+        let create_request = build_attachment_create_request(
+            &target.key,
+            target_item_id,
+            target_attachment_id,
+            &metadata.filename,
+            &metadata.content_type,
+            &plaintext,
+        )?;
+        id_map.insert(
+            source_attachment_id.to_string(),
+            target_attachment_id.to_string(),
+        );
+        requests.push(seren::DuplicateItemAttachmentRequest {
+            attachment_id: target_attachment_id,
+            blob: create_request.blob,
+            content_type_ciphertext: create_request.content_type_ciphertext,
+            filename_ciphertext: create_request.filename_ciphertext,
+            source_attachment_id,
+            wrapped_content_key: create_request.wrapped_content_key,
+        });
+    }
+
+    Ok((requests, id_map))
+}
+
+async fn move_item_attachments(
+    api_client: &seren::Client,
+    source: &seren_secrets_resolver::vault::DecryptedVault,
+    item_id: Uuid,
+    target: &seren_secrets_resolver::vault::DecryptedVault,
+) -> Result<Vec<seren::MoveItemAttachmentRequest>, McpError> {
+    let attachments =
+        passwords_gateway_data(api_client.attachment_list(&source.vault_id, &item_id).await)
+            .await?
+            .data;
+    attachments
+        .iter()
+        .map(|attachment| {
+            let rewrapped =
+                rewrap_attachment_for_rotation(&source.key, &target.key, item_id, attachment)?;
+            Ok(seren::MoveItemAttachmentRequest {
+                attachment_id: rewrapped.attachment_id,
+                content_type_ciphertext: rewrapped.content_type_ciphertext,
+                filename_ciphertext: rewrapped.filename_ciphertext,
+                wrapped_content_key: rewrapped.wrapped_content_key,
+            })
+        })
+        .collect()
+}
+
+fn encrypt_tags_for_transfer(
+    vault_key: &VaultKey,
+    item_id: Uuid,
+    tags: &[String],
+) -> Result<Option<String>, McpError> {
+    if tags.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(
+            BASE64.encode(
+                encrypt_tags(vault_key, item_id.as_bytes(), tags)
+                    .map_err(|_| McpError::invalid_request("Could not encrypt item tags", None))?,
+            ),
+        ))
     }
 }
 

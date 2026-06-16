@@ -1287,12 +1287,11 @@ async fn run_http(config: Config) -> Result<()> {
     let session_manager = Arc::new(LocalSessionManager::default());
 
     // Create streamable HTTP service config
-    let http_config = StreamableHttpServerConfig {
-        sse_keep_alive: Some(std::time::Duration::from_secs(15)),
-        sse_retry: Some(std::time::Duration::from_secs(3)),
-        stateful_mode: true,
-        cancellation_token: ct.clone(),
-    };
+    let mut http_config = StreamableHttpServerConfig::default();
+    http_config.sse_keep_alive = Some(std::time::Duration::from_secs(15));
+    http_config.sse_retry = Some(std::time::Duration::from_secs(3));
+    http_config.stateful_mode = true;
+    http_config.cancellation_token = ct.clone();
 
     // Create streamable HTTP service - it's a tower Service
     let mcp_service = StreamableHttpService::new(
@@ -1496,12 +1495,11 @@ async fn run_oauth(config: Config) -> Result<()> {
     }
 
     // Create streamable HTTP service config
-    let http_config = StreamableHttpServerConfig {
-        sse_keep_alive: Some(std::time::Duration::from_secs(15)),
-        sse_retry: Some(std::time::Duration::from_secs(3)),
-        stateful_mode: true,
-        cancellation_token: ct.clone(),
-    };
+    let mut http_config = StreamableHttpServerConfig::default();
+    http_config.sse_keep_alive = Some(std::time::Duration::from_secs(15));
+    http_config.sse_retry = Some(std::time::Duration::from_secs(3));
+    http_config.stateful_mode = true;
+    http_config.cancellation_token = ct.clone();
 
     // Create streamable HTTP service with persistent session manager
     let store_for_service = Arc::new(store.clone());

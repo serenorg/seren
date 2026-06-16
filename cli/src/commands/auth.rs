@@ -103,8 +103,8 @@ async fn login_oauth() -> Result<()> {
     println!("Exchanging authorization code for tokens...");
 
     // Avoid following redirects during token exchange.
-    let http_client = reqwest::ClientBuilder::new()
-        .redirect(reqwest::redirect::Policy::none())
+    let http_client = reqwest_012::ClientBuilder::new()
+        .redirect(reqwest_012::redirect::Policy::none())
         .build()
         .context("Failed to build OAuth HTTP client")?;
 

@@ -2331,7 +2331,7 @@ fn bundle_value_with_prompt_override(
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    hex::encode(Sha256::digest(bytes))
 }
 
 async fn put_presigned_deployment_bundle(

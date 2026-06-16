@@ -68,10 +68,10 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 # OpenTelemetry (optional - for hosted/production deployments)
-tracing-opentelemetry = { version = "0.32", optional = true }
-opentelemetry = { version = "0.31", optional = true }
-opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"], optional = true }
-opentelemetry-otlp = { version = "0.31", features = ["http-proto", "reqwest-client"], optional = true }
+tracing-opentelemetry = { version = "0.33", optional = true }
+opentelemetry = { version = "0.32", optional = true }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"], optional = true }
+opentelemetry-otlp = { version = "0.32", features = ["http-proto", "reqwest-client"], optional = true }
 
 # Metrics (optional - for production deployments)
 prometheus = { version = "0.14", default-features = false, optional = true }
@@ -88,7 +88,7 @@ etcetera = { workspace = true }
 seren-secrets-crypto   = { git = "https://github.com/serenorg/seren-secrets.git", tag = "v0.2.0" }
 seren-secrets-resolver = { git = "https://github.com/serenorg/seren-secrets.git", tag = "v0.2.0" }
 zeroize = "1"
-rpassword = "7.4"
+rpassword = "7.5"
 
 # Utils
 uuid = { workspace = true }
@@ -102,7 +102,7 @@ futures = { workspace = true }
 time = { workspace = true }
 html-escape = { workspace = true }
 tower_governor = { workspace = true }
-lru = "0.16.3"
+lru = "0.18.0"
 tokio-stream = "0.1.18"
 
 [dev-dependencies]

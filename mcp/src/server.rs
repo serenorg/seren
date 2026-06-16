@@ -3300,7 +3300,7 @@ pub(crate) fn ensure_writes_allowed(extensions: &Extensions) -> Result<(), McpEr
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    hex::encode(Sha256::digest(bytes))
 }
 
 async fn put_presigned_deployment_bundle(
@@ -3740,6 +3740,15 @@ fn validate_token_cache_ttl_seconds(value: Option<i32>) -> Result<Option<i32>, M
     Ok(Some(value))
 }
 
+fn passwords_generated_api_base_url(passwords_api_base_url: &str) -> String {
+    let trimmed = passwords_api_base_url.trim_end_matches('/');
+    let publisher_prefix = "/publishers/seren-passwords";
+    trimmed
+        .strip_suffix(publisher_prefix)
+        .unwrap_or(trimmed)
+        .to_string()
+}
+
 // ============================================================================
 // Tool Implementations
 // ============================================================================
@@ -3764,6 +3773,17 @@ impl SerenMcpServer {
             &self.api_base_url,
             http_client,
         ))
+    }
+
+    pub(crate) async fn passwords_api_client(
+        &self,
+        extensions: &Extensions,
+    ) -> Result<seren::Client, McpError> {
+        let (bearer, _) = self.passwords_vault_auth(extensions).await?;
+        let base_url = passwords_generated_api_base_url(&self.passwords_api_base_url);
+        let agent_metadata = extract_agent_metadata_from_extensions(extensions);
+        let http_client = self.build_http_client(&bearer, &agent_metadata)?;
+        Ok(seren::Client::new_with_client(&base_url, http_client))
     }
 
     /// Build a Seren Passwords vault client for the active credential.
@@ -11768,20 +11788,17 @@ impl ServerHandler for SerenMcpServer {
     }
 
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            protocol_version: Default::default(),
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            server_info: rmcp::model::Implementation {
-                name: crate::MCP_SERVER_NAME.into(),
-                title: Some("Seren MCP Server".into()),
-                version: env!("CARGO_PKG_VERSION").into(),
-                description: Some(
-                    "MCP server for SerenAI projects, publishers, managed agents, and seren-cloud operations".into(),
-                ),
-                icons: None,
-                website_url: Some("https://serendb.com".into()),
-            },
-            instructions: Some(
+        let server_info =
+            rmcp::model::Implementation::new(crate::MCP_SERVER_NAME, env!("CARGO_PKG_VERSION"))
+                .with_title("Seren MCP Server")
+                .with_description(
+                    "MCP server for SerenAI projects, publishers, managed agents, and seren-cloud operations",
+                )
+                .with_website_url("https://serendb.com");
+
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(server_info)
+            .with_instructions(
                 r#"Seren MCP Server - Manage Seren projects, databases, publishers, managed agents, and seren-cloud deployments.
 
 When Seren MCP is connected, follow these priorities:
@@ -11791,9 +11808,7 @@ When Seren MCP is connected, follow these priorities:
 4. For managed prompt-based agents → Use deploy_seren_agent() and the get/list/preview/update/rollback seren-agent tools instead of raw cloud bundle deploys
 5. For seren-cloud operations → Start with get_cloud_overview(), list_cloud_agents(), and list_pending_cloud_approvals() before drilling into one deployment or run
 6. For costs and payments → Use get_wallet_status() or get_prepaid_balance(); use local wallet/x402 tools only when the client is configured for local signing"#
-                    .into(),
-            ),
-        }
+            )
     }
 }
 

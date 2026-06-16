@@ -24,7 +24,7 @@ axum = "0.8"
 base62 = "2"
 base64 = "0.22"
 time = { version = "0.3", features = ["serde", "serde-well-known", "macros"] }
-jiff = { version = "0.2.20", features = ["serde"] }
+jiff = { version = "0.2.28", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 comfy-table = "7"
 colored = "3"
@@ -33,33 +33,33 @@ html-escape = "0.2"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 oauth2 = "5.0"
 openapiv3 = "2"
-progenitor = "0.11"
-progenitor-client = "0.11"
+progenitor = "0.14"
+progenitor-client = "0.14"
 prettyplease = "0.2"
 rand = "0.10"
-regress = "0.7"
-rmcp = { version = "0.16", features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }
+regress = "0.11"
+rmcp = { version = "1.7", features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }
 schemars = { version = "1", features = ["uuid1", "jiff02"] }
 tokio-util = "0.7"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["form", "json", "rustls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 subtle = "2"
-sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "time", "migrate", "tls-rustls"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "uuid", "time", "migrate", "tls-rustls"] }
 syn = { version = "2", default-features = false, features = ["full"] }
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
-toml = "0.8"
+toml = "1.1"
 tower = "0.5"
 tower_governor = "0.8"
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tower-http = { version = "0.7", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1", features = ["serde", "v4"] }
 urlencoding = "2.1"
 
 # Ethereum wallet support
-alloy = { version = "1.0", default-features = false, features = ["signers", "signer-local", "sol-types", "provider-http", "rpc-types", "contract", "reqwest"] }
+alloy = { version = "2.0", default-features = false, features = ["signers", "signer-local", "sol-types", "provider-http", "rpc-types", "contract", "reqwest"] }
 hex = "0.4"
 etcetera = "0.11"
