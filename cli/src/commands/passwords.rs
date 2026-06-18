@@ -40,6 +40,7 @@ use crate::{CommandContext, OutputFormat, output};
 
 const SEREN_PASSWORDS_PUBLISHER_SLUG: &str = "seren-passwords";
 const MAX_ATTACHMENT_CIPHERTEXT_BYTES: usize = 100 * 1024 * 1024;
+const MIN_MASTER_PASSWORD_LEN: usize = 8;
 const PASSWORDS_EXPORT_FORMAT: &str = "seren-passwords-mcp-export";
 const PASSWORDS_EXPORT_VERSION: u32 = 1;
 const ATTACHMENT_URI_SCHEME: &str = "seren-secrets://attachment/";
@@ -4149,12 +4150,22 @@ pub fn master_password_from_input(
 }
 
 fn read_master_password(master_password: Option<Zeroizing<String>>) -> Result<Zeroizing<Vec<u8>>> {
-    Ok(Zeroizing::new(match master_password {
-        Some(value) => value.as_bytes().to_vec(),
-        None => rpassword::prompt_password("Seren Passwords master password: ")
-            .context("failed to read master password")?
-            .into_bytes(),
-    }))
+    let password = match master_password {
+        Some(value) => value,
+        None => Zeroizing::new(
+            rpassword::prompt_password("Seren Passwords master password: ")
+                .context("failed to read master password")?,
+        ),
+    };
+    validate_master_password(password.as_str())?;
+    Ok(Zeroizing::new(password.as_bytes().to_vec()))
+}
+
+fn validate_master_password(password: &str) -> Result<()> {
+    if password.chars().count() < MIN_MASTER_PASSWORD_LEN {
+        bail!("master password must be at least {MIN_MASTER_PASSWORD_LEN} characters");
+    }
+    Ok(())
 }
 
 fn read_secret_input(
@@ -4260,6 +4271,13 @@ mod tests {
         writeln!(file).unwrap();
         let err = super::master_password_from_input(false, Some(file.path())).unwrap_err();
         assert!(err.to_string().contains("empty"));
+    }
+
+    #[test]
+    fn read_master_password_rejects_short_value() {
+        let err = super::read_master_password(Some(zeroize::Zeroizing::new("short".to_string())))
+            .unwrap_err();
+        assert!(err.to_string().contains("at least 8"));
     }
 
     #[test]

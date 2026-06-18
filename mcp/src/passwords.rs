@@ -53,6 +53,7 @@ use crate::server::SerenMcpServer;
 /// Idle timeout for a user-mode unlocked session before it is discarded.
 pub(crate) const SESSION_IDLE_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 const MAX_ATTACHMENT_CIPHERTEXT_BYTES: usize = 100 * 1024 * 1024;
+const MIN_MASTER_PASSWORD_LEN: usize = 8;
 const PASSWORDS_EXPORT_FORMAT: &str = "seren-passwords-mcp-export";
 const PASSWORDS_EXPORT_VERSION: u32 = 1;
 const ATTACHMENT_URI_SCHEME: &str = "seren-secrets://attachment/";
@@ -3378,12 +3379,14 @@ pub(crate) async fn read_master_password(
         })
         .await
         .map_err(|e| McpError::internal_error(e.to_string(), None))??;
+        validate_master_password(&password)?;
         return Ok(Zeroizing::new(password.into_bytes()));
     }
 
     if let Ok(value) = std::env::var("SEREN_PASSWORDS_MASTER_PASSWORD")
         && !value.is_empty()
     {
+        validate_master_password(&value)?;
         return Ok(Zeroizing::new(value.into_bytes()));
     }
 
@@ -3394,6 +3397,7 @@ pub(crate) async fn read_master_password(
         .await
         .map_err(|e| McpError::internal_error(e.to_string(), None))?
         .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        validate_master_password(&password)?;
         return Ok(Zeroizing::new(password.into_bytes()));
     }
 
@@ -3401,6 +3405,16 @@ pub(crate) async fn read_master_password(
         "No master password source: set SEREN_PASSWORDS_MASTER_PASSWORD, start local MCP with --passwords-master-password-file, or run with an attached terminal.",
         None,
     ))
+}
+
+fn validate_master_password(password: &str) -> Result<(), McpError> {
+    if password.chars().count() < MIN_MASTER_PASSWORD_LEN {
+        return Err(McpError::invalid_request(
+            format!("master password must be at least {MIN_MASTER_PASSWORD_LEN} characters"),
+            None,
+        ));
+    }
+    Ok(())
 }
 
 fn strip_one_terminal_newline(value: &mut String) {
@@ -4884,9 +4898,9 @@ mod tests {
     async fn read_master_password_reads_file_and_strips_one_newline() {
         use std::io::Write;
         let mut file = tempfile::NamedTempFile::new().unwrap();
-        writeln!(file, "hunter2").unwrap();
+        writeln!(file, "hunter22").unwrap();
         let value = read_master_password(Some(file.path())).await.unwrap();
-        assert_eq!(value.as_slice(), b"hunter2".as_slice());
+        assert_eq!(value.as_slice(), b"hunter22".as_slice());
     }
 
     #[tokio::test]
@@ -4896,5 +4910,14 @@ mod tests {
         writeln!(file).unwrap();
         let err = read_master_password(Some(file.path())).await.unwrap_err();
         assert!(err.message.contains("empty"));
+    }
+
+    #[tokio::test]
+    async fn read_master_password_rejects_short_file() {
+        use std::io::Write;
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        writeln!(file, "short").unwrap();
+        let err = read_master_password(Some(file.path())).await.unwrap_err();
+        assert!(err.message.contains("at least 8"));
     }
 }
