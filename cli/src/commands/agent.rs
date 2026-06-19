@@ -1999,6 +1999,7 @@ const MANAGED_AGENT_CONFIG_FIELDS: &[&str] = &[
     "max_iterations",
     "max_timeout_seconds",
     "max_tool_output_chars",
+    "capability_policy",
     "memory_policy",
     "model_config",
     "model_id",
@@ -2042,6 +2043,33 @@ fn default_employee_memory_policy_value() -> serde_json::Value {
             "token_threshold": 120000,
             "event_retention_count": 24,
             "overlap_tokens": 1500
+        }
+    })
+}
+
+fn default_employee_capability_policy_value() -> serde_json::Value {
+    serde_json::json!({
+        "tool_error_recovery": {
+            "enabled": true,
+            "max_attempts": 3,
+            "global_limit": 12,
+            "backoff": {
+                "kind": "exponential",
+                "base_delay_ms": 100,
+                "max_delay_ms": 2000
+            },
+            "allow_tools": [],
+            "deny_tools": []
+        },
+        "browser": {
+            "enabled": false,
+            "profile": "minimal"
+        },
+        "audio": {
+            "enabled": false,
+            "speech_to_text": false,
+            "text_to_speech": false,
+            "voice_activity_detection": false
         }
     })
 }
@@ -3242,6 +3270,8 @@ pub async fn cloud_deploy_prompt(
     }
     body.entry("memory_policy".to_string())
         .or_insert_with(default_employee_memory_policy_value);
+    body.entry("capability_policy".to_string())
+        .or_insert_with(default_employee_capability_policy_value);
 
     if !body.contains_key("prompt") {
         return Err(anyhow::anyhow!(

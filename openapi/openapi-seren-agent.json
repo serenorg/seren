@@ -796,6 +796,51 @@
           "eval"
         ]
       },
+      "AgentAudioCapabilityPolicy": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "speech_to_text": {
+            "type": "boolean"
+          },
+          "text_to_speech": {
+            "type": "boolean"
+          },
+          "voice_activity_detection": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentBrowserCapabilityPolicy": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/AgentBrowserProfile"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentBrowserProfile": {
+        "type": "string",
+        "enum": [
+          "minimal",
+          "form_filling",
+          "scraping",
+          "full"
+        ]
+      },
       "AgentBundle": {
         "type": "object",
         "description": "Authored agent bundle used by LLM workloads.",
@@ -910,6 +955,96 @@
             "type": "boolean"
           }
         }
+      },
+      "AgentCapabilityPolicy": {
+        "type": "object",
+        "description": "Optional runtime capabilities declared by a managed agent.\n\nThis is distinct from `tool_refs`: capability policy controls bundled\nruntime behavior such as tool-call error recovery and optional tool\nfamilies that require runtime prerequisites.",
+        "properties": {
+          "audio": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentAudioCapabilityPolicy"
+              }
+            ]
+          },
+          "browser": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentBrowserCapabilityPolicy"
+              }
+            ]
+          },
+          "code_execution": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentCodeExecutionCapabilityPolicy"
+              }
+            ]
+          },
+          "eval_harness": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentSimpleCapabilityPolicy"
+              }
+            ]
+          },
+          "tool_error_recovery": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentToolErrorRecoveryPolicy"
+              }
+            ]
+          },
+          "workflows": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentSimpleCapabilityPolicy"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentCodeExecutionCapabilityPolicy": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "sandbox": {
+            "$ref": "#/components/schemas/AgentCodeExecutionSandbox"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentCodeExecutionSandbox": {
+        "type": "string",
+        "enum": [
+          "disabled",
+          "managed",
+          "external"
+        ]
       },
       "AgentCredentialBinding": {
         "type": "string",
@@ -1838,6 +1973,18 @@
           "none"
         ]
       },
+      "AgentSimpleCapabilityPolicy": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "AgentSpec": {
         "type": "object",
         "description": "Managed deploy request for the `seren-agent` first-class publisher.",
@@ -1882,6 +2029,17 @@
               {
                 "$ref": "#/components/schemas/ManagedAgentApprovalPolicy",
                 "description": "Safety policy for publisher operations. Defaults to `read_only`."
+              }
+            ]
+          },
+          "capability_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentCapabilityPolicy",
+                "description": "Optional runtime capability policy."
               }
             ]
           },
@@ -2087,9 +2245,24 @@
               }
             ]
           },
+          "capability_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentCapabilityPolicy",
+                "description": "Updated capability policy. Replaces the entire previous policy when present."
+              }
+            ]
+          },
           "clear_alert_policy": {
             "type": "boolean",
             "description": "Clear any existing alert policy."
+          },
+          "clear_capability_policy": {
+            "type": "boolean",
+            "description": "Clear any existing capability policy."
           },
           "clear_credentials": {
             "type": "boolean",
@@ -2281,6 +2454,89 @@
                 "description": "Replaces the entire workload when present. Use the managed files endpoint\nfor targeted bundle file changes."
               }
             ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentToolErrorRecoveryBackoffKind": {
+        "type": "string",
+        "enum": [
+          "none",
+          "fixed",
+          "exponential"
+        ]
+      },
+      "AgentToolErrorRecoveryBackoffPolicy": {
+        "type": "object",
+        "properties": {
+          "base_delay_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AgentToolErrorRecoveryBackoffKind"
+          },
+          "max_delay_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentToolErrorRecoveryPolicy": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "allow_tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "backoff": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentToolErrorRecoveryBackoffPolicy"
+              }
+            ]
+          },
+          "deny_tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "global_limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_attempts": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           }
         },
         "additionalProperties": false
@@ -2670,7 +2926,7 @@
           "javascript",
           "typescript",
           "rust",
-          "rust_wasm_adk"
+          "rust_wasm"
         ]
       },
       "CloudDeploymentStatus": {
@@ -3251,6 +3507,17 @@
               },
               "bundle": {
                 "$ref": "#/components/schemas/AgentBundle"
+              },
+              "capability_policy": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/AgentCapabilityPolicy",
+                    "description": "Optional runtime capability policy."
+                  }
+                ]
               },
               "compute_backend": {
                 "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
@@ -4273,6 +4540,17 @@
           "bundle": {
             "$ref": "#/components/schemas/AgentBundle"
           },
+          "capability_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentCapabilityPolicy",
+                "description": "Optional runtime capability policy."
+              }
+            ]
+          },
           "compute_backend": {
             "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
           },
@@ -4736,7 +5014,7 @@
       "ManagedAgentRuntimeAdapter": {
         "type": "string",
         "enum": [
-          "adk"
+          "seren_agent"
         ]
       },
       "ManagedAgentSessionDatabase": {

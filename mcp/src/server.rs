@@ -1923,7 +1923,9 @@ async fn build_update_seren_agent_deployment_request(
         alert_policy: None,
         allowed_remote_agent_origins: params.allowed_remote_agent_origins.clone(),
         approval_policy,
+        capability_policy: None,
         clear_alert_policy: None,
+        clear_capability_policy: None,
         clear_credentials: None,
         clear_dashboard_config: None,
         clear_eval_gate: params.clear_eval_gate.then_some(true),
@@ -2094,6 +2096,39 @@ fn default_employee_memory_policy() -> Result<seren::AgentMemoryPolicy, McpError
     .map_err(|error| {
         McpError::internal_error(
             format!("Failed to build default employee memory policy: {error}"),
+            None,
+        )
+    })
+}
+
+fn default_employee_capability_policy() -> Result<seren::AgentCapabilityPolicy, McpError> {
+    serde_json::from_value(serde_json::json!({
+        "tool_error_recovery": {
+            "enabled": true,
+            "max_attempts": 3,
+            "global_limit": 12,
+            "backoff": {
+                "kind": "exponential",
+                "base_delay_ms": 100,
+                "max_delay_ms": 2000
+            },
+            "allow_tools": [],
+            "deny_tools": []
+        },
+        "browser": {
+            "enabled": false,
+            "profile": "minimal"
+        },
+        "audio": {
+            "enabled": false,
+            "speech_to_text": false,
+            "text_to_speech": false,
+            "voice_activity_detection": false
+        }
+    }))
+    .map_err(|error| {
+        McpError::internal_error(
+            format!("Failed to build default employee capability policy: {error}"),
             None,
         )
     })
@@ -10280,6 +10315,7 @@ API endpoint: {endpoint}",
             eval_gate,
             guardrails: None,
             memory_policy: Some(default_employee_memory_policy()?),
+            capability_policy: Some(default_employee_capability_policy()?),
             mode,
             model_policy,
             name: Some(params.name),

@@ -118,7 +118,21 @@
             "description": "Asset symbol (e.g., USDC, USDT)"
           },
           "body": {
-            "description": "Response body (JSON if available, otherwise raw text)"
+            "description": "Response body (JSON if available, raw text for textual upstreams, or null\nwhen body_base64 is set)"
+          },
+          "body_base64": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Raw binary response body, base64-encoded. Present only when the upstream\nreturned a non-JSON, non-text payload. When set, `body` is null."
+          },
+          "content_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Upstream Content-Type for a base64-encoded binary response body."
           },
           "cost": {
             "type": "string",
@@ -206,7 +220,21 @@
                 "description": "Asset symbol (e.g., USDC, USDT)"
               },
               "body": {
-                "description": "Response body (JSON if available, otherwise raw text)"
+                "description": "Response body (JSON if available, raw text for textual upstreams, or null\nwhen body_base64 is set)"
+              },
+              "body_base64": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Raw binary response body, base64-encoded. Present only when the upstream\nreturned a non-JSON, non-text payload. When set, `body` is null."
+              },
+              "content_type": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Upstream Content-Type for a base64-encoded binary response body."
               },
               "cost": {
                 "type": "string",

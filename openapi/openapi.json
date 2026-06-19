@@ -256,7 +256,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "POST /auth/login\nLogin with email and password. Sets a refresh-token cookie alongside the\nJSON body so cookie-aware clients can rotate without echoing the token back.",
+        "summary": "POST /auth/login\nLogin with email and password.",
         "operationId": "login",
         "requestBody": {
           "content": {
@@ -296,11 +296,11 @@
         "tags": [
           "Auth"
         ],
-        "summary": "POST /auth/logout\nClear refresh cookie and revoke all sessions for current user",
+        "summary": "POST /auth/logout\nRevoke all sessions for current user.",
         "operationId": "logout",
         "responses": {
           "200": {
-            "description": "Sessions revoked and refresh cookie cleared",
+            "description": "Sessions revoked",
             "content": {
               "application/json": {
                 "schema": {
@@ -354,10 +354,9 @@
         "tags": [
           "Auth"
         ],
-        "summary": "POST /auth/refresh\nExchange refresh token for new access token and refresh token (rotation).\nThe refresh token is read from either the request body or the refresh\ncookie; the rotated token is set in both the response body and a Set-Cookie.",
+        "summary": "POST /auth/refresh\nExchange refresh token for new access token and refresh token (rotation).",
         "operationId": "refresh_token",
         "requestBody": {
-          "description": "Optional - the refresh cookie is preferred",
           "content": {
             "application/json": {
               "schema": {

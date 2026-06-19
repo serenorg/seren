@@ -4633,7 +4633,7 @@
           "javascript",
           "typescript",
           "rust",
-          "rust_wasm_adk"
+          "rust_wasm"
         ]
       },
       "CloudDeploymentStatus": {
@@ -10150,7 +10150,7 @@
       "ManagedAgentRuntimeAdapter": {
         "type": "string",
         "enum": [
-          "adk"
+          "seren_agent"
         ]
       },
       "ManagedAgentSummary": {
