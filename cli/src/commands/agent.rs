@@ -1951,6 +1951,8 @@ pub struct CloudDeployPromptOptions<'a> {
     pub config_path: Option<&'a str>,
     pub env_path: Option<&'a str>,
     pub agent_config_path: Option<&'a str>,
+    pub capability_policy_json: Option<&'a str>,
+    pub capability_policy_path: Option<&'a str>,
     pub prompt: Option<&'a str>,
     pub model_id: Option<&'a str>,
     pub visibility: Option<&'a str>,
@@ -1972,6 +1974,9 @@ pub struct ManagedAgentUpdateOptions<'a> {
     pub config_path: Option<&'a str>,
     pub env_path: Option<&'a str>,
     pub agent_config_path: Option<&'a str>,
+    pub capability_policy_json: Option<&'a str>,
+    pub capability_policy_path: Option<&'a str>,
+    pub clear_capability_policy: bool,
     pub prompt: Option<&'a str>,
     pub model_id: Option<&'a str>,
     pub visibility: Option<&'a str>,
@@ -2070,6 +2075,14 @@ fn default_employee_capability_policy_value() -> serde_json::Value {
             "speech_to_text": false,
             "text_to_speech": false,
             "voice_activity_detection": false
+        },
+        "realtime_sessions": {
+            "enabled": false,
+            "provider": "open_ai",
+            "voice_activity_detection": true,
+            "input_transcription": true,
+            "persist_transcripts": true,
+            "store_to_memory": true
         }
     })
 }
@@ -2211,6 +2224,28 @@ fn merge_managed_agent_config(
         "Unsupported managed agent config keys: {}",
         unsupported.join(", ")
     ))
+}
+
+fn load_managed_agent_json_override(
+    inline_json: Option<&str>,
+    file_path: Option<&str>,
+    field_name: &str,
+) -> Result<Option<serde_json::Value>> {
+    match (inline_json, file_path) {
+        (Some(_), Some(_)) => Err(anyhow::anyhow!(
+            "Provide either --{field_name} or --{field_name}-file, not both."
+        )),
+        (Some(value), None) => serde_json::from_str(value)
+            .map(Some)
+            .map_err(|error| anyhow::anyhow!("Invalid --{field_name} JSON: {error}")),
+        (None, Some(path)) => {
+            let content = fs::read_to_string(path)?;
+            serde_json::from_str(&content)
+                .map(Some)
+                .map_err(|error| anyhow::anyhow!("Invalid --{field_name}-file JSON: {error}"))
+        }
+        (None, None) => Ok(None),
+    }
 }
 
 /// Workload-level fields that the SDK now expects nested under `workload`.
@@ -3133,6 +3168,8 @@ pub async fn cloud_deploy_prompt(
         config_path,
         env_path,
         agent_config_path,
+        capability_policy_json,
+        capability_policy_path,
         prompt,
         model_id,
         visibility,
@@ -3140,6 +3177,11 @@ pub async fn cloud_deploy_prompt(
     let deploy_publisher = SEREN_AGENT_SLUG;
     let runtime_target = resolve_cloud_runtime_target(compute_backend, None)?;
     let agent_config = load_orchestration_config(None, agent_config_path)?;
+    let capability_policy = load_managed_agent_json_override(
+        capability_policy_json,
+        capability_policy_path,
+        "capability-policy",
+    )?;
 
     let api_mode = match mode {
         "always-on" | "always_on" => "always_on",
@@ -3258,6 +3300,9 @@ pub async fn cloud_deploy_prompt(
     }
     if let Some(agent_config) = agent_config {
         merge_managed_agent_config(&mut body, agent_config)?;
+    }
+    if let Some(capability_policy) = capability_policy {
+        body.insert("capability_policy".to_string(), capability_policy);
     }
     if let Some(prompt) = prompt.map(str::trim).filter(|value| !value.is_empty()) {
         body.insert("prompt".to_string(), serde_json::json!(prompt));
@@ -3703,12 +3748,20 @@ async fn build_managed_agent_update_request(
         config_path,
         env_path,
         agent_config_path,
+        capability_policy_json,
+        capability_policy_path,
+        clear_capability_policy,
         prompt,
         model_id,
         visibility,
     } = options;
 
     let agent_config = load_orchestration_config(None, agent_config_path)?;
+    let capability_policy = load_managed_agent_json_override(
+        capability_policy_json,
+        capability_policy_path,
+        "capability-policy",
+    )?;
     let config: Option<serde_json::Value> = if let Some(p) = config_path {
         let content = fs::read_to_string(p)?;
         Some(serde_json::from_str(&content)?)
@@ -3799,6 +3852,20 @@ async fn build_managed_agent_update_request(
     }
     if let Some(agent_config) = agent_config {
         merge_managed_agent_config(&mut body, agent_config)?;
+    }
+    if capability_policy.is_some() && clear_capability_policy {
+        return Err(anyhow::anyhow!(
+            "Provide either --capability-policy/--capability-policy-file or --clear-capability-policy, not both."
+        ));
+    }
+    if let Some(capability_policy) = capability_policy {
+        body.insert("capability_policy".to_string(), capability_policy);
+    }
+    if clear_capability_policy {
+        body.insert(
+            "clear_capability_policy".to_string(),
+            serde_json::json!(true),
+        );
     }
     if let Some(prompt) = prompt.map(str::trim).filter(|value| !value.is_empty()) {
         body.insert("prompt".to_string(), serde_json::json!(prompt));

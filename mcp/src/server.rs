@@ -1801,6 +1801,12 @@ pub struct UpdateSerenAgentDeploymentParams {
     /// Updated optional dashboard rendering config
     #[serde(default)]
     pub dashboard_config: Option<serde_json::Value>,
+    /// Updated runtime capability policy
+    #[serde(default)]
+    pub capability_policy: Option<serde_json::Value>,
+    /// Clear any existing capability policy
+    #[serde(default)]
+    pub clear_capability_policy: bool,
     /// Updated optional visibility mode ("open" or "opaque")
     #[serde(default)]
     pub visibility: Option<String>,
@@ -1880,6 +1886,13 @@ async fn build_update_seren_agent_deployment_request(
         .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
     let model_policy = seren::parse_managed_agent_model_policy(model_policy.as_deref())
         .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+    let capability_policy = parse_capability_policy(params.capability_policy.clone())?;
+    if capability_policy.is_some() && params.clear_capability_policy {
+        return Err(McpError::invalid_params(
+            "Provide either capability_policy or clear_capability_policy, not both.",
+            None,
+        ));
+    }
     let eval_gate = match (
         params.eval_gate_set_id,
         params.eval_gate_max_age_seconds,
@@ -1923,9 +1936,9 @@ async fn build_update_seren_agent_deployment_request(
         alert_policy: None,
         allowed_remote_agent_origins: params.allowed_remote_agent_origins.clone(),
         approval_policy,
-        capability_policy: None,
+        capability_policy,
         clear_alert_policy: None,
-        clear_capability_policy: None,
+        clear_capability_policy: params.clear_capability_policy.then_some(true),
         clear_credentials: None,
         clear_dashboard_config: None,
         clear_eval_gate: params.clear_eval_gate.then_some(true),
@@ -2124,6 +2137,14 @@ fn default_employee_capability_policy() -> Result<seren::AgentCapabilityPolicy, 
             "speech_to_text": false,
             "text_to_speech": false,
             "voice_activity_detection": false
+        },
+        "realtime_sessions": {
+            "enabled": false,
+            "provider": "open_ai",
+            "voice_activity_detection": true,
+            "input_transcription": true,
+            "persist_transcripts": true,
+            "store_to_memory": true
         }
     }))
     .map_err(|error| {
@@ -2132,6 +2153,17 @@ fn default_employee_capability_policy() -> Result<seren::AgentCapabilityPolicy, 
             None,
         )
     })
+}
+
+fn parse_capability_policy(
+    value: Option<serde_json::Value>,
+) -> Result<Option<seren::AgentCapabilityPolicy>, McpError> {
+    value
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|error| {
+            McpError::invalid_params(format!("Invalid capability_policy payload: {error}"), None)
+        })
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -2219,6 +2251,9 @@ pub struct DeploySerenAgentParams {
     /// Optional dashboard rendering config
     #[serde(default)]
     pub dashboard_config: Option<serde_json::Value>,
+    /// Optional runtime capability policy for browser, audio, skills, realtime, and code execution
+    #[serde(default)]
+    pub capability_policy: Option<serde_json::Value>,
     /// Optional visibility mode ("open" or "opaque")
     #[serde(default)]
     pub visibility: Option<String>,
@@ -10265,6 +10300,7 @@ API endpoint: {endpoint}",
                 .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
         let model_policy = seren::parse_managed_agent_model_policy(model_policy.as_deref())
             .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        let capability_policy = parse_capability_policy(params.capability_policy)?;
         let mode: seren::CloudDeploymentMode =
             serde_json::from_value(serde_json::json!(params.mode))
                 .map_err(|e| McpError::invalid_params(format!("Invalid mode: {e}"), None))?;
@@ -10315,7 +10351,9 @@ API endpoint: {endpoint}",
             eval_gate,
             guardrails: None,
             memory_policy: Some(default_employee_memory_policy()?),
-            capability_policy: Some(default_employee_capability_policy()?),
+            capability_policy: Some(
+                capability_policy.unwrap_or(default_employee_capability_policy()?),
+            ),
             mode,
             model_policy,
             name: Some(params.name),

@@ -1346,6 +1346,12 @@ enum AgentAction {
         /// Path to a managed agent JSON config for advanced tuning
         #[arg(long)]
         agent_config: Option<String>,
+        /// JSON capability_policy override for managed runtime capabilities
+        #[arg(long)]
+        capability_policy: Option<String>,
+        /// Path to a JSON capability_policy override
+        #[arg(long)]
+        capability_policy_file: Option<String>,
     },
     /// Use seren-private-models and related seren-agent model discovery
     PrivateModels {
@@ -1463,6 +1469,15 @@ enum AgentAction {
         /// Path to a managed agent JSON config for advanced tuning
         #[arg(long)]
         agent_config: Option<String>,
+        /// JSON capability_policy override for managed runtime capabilities
+        #[arg(long)]
+        capability_policy: Option<String>,
+        /// Path to a JSON capability_policy override
+        #[arg(long)]
+        capability_policy_file: Option<String>,
+        /// Clear the capability policy entirely
+        #[arg(long)]
+        clear_capability_policy: bool,
     },
     /// Update an existing managed seren-agent deployment
     ManagedUpdate {
@@ -1526,6 +1541,15 @@ enum AgentAction {
         /// Path to a managed agent JSON config for advanced tuning
         #[arg(long)]
         agent_config: Option<String>,
+        /// JSON capability_policy override for managed runtime capabilities
+        #[arg(long)]
+        capability_policy: Option<String>,
+        /// Path to a JSON capability_policy override
+        #[arg(long)]
+        capability_policy_file: Option<String>,
+        /// Clear the capability policy entirely
+        #[arg(long)]
+        clear_capability_policy: bool,
     },
     /// Manage cloud deployments, environments, runs, approvals, and evals
     Cloud {
@@ -5726,6 +5750,8 @@ async fn main() -> anyhow::Result<()> {
                 config,
                 env_file,
                 agent_config,
+                capability_policy,
+                capability_policy_file,
             } => {
                 commands::agent::cloud_deploy_prompt(
                     commands::agent::CloudDeployPromptOptions {
@@ -5745,6 +5771,8 @@ async fn main() -> anyhow::Result<()> {
                         config_path: config.as_deref(),
                         env_path: env_file.as_deref(),
                         agent_config_path: agent_config.as_deref(),
+                        capability_policy_json: capability_policy.as_deref(),
+                        capability_policy_path: capability_policy_file.as_deref(),
                         prompt: prompt.as_deref(),
                         model_id: model_id.as_deref(),
                         visibility: visibility.as_deref(),
@@ -5839,6 +5867,9 @@ async fn main() -> anyhow::Result<()> {
                 config,
                 env_file,
                 agent_config,
+                capability_policy,
+                capability_policy_file,
+                clear_capability_policy,
             } => {
                 commands::agent::managed_agent_preview(
                     deployment_id,
@@ -5858,6 +5889,9 @@ async fn main() -> anyhow::Result<()> {
                         config_path: config.as_deref(),
                         env_path: env_file.as_deref(),
                         agent_config_path: agent_config.as_deref(),
+                        capability_policy_json: capability_policy.as_deref(),
+                        capability_policy_path: capability_policy_file.as_deref(),
+                        clear_capability_policy,
                         prompt: prompt.as_deref(),
                         model_id: model_id.as_deref(),
                         visibility: visibility.as_deref(),
@@ -5886,6 +5920,9 @@ async fn main() -> anyhow::Result<()> {
                 config,
                 env_file,
                 agent_config,
+                capability_policy,
+                capability_policy_file,
+                clear_capability_policy,
             } => {
                 commands::agent::managed_agent_update(
                     deployment_id,
@@ -5905,6 +5942,9 @@ async fn main() -> anyhow::Result<()> {
                         config_path: config.as_deref(),
                         env_path: env_file.as_deref(),
                         agent_config_path: agent_config.as_deref(),
+                        capability_policy_json: capability_policy.as_deref(),
+                        capability_policy_path: capability_policy_file.as_deref(),
+                        clear_capability_policy,
                         prompt: prompt.as_deref(),
                         model_id: model_id.as_deref(),
                         visibility: visibility.as_deref(),

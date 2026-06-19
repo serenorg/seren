@@ -39,6 +39,31 @@
         }
       }
     },
+    "/admin/skills/orphan-folders": {
+      "get": {
+        "tags": [
+          "skills"
+        ],
+        "summary": "Operator inventory of canonical-repo paths the gateway has no\nclaim on.",
+        "description": "Authorization: any caller with `X-Seren-User-Role: admin` (platform\nadmin set by Seren Core's `ADMIN_USER_IDS`). The endpoint is\n**read-only** and does not return per-org data — every orphan is by\ndefinition a path the gateway has lost track of, so scoping it to one\norganization would defeat the visibility purpose. Unauthorized callers\nreceive 403.\n\nOn success returns:\n\n```json\n{\n  \"head_commit_sha\": \"...\",\n  \"head_tree_sha\": \"...\",\n  \"orphan_folders\": [\n    {\n      \"folder_slug\": \"org-deadbeef\",\n      \"skill_folder_name\": \"grid-trader\",\n      \"paths\": [\"org-deadbeef/grid-trader/SKILL.md\", \"...\"]\n    }\n  ]\n}\n```\n\nFailure modes:\n\n- 403 if the caller lacks `X-Seren-User-Role=admin`.\n- 400 if GitHub publishing is not configured for this deployment.\n- 500 if GitHub returned a truncated tree listing (we cannot\n  trust a partial view for an inventory pass — same posture as\n  `derive_orphan_paths` in `github_status`).",
+        "operationId": "list_orphan_folders",
+        "responses": {
+          "200": {
+            "description": "Operator orphan-folders inventory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrphanFoldersResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller lacks platform admin role"
+          }
+        }
+      }
+    },
     "/git-identity": {
       "get": {
         "tags": [
@@ -279,7 +304,7 @@
             }
           },
           "403": {
-            "description": "Caller is not org-admin or personal-owner of {org_id}"
+            "description": "Caller is not org-admin, personal-owner of {org_id}, or platform admin"
           },
           "404": {
             "description": "Slug is not held by any folder row"
@@ -683,6 +708,77 @@
         }
       }
     },
+    "/skills/{slug}/download/file": {
+      "get": {
+        "tags": [
+          "skills"
+        ],
+        "operationId": "download_skill_file",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Skill slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Bundle-relative file path from the manifest",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One bundle file body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillBundleFileDownload"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/skills/{slug}/download/manifest": {
+      "get": {
+        "tags": [
+          "skills"
+        ],
+        "operationId": "download_skill_manifest",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Skill slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bundle manifest without file bodies",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillBundleManifest"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/skills/{slug}/drafts/{draft_id}": {
       "get": {
         "tags": [
@@ -1058,7 +1154,7 @@
           "skills"
         ],
         "summary": "`POST /skills/{slug}/github/reconcile-orphans` -- ops endpoint\nthat mechanically removes canonical-repo paths the gateway no\nlonger claims for this skill. Issue #22 acceptance:",
-        "description": "- Owner-or-operator-only authz (same `ensure_can_manage_skill`\n  pattern as `/github/sync-from-main` and `/github/retry`).\n- `confirm: true` is required. `false` or missing returns 409.\n- The handler re-derives the **live** orphan-path set against the\n  canonical-repo HEAD and returns 409 if it does not match the\n  `expected_orphan_paths` payload (optimistic concurrency mirrors\n  `expected_current_version_id`).\n- On match (and `dry_run: false`): stages one signed commit on\n  the canonical branch deleting every path. Author/committer is\n  the forward-publish bot pair so reverse-sync skips the commit\n  via `is_forward_publish_commit`.\n- On `dry_run: true`: skips the commit and returns the planned\n  shape (paths + parent commit SHA + audit row id) without\n  touching GitHub.\n- Records a `skill_orphan_reconciliations` audit row in both\n  modes (issue #22 acceptance criterion + migration 011).",
+        "description": "- Owner, org-admin, or platform-admin authz (same\n  `ensure_can_operate_skill_catalog` pattern as\n  `/github/sync-from-main` and `/github/retry`).\n- `confirm: true` is required. `false` or missing returns 409.\n- The handler re-derives the **live** orphan-path set against the\n  canonical-repo HEAD and returns 409 if it does not match the\n  `expected_orphan_paths` payload (optimistic concurrency mirrors\n  `expected_current_version_id`).\n- On match (and `dry_run: false`): stages one signed commit on\n  the canonical branch deleting every path. Author/committer is\n  the forward-publish bot pair so reverse-sync skips the commit\n  via `is_forward_publish_commit`.\n- On `dry_run: true`: skips the commit and returns the planned\n  shape (paths + parent commit SHA + audit row id) without\n  touching GitHub.\n- Records a `skill_orphan_reconciliations` audit row in both\n  modes (issue #22 acceptance criterion + migration 011).",
         "operationId": "reconcile_orphans",
         "parameters": [
           {
@@ -1141,7 +1237,7 @@
         "tags": [
           "skills"
         ],
-        "summary": "`POST /skills/{slug}/github/sync-from-main` -- ops endpoint that\nre-fetches the canonical GitHub bundle at HEAD and reconciles it\ninto a new gateway version. No-op when the resulting\n`content_hash_bundle` matches the current version. Owner-only,\nsame authz pattern as `retry_github_publish`.",
+        "summary": "`POST /skills/{slug}/github/sync-from-main` -- ops endpoint that\nre-fetches the canonical GitHub bundle at HEAD and reconciles it\ninto a new gateway version. No-op when the resulting\n`content_hash_bundle` matches the current version. Requires owner,\norg-admin, or `X-Seren-User-Role=admin`.",
         "operationId": "sync_from_main",
         "parameters": [
           {
@@ -2533,6 +2629,51 @@
           }
         }
       },
+      "OrphanFolderEntry": {
+        "type": "object",
+        "required": [
+          "folder_slug",
+          "skill_folder_name",
+          "paths"
+        ],
+        "properties": {
+          "folder_slug": {
+            "type": "string"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every blob path at depth ≥ 3 under `<folder_slug>/<skill_folder_name>/`.\nSorted, deduped. Empty `paths` cannot occur — the entry only\nexists because at least one path matched."
+          },
+          "skill_folder_name": {
+            "type": "string"
+          }
+        }
+      },
+      "OrphanFoldersResponse": {
+        "type": "object",
+        "required": [
+          "head_commit_sha",
+          "head_tree_sha",
+          "orphan_folders"
+        ],
+        "properties": {
+          "head_commit_sha": {
+            "type": "string"
+          },
+          "head_tree_sha": {
+            "type": "string"
+          },
+          "orphan_folders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrphanFolderEntry"
+            }
+          }
+        }
+      },
       "PurchaseResponse": {
         "type": "object",
         "required": [
@@ -2746,6 +2887,104 @@
           },
           "path": {
             "type": "string"
+          }
+        }
+      },
+      "SkillBundleFileDownload": {
+        "type": "object",
+        "description": "Single-file body returned by `GET /skills/{slug}/download/file`.\nShares the [`SkillBundleFile`] field shape (path + base64 body +\nper-file hash + mode + is_binary) and adds the bundle `version` so a\nclient can detect a publish that landed between its manifest fetch\nand this body fetch (version mismatch -> restart from the manifest).",
+        "required": [
+          "path",
+          "content_b64",
+          "content_hash",
+          "mode",
+          "is_binary",
+          "version"
+        ],
+        "properties": {
+          "content_b64": {
+            "type": "string"
+          },
+          "content_hash": {
+            "type": "string"
+          },
+          "is_binary": {
+            "type": "boolean"
+          },
+          "mode": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "SkillBundleManifest": {
+        "type": "object",
+        "description": "Split-download manifest (issue #53): the same envelope as\n[`SkillBundle`] but every entry in `files` carries *metadata only* —\nno `content_b64` body. Clients fetch each body separately via\n`GET /skills/{slug}/download/file?path=...`, keeping every response\nunder the gateway's per-response byte cap even for bundles whose\nsingle-shot `/download` JSON would exceed it.",
+        "required": [
+          "skill",
+          "version",
+          "skill_md",
+          "manifest",
+          "content_hash"
+        ],
+        "properties": {
+          "content_hash": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillBundleManifestFile"
+            },
+            "description": "Per-file metadata with no bodies. Empty for versions that predate\nbundle persistence."
+          },
+          "manifest": {},
+          "skill": {
+            "$ref": "#/components/schemas/SkillSummary"
+          },
+          "skill_md": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "SkillBundleManifestFile": {
+        "type": "object",
+        "description": "Body-less per-file metadata returned in a [`SkillBundleManifest`].\n`size_bytes` is the raw (pre-base64) byte length so clients can show\nprogress and pre-size buffers before fetching each body.",
+        "required": [
+          "path",
+          "content_hash",
+          "mode",
+          "is_binary",
+          "size_bytes"
+        ],
+        "properties": {
+          "content_hash": {
+            "type": "string"
+          },
+          "is_binary": {
+            "type": "boolean"
+          },
+          "mode": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
