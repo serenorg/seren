@@ -1999,6 +1999,7 @@ const MANAGED_AGENT_CONFIG_FIELDS: &[&str] = &[
     "max_iterations",
     "max_timeout_seconds",
     "max_tool_output_chars",
+    "memory_policy",
     "model_config",
     "model_id",
     "prompt",
@@ -2010,6 +2011,40 @@ const MANAGED_AGENT_CONFIG_FIELDS: &[&str] = &[
     "requirements",
     "visibility",
 ];
+
+fn default_employee_memory_policy_value() -> serde_json::Value {
+    serde_json::json!({
+        "graph_memory": {
+            "enabled": true,
+            "store": "seren_managed",
+            "write_policy": "on_observation",
+            "read_policy": "explicit_tool"
+        },
+        "semantic_memory": {
+            "enabled": false,
+            "store": "seren_managed",
+            "write_policy": "none",
+            "read_policy": "explicit_tool",
+            "retention_days": null
+        },
+        "knowledge": {
+            "enabled": true,
+            "store": "seren_managed",
+            "source": "agent_instructions",
+            "read_policy": "explicit_tool",
+            "index_policy": "encrypted_scan",
+            "chunk_size": null,
+            "chunk_overlap": null,
+            "top_k": null
+        },
+        "transcript_retention_days": 30,
+        "compaction": {
+            "token_threshold": 120000,
+            "event_retention_count": 24,
+            "overlap_tokens": 1500
+        }
+    })
+}
 
 fn normalize_deploy_publisher_slug(publisher_slug: Option<&str>) -> Result<&'static str> {
     match publisher_slug.unwrap_or(SEREN_CLOUD_SLUG) {
@@ -3205,6 +3240,8 @@ pub async fn cloud_deploy_prompt(
     if let Some(visibility) = visibility.map(str::trim).filter(|value| !value.is_empty()) {
         body.insert("visibility".to_string(), serde_json::json!(visibility));
     }
+    body.entry("memory_policy".to_string())
+        .or_insert_with(default_employee_memory_policy_value);
 
     if !body.contains_key("prompt") {
         return Err(anyhow::anyhow!(

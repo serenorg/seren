@@ -2059,6 +2059,46 @@ fn bundle_for_prompt(prompt: String) -> seren::AgentBundle {
     }
 }
 
+fn default_employee_memory_policy() -> Result<seren::AgentMemoryPolicy, McpError> {
+    serde_json::from_value(serde_json::json!({
+        "graph_memory": {
+            "enabled": true,
+            "store": "seren_managed",
+            "write_policy": "on_observation",
+            "read_policy": "explicit_tool"
+        },
+        "semantic_memory": {
+            "enabled": false,
+            "store": "seren_managed",
+            "write_policy": "none",
+            "read_policy": "explicit_tool",
+            "retention_days": null
+        },
+        "knowledge": {
+            "enabled": true,
+            "store": "seren_managed",
+            "source": "agent_instructions",
+            "read_policy": "explicit_tool",
+            "index_policy": "encrypted_scan",
+            "chunk_size": null,
+            "chunk_overlap": null,
+            "top_k": null
+        },
+        "transcript_retention_days": 30,
+        "compaction": {
+            "token_threshold": 120000,
+            "event_retention_count": 24,
+            "overlap_tokens": 1500
+        }
+    }))
+    .map_err(|error| {
+        McpError::internal_error(
+            format!("Failed to build default employee memory policy: {error}"),
+            None,
+        )
+    })
+}
+
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RollbackSerenAgentDeploymentParams {
     /// Managed deployment ID
@@ -10239,7 +10279,7 @@ API endpoint: {endpoint}",
             dashboard_config: params.dashboard_config,
             eval_gate,
             guardrails: None,
-            memory_policy: None,
+            memory_policy: Some(default_employee_memory_policy()?),
             mode,
             model_policy,
             name: Some(params.name),

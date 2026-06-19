@@ -943,7 +943,7 @@
         "properties": {
           "binding": {
             "$ref": "#/components/schemas/AgentCredentialBinding",
-            "description": "How the credential is delivered. `env` is the only mode the runtime\nimplements today; other modes are accepted on the contract and reserved\nfor the egress proxy phase of the credential boundary work."
+            "description": "How the credential is delivered. `proxy_inject` is declarative: the\ngateway resolves and injects the reference at egress rather than this\nprocess materializing plaintext."
           },
           "binding_target": {
             "type": [
@@ -960,7 +960,7 @@
           },
           "ref_uri": {
             "type": "string",
-            "description": "URI of the credential record. Supported schemes:\n`control-plane://providers/{id}`, `org-secret://{key}`, `user-secret://{key}`.\nCreate `org-secret` and `user-secret` records with\n`/organizations/{organization_id}/agent-credential-secrets`."
+            "description": "URI of the credential record. Supported schemes:\n`control-plane://providers/{id}`, `org-secret://{key}`,\n`user-secret://{key}`, `seren-secrets://{vault}/{item}/{field}`.\nCreate `org-secret` and `user-secret` records with\n`/organizations/{organization_id}/agent-credential-secrets`."
           },
           "rotation": {
             "oneOf": [
@@ -1025,6 +1025,49 @@
           }
         },
         "additionalProperties": false
+      },
+      "AgentGraphMemoryPolicy": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "read_policy": {
+            "$ref": "#/components/schemas/AgentGraphMemoryReadPolicy"
+          },
+          "store": {
+            "$ref": "#/components/schemas/AgentGraphMemoryStore"
+          },
+          "write_policy": {
+            "$ref": "#/components/schemas/AgentGraphMemoryWritePolicy"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentGraphMemoryReadPolicy": {
+        "type": "string",
+        "enum": [
+          "explicit_tool",
+          "always_on"
+        ]
+      },
+      "AgentGraphMemoryStore": {
+        "type": "string",
+        "enum": [
+          "seren_managed",
+          "external"
+        ]
+      },
+      "AgentGraphMemoryWritePolicy": {
+        "type": "string",
+        "enum": [
+          "explicit_tool",
+          "on_observation",
+          "none"
+        ]
       },
       "AgentGuardrailOnFail": {
         "type": "string",
@@ -1242,6 +1285,81 @@
           "eval"
         ]
       },
+      "AgentKnowledgeIndexPolicy": {
+        "type": "string",
+        "enum": [
+          "encrypted_scan",
+          "plaintext_embeddings"
+        ]
+      },
+      "AgentKnowledgePolicy": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "chunk_overlap": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "chunk_size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "index_policy": {
+            "$ref": "#/components/schemas/AgentKnowledgeIndexPolicy"
+          },
+          "read_policy": {
+            "$ref": "#/components/schemas/AgentKnowledgeReadPolicy"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AgentKnowledgeSource"
+          },
+          "store": {
+            "$ref": "#/components/schemas/AgentKnowledgeStore"
+          },
+          "top_k": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentKnowledgeReadPolicy": {
+        "type": "string",
+        "enum": [
+          "explicit_tool",
+          "none"
+        ]
+      },
+      "AgentKnowledgeSource": {
+        "type": "string",
+        "enum": [
+          "agent_instructions"
+        ]
+      },
+      "AgentKnowledgeStore": {
+        "type": "string",
+        "enum": [
+          "seren_managed",
+          "external"
+        ]
+      },
       "AgentMemoryCompactionPolicy": {
         "type": "object",
         "required": [
@@ -1286,6 +1404,28 @@
               {
                 "$ref": "#/components/schemas/AgentMemoryCompactionPolicy",
                 "description": "Optional context-window compaction policy."
+              }
+            ]
+          },
+          "graph_memory": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentGraphMemoryPolicy",
+                "description": "Structured graph memory policy."
+              }
+            ]
+          },
+          "knowledge": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentKnowledgePolicy",
+                "description": "Encrypted knowledge retrieval policy for agent-authored instructions."
               }
             ]
           },
@@ -1686,7 +1826,7 @@
       "AgentSemanticMemoryStore": {
         "type": "string",
         "enum": [
-          "org_default",
+          "seren_managed",
           "external"
         ]
       },
