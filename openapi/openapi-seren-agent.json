@@ -2121,6 +2121,14 @@
           "workload"
         ],
         "properties": {
+          "agent_identity_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Seren Secrets agent identity this managed employee acts as when\nresolving `seren-secrets://` references."
+          },
           "agent_slug": {
             "type": [
               "string",
@@ -2274,6 +2282,13 @@
               }
             ]
           },
+          "secret_resolution_delegation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "User-authorized Seren Secrets delegation used by the runtime to renew\ndeployment-scoped secret grants."
+          },
           "session_database": {
             "oneOf": [
               {
@@ -2334,6 +2349,14 @@
         "type": "object",
         "description": "Partial update request for an existing managed `seren-agent` deployment.\n\nMirrors the agent-level fields of `AgentSpec` as `Option<...>` for partial\nupdate. The `workload` field replaces the entire `WorkloadSpec` when\npresent; partial-workload patching is intentionally out of scope.",
         "properties": {
+          "agent_identity_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Updated Seren Secrets agent identity this managed employee acts as."
+          },
           "agent_slug": {
             "type": [
               "string",
@@ -2415,6 +2438,10 @@
           "clear_runtime_policy": {
             "type": "boolean",
             "description": "Clear any existing runtime policy."
+          },
+          "clear_secret_resolution_delegation": {
+            "type": "boolean",
+            "description": "Clear any existing Seren Secrets delegation."
           },
           "clear_session_database": {
             "type": "boolean",
@@ -2522,6 +2549,13 @@
                 "description": "Updated runtime policy. Replaces the entire previous policy when present."
               }
             ]
+          },
+          "secret_resolution_delegation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Updated user-authorized Seren Secrets delegation."
           },
           "session_database": {
             "oneOf": [
@@ -3605,6 +3639,14 @@
                 "format": "uuid",
                 "description": "Current managed-agent revision for this deployment."
               },
+              "agent_identity_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Seren Secrets agent identity this managed employee acts as when\nresolving `seren-secrets://` references."
+              },
               "agent_slug": {
                 "type": "string"
               },
@@ -3658,6 +3700,13 @@
                 "description": "Structured status conditions for the managed deployment. Today this is\nsynthesized from the flat lifecycle `status` and the last persisted\n`error_message`; future work will let the runtime controller report\nconditions directly."
               },
               "config": {},
+              "connector_webhooks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentConnectorWebhookRoute"
+                },
+                "description": "Public provider webhook routes for connector-backed messaging channels."
+              },
               "context_budget_tokens": {
                 "type": [
                   "integer",
@@ -4602,6 +4651,41 @@
           "allow_mutations"
         ]
       },
+      "ManagedAgentConnectorWebhookRoute": {
+        "type": "object",
+        "required": [
+          "connector_ref",
+          "connection_name",
+          "route_id",
+          "url"
+        ],
+        "properties": {
+          "connection_name": {
+            "type": "string"
+          },
+          "connector_ref": {
+            "type": "string"
+          },
+          "route_id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "verification_header_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "verification_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "ManagedAgentDeploymentDetail": {
         "type": "object",
         "required": [
@@ -4636,6 +4720,14 @@
             ],
             "format": "uuid",
             "description": "Current managed-agent revision for this deployment."
+          },
+          "agent_identity_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Seren Secrets agent identity this managed employee acts as when\nresolving `seren-secrets://` references."
           },
           "agent_slug": {
             "type": "string"
@@ -4690,6 +4782,13 @@
             "description": "Structured status conditions for the managed deployment. Today this is\nsynthesized from the flat lifecycle `status` and the last persisted\n`error_message`; future work will let the runtime controller report\nconditions directly."
           },
           "config": {},
+          "connector_webhooks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentConnectorWebhookRoute"
+            },
+            "description": "Public provider webhook routes for connector-backed messaging channels."
+          },
           "context_budget_tokens": {
             "type": [
               "integer",

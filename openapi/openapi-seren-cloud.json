@@ -824,6 +824,15 @@
             }
           },
           {
+            "name": "conversation_id",
+            "in": "query",
+            "description": "Filter runs by exact conversation ID",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "status",
             "in": "query",
             "description": "Repeat or comma-separate statuses: queued, running, awaiting_approval, completed, failed, cancelled, timeout, blocked, error",
@@ -2676,6 +2685,15 @@
             "schema": {
               "type": "integer",
               "format": "int64"
+            }
+          },
+          {
+            "name": "conversation_id",
+            "in": "query",
+            "description": "Filter runs by exact conversation ID",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           },
           {
