@@ -21,7 +21,7 @@ use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, Extensions};
 use rmcp::{tool, tool_router};
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use seren::DelegationStatus;
 use seren_secrets_crypto::keys::{
     IdentityKemKeypair, IdentityKemPrivateKey, IdentityKemPublicKey, IdentitySigningKeypair,
@@ -86,6 +86,17 @@ pub(crate) async fn reap_idle_session(
             return;
         }
     }
+}
+
+fn decode_builtin_passwords_tool_params<T>(
+    tool_name: &str,
+    args: serde_json::Map<String, serde_json::Value>,
+) -> Result<T, McpError>
+where
+    T: DeserializeOwned,
+{
+    serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| McpError::invalid_params(format!("{tool_name}: invalid tool_args: {e}"), None))
 }
 
 /// Provisioned agent identity loaded once at startup (agent-key mode).
@@ -712,6 +723,47 @@ pub struct PasswordsShareIdParams {
 
 #[tool_router(router = passwords_tool_router, vis = "pub(crate)")]
 impl SerenMcpServer {
+    pub(crate) async fn call_builtin_passwords_tool(
+        &self,
+        tool_name: &str,
+        tool_args: Option<serde_json::Map<String, serde_json::Value>>,
+        extensions: Extensions,
+    ) -> Option<Result<CallToolResult, McpError>> {
+        let args = tool_args.unwrap_or_default();
+        match tool_name {
+            "passwords_vaults_list" => {
+                if !args.is_empty() {
+                    return Some(Err(McpError::invalid_params(
+                        "passwords_vaults_list does not accept tool_args",
+                        None,
+                    )));
+                }
+                Some(self.passwords_vaults_list(extensions).await)
+            }
+            "passwords_items_list" => {
+                let params = match decode_builtin_passwords_tool_params(tool_name, args) {
+                    Ok(params) => params,
+                    Err(err) => return Some(Err(err)),
+                };
+                Some(
+                    self.passwords_items_list(Parameters(params), extensions)
+                        .await,
+                )
+            }
+            "passwords_item_get" => {
+                let params = match decode_builtin_passwords_tool_params(tool_name, args) {
+                    Ok(params) => params,
+                    Err(err) => return Some(Err(err)),
+                };
+                Some(
+                    self.passwords_item_get(Parameters(params), extensions)
+                        .await,
+                )
+            }
+            _ => None,
+        }
+    }
+
     #[tool(
         description = "Start hosted Seren Passwords access setup and return a browser consent URL",
         annotations(read_only_hint = false, open_world_hint = false)

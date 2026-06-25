@@ -1932,6 +1932,7 @@ async fn build_update_seren_agent_deployment_request(
     };
 
     Ok(seren::AgentSpecUpdate {
+        agent_identity_id: None,
         agent_slug: params.agent_slug.clone(),
         alert_policy: None,
         allowed_remote_agent_origins: params.allowed_remote_agent_origins.clone(),
@@ -1945,6 +1946,7 @@ async fn build_update_seren_agent_deployment_request(
         clear_guardrails: None,
         clear_memory_policy: None,
         clear_runtime_policy: None,
+        clear_secret_resolution_delegation: None,
         clear_session_database: None,
         clear_tool_refs: None,
         credentials: None,
@@ -1958,6 +1960,7 @@ async fn build_update_seren_agent_deployment_request(
         name: params.name.clone(),
         private_output_policy: None,
         runtime_policy: None,
+        secret_resolution_delegation: None,
         session_database: None,
         template,
         tool_presets,
@@ -7219,11 +7222,13 @@ impl SerenMcpServer {
 - DATABASE publishers: provide `query` (SQL) and optionally `database`
 - API publishers: provide `method`, `path`, `headers`, `body`
 - MCP publishers: provide `tool` + `tool_args` OR `resource_uri`
+- Built-in Seren Passwords helper tools: use publisher \"seren-passwords\" with tool \"passwords_vaults_list\", \"passwords_items_list\", or \"passwords_item_get\"
 
 Examples:
 - Database: call_publisher(publisher: \"my-db\", query: \"SELECT * FROM users\")
 - API: call_publisher(publisher: \"firecrawl\", method: \"POST\", path: \"/scrape\", body: {url: \"...\"})
 - MCP tool: call_publisher(publisher: \"my-mcp\", tool: \"search\", tool_args: {query: \"...\"})
+- Seren Passwords helper: call_publisher(publisher: \"seren-passwords\", tool: \"passwords_vaults_list\")
 - MCP resource: call_publisher(publisher: \"my-mcp\", resource_uri: \"file:///data.json\")",
         annotations(
             read_only_hint = false,
@@ -7649,6 +7654,18 @@ Examples:
                 "tool cannot be empty".to_string(),
                 None,
             ));
+        }
+
+        if params.publisher == "seren-passwords"
+            && let Some(result) = self
+                .call_builtin_passwords_tool(
+                    tool_path,
+                    params.tool_args.clone(),
+                    extensions.clone(),
+                )
+                .await
+        {
+            return result;
         }
 
         let body = serde_json::Value::Object(params.tool_args.clone().unwrap_or_default());
@@ -10340,6 +10357,7 @@ API endpoint: {endpoint}",
             })?;
 
         let request = seren::AgentSpec {
+            agent_identity_id: None,
             agent_slug: params.agent_slug,
             alert_policy: None,
             allowed_remote_agent_origins: params.allowed_remote_agent_origins,
@@ -10359,6 +10377,7 @@ API endpoint: {endpoint}",
             name: Some(params.name),
             private_output_policy: None,
             runtime_policy: None,
+            secret_resolution_delegation: None,
             session_database: None,
             template,
             tool_presets,
@@ -10549,6 +10568,7 @@ API endpoint: {endpoint}",
             .into_inner();
         let recent_runs = api_client
             .seren_cloud_runs(
+                None,
                 None,
                 None,
                 Some(params.runs_limit),
@@ -10880,6 +10900,7 @@ API endpoint: {endpoint}",
             .seren_cloud_deployment_runs(
                 &params.deployment_id,
                 params.compute_backend.as_deref(),
+                None,
                 params.has_artifacts,
                 Some(params.limit),
                 Some(params.offset),
@@ -11055,6 +11076,7 @@ API endpoint: {endpoint}",
         let response = api_client
             .seren_cloud_runs(
                 params.compute_backend.as_deref(),
+                None,
                 params.has_artifacts,
                 Some(params.limit),
                 Some(params.offset),
@@ -12011,6 +12033,119 @@ mod tests {
         assert!(validate_resource_name("", "branch").is_err());
         assert!(validate_resource_name("_starts_with_underscore", "branch").is_err());
         assert!(validate_resource_name("bad/char", "branch").is_err());
+    }
+
+    #[tokio::test]
+    async fn call_publisher_routes_seren_passwords_tools_to_builtin_mcp_tools() {
+        let server = server_with_http_client(reqwest::Client::new());
+        let params = CallPublisherParams {
+            publisher: "seren-passwords".to_string(),
+            query: None,
+            database: None,
+            method: None,
+            path: None,
+            headers: None,
+            body: None,
+            body_base64: None,
+            tool: Some("passwords_vaults_list".to_string()),
+            tool_args: None,
+            resource_uri: None,
+            response_format: None,
+            request_id: None,
+            confirm: false,
+            x402_payment: None,
+        };
+
+        let err = server
+            .call_publisher_mcp_tool(
+                &params,
+                &Extensions::default(),
+                &AgentMetadata::default(),
+                false,
+            )
+            .await
+            .expect_err("unconfigured built-in passwords tool should fail locally");
+
+        assert!(
+            err.to_string().contains("Vault locked"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn call_publisher_seren_passwords_vaults_list_rejects_tool_args() {
+        let server = server_with_http_client(reqwest::Client::new());
+        let mut tool_args = serde_json::Map::new();
+        tool_args.insert("vault_id".to_string(), serde_json::json!("anything"));
+        let params = CallPublisherParams {
+            publisher: "seren-passwords".to_string(),
+            query: None,
+            database: None,
+            method: None,
+            path: None,
+            headers: None,
+            body: None,
+            body_base64: None,
+            tool: Some("passwords_vaults_list".to_string()),
+            tool_args: Some(tool_args),
+            resource_uri: None,
+            response_format: None,
+            request_id: None,
+            confirm: false,
+            x402_payment: None,
+        };
+
+        let err = server
+            .call_publisher_mcp_tool(
+                &params,
+                &Extensions::default(),
+                &AgentMetadata::default(),
+                false,
+            )
+            .await
+            .expect_err("vaults_list must reject tool_args before any vault access");
+
+        assert!(
+            err.to_string().contains("does not accept tool_args"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn call_publisher_seren_passwords_item_get_requires_item_id() {
+        let server = server_with_http_client(reqwest::Client::new());
+        let params = CallPublisherParams {
+            publisher: "seren-passwords".to_string(),
+            query: None,
+            database: None,
+            method: None,
+            path: None,
+            headers: None,
+            body: None,
+            body_base64: None,
+            tool: Some("passwords_item_get".to_string()),
+            tool_args: Some(serde_json::Map::new()),
+            resource_uri: None,
+            response_format: None,
+            request_id: None,
+            confirm: false,
+            x402_payment: None,
+        };
+
+        let err = server
+            .call_publisher_mcp_tool(
+                &params,
+                &Extensions::default(),
+                &AgentMetadata::default(),
+                false,
+            )
+            .await
+            .expect_err("item_get must reject missing item_id at decode time");
+
+        assert!(
+            err.to_string().contains("invalid tool_args"),
+            "unexpected error: {err}"
+        );
     }
 
     fn endpoint_param(method: &str, path: &str) -> EndpointDefinitionParam {

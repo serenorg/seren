@@ -229,6 +229,7 @@ pub fn package_agent_directory(options: &DevAgentOptions) -> Result<AgentSpecDra
     };
 
     let spec = seren::AgentSpec {
+        agent_identity_id: None,
         agent_slug: Some(agent_slug),
         alert_policy: None,
         allowed_remote_agent_origins: None,
@@ -246,6 +247,7 @@ pub fn package_agent_directory(options: &DevAgentOptions) -> Result<AgentSpecDra
         name: Some(display_name),
         private_output_policy: None,
         runtime_policy: None,
+        secret_resolution_delegation: None,
         session_database: None,
         template: None,
         tool_presets: None,

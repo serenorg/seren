@@ -4305,6 +4305,7 @@ pub async fn cloud_overview(
         .seren_cloud_runs(
             None,
             None,
+            None,
             Some(runs_limit),
             Some(0),
             None,
@@ -6446,6 +6447,7 @@ pub async fn cloud_runs(
         .seren_cloud_deployment_runs(
             &deployment_id,
             options.compute_backend,
+            None,
             options.has_artifacts,
             Some(limit),
             Some(offset),
@@ -6722,6 +6724,7 @@ pub async fn cloud_all_runs(
     let response = client
         .seren_cloud_runs(
             options.compute_backend,
+            None,
             options.has_artifacts,
             Some(limit),
             Some(offset),
