@@ -209,6 +209,37 @@ fn extract_bearer_token(req: &axum::http::Request<axum::body::Body>) -> Option<&
         .filter(|v| !v.is_empty())
 }
 
+fn build_mcp_allowed_hosts(configured_urls: &[&str]) -> Vec<String> {
+    let mut allowed = Vec::from([
+        "localhost".to_string(),
+        "127.0.0.1".to_string(),
+        "::1".to_string(),
+    ]);
+
+    for value in configured_urls {
+        let Ok(uri) = value.trim().parse::<axum::http::Uri>() else {
+            continue;
+        };
+        let Some(authority) = uri.authority() else {
+            continue;
+        };
+
+        push_unique_allowed_host(&mut allowed, authority.as_str());
+        if authority.port_u16().is_some() {
+            push_unique_allowed_host(&mut allowed, authority.host());
+        }
+    }
+
+    allowed
+}
+
+fn push_unique_allowed_host(allowed: &mut Vec<String>, host: &str) {
+    if host.is_empty() || allowed.iter().any(|existing| existing == host) {
+        return;
+    }
+    allowed.push(host.to_string());
+}
+
 /// Seren API key prefix - all Seren API keys start with this.
 const SEREN_API_KEY_PREFIX: &str = "seren_";
 
@@ -889,13 +920,17 @@ async fn require_oauth_auth(
                             ));
                         }
                         Err(e) => {
-                            tracing::warn!(
+                            tracing::error!(
                                 event = "oauth_auth_upstream_token_persist_error",
                                 user_id = %user_id,
                                 client_id = %client_id_value,
                                 error = %e,
                                 "Failed to persist refreshed upstream token"
                             );
+                            lock_result = Some(state.unauthorized_response(
+                                "invalid_token",
+                                "Upstream authorization expired (re-authentication required)",
+                            ));
                         }
                     }
                 }
@@ -1271,6 +1306,7 @@ async fn run_http(config: Config) -> Result<()> {
     let api_base_url = config.api_base_url.clone();
     let passwords_api_base_url = config.passwords_api_base_url.clone();
     let passwords_master_password_file = config.passwords_master_password_file.clone();
+    let public_url = config.public_url.clone();
     let ct = CancellationToken::new();
 
     tokio::spawn({
@@ -1287,7 +1323,13 @@ async fn run_http(config: Config) -> Result<()> {
     let session_manager = Arc::new(LocalSessionManager::default());
 
     // Create streamable HTTP service config
-    let mut http_config = StreamableHttpServerConfig::default();
+    let public_urls = public_url.iter().map(String::as_str).collect::<Vec<_>>();
+    let allowed_hosts = build_mcp_allowed_hosts(&public_urls);
+    tracing::info!(
+        allowed_hosts = ?allowed_hosts,
+        "Configured MCP streamable HTTP Host allowlist"
+    );
+    let mut http_config = StreamableHttpServerConfig::default().with_allowed_hosts(allowed_hosts);
     http_config.sse_keep_alive = Some(std::time::Duration::from_secs(15));
     http_config.sse_retry = Some(std::time::Duration::from_secs(3));
     http_config.stateful_mode = true;
@@ -1495,7 +1537,12 @@ async fn run_oauth(config: Config) -> Result<()> {
     }
 
     // Create streamable HTTP service config
-    let mut http_config = StreamableHttpServerConfig::default();
+    let allowed_hosts = build_mcp_allowed_hosts(&[&server_host]);
+    tracing::info!(
+        allowed_hosts = ?allowed_hosts,
+        "Configured MCP streamable HTTP Host allowlist"
+    );
+    let mut http_config = StreamableHttpServerConfig::default().with_allowed_hosts(allowed_hosts);
     http_config.sse_keep_alive = Some(std::time::Duration::from_secs(15));
     http_config.sse_retry = Some(std::time::Duration::from_secs(3));
     http_config.stateful_mode = true;
@@ -1832,6 +1879,22 @@ mod tests {
         ));
         assert!(header.contains(r#"error="invalid_token""#));
         assert!(header.contains(r#"error_description="Bad \"token\" try again""#));
+    }
+
+    #[test]
+    fn build_mcp_allowed_hosts_includes_public_and_local_hosts() {
+        let hosts = build_mcp_allowed_hosts(&[
+            "https://mcp.serendb.com/mcp",
+            "https://staging-mcp.serendb.com:8443/mcp",
+            "not a url",
+        ]);
+
+        assert!(hosts.contains(&"localhost".to_string()));
+        assert!(hosts.contains(&"127.0.0.1".to_string()));
+        assert!(hosts.contains(&"::1".to_string()));
+        assert!(hosts.contains(&"mcp.serendb.com".to_string()));
+        assert!(hosts.contains(&"staging-mcp.serendb.com:8443".to_string()));
+        assert!(hosts.contains(&"staging-mcp.serendb.com".to_string()));
     }
 
     #[test]

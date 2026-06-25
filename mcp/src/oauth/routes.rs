@@ -916,10 +916,9 @@ async fn token(
                     }
                 };
 
-                // Only refresh upstream tokens when the upstream access token is expired (or about
-                // to expire). MCP access tokens are short-lived (15m), upstream tokens are long-lived
-                // (~8h) and single-use refresh tokens; refreshing upstream on every MCP refresh makes
-                // token reuse/revocation far more likely.
+                // Only refresh upstream tokens when the upstream access token is expired or near
+                // expiry. MCP access tokens are long-lived for client compatibility, while upstream
+                // grants still use expiring access tokens and single-use refresh tokens.
                 let refresh_window = Duration::seconds(60);
                 let now = OffsetDateTime::now_utc();
 
