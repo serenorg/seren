@@ -1765,6 +1765,12 @@ pub struct UpdateSerenAgentDeploymentParams {
     /// Alias for `tool_presets`
     #[serde(default)]
     pub capabilities: Option<Vec<String>>,
+    /// Typed tool refs for scoped publisher, connector, MCP, or remote tools.
+    #[serde(default)]
+    pub tool_refs: Option<Vec<seren::AgentToolRef>>,
+    /// Clear typed tool refs from the managed agent.
+    #[serde(default)]
+    pub clear_tool_refs: bool,
     /// Updated access mode (`read_only` or `allow_mutations`)
     #[serde(default)]
     pub approval_policy: Option<String>,
@@ -1893,6 +1899,12 @@ async fn build_update_seren_agent_deployment_request(
             None,
         ));
     }
+    if params.tool_refs.is_some() && params.clear_tool_refs {
+        return Err(McpError::invalid_params(
+            "Provide either tool_refs or clear_tool_refs, not both.",
+            None,
+        ));
+    }
     let eval_gate = match (
         params.eval_gate_set_id,
         params.eval_gate_max_age_seconds,
@@ -1948,7 +1960,7 @@ async fn build_update_seren_agent_deployment_request(
         clear_runtime_policy: None,
         clear_secret_resolution_delegation: None,
         clear_session_database: None,
-        clear_tool_refs: None,
+        clear_tool_refs: params.clear_tool_refs.then_some(true),
         credentials: None,
         cron_schedule: params.cron_schedule.clone(),
         cron_timezone: params.cron_timezone.clone(),
@@ -1964,7 +1976,7 @@ async fn build_update_seren_agent_deployment_request(
         session_database: None,
         template,
         tool_presets,
-        tool_refs: None,
+        tool_refs: params.tool_refs.clone(),
         visibility: params.visibility.clone(),
         workload,
     })
@@ -2218,6 +2230,9 @@ pub struct DeploySerenAgentParams {
     /// Alias for `tool_presets`
     #[serde(default)]
     pub capabilities: Option<Vec<String>>,
+    /// Typed tool refs for scoped publisher, connector, MCP, or remote tools.
+    #[serde(default)]
+    pub tool_refs: Option<Vec<seren::AgentToolRef>>,
     /// Access mode (`read_only` or `allow_mutations`)
     #[serde(default)]
     pub approval_policy: Option<String>,
@@ -10381,7 +10396,7 @@ API endpoint: {endpoint}",
             session_database: None,
             template,
             tool_presets,
-            tool_refs: None,
+            tool_refs: params.tool_refs,
             visibility: params.visibility,
             workload: seren::WorkloadSpec {
                 compute_backend,
@@ -13228,6 +13243,145 @@ mod tests {
             seren::CloudRunApprovalDecisionValue::Reject
         );
         assert_eq!(approval_decisions[1].id, "approval-2");
+    }
+
+    #[tokio::test]
+    async fn update_agent_rejects_tool_refs_with_clear_tool_refs() {
+        let api_client =
+            seren::Client::new_with_client("https://api.serendb.com", reqwest::Client::new());
+        let tool_ref = serde_json::from_value::<seren::AgentToolRef>(serde_json::json!({
+            "kind": "publisher",
+            "publisher_slug": "microsoft",
+            "operation_id": "calendar.events.list"
+        }))
+        .unwrap();
+        let params = UpdateSerenAgentDeploymentParams {
+            deployment_id: Uuid::new_v4(),
+            agent_slug: None,
+            name: None,
+            cron_schedule: None,
+            cron_timezone: None,
+            eval_gate_set_id: None,
+            eval_gate_max_age_seconds: None,
+            clear_eval_gate: false,
+            prompt: None,
+            model_id: None,
+            template: None,
+            agent_style: None,
+            tool_presets: None,
+            capabilities: None,
+            tool_refs: Some(vec![tool_ref]),
+            clear_tool_refs: true,
+            approval_policy: None,
+            access_mode: None,
+            model_policy: None,
+            performance_profile: None,
+            allowed_remote_agent_origins: None,
+            config: None,
+            secrets: None,
+            model_config: None,
+            fallback_models: None,
+            max_timeout_seconds: None,
+            requirements: None,
+            dashboard_config: None,
+            capability_policy: None,
+            clear_capability_policy: false,
+            visibility: None,
+        };
+
+        let err = build_update_seren_agent_deployment_request(&api_client, &params)
+            .await
+            .unwrap_err();
+
+        assert!(
+            err.message.contains("tool_refs or clear_tool_refs"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    fn base_update_agent_params() -> UpdateSerenAgentDeploymentParams {
+        UpdateSerenAgentDeploymentParams {
+            deployment_id: Uuid::new_v4(),
+            agent_slug: None,
+            name: None,
+            cron_schedule: None,
+            cron_timezone: None,
+            eval_gate_set_id: None,
+            eval_gate_max_age_seconds: None,
+            clear_eval_gate: false,
+            prompt: None,
+            model_id: None,
+            template: None,
+            agent_style: None,
+            tool_presets: None,
+            capabilities: None,
+            tool_refs: None,
+            clear_tool_refs: false,
+            approval_policy: None,
+            access_mode: None,
+            model_policy: None,
+            performance_profile: None,
+            allowed_remote_agent_origins: None,
+            config: None,
+            secrets: None,
+            model_config: None,
+            fallback_models: None,
+            max_timeout_seconds: None,
+            requirements: None,
+            dashboard_config: None,
+            capability_policy: None,
+            clear_capability_policy: false,
+            visibility: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn update_agent_passes_tool_refs_through() {
+        let api_client =
+            seren::Client::new_with_client("https://api.serendb.com", reqwest::Client::new());
+        let tool_ref = serde_json::from_value::<seren::AgentToolRef>(serde_json::json!({
+            "kind": "publisher",
+            "publisher_slug": "microsoft",
+            "operation_id": "calendar.events.list"
+        }))
+        .unwrap();
+        let mut params = base_update_agent_params();
+        params.tool_refs = Some(vec![tool_ref]);
+
+        let request = build_update_seren_agent_deployment_request(&api_client, &params)
+            .await
+            .unwrap();
+
+        assert!(
+            request
+                .tool_refs
+                .as_ref()
+                .is_some_and(|refs| refs.len() == 1),
+            "tool_refs should pass through to the update request",
+        );
+        assert_eq!(
+            request.clear_tool_refs, None,
+            "clear_tool_refs must stay unset when only tool_refs is provided",
+        );
+    }
+
+    #[tokio::test]
+    async fn update_agent_clear_tool_refs_sets_flag_without_refs() {
+        let api_client =
+            seren::Client::new_with_client("https://api.serendb.com", reqwest::Client::new());
+        let mut params = base_update_agent_params();
+        params.clear_tool_refs = true;
+
+        let request = build_update_seren_agent_deployment_request(&api_client, &params)
+            .await
+            .unwrap();
+
+        assert_eq!(request.clear_tool_refs, Some(true));
+        assert!(
+            request.tool_refs.is_none(),
+            "tool_refs must stay unset when clearing",
+        );
     }
 
     #[tokio::test]

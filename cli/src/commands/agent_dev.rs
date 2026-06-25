@@ -1131,6 +1131,7 @@ mod tests {
             delete_count: Mutex::new(0),
         };
         let spec = seren::AgentSpec {
+            agent_identity_id: None,
             agent_slug: Some("dev-retry".to_string()),
             alert_policy: None,
             allowed_remote_agent_origins: None,
@@ -1148,6 +1149,7 @@ mod tests {
             name: Some("retry".to_string()),
             private_output_policy: None,
             runtime_policy: None,
+            secret_resolution_delegation: None,
             session_database: None,
             template: None,
             tool_presets: None,
@@ -1189,6 +1191,7 @@ mod tests {
             delete_count: Mutex::new(0),
         };
         let spec = seren::AgentSpec {
+            agent_identity_id: None,
             agent_slug: Some("dev-orphan".to_string()),
             alert_policy: None,
             allowed_remote_agent_origins: None,
@@ -1206,6 +1209,7 @@ mod tests {
             name: Some("orphan".to_string()),
             private_output_policy: None,
             runtime_policy: None,
+            secret_resolution_delegation: None,
             session_database: None,
             template: None,
             tool_presets: None,
