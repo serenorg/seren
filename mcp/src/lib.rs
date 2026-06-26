@@ -31,6 +31,19 @@ pub(crate) const MCP_SERVER_NAME: &str = "seren-mcp";
 /// HTTP Bearer auth realm used in WWW-Authenticate challenges.
 pub(crate) const MCP_AUTH_REALM: &str = MCP_SERVER_NAME;
 
+/// Response headers that flag when an MCP request failed because the upstream
+/// Seren session must be re-established. Browser clients can only read these
+/// when they are listed in `Access-Control-Expose-Headers` (see the OAuth-mode
+/// CORS layer), so the same signal is mirrored in the JSON body.
+pub(crate) const REAUTH_REQUIRED_HEADER: &str = "x-seren-reauth-required";
+pub(crate) const REAUTH_REASON_HEADER: &str = "x-seren-reauth-reason";
+
+/// Stable `reauth_reason` codes surfaced to MCP/OAuth clients. These are part
+/// of the public response contract; do not rename without a compatibility plan.
+pub(crate) const REAUTH_REASON_REFRESH_TOKEN_MISSING: &str = "upstream_refresh_token_missing";
+pub(crate) const REAUTH_REASON_AUTHORIZATION_EXPIRED: &str = "upstream_authorization_expired";
+pub(crate) const REAUTH_REASON_TOKEN_PERSIST_FAILED: &str = "upstream_token_persist_failed";
+
 /// Health check state with optional database store
 #[derive(Clone)]
 struct HealthCheckState {
@@ -186,6 +199,49 @@ impl OAuthAuthState {
             axum::Json(serde_json::json!({
                 "error": error,
                 "error_description": error_description
+            })),
+        )
+            .into_response()
+    }
+
+    fn upstream_reauth_required_response(
+        &self,
+        error_description: &str,
+        reauth_reason: &str,
+    ) -> axum::response::Response {
+        Self::upstream_reauth_required_response_for_server(
+            error_description,
+            reauth_reason,
+            &self.oauth_state.server_host,
+        )
+    }
+
+    fn upstream_reauth_required_response_for_server(
+        error_description: &str,
+        reauth_reason: &str,
+        server_host: &str,
+    ) -> axum::response::Response {
+        let www_authenticate =
+            Self::build_www_authenticate("invalid_token", error_description, server_host);
+
+        (
+            axum::http::StatusCode::UNAUTHORIZED,
+            [
+                (axum::http::header::WWW_AUTHENTICATE, www_authenticate),
+                (
+                    axum::http::HeaderName::from_static(REAUTH_REQUIRED_HEADER),
+                    "true".to_string(),
+                ),
+                (
+                    axum::http::HeaderName::from_static(REAUTH_REASON_HEADER),
+                    reauth_reason.to_string(),
+                ),
+            ],
+            axum::Json(serde_json::json!({
+                "error": "invalid_token",
+                "error_description": error_description,
+                "reauth_required": true,
+                "reauth_reason": reauth_reason,
             })),
         )
             .into_response()
@@ -820,9 +876,9 @@ async fn require_oauth_auth(
                         client_id = %client_id_value,
                         "Missing upstream refresh token"
                     );
-                    lock_result = Some(state.unauthorized_response(
-                        "invalid_token",
+                    lock_result = Some(state.upstream_reauth_required_response(
                         "Upstream session cannot be refreshed (re-authentication required)",
+                        REAUTH_REASON_REFRESH_TOKEN_MISSING,
                     ));
                     String::new()
                 }
@@ -844,9 +900,9 @@ async fn require_oauth_auth(
                     Ok(body) => Some(body),
                     Err(crate::oauth::routes::OAuthError::InvalidGrant(_))
                     | Err(crate::oauth::routes::OAuthError::InvalidClient) => {
-                        lock_result = Some(state.unauthorized_response(
-                            "invalid_token",
+                        lock_result = Some(state.upstream_reauth_required_response(
                             "Upstream authorization expired (re-authentication required)",
+                            REAUTH_REASON_AUTHORIZATION_EXPIRED,
                         ));
                         None
                     }
@@ -927,9 +983,9 @@ async fn require_oauth_auth(
                                 error = %e,
                                 "Failed to persist refreshed upstream token"
                             );
-                            lock_result = Some(state.unauthorized_response(
-                                "invalid_token",
-                                "Upstream authorization expired (re-authentication required)",
+                            lock_result = Some(state.upstream_reauth_required_response(
+                                "Upstream session could not be saved (re-authentication required)",
+                                REAUTH_REASON_TOKEN_PERSIST_FAILED,
                             ));
                         }
                     }
@@ -1564,7 +1620,10 @@ async fn run_oauth(config: Config) -> Result<()> {
     );
 
     // CORS configuration per MCP spec
-    // Must allow and expose Mcp-Session-Id for rmcp session management
+    // Must allow and expose Mcp-Session-Id for rmcp session management.
+    // WWW-Authenticate and the reauth headers are exposed so browser-based MCP
+    // clients can read the OAuth discovery challenge and the upstream-reauth
+    // signal emitted by the auth middleware.
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -1577,7 +1636,10 @@ async fn run_oauth(config: Config) -> Result<()> {
         ])
         .expose_headers([
             axum::http::header::CONTENT_TYPE,
+            axum::http::header::WWW_AUTHENTICATE,
             axum::http::header::HeaderName::from_static("mcp-session-id"),
+            axum::http::header::HeaderName::from_static(REAUTH_REQUIRED_HEADER),
+            axum::http::header::HeaderName::from_static(REAUTH_REASON_HEADER),
         ]);
 
     // Create MCP JWT signer for issuing and validating MCP access tokens
@@ -1879,6 +1941,46 @@ mod tests {
         ));
         assert!(header.contains(r#"error="invalid_token""#));
         assert!(header.contains(r#"error_description="Bad \"token\" try again""#));
+    }
+
+    #[tokio::test]
+    async fn upstream_reauth_required_response_is_machine_readable() {
+        let response = OAuthAuthState::upstream_reauth_required_response_for_server(
+            "Upstream authorization expired (re-authentication required)",
+            REAUTH_REASON_AUTHORIZATION_EXPIRED,
+            "https://mcp.serendb.com/",
+        );
+
+        assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+        let headers = response.headers();
+        assert_eq!(
+            headers
+                .get(axum::http::HeaderName::from_static(REAUTH_REQUIRED_HEADER))
+                .and_then(|value| value.to_str().ok()),
+            Some("true")
+        );
+        assert_eq!(
+            headers
+                .get(axum::http::HeaderName::from_static(REAUTH_REASON_HEADER))
+                .and_then(|value| value.to_str().ok()),
+            Some(REAUTH_REASON_AUTHORIZATION_EXPIRED)
+        );
+        assert!(
+            headers
+                .get(axum::http::header::WWW_AUTHENTICATE)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value.contains(
+                    r#"resource_metadata="https://mcp.serendb.com/.well-known/oauth-protected-resource""#
+                ))
+        );
+
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["error"], "invalid_token");
+        assert_eq!(body["reauth_required"], true);
+        assert_eq!(body["reauth_reason"], REAUTH_REASON_AUTHORIZATION_EXPIRED);
     }
 
     #[test]
