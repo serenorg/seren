@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, path::Path};
+use std::{collections::HashMap, fs, path::Path, str::FromStr};
 
 use anyhow::Result;
 use colored::Colorize;
@@ -6116,13 +6116,203 @@ pub async fn cloud_run_cancel_by_id(run_id: Uuid, ctx: &CommandContext) -> Resul
     Ok(())
 }
 
+fn parse_conversation_message_order(
+    value: Option<&str>,
+) -> Result<Option<seren::ConversationMessageOrder>> {
+    match value.map(str::trim).filter(|value| !value.is_empty()) {
+        Some("asc") => Ok(Some(seren::ConversationMessageOrder::Asc)),
+        Some("desc") => Ok(Some(seren::ConversationMessageOrder::Desc)),
+        Some(other) => Err(anyhow::anyhow!(
+            "Invalid --order '{}'. Expected asc or desc.",
+            other
+        )),
+        None => Ok(None),
+    }
+}
+
+pub async fn cloud_conversations(
+    deployment_id: Uuid,
+    limit: i64,
+    cursor: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_list_conversations(
+            &deployment_id,
+            cursor.map(str::trim).filter(|value| !value.is_empty()),
+            Some(limit),
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to list conversations: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn cloud_conversation_messages(
+    deployment_id: Uuid,
+    conversation_id: &str,
+    limit: i64,
+    cursor: Option<&str>,
+    order: Option<&str>,
+    include_run: Option<bool>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err(anyhow::anyhow!("conversation_id cannot be empty."));
+    }
+
+    let order = parse_conversation_message_order(order)?;
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_get_conversation_messages(
+            &deployment_id,
+            conversation_id,
+            cursor.map(str::trim).filter(|value| !value.is_empty()),
+            include_run,
+            Some(limit),
+            order,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to list conversation messages: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn cloud_deployment_run_state(
+    deployment_id: Uuid,
+    run_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_deployment_run_state(&deployment_id, &run_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to load run state: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn cloud_run_state(run_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_run_state(&run_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to load run state: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn cloud_agent_schedules(
+    deployment_id: Uuid,
+    limit: i64,
+    offset: i64,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_list_agent_schedules(&deployment_id, Some(limit), Some(offset))
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to list agent schedules: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub struct CloudAgentScheduleCreateOptions<'a> {
+    pub deployment_id: Uuid,
+    pub schedule_key: Option<&'a str>,
+    pub message: Option<&'a str>,
+    pub payload_json: Option<&'a str>,
+    pub payload_file: Option<&'a str>,
+    pub conversation_id: Option<&'a str>,
+    pub run_at: Option<&'a str>,
+    pub delay_seconds: Option<i64>,
+    pub cron: Option<&'a str>,
+    pub timezone: Option<&'a str>,
+    pub max_attempts: Option<i32>,
+}
+
+pub async fn cloud_agent_schedule_create(
+    options: CloudAgentScheduleCreateOptions<'_>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let payload =
+        parse_optional_json_value("--payload", options.payload_json, options.payload_file)?;
+    let run_at = options
+        .run_at
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(jiff::Timestamp::from_str)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("Invalid --run-at timestamp: {}", e))?;
+    let request = seren::CloudDeploymentAgentScheduleRequest {
+        conversation_id: options
+            .conversation_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        cron: options
+            .cron
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        delay_seconds: options.delay_seconds,
+        max_attempts: options.max_attempts,
+        message: options
+            .message
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        payload,
+        run_at,
+        schedule_key: options
+            .schedule_key
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        timezone: options
+            .timezone
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+    };
+
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_create_agent_schedule(&options.deployment_id, &request)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to create agent schedule: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn cloud_agent_schedule_cancel(
+    deployment_id: Uuid,
+    schedule_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .seren_cloud_cancel_agent_schedule(&deployment_id, &schedule_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to cancel agent schedule: {}", e))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
 /// Stream updates for a run via SSE (global run path).
 ///
-/// Supports explicit stream session reuse (`x-seren-stream-session-id`) and
-/// event replay (`Last-Event-ID`) for resumable clients.
+/// Supports event replay (`Last-Event-ID`) for resumable clients.
 pub async fn cloud_run_stream(
     run_id: Uuid,
-    session_id: Option<&str>,
     last_event_id: Option<&str>,
     ctx: &CommandContext,
 ) -> Result<()> {
@@ -6131,13 +6321,7 @@ pub async fn cloud_run_stream(
         ctx.api_base(),
         run_id
     );
-    let close_command = |server_session_id: &str| {
-        format!(
-            "Close session: seren agent cloud run stream-close {} --session-id {}",
-            run_id, server_session_id
-        )
-    };
-    cloud_run_stream_url(&url, run_id, session_id, last_event_id, close_command, ctx).await
+    cloud_run_stream_url(&url, run_id, last_event_id, ctx).await
 }
 
 /// Stream updates for a deployment-scoped run via SSE.
@@ -6147,7 +6331,6 @@ pub async fn cloud_run_stream(
 pub async fn cloud_deployment_run_stream(
     deployment_id: Uuid,
     run_id: Uuid,
-    session_id: Option<&str>,
     last_event_id: Option<&str>,
     ctx: &CommandContext,
 ) -> Result<()> {
@@ -6157,21 +6340,13 @@ pub async fn cloud_deployment_run_stream(
         deployment_id,
         run_id
     );
-    let close_command = |server_session_id: &str| {
-        format!(
-            "Close session: seren agent cloud run stream-close --deployment-id {} {} --session-id {}",
-            deployment_id, run_id, server_session_id
-        )
-    };
-    cloud_run_stream_url(&url, run_id, session_id, last_event_id, close_command, ctx).await
+    cloud_run_stream_url(&url, run_id, last_event_id, ctx).await
 }
 
 async fn cloud_run_stream_url(
     url: &str,
     run_id: Uuid,
-    session_id: Option<&str>,
     last_event_id: Option<&str>,
-    close_command: impl Fn(&str) -> String,
     ctx: &CommandContext,
 ) -> Result<()> {
     use futures_util::StreamExt;
@@ -6179,9 +6354,6 @@ async fn cloud_run_stream_url(
     let client = ctx.http_client().await?;
 
     let mut request = client.get(url).header("Accept", "text/event-stream");
-    if let Some(session_id) = session_id.map(str::trim).filter(|v| !v.is_empty()) {
-        request = request.header("x-seren-stream-session-id", session_id);
-    }
     if let Some(last_event_id) = last_event_id.map(str::trim).filter(|v| !v.is_empty()) {
         request = request.header("Last-Event-ID", last_event_id);
     }
@@ -6199,21 +6371,6 @@ async fn cloud_run_stream_url(
             status,
             body
         ));
-    }
-
-    if let Some(server_session_id) = response
-        .headers()
-        .get("x-seren-stream-session-id")
-        .and_then(|v| v.to_str().ok())
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-    {
-        eprintln!(
-            "{} {}",
-            "Stream session:".dimmed(),
-            server_session_id.bold()
-        );
-        eprintln!("{}", close_command(server_session_id).dimmed());
     }
 
     eprintln!(
@@ -6294,49 +6451,6 @@ async fn cloud_run_stream_url(
     }
 
     eprintln!("{}", "Stream ended.".dimmed());
-    Ok(())
-}
-
-/// Close an active run stream session (global run path).
-pub async fn cloud_run_stream_close(
-    run_id: Uuid,
-    session_id: &str,
-    ctx: &CommandContext,
-) -> Result<()> {
-    let session_id = session_id.trim();
-    if session_id.is_empty() {
-        return Err(anyhow::anyhow!("--session-id cannot be empty."));
-    }
-
-    let client = ctx.client().await?;
-    let response = client
-        .seren_cloud_run_stream_close(&run_id, session_id)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to close run stream: {}", e))?
-        .into_inner();
-    output::print_json(&response)?;
-    Ok(())
-}
-
-/// Close an active deployment-scoped run stream session.
-pub async fn cloud_deployment_run_stream_close(
-    deployment_id: Uuid,
-    run_id: Uuid,
-    session_id: &str,
-    ctx: &CommandContext,
-) -> Result<()> {
-    let session_id = session_id.trim();
-    if session_id.is_empty() {
-        return Err(anyhow::anyhow!("--session-id cannot be empty."));
-    }
-
-    let client = ctx.client().await?;
-    let response = client
-        .seren_cloud_deployment_run_stream_close(&deployment_id, &run_id, session_id)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to close deployment run stream: {}", e))?
-        .into_inner();
-    output::print_json(&response)?;
     Ok(())
 }
 

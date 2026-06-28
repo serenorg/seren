@@ -1678,6 +1678,16 @@ enum AgentCloudAction {
         #[command(subcommand)]
         action: CloudRunAction,
     },
+    /// Inspect durable employee conversations for a deployment
+    Conversation {
+        #[command(subcommand)]
+        action: CloudConversationAction,
+    },
+    /// Manage agent-owned future run schedules
+    Schedule {
+        #[command(subcommand)]
+        action: CloudScheduleAction,
+    },
     /// List run activity across one deployment or the whole organization
     Runs {
         #[command(subcommand)]
@@ -1970,30 +1980,24 @@ enum CloudRunAction {
         #[arg(long)]
         q: Option<String>,
     },
-    /// Stream run events over SSE, with optional session resume headers
+    /// Stream run events over SSE, with optional Last-Event-ID resume
     Stream {
         /// Deployment ID (UUID) for deployment-scoped stream path
         #[arg(long)]
         deployment_id: Option<Uuid>,
         /// Run event ID (UUID)
         run_id: Uuid,
-        /// Optional stream session ID to resume/reattach an existing stream session
-        #[arg(long)]
-        session_id: Option<String>,
         /// Optional Last-Event-ID header for SSE replay/resume
         #[arg(long)]
         last_event_id: Option<String>,
     },
-    /// Close an active run stream session by run ID and session ID
-    StreamClose {
-        /// Deployment ID (UUID) for deployment-scoped stream path
+    /// Get the current live state for a run; provide --deployment-id for deployment-scoped lookup
+    State {
+        /// Deployment ID (UUID) for deployment-scoped lookup
         #[arg(long)]
         deployment_id: Option<Uuid>,
         /// Run event ID (UUID)
         run_id: Uuid,
-        /// Stream session ID returned by `cloud run stream`
-        #[arg(long)]
-        session_id: String,
     },
     /// Get the latest pending approvals for a run; optionally scope by deployment
     PendingApprovals {
@@ -2020,6 +2024,102 @@ enum CloudRunAction {
         deployment_id: Option<Uuid>,
         /// Run event ID (UUID)
         run_id: Uuid,
+    },
+}
+
+#[derive(Subcommand)]
+enum CloudConversationAction {
+    /// List durable conversations for a cloud agent deployment
+    List {
+        /// Deployment ID (UUID)
+        #[arg(long)]
+        deployment_id: Uuid,
+        /// Maximum conversations to return
+        #[arg(long, default_value = "50")]
+        limit: i64,
+        /// Opaque keyset cursor returned by a previous page
+        #[arg(long)]
+        cursor: Option<String>,
+    },
+    /// List messages for one durable conversation
+    Messages {
+        /// Deployment ID (UUID)
+        #[arg(long)]
+        deployment_id: Uuid,
+        /// Durable conversation ID
+        conversation_id: String,
+        /// Maximum messages to return
+        #[arg(long, default_value = "50")]
+        limit: i64,
+        /// Opaque keyset cursor returned by a previous page
+        #[arg(long)]
+        cursor: Option<String>,
+        /// Message page order: asc or desc
+        #[arg(long)]
+        order: Option<String>,
+        /// Include full run records for run-backed messages
+        #[arg(long, default_missing_value = "true", num_args = 0..=1)]
+        include_run: Option<bool>,
+    },
+}
+
+#[derive(Subcommand)]
+enum CloudScheduleAction {
+    /// List agent-owned future run schedules for a deployment
+    List {
+        /// Deployment ID (UUID)
+        #[arg(long)]
+        deployment_id: Uuid,
+        /// Maximum schedules to return
+        #[arg(long, default_value = "50")]
+        limit: i64,
+        /// Pagination offset
+        #[arg(long, default_value = "0")]
+        offset: i64,
+    },
+    /// Create or update an agent-owned future run schedule
+    Create {
+        /// Deployment ID (UUID)
+        #[arg(long)]
+        deployment_id: Uuid,
+        /// Stable idempotency key for this schedule
+        #[arg(long)]
+        schedule_key: Option<String>,
+        /// User-facing message payload for the future run
+        #[arg(long)]
+        message: Option<String>,
+        /// Optional JSON payload for the future run
+        #[arg(long = "payload")]
+        payload_json: Option<String>,
+        /// Path to an optional JSON payload file
+        #[arg(long = "payload-file")]
+        payload_file: Option<String>,
+        /// Durable conversation ID to continue when the schedule fires
+        #[arg(long)]
+        conversation_id: Option<String>,
+        /// RFC3339 timestamp for a one-shot future run
+        #[arg(long)]
+        run_at: Option<String>,
+        /// Relative delay in seconds for a one-shot future run
+        #[arg(long)]
+        delay_seconds: Option<i64>,
+        /// Cron expression for a recurring future run
+        #[arg(long)]
+        cron: Option<String>,
+        /// Timezone for cron schedules
+        #[arg(long)]
+        timezone: Option<String>,
+        /// Maximum worker retry attempts
+        #[arg(long)]
+        max_attempts: Option<i32>,
+    },
+    /// Cancel an active agent-owned future run schedule
+    Cancel {
+        /// Deployment ID (UUID)
+        #[arg(long)]
+        deployment_id: Uuid,
+        /// Schedule ID (UUID)
+        schedule_id: Uuid,
     },
 }
 
@@ -3802,43 +3902,28 @@ async fn execute_agent_cloud_action(
             CloudRunAction::Stream {
                 deployment_id,
                 run_id,
-                session_id,
                 last_event_id,
             } => {
                 if let Some(deployment_id) = deployment_id {
                     commands::agent::cloud_deployment_run_stream(
                         deployment_id,
                         run_id,
-                        session_id.as_deref(),
                         last_event_id.as_deref(),
                         ctx,
                     )
                     .await?
                 } else {
-                    commands::agent::cloud_run_stream(
-                        run_id,
-                        session_id.as_deref(),
-                        last_event_id.as_deref(),
-                        ctx,
-                    )
-                    .await?
+                    commands::agent::cloud_run_stream(run_id, last_event_id.as_deref(), ctx).await?
                 }
             }
-            CloudRunAction::StreamClose {
+            CloudRunAction::State {
                 deployment_id,
                 run_id,
-                session_id,
             } => {
                 if let Some(deployment_id) = deployment_id {
-                    commands::agent::cloud_deployment_run_stream_close(
-                        deployment_id,
-                        run_id,
-                        &session_id,
-                        ctx,
-                    )
-                    .await?
+                    commands::agent::cloud_deployment_run_state(deployment_id, run_id, ctx).await?
                 } else {
-                    commands::agent::cloud_run_stream_close(run_id, &session_id, ctx).await?
+                    commands::agent::cloud_run_state(run_id, ctx).await?
                 }
             }
             CloudRunAction::PendingApprovals {
@@ -3871,6 +3956,77 @@ async fn execute_agent_cloud_action(
                 } else {
                     commands::agent::cloud_run_cancel_by_id(run_id, ctx).await?
                 }
+            }
+        },
+        AgentCloudAction::Conversation { action } => match action {
+            CloudConversationAction::List {
+                deployment_id,
+                limit,
+                cursor,
+            } => {
+                commands::agent::cloud_conversations(deployment_id, limit, cursor.as_deref(), ctx)
+                    .await?
+            }
+            CloudConversationAction::Messages {
+                deployment_id,
+                conversation_id,
+                limit,
+                cursor,
+                order,
+                include_run,
+            } => {
+                commands::agent::cloud_conversation_messages(
+                    deployment_id,
+                    &conversation_id,
+                    limit,
+                    cursor.as_deref(),
+                    order.as_deref(),
+                    include_run,
+                    ctx,
+                )
+                .await?
+            }
+        },
+        AgentCloudAction::Schedule { action } => match action {
+            CloudScheduleAction::List {
+                deployment_id,
+                limit,
+                offset,
+            } => commands::agent::cloud_agent_schedules(deployment_id, limit, offset, ctx).await?,
+            CloudScheduleAction::Create {
+                deployment_id,
+                schedule_key,
+                message,
+                payload_json,
+                payload_file,
+                conversation_id,
+                run_at,
+                delay_seconds,
+                cron,
+                timezone,
+                max_attempts,
+            } => {
+                let options = commands::agent::CloudAgentScheduleCreateOptions {
+                    deployment_id,
+                    schedule_key: schedule_key.as_deref(),
+                    message: message.as_deref(),
+                    payload_json: payload_json.as_deref(),
+                    payload_file: payload_file.as_deref(),
+                    conversation_id: conversation_id.as_deref(),
+                    run_at: run_at.as_deref(),
+                    delay_seconds,
+                    cron: cron.as_deref(),
+                    timezone: timezone.as_deref(),
+                    max_attempts,
+                };
+                commands::agent::cloud_agent_schedule_create(options, ctx).await?
+            }
+            CloudScheduleAction::Cancel {
+                deployment_id,
+                schedule_id,
+            } => {
+                commands::agent::cloud_agent_schedule_cancel(deployment_id, schedule_id, ctx)
+                    .await?
             }
         },
         AgentCloudAction::Runs { action } => match action {
@@ -6253,28 +6409,28 @@ mod tests {
     }
 
     #[test]
-    fn cloud_run_stream_close_accepts_deployment_scope() {
+    fn cloud_run_stream_accepts_deployment_scope_and_resume_cursor() {
         let cli = parse_cli_with_large_stack(vec![
             "seren",
             "agent",
             "cloud",
             "run",
-            "stream-close",
+            "stream",
             "--deployment-id",
             "33333333-3333-3333-3333-333333333333",
             "22222222-2222-2222-2222-222222222222",
-            "--session-id",
-            "session-1",
+            "--last-event-id",
+            "42",
         ]);
 
         match cli.command {
             Commands::Agent { action, .. } => match *action {
                 AgentAction::Cloud { action } => match *action {
                     AgentCloudAction::Run { action } => match action {
-                        CloudRunAction::StreamClose {
+                        CloudRunAction::Stream {
                             deployment_id,
                             run_id,
-                            session_id,
+                            last_event_id,
                         } => {
                             assert_eq!(
                                 deployment_id,
@@ -6287,9 +6443,164 @@ mod tests {
                                 run_id,
                                 Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap()
                             );
-                            assert_eq!(session_id, "session-1");
+                            assert_eq!(last_event_id.as_deref(), Some("42"));
                         }
                         _ => panic!("unexpected run action parsed"),
+                    },
+                    _ => panic!("unexpected cloud action parsed"),
+                },
+                _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn cloud_run_state_accepts_deployment_scope() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "cloud",
+            "run",
+            "state",
+            "--deployment-id",
+            "33333333-3333-3333-3333-333333333333",
+            "22222222-2222-2222-2222-222222222222",
+        ]);
+
+        match cli.command {
+            Commands::Agent { action, .. } => match *action {
+                AgentAction::Cloud { action } => match *action {
+                    AgentCloudAction::Run { action } => match action {
+                        CloudRunAction::State {
+                            deployment_id,
+                            run_id,
+                        } => {
+                            assert_eq!(
+                                deployment_id,
+                                Some(
+                                    Uuid::parse_str("33333333-3333-3333-3333-333333333333")
+                                        .unwrap()
+                                )
+                            );
+                            assert_eq!(
+                                run_id,
+                                Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap()
+                            );
+                        }
+                        _ => panic!("unexpected run action parsed"),
+                    },
+                    _ => panic!("unexpected cloud action parsed"),
+                },
+                _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn cloud_conversation_messages_accepts_paging_options() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "cloud",
+            "conversation",
+            "messages",
+            "--deployment-id",
+            "33333333-3333-3333-3333-333333333333",
+            "thread-1",
+            "--limit",
+            "25",
+            "--cursor",
+            "cursor-1",
+            "--order",
+            "asc",
+            "--include-run",
+            "false",
+        ]);
+
+        match cli.command {
+            Commands::Agent { action, .. } => match *action {
+                AgentAction::Cloud { action } => match *action {
+                    AgentCloudAction::Conversation { action } => match action {
+                        CloudConversationAction::Messages {
+                            deployment_id,
+                            conversation_id,
+                            limit,
+                            cursor,
+                            order,
+                            include_run,
+                        } => {
+                            assert_eq!(
+                                deployment_id,
+                                Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap()
+                            );
+                            assert_eq!(conversation_id, "thread-1");
+                            assert_eq!(limit, 25);
+                            assert_eq!(cursor.as_deref(), Some("cursor-1"));
+                            assert_eq!(order.as_deref(), Some("asc"));
+                            assert_eq!(include_run, Some(false));
+                        }
+                        _ => panic!("unexpected conversation action parsed"),
+                    },
+                    _ => panic!("unexpected cloud action parsed"),
+                },
+                _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn cloud_schedule_create_accepts_future_run_options() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "cloud",
+            "schedule",
+            "create",
+            "--deployment-id",
+            "33333333-3333-3333-3333-333333333333",
+            "--schedule-key",
+            "daily-summary",
+            "--message",
+            "Summarize yesterday",
+            "--cron",
+            "0 9 * * *",
+            "--timezone",
+            "UTC",
+            "--conversation-id",
+            "thread-1",
+            "--max-attempts",
+            "3",
+        ]);
+
+        match cli.command {
+            Commands::Agent { action, .. } => match *action {
+                AgentAction::Cloud { action } => match *action {
+                    AgentCloudAction::Schedule { action } => match action {
+                        CloudScheduleAction::Create {
+                            deployment_id,
+                            schedule_key,
+                            message,
+                            cron,
+                            timezone,
+                            conversation_id,
+                            max_attempts,
+                            ..
+                        } => {
+                            assert_eq!(
+                                deployment_id,
+                                Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap()
+                            );
+                            assert_eq!(schedule_key.as_deref(), Some("daily-summary"));
+                            assert_eq!(message.as_deref(), Some("Summarize yesterday"));
+                            assert_eq!(cron.as_deref(), Some("0 9 * * *"));
+                            assert_eq!(timezone.as_deref(), Some("UTC"));
+                            assert_eq!(conversation_id.as_deref(), Some("thread-1"));
+                            assert_eq!(max_attempts, Some(3));
+                        }
+                        _ => panic!("unexpected schedule action parsed"),
                     },
                     _ => panic!("unexpected cloud action parsed"),
                 },

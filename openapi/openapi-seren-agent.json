@@ -5909,6 +5909,13 @@
           "name": {
             "type": "string"
           },
+          "side_effecting": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether this tool can perform non-read work. Side-effecting tools are\nprotected so an interrupted run never silently re-runs them; set `false`\nonly for deterministic, side-effect-free reads."
+          },
           "timeout_override_seconds": {
             "type": [
               "integer",

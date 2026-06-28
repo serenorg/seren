@@ -9293,6 +9293,85 @@
           }
         }
       }
+    },
+    "/webhooks/{route_id}": {
+      "get": {
+        "tags": [
+          "Connector Webhooks"
+        ],
+        "summary": "Supports provider verification callbacks that use GET.",
+        "operationId": "get_connector_webhook",
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "path",
+            "description": "Opaque connector webhook route id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider-specific webhook verification response"
+          },
+          "202": {
+            "description": "Webhook verification accepted"
+          },
+          "400": {
+            "description": "Invalid route id"
+          },
+          "404": {
+            "description": "Unknown, disabled, or stale route"
+          },
+          "502": {
+            "description": "Connector gateway rejected or failed the callback"
+          },
+          "503": {
+            "description": "Connector route temporarily unavailable"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Connector Webhooks"
+        ],
+        "summary": "Accepts provider webhook callbacks for managed employee channel connectors.",
+        "description": "This route is intentionally public because providers call it directly. The\nroute id maps to server-side connector routing metadata; provider-specific\nsignature verification happens inside the selected connector plugin.",
+        "operationId": "post_connector_webhook",
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "path",
+            "description": "Opaque connector webhook route id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider-specific webhook response"
+          },
+          "202": {
+            "description": "Webhook event accepted"
+          },
+          "400": {
+            "description": "Invalid route id"
+          },
+          "404": {
+            "description": "Unknown, disabled, or stale route"
+          },
+          "502": {
+            "description": "Connector gateway rejected or failed the callback"
+          },
+          "503": {
+            "description": "Connector route temporarily unavailable"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -10722,7 +10801,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "Required when `key_type` is `\"agent\"`. The seren-passwords identity the agent acts as."
+            "description": "Required when `key_type` is `\"agent\"`. The Seren Secrets identity the agent acts as."
           },
           "expires_in_days": {
             "type": [
@@ -20429,6 +20508,13 @@
           "method": {
             "$ref": "#/components/schemas/HttpMethod",
             "description": "HTTP method (GET, POST, PUT, DELETE, PATCH)"
+          },
+          "operation_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Stable operation identifier used for scoped agent/publisher grants."
           },
           "path": {
             "type": "string",

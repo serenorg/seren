@@ -2463,27 +2463,103 @@ pub struct CloudDeploymentRunEventsParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudConversationsParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Maximum conversations to return
+    #[serde(default = "default_cloud_runs_limit")]
+    pub limit: i64,
+    /// Opaque keyset cursor returned by a previous page
+    #[serde(default)]
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CloudConversationMessagesParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Durable conversation ID
+    pub conversation_id: String,
+    /// Maximum messages to return
+    #[serde(default = "default_cloud_runs_limit")]
+    pub limit: i64,
+    /// Opaque keyset cursor returned by a previous page
+    #[serde(default)]
+    pub cursor: Option<String>,
+    /// Message page order: asc or desc
+    #[serde(default)]
+    pub order: Option<String>,
+    /// Include full run records for run-backed messages
+    #[serde(default)]
+    pub include_run: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CloudRunIdParams {
     /// Run event UUID
     pub run_id: Uuid,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct CloudRunStreamCloseParams {
+pub struct CloudRunStateParams {
+    /// Optional deployment UUID for deployment-scoped lookup
+    #[serde(default)]
+    pub deployment_id: Option<Uuid>,
     /// Run event UUID
     pub run_id: Uuid,
-    /// Active stream session ID to close
-    pub session_id: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct CloudDeploymentRunStreamCloseParams {
+pub struct CloudAgentSchedulesParams {
     /// Deployment UUID
     pub deployment_id: Uuid,
-    /// Run event UUID
-    pub run_id: Uuid,
-    /// Active stream session ID to close
-    pub session_id: String,
+    /// Maximum schedules to return
+    #[serde(default = "default_cloud_runs_limit")]
+    pub limit: i64,
+    /// Pagination offset
+    #[serde(default)]
+    pub offset: i64,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CreateCloudAgentScheduleParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Stable idempotency key for this schedule
+    #[serde(default)]
+    pub schedule_key: Option<String>,
+    /// User-facing message payload for the future run
+    #[serde(default)]
+    pub message: Option<String>,
+    /// Optional structured JSON payload for the future run
+    #[serde(default)]
+    pub payload: Option<serde_json::Value>,
+    /// Durable conversation ID to continue when the schedule fires
+    #[serde(default)]
+    pub conversation_id: Option<String>,
+    /// RFC3339 timestamp for a one-shot future run
+    #[serde(default)]
+    pub run_at: Option<String>,
+    /// Relative delay in seconds for a one-shot future run
+    #[serde(default)]
+    pub delay_seconds: Option<i64>,
+    /// Cron expression for a recurring future run
+    #[serde(default)]
+    pub cron: Option<String>,
+    /// Timezone for cron schedules
+    #[serde(default)]
+    pub timezone: Option<String>,
+    /// Maximum worker retry attempts
+    #[serde(default)]
+    pub max_attempts: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CancelCloudAgentScheduleParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Schedule UUID
+    pub schedule_id: Uuid,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -2789,6 +2865,32 @@ fn default_cloud_events_limit() -> i64 {
 
 fn default_cloud_overview_limit() -> i64 {
     8
+}
+
+fn parse_conversation_message_order(
+    value: Option<&str>,
+) -> Result<Option<seren::ConversationMessageOrder>, McpError> {
+    match value.map(str::trim).filter(|value| !value.is_empty()) {
+        Some("asc") => Ok(Some(seren::ConversationMessageOrder::Asc)),
+        Some("desc") => Ok(Some(seren::ConversationMessageOrder::Desc)),
+        Some(other) => Err(McpError::invalid_params(
+            format!("Invalid order '{other}'. Expected asc or desc."),
+            None,
+        )),
+        None => Ok(None),
+    }
+}
+
+fn parse_optional_timestamp(
+    value: Option<&str>,
+    field_name: &str,
+) -> Result<Option<jiff::Timestamp>, McpError> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(jiff::Timestamp::from_str)
+        .transpose()
+        .map_err(|e| McpError::invalid_params(format!("Invalid {field_name}: {e}"), None))
 }
 
 fn build_deployment_name_map(deployments: &[serde_json::Value]) -> HashMap<String, String> {
@@ -11016,29 +11118,174 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Close an active stream session for a cloud agent deployment run.",
-        annotations(read_only_hint = false, open_world_hint = false)
+        description = "List durable employee conversations for a seren-cloud deployment.",
+        annotations(read_only_hint = true, open_world_hint = false)
     )]
-    async fn close_cloud_agent_run_stream(
+    async fn list_cloud_agent_conversations(
         &self,
-        Parameters(params): Parameters<CloudDeploymentRunStreamCloseParams>,
+        Parameters(params): Parameters<CloudConversationsParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        let session_id = params.session_id.trim();
-        if session_id.is_empty() {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_list_conversations(
+                &params.deployment_id,
+                params.cursor.as_deref(),
+                Some(params.limit),
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List messages for one durable employee conversation in a seren-cloud deployment.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_cloud_agent_conversation_messages(
+        &self,
+        Parameters(params): Parameters<CloudConversationMessagesParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let conversation_id = params.conversation_id.trim();
+        if conversation_id.is_empty() {
             return Err(McpError::invalid_params(
-                "session_id must not be empty.",
+                "conversation_id must not be empty.",
                 None,
             ));
         }
-
+        let order = parse_conversation_message_order(params.order.as_deref())?;
         let api_client = self.api_client(&extensions)?;
         let response = api_client
-            .seren_cloud_deployment_run_stream_close(
+            .seren_cloud_get_conversation_messages(
                 &params.deployment_id,
-                &params.run_id,
-                session_id,
+                conversation_id,
+                params.cursor.as_deref(),
+                params.include_run,
+                Some(params.limit),
+                order,
             )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get the current live state for a seren-cloud run, optionally scoped to a deployment.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_cloud_run_state(
+        &self,
+        Parameters(params): Parameters<CloudRunStateParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = if let Some(deployment_id) = params.deployment_id {
+            api_client
+                .seren_cloud_deployment_run_state(&deployment_id, &params.run_id)
+                .await
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?
+                .into_inner()
+        } else {
+            api_client
+                .seren_cloud_run_state(&params.run_id)
+                .await
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?
+                .into_inner()
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List agent-owned future run schedules for a seren-cloud deployment.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_cloud_agent_schedules(
+        &self,
+        Parameters(params): Parameters<CloudAgentSchedulesParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_list_agent_schedules(
+                &params.deployment_id,
+                Some(params.limit),
+                Some(params.offset),
+            )
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Create or update an agent-owned future run schedule for a seren-cloud deployment.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn create_cloud_agent_schedule(
+        &self,
+        Parameters(params): Parameters<CreateCloudAgentScheduleParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let body = seren::CloudDeploymentAgentScheduleRequest {
+            conversation_id: params
+                .conversation_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            cron: params
+                .cron
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            delay_seconds: params.delay_seconds,
+            max_attempts: params.max_attempts,
+            message: params
+                .message
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            payload: params.payload,
+            run_at: parse_optional_timestamp(params.run_at.as_deref(), "run_at")?,
+            schedule_key: params
+                .schedule_key
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            timezone: params
+                .timezone
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+        };
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_create_agent_schedule(&params.deployment_id, &body)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Cancel an active agent-owned future run schedule for a seren-cloud deployment.",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn cancel_cloud_agent_schedule(
+        &self,
+        Parameters(params): Parameters<CancelCloudAgentScheduleParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_cloud_cancel_agent_schedule(&params.deployment_id, &params.schedule_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
@@ -11743,32 +11990,6 @@ API endpoint: {endpoint}",
                 Some(params.offset),
                 params.q.as_deref(),
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
-    }
-
-    #[tool(
-        description = "Close an active stream session for a cloud run by run ID.",
-        annotations(read_only_hint = false, open_world_hint = false)
-    )]
-    async fn close_cloud_run_stream(
-        &self,
-        Parameters(params): Parameters<CloudRunStreamCloseParams>,
-        extensions: Extensions,
-    ) -> Result<CallToolResult, McpError> {
-        let session_id = params.session_id.trim();
-        if session_id.is_empty() {
-            return Err(McpError::invalid_params(
-                "session_id must not be empty.",
-                None,
-            ));
-        }
-
-        let api_client = self.api_client(&extensions)?;
-        let response = api_client
-            .seren_cloud_run_stream_close(&params.run_id, session_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
