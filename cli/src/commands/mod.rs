@@ -11,6 +11,7 @@ pub mod endpoints;
 pub mod env;
 pub mod ip_allow_list;
 pub mod oauth;
+pub mod object_storage;
 pub mod operations;
 pub mod org_oauth_providers;
 pub mod org_skills;

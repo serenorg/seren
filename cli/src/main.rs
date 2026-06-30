@@ -55,6 +55,16 @@ enum Commands {
         #[command(subcommand)]
         action: OrgAction,
     },
+    /// Manage organization object storage
+    #[command(name = "object-storage", visible_alias = "storage")]
+    ObjectStorage {
+        /// Organization ID, or default for the active organization
+        #[arg(long, default_value = "default")]
+        org_id: String,
+
+        #[command(subcommand)]
+        action: ObjectStorageAction,
+    },
     /// Manage projects
     Projects {
         #[command(subcommand)]
@@ -2455,6 +2465,115 @@ enum OrgAction {
 }
 
 #[derive(Subcommand)]
+enum ObjectStorageAction {
+    /// Manage object storage buckets
+    Buckets {
+        #[command(subcommand)]
+        action: ObjectStorageBucketAction,
+    },
+    /// Manage objects in a bucket
+    Objects {
+        /// Object storage bucket slug
+        #[arg(long)]
+        bucket: String,
+
+        #[command(subcommand)]
+        action: ObjectStorageObjectAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ObjectStorageBucketAction {
+    /// List buckets
+    List,
+    /// Create a bucket
+    Create {
+        /// Bucket slug
+        #[arg(long)]
+        slug: String,
+        /// Optional display name
+        #[arg(long)]
+        display_name: Option<String>,
+        /// Optional metadata JSON object
+        #[arg(long = "metadata")]
+        metadata_json: Option<String>,
+        /// Optional path to a metadata JSON object file
+        #[arg(long = "metadata-file")]
+        metadata_file: Option<std::path::PathBuf>,
+    },
+    /// Delete an empty bucket
+    Delete {
+        /// Bucket slug
+        #[arg(long)]
+        bucket: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ObjectStorageObjectAction {
+    /// List uploaded objects
+    List {
+        /// Optional key prefix filter
+        #[arg(long)]
+        prefix: Option<String>,
+        /// Maximum number of objects to return
+        #[arg(long)]
+        limit: Option<i64>,
+        /// Offset for pagination
+        #[arg(long)]
+        offset: Option<i64>,
+    },
+    /// Upload a local file
+    Upload {
+        /// Object key to store
+        #[arg(long)]
+        key: String,
+        /// Local file path
+        #[arg(long)]
+        path: std::path::PathBuf,
+        /// Content type. Defaults to application/octet-stream.
+        #[arg(long)]
+        content_type: Option<String>,
+        /// Optional metadata JSON object
+        #[arg(long = "metadata")]
+        metadata_json: Option<String>,
+        /// Optional path to a metadata JSON object file
+        #[arg(long = "metadata-file")]
+        metadata_file: Option<std::path::PathBuf>,
+    },
+    /// Download an object by key
+    Download {
+        /// Object key to download
+        #[arg(long)]
+        key: String,
+        /// Destination file path. The file must not already exist.
+        #[arg(long)]
+        output: std::path::PathBuf,
+    },
+    /// Retry confirmation for a pending upload
+    Confirm {
+        /// Object ID returned by the upload create step
+        #[arg(long)]
+        object_id: Uuid,
+        /// Optional expected SHA-256 hex digest
+        #[arg(long)]
+        sha256: Option<String>,
+        /// Optional expected byte length
+        #[arg(long)]
+        byte_length: Option<i64>,
+        /// Optional object ETag returned by the presigned PUT
+        #[arg(long)]
+        etag: Option<String>,
+    },
+    /// Delete an object by ID
+    Delete {
+        /// Object ID
+        #[arg(long)]
+        object_id: Uuid,
+    },
+}
+
+#[derive(Subcommand)]
 enum PrivateModelsPolicyAction {
     /// Get the private-model policy
     Get,
@@ -4437,6 +4556,90 @@ async fn main() -> anyhow::Result<()> {
                 }
                 PrivateModelsPolicyAction::Update { body } => {
                     commands::organizations::private_models_policy_update(&org_id, &body, &ctx)
+                        .await?
+                }
+            },
+        },
+        Commands::ObjectStorage { org_id, action } => match action {
+            ObjectStorageAction::Buckets { action } => match action {
+                ObjectStorageBucketAction::List => {
+                    commands::object_storage::list_buckets(&org_id, &ctx).await?
+                }
+                ObjectStorageBucketAction::Create {
+                    slug,
+                    display_name,
+                    metadata_json,
+                    metadata_file,
+                } => {
+                    commands::object_storage::create_bucket(
+                        &org_id,
+                        slug,
+                        display_name,
+                        metadata_json,
+                        metadata_file,
+                        &ctx,
+                    )
+                    .await?
+                }
+                ObjectStorageBucketAction::Delete { bucket } => {
+                    commands::object_storage::delete_bucket(&org_id, &bucket, &ctx).await?
+                }
+            },
+            ObjectStorageAction::Objects { bucket, action } => match action {
+                ObjectStorageObjectAction::List {
+                    prefix,
+                    limit,
+                    offset,
+                } => {
+                    commands::object_storage::list_objects(
+                        &org_id, &bucket, prefix, limit, offset, &ctx,
+                    )
+                    .await?
+                }
+                ObjectStorageObjectAction::Upload {
+                    key,
+                    path,
+                    content_type,
+                    metadata_json,
+                    metadata_file,
+                } => {
+                    commands::object_storage::upload_object(
+                        &org_id,
+                        &bucket,
+                        commands::object_storage::UploadObjectOptions {
+                            object_key: key,
+                            path,
+                            content_type,
+                            metadata_json,
+                            metadata_file,
+                        },
+                        &ctx,
+                    )
+                    .await?
+                }
+                ObjectStorageObjectAction::Download { key, output } => {
+                    commands::object_storage::download_object(&org_id, &bucket, &key, output, &ctx)
+                        .await?
+                }
+                ObjectStorageObjectAction::Confirm {
+                    object_id,
+                    sha256,
+                    byte_length,
+                    etag,
+                } => {
+                    commands::object_storage::confirm_object(
+                        &org_id,
+                        &bucket,
+                        object_id,
+                        sha256,
+                        byte_length,
+                        etag,
+                        &ctx,
+                    )
+                    .await?
+                }
+                ObjectStorageObjectAction::Delete { object_id } => {
+                    commands::object_storage::delete_object(&org_id, &bucket, object_id, &ctx)
                         .await?
                 }
             },
@@ -7761,6 +7964,181 @@ mod tests {
                 },
                 _ => panic!("unexpected passwords action parsed"),
             },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn object_storage_bucket_create_parses_metadata() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "object-storage",
+            "--org-id",
+            "default",
+            "buckets",
+            "create",
+            "--slug",
+            "employee-files",
+            "--display-name",
+            "Employee files",
+            "--metadata",
+            r#"{"team":"ops"}"#,
+        ]);
+
+        match cli.command {
+            Commands::ObjectStorage { org_id, action } => {
+                assert_eq!(org_id, "default");
+                match action {
+                    ObjectStorageAction::Buckets { action } => match action {
+                        ObjectStorageBucketAction::Create {
+                            slug,
+                            display_name,
+                            metadata_json,
+                            metadata_file,
+                        } => {
+                            assert_eq!(slug, "employee-files");
+                            assert_eq!(display_name.as_deref(), Some("Employee files"));
+                            assert_eq!(metadata_json.as_deref(), Some(r#"{"team":"ops"}"#));
+                            assert!(metadata_file.is_none());
+                        }
+                        _ => panic!("unexpected object storage bucket action parsed"),
+                    },
+                    _ => panic!("unexpected object storage action parsed"),
+                }
+            }
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn object_storage_object_upload_download_parse() {
+        let upload = parse_cli_with_large_stack(vec![
+            "seren",
+            "object-storage",
+            "objects",
+            "--bucket",
+            "employee-files",
+            "upload",
+            "--key",
+            "notes/report.txt",
+            "--path",
+            "report.txt",
+            "--content-type",
+            "text/plain",
+        ]);
+
+        match upload.command {
+            Commands::ObjectStorage { org_id, action } => {
+                assert_eq!(org_id, "default");
+                match action {
+                    ObjectStorageAction::Objects { bucket, action } => {
+                        assert_eq!(bucket, "employee-files");
+                        match action {
+                            ObjectStorageObjectAction::Upload {
+                                key,
+                                path,
+                                content_type,
+                                metadata_json,
+                                metadata_file,
+                            } => {
+                                assert_eq!(key, "notes/report.txt");
+                                assert_eq!(path, std::path::PathBuf::from("report.txt"));
+                                assert_eq!(content_type.as_deref(), Some("text/plain"));
+                                assert!(metadata_json.is_none());
+                                assert!(metadata_file.is_none());
+                            }
+                            _ => panic!("unexpected object storage object action parsed"),
+                        }
+                    }
+                    _ => panic!("unexpected object storage action parsed"),
+                }
+            }
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let download = parse_cli_with_large_stack(vec![
+            "seren",
+            "storage",
+            "objects",
+            "--bucket",
+            "employee-files",
+            "download",
+            "--key",
+            "notes/report.txt",
+            "--output",
+            "report-copy.txt",
+        ]);
+
+        match download.command {
+            Commands::ObjectStorage { org_id, action } => {
+                assert_eq!(org_id, "default");
+                match action {
+                    ObjectStorageAction::Objects { bucket, action } => {
+                        assert_eq!(bucket, "employee-files");
+                        match action {
+                            ObjectStorageObjectAction::Download { key, output } => {
+                                assert_eq!(key, "notes/report.txt");
+                                assert_eq!(output, std::path::PathBuf::from("report-copy.txt"));
+                            }
+                            _ => panic!("unexpected object storage object action parsed"),
+                        }
+                    }
+                    _ => panic!("unexpected object storage action parsed"),
+                }
+            }
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let confirm = parse_cli_with_large_stack(vec![
+            "seren",
+            "storage",
+            "objects",
+            "--bucket",
+            "employee-files",
+            "confirm",
+            "--object-id",
+            "11111111-1111-1111-1111-111111111111",
+            "--sha256",
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "--byte-length",
+            "42",
+            "--etag",
+            "etag-value",
+        ]);
+
+        match confirm.command {
+            Commands::ObjectStorage { org_id, action } => {
+                assert_eq!(org_id, "default");
+                match action {
+                    ObjectStorageAction::Objects { bucket, action } => {
+                        assert_eq!(bucket, "employee-files");
+                        match action {
+                            ObjectStorageObjectAction::Confirm {
+                                object_id,
+                                sha256,
+                                byte_length,
+                                etag,
+                            } => {
+                                assert_eq!(
+                                    object_id,
+                                    Uuid::parse_str("11111111-1111-1111-1111-111111111111")
+                                        .unwrap()
+                                );
+                                assert_eq!(
+                                    sha256.as_deref(),
+                                    Some(
+                                        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                                    )
+                                );
+                                assert_eq!(byte_length, Some(42));
+                                assert_eq!(etag.as_deref(), Some("etag-value"));
+                            }
+                            _ => panic!("unexpected object storage object action parsed"),
+                        }
+                    }
+                    _ => panic!("unexpected object storage action parsed"),
+                }
+            }
             _ => panic!("unexpected command parsed"),
         }
     }

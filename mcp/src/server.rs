@@ -128,6 +128,33 @@ pub struct ApiKeyPath {
     pub key_id: Uuid,
 }
 
+/// Object storage organization selector. Use "default" for the active organization.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct ObjectStorageOrganizationPath {
+    /// Organization ID, or "default" for the active organization
+    pub organization_id: String,
+}
+
+/// Object storage bucket selector.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct ObjectStorageBucketPath {
+    /// Organization ID, or "default" for the active organization
+    pub organization_id: String,
+    /// Object storage bucket slug
+    pub bucket_slug: String,
+}
+
+/// Object storage object selector.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct ObjectStorageObjectPath {
+    /// Organization ID, or "default" for the active organization
+    pub organization_id: String,
+    /// Object storage bucket slug
+    pub bucket_slug: String,
+    /// Object ID
+    pub object_id: Uuid,
+}
+
 // ============================================================================
 // Tool Parameter Types (path + body composition)
 // ============================================================================
@@ -182,6 +209,56 @@ pub struct CreateApiKeyParams {
 }
 
 pub type RevokeApiKeyParams = ApiKeyPath;
+
+pub type ListObjectStorageBucketsParams = ObjectStorageOrganizationPath;
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CreateObjectStorageBucketParams {
+    #[serde(flatten)]
+    pub path: ObjectStorageOrganizationPath,
+    #[serde(flatten)]
+    pub body: seren::CreateObjectStorageBucketRequest,
+}
+
+pub type DeleteObjectStorageBucketParams = ObjectStorageBucketPath;
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ListObjectStorageObjectsParams {
+    #[serde(flatten)]
+    pub path: ObjectStorageBucketPath,
+    /// Optional key prefix filter
+    pub prefix: Option<String>,
+    /// Maximum number of objects to return
+    pub limit: Option<i64>,
+    /// Offset for pagination
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CreateObjectStorageUploadParams {
+    #[serde(flatten)]
+    pub path: ObjectStorageBucketPath,
+    #[serde(flatten)]
+    pub body: seren::CreateObjectStorageUploadRequest,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct DownloadObjectStorageObjectParams {
+    #[serde(flatten)]
+    pub path: ObjectStorageBucketPath,
+    /// Object key to download
+    pub object_key: String,
+}
+
+pub type DeleteObjectStorageObjectParams = ObjectStorageObjectPath;
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ConfirmObjectStorageUploadParams {
+    #[serde(flatten)]
+    pub path: ObjectStorageObjectPath,
+    #[serde(flatten)]
+    pub body: seren::ConfirmObjectStorageUploadRequest,
+}
 
 // Organization OAuth provider operations
 /// Path parameters for org OAuth provider operations
@@ -6357,6 +6434,218 @@ impl SerenMcpServer {
             "API key {} revoked successfully",
             params.key_id
         ))]))
+    }
+
+    // ========================================================================
+    // Object Storage Tools
+    // ========================================================================
+
+    #[tool(
+        description = "List object storage buckets for an organization. Use organization_id=\"default\" for the active organization.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_object_storage_buckets(
+        &self,
+        Parameters(params): Parameters<ListObjectStorageBucketsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .list_object_storage_buckets(&params.organization_id)
+            .await
+        {
+            Ok(resp) => resp.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Create an object storage bucket for an organization. Bucket slugs are stable namespaces for employee or agent files.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn create_object_storage_bucket(
+        &self,
+        Parameters(params): Parameters<CreateObjectStorageBucketParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .create_object_storage_bucket(&params.path.organization_id, &params.body)
+            .await
+        {
+            Ok(resp) => resp.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Delete an empty object storage bucket.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn delete_object_storage_bucket(
+        &self,
+        Parameters(params): Parameters<DeleteObjectStorageBucketParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .delete_object_storage_bucket(&params.organization_id, &params.bucket_slug)
+            .await
+        {
+            Ok(resp) => resp.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List uploaded objects in an object storage bucket, optionally filtered by key prefix.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_object_storage_objects(
+        &self,
+        Parameters(params): Parameters<ListObjectStorageObjectsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .list_object_storage_objects(
+                &params.path.organization_id,
+                &params.path.bucket_slug,
+                params.limit,
+                params.offset,
+                params.prefix.as_deref(),
+            )
+            .await
+        {
+            Ok(resp) => resp.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Create a presigned object upload. The caller must PUT the bytes to upload_url with upload_headers, then call confirm_object_storage_upload.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn create_object_storage_upload(
+        &self,
+        Parameters(params): Parameters<CreateObjectStorageUploadParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .create_object_storage_upload(
+                &params.path.organization_id,
+                &params.path.bucket_slug,
+                &params.body,
+            )
+            .await
+        {
+            Ok(resp) => resp.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Confirm a pending object upload after the caller has uploaded bytes to the presigned upload URL.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn confirm_object_storage_upload(
+        &self,
+        Parameters(params): Parameters<ConfirmObjectStorageUploadParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .confirm_object_storage_upload(
+                &params.path.organization_id,
+                &params.path.bucket_slug,
+                &params.path.object_id,
+                &params.body,
+            )
+            .await
+        {
+            Ok(resp) => resp.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Create a presigned download URL for an uploaded object by key. The response includes download_url and any required download_headers.",
+        annotations(read_only_hint = true, open_world_hint = true)
+    )]
+    async fn download_object_storage_object(
+        &self,
+        Parameters(params): Parameters<DownloadObjectStorageObjectParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .download_object_storage_object(
+                &params.path.organization_id,
+                &params.path.bucket_slug,
+                &params.object_key,
+            )
+            .await
+        {
+            Ok(resp) => resp.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Delete an object storage object by object ID.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn delete_object_storage_object(
+        &self,
+        Parameters(params): Parameters<DeleteObjectStorageObjectParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .delete_object_storage_object(
+                &params.organization_id,
+                &params.bucket_slug,
+                &params.object_id,
+            )
+            .await
+        {
+            Ok(resp) => resp.into_inner(),
+            Err(e) => return Err(seren_error_to_mcp_error(e).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     // ========================================================================
