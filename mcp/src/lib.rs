@@ -305,6 +305,12 @@ const API_KEY_CACHE_TTL_SECS: u64 = 300;
 /// Maximum number of cached API key validations.
 const API_KEY_CACHE_SIZE: usize = 1_000;
 
+/// Maximum attempts for transient API-key validation failures.
+const API_KEY_VALIDATION_MAX_ATTEMPTS: usize = 3;
+
+/// Initial retry delay for transient API-key validation failures.
+const API_KEY_VALIDATION_RETRY_DELAY_MS: u64 = 100;
+
 /// Cached API key validation result with expiry timestamp.
 #[derive(Clone)]
 struct CachedApiKeyValidation {
@@ -340,6 +346,7 @@ async fn validate_api_key_cached(
     api_base_url: &str,
     api_key: &str,
     cache: &Arc<Mutex<LruCache<String, CachedApiKeyValidation>>>,
+    circuit_breaker: &Arc<oauth::circuit_breaker::OAuthCircuitBreaker>,
 ) -> Result<seren::DataResponseUserMeData, ApiKeyValidationError> {
     // Check cache first
     {
@@ -363,7 +370,8 @@ async fn validate_api_key_cached(
     }
 
     // Cache miss - validate against backend
-    let user_info = validate_api_key_uncached(api_base_url, api_key).await?;
+    let user_info =
+        validate_api_key_uncached_with_retry(api_base_url, api_key, circuit_breaker).await?;
 
     // Store in cache
     {
@@ -385,6 +393,55 @@ async fn validate_api_key_cached(
     }
 
     Ok(user_info)
+}
+
+/// Validate an API key against the Seren API with retry/backoff for transient failures.
+async fn validate_api_key_uncached_with_retry(
+    api_base_url: &str,
+    api_key: &str,
+    circuit_breaker: &Arc<oauth::circuit_breaker::OAuthCircuitBreaker>,
+) -> Result<seren::DataResponseUserMeData, ApiKeyValidationError> {
+    if !circuit_breaker.is_call_permitted() {
+        tracing::warn!(
+            event = "api_key_validation_circuit_open",
+            "Skipping API key validation because upstream auth circuit is open"
+        );
+        return Err(ApiKeyValidationError::UpstreamError { status: None });
+    }
+
+    let mut last_status = None;
+    for attempt in 1..=API_KEY_VALIDATION_MAX_ATTEMPTS {
+        match validate_api_key_uncached(api_base_url, api_key).await {
+            Ok(user_info) => {
+                circuit_breaker.record_success();
+                return Ok(user_info);
+            }
+            Err(ApiKeyValidationError::InvalidToken) => {
+                return Err(ApiKeyValidationError::InvalidToken);
+            }
+            Err(ApiKeyValidationError::UpstreamError { status }) => {
+                last_status = status;
+                if attempt == API_KEY_VALIDATION_MAX_ATTEMPTS {
+                    break;
+                }
+
+                tracing::warn!(
+                    event = "api_key_validation_retry",
+                    attempt,
+                    max_attempts = API_KEY_VALIDATION_MAX_ATTEMPTS,
+                    status = ?status,
+                    "API key validation hit a transient upstream error; retrying"
+                );
+                let delay_ms = API_KEY_VALIDATION_RETRY_DELAY_MS.saturating_mul(attempt as u64);
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
+        }
+    }
+
+    circuit_breaker.record_failure();
+    Err(ApiKeyValidationError::UpstreamError {
+        status: last_status,
+    })
 }
 
 /// Validate an API key against the Seren API by calling /auth/me (uncached).
@@ -505,6 +562,7 @@ async fn require_oauth_auth(
                 &state.oauth_state.upstream_api_base_url,
                 &token,
                 &state.api_key_cache,
+                &state.oauth_state.circuit_breaker,
             )
             .await
             {
@@ -1805,6 +1863,8 @@ mod tests {
     use axum::body::Body;
     use axum::http::Request;
     use tower::ServiceExt;
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
     fn extract_bearer_token_is_case_insensitive_and_trims() {
@@ -1901,6 +1961,52 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), axum::http::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn validate_api_key_retries_transient_auth_backend_failure() {
+        let upstream = MockServer::start().await;
+        let api_key = "seren_test_key";
+
+        Mock::given(method("GET"))
+            .and(path("/auth/me"))
+            .and(header("authorization", format!("Bearer {api_key}")))
+            .respond_with(ResponseTemplate::new(503).set_body_json(serde_json::json!({
+                "error": "temporarily unavailable"
+            })))
+            .with_priority(1)
+            .up_to_n_times(1)
+            .mount(&upstream)
+            .await;
+
+        let user_id = Uuid::new_v4();
+        let organization_id = Uuid::new_v4();
+        Mock::given(method("GET"))
+            .and(path("/auth/me"))
+            .and(header("authorization", format!("Bearer {api_key}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "id": user_id,
+                    "email": "user@example.com",
+                    "name": "Test User",
+                    "status": "active",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "default_organization_id": organization_id
+                }
+            })))
+            .with_priority(2)
+            .mount(&upstream)
+            .await;
+
+        let user = validate_api_key_uncached_with_retry(
+            &upstream.uri(),
+            api_key,
+            &oauth::circuit_breaker::create_oauth_circuit_breaker(),
+        )
+        .await
+        .expect("transient validation failure should be retried");
+
+        assert_eq!(user.id, user_id);
     }
 
     #[test]

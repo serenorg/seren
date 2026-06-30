@@ -311,6 +311,14 @@ impl SessionManager for RestorableSessionManager {
         // Generate a new session ID
         let id: SessionId = uuid::Uuid::new_v4().to_string().into();
 
+        // Track in database before returning a session ID. In multi-replica
+        // deployments, a session that is not persisted cannot be restored by the
+        // next pod that receives a request for it.
+        self.store
+            .create_mcp_session(id.as_ref())
+            .await
+            .map_err(|e| RestorableSessionError::Database(e.to_string()))?;
+
         // Create session infrastructure
         let (handle, worker) = create_local_session(id.clone(), self.session_config.clone());
 
@@ -320,16 +328,6 @@ impl SessionManager for RestorableSessionManager {
             sessions.insert(id.clone(), handle);
             #[cfg(feature = "telemetry")]
             crate::metrics::ACTIVE_SESSIONS.set(sessions.len() as i64);
-        }
-
-        // Track in database (initialization state saved later during initialize_session)
-        if let Err(e) = self.store.create_mcp_session(id.as_ref()).await {
-            tracing::warn!(
-                event = "session_track_failed",
-                session_id = %id,
-                error = %e,
-                "Failed to track session in database"
-            );
         }
 
         tracing::debug!(
@@ -381,12 +379,25 @@ impl SessionManager for RestorableSessionManager {
             )
             .await
         {
-            tracing::warn!(
+            tracing::error!(
                 event = "session_state_save_failed",
                 session_id = %id,
                 error = %e,
-                "Failed to save session state (session will not survive restart)"
+                "Failed to save session state; failing initialize so clients do not receive a non-restorable session"
             );
+
+            let handle = {
+                let mut sessions = self.sessions.write().await;
+                let handle = sessions.remove(id);
+                #[cfg(feature = "telemetry")]
+                crate::metrics::ACTIVE_SESSIONS.set(sessions.len() as i64);
+                handle
+            };
+            if let Some(handle) = handle {
+                let _ = handle.close().await;
+            }
+
+            return Err(RestorableSessionError::Database(e.to_string()));
         } else {
             tracing::debug!(
                 event = "session_state_saved",
