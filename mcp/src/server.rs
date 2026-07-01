@@ -10426,6 +10426,27 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "Get organization-level health for managed seren-agent deployments, including deployment readiness and managed file storage status.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn get_seren_agent_health(
+        &self,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_health()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
         description = "Run an unsaved managed seren-agent draft once before deploying. The request body matches deploy_seren_agent inputs and may include optional test_message.",
         annotations(
             read_only_hint = false,
@@ -10474,6 +10495,28 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_get_managed_deployment(&params.deployment_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get health for a single managed seren-agent deployment.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn get_seren_agent_deployment_health(
+        &self,
+        Parameters(params): Parameters<GetSerenAgentDeploymentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_get_deployment_health(&params.deployment_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();

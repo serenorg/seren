@@ -2826,6 +2826,116 @@ fn print_cloud_deployment_list_table(deployments: &[serde_json::Value]) {
     }
 }
 
+fn print_managed_agent_health_table(title: &str, payload: &serde_json::Value) {
+    let data = payload.get("data").unwrap_or(payload);
+    let summary = data.get("summary").unwrap_or(&serde_json::Value::Null);
+    let mut rows = vec![
+        ("Status", json_string_field(data, "status")),
+        (
+            "Deployments",
+            json_number_field(summary, "deployment_count"),
+        ),
+        (
+            "Running",
+            json_number_field(summary, "running_deployment_count"),
+        ),
+        (
+            "Failed",
+            json_number_field(summary, "failed_deployment_count"),
+        ),
+        (
+            "Stopped",
+            json_number_field(summary, "stopped_deployment_count"),
+        ),
+        (
+            "Critical Findings",
+            json_number_field(summary, "critical_count"),
+        ),
+        ("Warnings", json_number_field(summary, "warning_count")),
+    ];
+    if let Some(storage) = data.get("storage") {
+        rows.extend([
+            ("Storage Configured", json_bool_field(storage, "configured")),
+            ("Storage Available", json_bool_field(storage, "available")),
+            (
+                "Storage Buckets",
+                json_number_field(storage, "bucket_count"),
+            ),
+            (
+                "Pending Uploads",
+                json_number_field(storage, "pending_upload_count"),
+            ),
+            (
+                "Delete Backlog",
+                json_number_field(storage, "delete_failed_count"),
+            ),
+        ]);
+    }
+    if let Some(deployment) = data.get("deployment") {
+        rows.push((
+            "Deployment ID",
+            json_string_field(deployment, "deployment_id"),
+        ));
+        rows.push(("Name", json_string_field(deployment, "name")));
+        rows.push(("Agent Slug", json_string_field(deployment, "agent_slug")));
+        rows.push(("Deployment Status", json_string_field(deployment, "status")));
+    }
+    output::print_key_value_table(Some(title), &rows);
+
+    let findings = data
+        .get("findings")
+        .and_then(|value| value.as_array())
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    if findings.is_empty() {
+        println!();
+        println!("No health findings.");
+        return;
+    }
+
+    println!();
+    println!("Findings:");
+    for finding in findings {
+        let severity = finding
+            .get("severity")
+            .and_then(|value| value.as_str())
+            .unwrap_or("info");
+        let title = finding
+            .get("title")
+            .and_then(|value| value.as_str())
+            .unwrap_or("Finding");
+        let detail = finding
+            .get("detail")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        println!("- [{severity}] {title}: {detail}");
+    }
+}
+
+fn json_string_field(value: &serde_json::Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn json_number_field(value: &serde_json::Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(|value| value.as_i64().or_else(|| value.as_u64().map(|n| n as i64)))
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn json_bool_field(value: &serde_json::Value, key: &str) -> String {
+    match value.get(key).and_then(|value| value.as_bool()) {
+        Some(true) => "yes".to_string(),
+        Some(false) => "no".to_string(),
+        None => "-".to_string(),
+    }
+}
+
 fn print_managed_agent_detail_table(payload: &serde_json::Value) {
     let detail = payload.get("data").unwrap_or(payload);
     let tool_presets = json_string_list(detail, "tool_presets");
@@ -3404,6 +3514,26 @@ pub async fn managed_agent_list(ctx: &CommandContext) -> Result<()> {
     Ok(())
 }
 
+/// Get health for managed seren-agent deployments.
+pub async fn managed_agent_health(ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = match client.seren_agent_health().await {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(anyhow_from_seren_error("Failed to get managed agent health", err).await);
+        }
+    };
+    let payload = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&payload)?,
+        OutputFormat::Table => {
+            let value = serde_json::to_value(&payload)?;
+            print_managed_agent_health_table("Managed Agent Health", &value);
+        }
+    }
+    Ok(())
+}
+
 /// Run an unsaved managed seren-agent draft once.
 pub async fn managed_agent_test_run(body: &str, ctx: &CommandContext) -> Result<()> {
     let request: seren::TestSerenAgentDraftRunRequest =
@@ -3442,6 +3572,34 @@ pub async fn managed_agent_test_run(body: &str, ctx: &CommandContext) -> Result<
         }
     }
 
+    Ok(())
+}
+
+/// Get health for a managed seren-agent deployment.
+pub async fn managed_agent_deployment_health(
+    deployment_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_agent_get_deployment_health(&deployment_id)
+        .await
+    {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(
+                anyhow_from_seren_error("Failed to get managed deployment health", err).await,
+            );
+        }
+    };
+    let payload = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&payload)?,
+        OutputFormat::Table => {
+            let value = serde_json::to_value(&payload)?;
+            print_managed_agent_health_table("Managed Deployment Health", &value);
+        }
+    }
     Ok(())
 }
 

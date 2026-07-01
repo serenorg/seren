@@ -160,6 +160,56 @@
         ]
       }
     },
+    "/deployments/{id}/health": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Get health for a managed seren-agent deployment.",
+        "operationId": "seren_agent_get_deployment_health",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed deployment health retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentDeploymentHealthReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Deployment is not managed by seren-agent"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/managed": {
       "get": {
         "tags": [
@@ -610,6 +660,38 @@
           },
           "404": {
             "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Get organization-level health for managed seren-agent deployments.",
+        "operationId": "seren_agent_health",
+        "responses": {
+          "200": {
+            "description": "Managed agent health retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentHealthReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
           }
         },
         "security": [
@@ -3940,6 +4022,72 @@
           }
         }
       },
+      "DataResponse_ManagedAgentDeploymentHealthReport": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "organization_id",
+              "generated_at",
+              "status",
+              "summary",
+              "deployment",
+              "findings"
+            ],
+            "properties": {
+              "deployment": {
+                "$ref": "#/components/schemas/ManagedAgentDeploymentHealth"
+              },
+              "findings": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentHealthFinding"
+                }
+              },
+              "generated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "status": {
+                "$ref": "#/components/schemas/ManagedAgentHealthStatus"
+              },
+              "storage": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentStorageHealth"
+                  }
+                ]
+              },
+              "summary": {
+                "$ref": "#/components/schemas/ManagedAgentHealthSummary"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentDeploymentRollbackPreview": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -4044,6 +4192,69 @@
               },
               "proposed": {
                 "$ref": "#/components/schemas/ManagedAgentDeploymentDetail"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentHealthReport": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "organization_id",
+              "generated_at",
+              "status",
+              "summary",
+              "storage",
+              "deployments",
+              "findings"
+            ],
+            "properties": {
+              "deployments": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentDeploymentHealth"
+                }
+              },
+              "findings": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentHealthFinding"
+                }
+              },
+              "generated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "status": {
+                "$ref": "#/components/schemas/ManagedAgentHealthStatus"
+              },
+              "storage": {
+                "$ref": "#/components/schemas/ManagedAgentStorageHealth"
+              },
+              "summary": {
+                "$ref": "#/components/schemas/ManagedAgentHealthSummary"
               }
             }
           },
@@ -5009,6 +5220,147 @@
           }
         }
       },
+      "ManagedAgentDeploymentHealth": {
+        "type": "object",
+        "required": [
+          "deployment_id",
+          "name",
+          "agent_slug",
+          "status",
+          "mode",
+          "compute_backend",
+          "runtime_kind",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "active_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "agent_slug": {
+            "type": "string"
+          },
+          "approval_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentApprovalPolicy"
+              }
+            ]
+          },
+          "compute_backend": {
+            "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CloudDeploymentMode"
+          },
+          "model_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentModelPolicy"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "runtime_kind": {
+            "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CloudDeploymentStatus"
+          },
+          "template": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentTemplate"
+              }
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ManagedAgentDeploymentHealthReport": {
+        "type": "object",
+        "required": [
+          "organization_id",
+          "generated_at",
+          "status",
+          "summary",
+          "deployment",
+          "findings"
+        ],
+        "properties": {
+          "deployment": {
+            "$ref": "#/components/schemas/ManagedAgentDeploymentHealth"
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentHealthFinding"
+            }
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ManagedAgentHealthStatus"
+          },
+          "storage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentStorageHealth"
+              }
+            ]
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ManagedAgentHealthSummary"
+          }
+        }
+      },
       "ManagedAgentDeploymentRevisionSummary": {
         "type": "object",
         "required": [
@@ -5197,6 +5549,161 @@
           "proposed_value": {}
         }
       },
+      "ManagedAgentHealthFinding": {
+        "type": "object",
+        "required": [
+          "id",
+          "severity",
+          "category",
+          "title",
+          "detail",
+          "recommendation",
+          "source"
+        ],
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "recommendation": {
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/ManagedAgentHealthSeverity"
+          },
+          "source": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentHealthReport": {
+        "type": "object",
+        "required": [
+          "organization_id",
+          "generated_at",
+          "status",
+          "summary",
+          "storage",
+          "deployments",
+          "findings"
+        ],
+        "properties": {
+          "deployments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentDeploymentHealth"
+            }
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentHealthFinding"
+            }
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ManagedAgentHealthStatus"
+          },
+          "storage": {
+            "$ref": "#/components/schemas/ManagedAgentStorageHealth"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ManagedAgentHealthSummary"
+          }
+        }
+      },
+      "ManagedAgentHealthSeverity": {
+        "type": "string",
+        "enum": [
+          "info",
+          "warning",
+          "critical"
+        ]
+      },
+      "ManagedAgentHealthStatus": {
+        "type": "string",
+        "enum": [
+          "ok",
+          "attention",
+          "critical"
+        ]
+      },
+      "ManagedAgentHealthSummary": {
+        "type": "object",
+        "required": [
+          "critical_count",
+          "warning_count",
+          "info_count",
+          "deployment_count",
+          "running_deployment_count",
+          "failed_deployment_count",
+          "stopped_deployment_count",
+          "pending_deployment_count",
+          "building_deployment_count"
+        ],
+        "properties": {
+          "building_deployment_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "critical_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "deployment_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "failed_deployment_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "info_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "pending_deployment_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "running_deployment_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "stopped_deployment_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "warning_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "ManagedAgentLlmConnection": {
         "oneOf": [
           {
@@ -5287,6 +5794,90 @@
           "direct_url",
           "seren_organization_database"
         ]
+      },
+      "ManagedAgentStorageBucketHealth": {
+        "type": "object",
+        "required": [
+          "id",
+          "slug",
+          "uploaded_object_count",
+          "uploaded_bytes",
+          "updated_at"
+        ],
+        "properties": {
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "uploaded_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "uploaded_object_count": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ManagedAgentStorageHealth": {
+        "type": "object",
+        "required": [
+          "configured",
+          "available",
+          "bucket_count",
+          "uploaded_object_count",
+          "pending_upload_count",
+          "delete_failed_count",
+          "uploaded_bytes",
+          "buckets"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "bucket_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "buckets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentStorageBucketHealth"
+            }
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "delete_failed_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pending_upload_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "uploaded_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "uploaded_object_count": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
       },
       "ManagedAgentSummary": {
         "type": "object",

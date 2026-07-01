@@ -1372,6 +1372,8 @@ enum AgentAction {
     ManagedCapabilities,
     /// List deployments through the seren-agent publisher
     ManagedList,
+    /// Get health for managed seren-agent deployments
+    ManagedHealth,
     /// Run an unsaved seren-agent managed draft once
     ManagedTestRun {
         /// JSON body matching AgentSpec
@@ -1380,6 +1382,11 @@ enum AgentAction {
     },
     /// Get the resolved managed seren-agent deployment detail
     ManagedGet {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+    /// Get health for a managed seren-agent deployment
+    ManagedDeploymentHealth {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
     },
@@ -6177,11 +6184,15 @@ async fn main() -> anyhow::Result<()> {
                 commands::agent::managed_agent_capabilities(&ctx).await?
             }
             AgentAction::ManagedList => commands::agent::managed_agent_list(&ctx).await?,
+            AgentAction::ManagedHealth => commands::agent::managed_agent_health(&ctx).await?,
             AgentAction::ManagedTestRun { body } => {
                 commands::agent::managed_agent_test_run(&body, &ctx).await?
             }
             AgentAction::ManagedGet { deployment_id } => {
                 commands::agent::managed_agent_get(deployment_id, &ctx).await?
+            }
+            AgentAction::ManagedDeploymentHealth { deployment_id } => {
+                commands::agent::managed_agent_deployment_health(deployment_id, &ctx).await?
             }
             AgentAction::ManagedRevisions { deployment_id } => {
                 commands::agent::managed_agent_revisions(deployment_id, &ctx).await?
