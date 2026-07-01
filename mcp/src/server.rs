@@ -10536,7 +10536,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Get platform resources available to a managed seren-agent deployment, including runtime, storage, connector, schedule, tool, memory, and capability summaries.",
+        description = "Get a managed-agent resource summary for a seren-agent deployment, including runtime, storage, connector, schedule, tool, memory, and capability summaries. Use seren-cloud deployment APIs for full runtime operations.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -10558,7 +10558,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Get recent redacted activity for a managed seren-agent deployment, including run status, timing, source, cost, token, and artifact-count summaries without prompts, outputs, tool arguments, connector payloads, or secrets.",
+        description = "Get recent managed-agent activity for a seren-agent deployment, including run status, timing, source, cost, token, and artifact-count summaries. This tool omits prompts, outputs, tool arguments, connector payloads, and secrets; use seren-cloud run-history APIs for full runtime history.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,

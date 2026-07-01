@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Seren Agent",
-    "description": "Orchestrate agent deployments through the seren-agent publisher.",
+    "description": "Orchestrate managed agent deployments through the seren-agent publisher. Managed projection endpoints are redacted control-plane views. Raw runtime history, streams, artifacts, sessions, audit, schedules, and runtime operations belong to seren-cloud.",
     "contact": {
       "name": "SerenAI",
       "email": "hello@serendb.com"
@@ -166,6 +166,7 @@
           "seren-agent"
         ],
         "summary": "Get recent activity for a managed seren-agent deployment.",
+        "description": "Returns recent managed-agent activity with run status, timing, cost, token, and artifact-count summaries. This endpoint omits prompt, output, and tool payload details; use seren-cloud run-history APIs for full runtime history.",
         "operationId": "seren_agent_get_deployment_activity",
         "parameters": [
           {
@@ -236,6 +237,7 @@
           "seren-agent"
         ],
         "summary": "Get health for a managed seren-agent deployment.",
+        "description": "Returns a managed-agent health projection for a seren-agent deployment. Use seren-cloud deployment APIs for raw runtime state and run history.",
         "operationId": "seren_agent_get_deployment_health",
         "parameters": [
           {
@@ -286,6 +288,7 @@
           "seren-agent"
         ],
         "summary": "Get the resolved managed spec for a seren-agent deployment.",
+        "description": "Returns the resolved managed-agent configuration for a seren-agent deployment. Use seren-cloud deployment APIs for raw runtime operations.",
         "operationId": "seren_agent_get_managed_deployment",
         "parameters": [
           {
@@ -657,6 +660,7 @@
           "seren-agent"
         ],
         "summary": "Get platform resources available to a managed seren-agent deployment.",
+        "description": "Returns a managed-agent resource summary. This endpoint is a managed-agent projection; use seren-cloud deployment APIs for full runtime operations.",
         "operationId": "seren_agent_get_deployment_resources",
         "parameters": [
           {
@@ -795,6 +799,7 @@
           "seren-agent"
         ],
         "summary": "Get organization-level health for managed seren-agent deployments.",
+        "description": "Returns an organization-level managed-agent health projection. Use seren-cloud deployment APIs for raw runtime state and run history.",
         "operationId": "seren_agent_health",
         "responses": {
           "200": {
@@ -7741,7 +7746,7 @@
   "tags": [
     {
       "name": "seren-agent",
-      "description": "Seren Agent orchestration endpoints"
+      "description": "Managed-agent projection and lifecycle endpoints. Use seren-cloud for raw runtime APIs."
     }
   ]
 }

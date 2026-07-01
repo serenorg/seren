@@ -3791,7 +3791,7 @@ pub async fn managed_agent_deployment_health(
     Ok(())
 }
 
-/// Get platform resources available to a managed seren-agent deployment.
+/// Get a managed-agent resource summary for a deployment.
 pub async fn managed_agent_deployment_resources(
     deployment_id: Uuid,
     ctx: &CommandContext,
@@ -3819,7 +3819,7 @@ pub async fn managed_agent_deployment_resources(
     Ok(())
 }
 
-/// Get recent activity for a managed seren-agent deployment.
+/// Get recent managed-agent activity for a deployment.
 pub async fn managed_agent_deployment_activity(
     deployment_id: Uuid,
     limit: Option<i64>,

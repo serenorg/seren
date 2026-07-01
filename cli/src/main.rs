@@ -1385,12 +1385,12 @@ enum AgentAction {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
     },
-    /// Get platform resources available to a managed seren-agent deployment
+    /// Get a managed-agent resource summary for a deployment
     ManagedDeploymentResources {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
     },
-    /// Get recent activity for a managed seren-agent deployment
+    /// Get recent managed-agent activity for a deployment
     ManagedDeploymentActivity {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
