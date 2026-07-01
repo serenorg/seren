@@ -956,6 +956,15 @@ enum AgentAction {
         /// Publisher ID (UUID) or slug
         publisher: String,
     },
+    /// Get generated skill.md guidance for a publisher
+    #[command(name = "publisher-skill-doc", visible_alias = "skill-doc")]
+    PublisherSkillDoc {
+        /// Publisher ID (UUID) or slug
+        publisher: String,
+    },
+    /// Get generated skill.md guidance for the core Seren API
+    #[command(name = "api-skill-doc", visible_alias = "seren-skill-doc")]
+    ApiSkillDoc,
     /// Get x402 deposit requirements (EIP-712 data for on-chain USDC deposit)
     GetDepositRequirements {
         /// Publisher ID (UUID) or slug
@@ -5870,6 +5879,10 @@ async fn main() -> anyhow::Result<()> {
             AgentAction::GetPublisher { publisher } => {
                 commands::agent::get_publisher(&publisher, &ctx).await?
             }
+            AgentAction::PublisherSkillDoc { publisher } => {
+                commands::agent::get_publisher_skill_doc(&publisher, &ctx).await?
+            }
+            AgentAction::ApiSkillDoc => commands::agent::get_seren_api_skill_doc(&ctx).await?,
             AgentAction::GetDepositRequirements {
                 publisher,
                 amount,
@@ -6423,6 +6436,50 @@ mod tests {
             .expect("failed to spawn parser thread")
             .join()
             .expect("parser thread panicked")
+    }
+
+    #[test]
+    fn agent_publisher_skill_doc_accepts_primary_name_and_alias() {
+        let primary = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "publisher-skill-doc",
+            "seren-agent",
+        ]);
+        match primary.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::PublisherSkillDoc { publisher } => {
+                    assert_eq!(publisher, "seren-agent");
+                }
+                _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let alias = parse_cli_with_large_stack(vec!["seren", "agent", "skill-doc", "seren-db"]);
+        match alias.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::PublisherSkillDoc { publisher } => {
+                    assert_eq!(publisher, "seren-db");
+                }
+                _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn agent_api_skill_doc_accepts_primary_name_and_alias() {
+        for name in ["api-skill-doc", "seren-skill-doc"] {
+            let cli = parse_cli_with_large_stack(vec!["seren", "agent", name]);
+            match cli.command {
+                Commands::Agent { action } => match *action {
+                    AgentAction::ApiSkillDoc => {}
+                    _ => panic!("unexpected agent action parsed for {name}"),
+                },
+                _ => panic!("unexpected command parsed for {name}"),
+            }
+        }
     }
 
     #[test]

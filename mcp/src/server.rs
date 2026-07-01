@@ -1443,6 +1443,13 @@ pub struct ListMcpResourcesParams {
     pub publisher: String,
 }
 
+/// Parameters for retrieving generated skill.md guidance for a publisher
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetPublisherSkillDocParams {
+    /// Publisher slug or UUID
+    pub publisher: String,
+}
+
 // ============================================================================
 // Additional Parameter Types for Extended Functionality
 // ============================================================================
@@ -3180,6 +3187,25 @@ fn truncate_for_client(value: &str, max_chars: usize) -> String {
     format!("{truncated}... (truncated)")
 }
 
+fn publisher_skill_doc_url(api_base_url: &str, publisher: &str) -> Result<String, McpError> {
+    skill_doc_url(api_base_url, &["publishers", publisher, "skill.md"])
+}
+
+fn seren_api_skill_doc_url(api_base_url: &str) -> Result<String, McpError> {
+    skill_doc_url(api_base_url, &["skill.md"])
+}
+
+fn skill_doc_url(api_base_url: &str, segments: &[&str]) -> Result<String, McpError> {
+    let mut url = reqwest::Url::parse(api_base_url.trim_end_matches('/'))
+        .map_err(|e| McpError::invalid_params(format!("Invalid API base URL: {e}"), None))?;
+    url.path_segments_mut()
+        .map_err(|_| {
+            McpError::invalid_params("API base URL cannot be used for path-based requests", None)
+        })?
+        .extend(segments);
+    Ok(url.to_string())
+}
+
 /// Convert a seren SDK error to an MCP error without forwarding server response bodies.
 pub(crate) async fn seren_error_to_mcp_error<T: std::fmt::Debug>(e: seren::Error<T>) -> McpError {
     match e {
@@ -4513,6 +4539,36 @@ impl SerenMcpServer {
         }
 
         resp.json::<serde_json::Value>()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))
+    }
+
+    async fn execute_api_text(
+        &self,
+        extensions: &Extensions,
+        url: String,
+        accept: &'static str,
+    ) -> Result<String, McpError> {
+        let token = self.bearer_token(extensions)?;
+        let agent_metadata = extract_agent_metadata_from_extensions(extensions);
+        let http_client = self.build_http_client(&token, &agent_metadata)?;
+
+        let resp = http_client
+            .get(&url)
+            .header(reqwest::header::ACCEPT, accept)
+            .send()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(McpError::internal_error(
+                format!("Seren API text request failed: {}", status),
+                None,
+            ));
+        }
+
+        resp.text()
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))
     }
@@ -10110,9 +10166,40 @@ API endpoint: {endpoint}",
     }
 
     // ========================================================================
-    // MCP Publisher Tools (for interacting with MCP server publishers)
+    // Publisher Context and MCP Tools
     // These tools call Seren API for proper billing/metering
     // ========================================================================
+
+    #[tool(
+        description = "Fetch generated skill.md guidance for a Seren publisher. Use this to inspect the publisher's documented capabilities, endpoints, and usage notes before choosing tools.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_publisher_skill_doc(
+        &self,
+        Parameters(params): Parameters<GetPublisherSkillDocParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = publisher_skill_doc_url(&self.api_base_url, &params.publisher)?;
+        let skill_md = self
+            .execute_api_text(&extensions, url, "text/markdown")
+            .await?;
+        Ok(CallToolResult::success(vec![Content::text(skill_md)]))
+    }
+
+    #[tool(
+        description = "Fetch generated skill.md guidance for the core Seren API. Use this to learn the platform's conventions, auth, and endpoints before choosing publisher tools.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_seren_api_skill_doc(
+        &self,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let url = seren_api_skill_doc_url(&self.api_base_url)?;
+        let skill_md = self
+            .execute_api_text(&extensions, url, "text/markdown")
+            .await?;
+        Ok(CallToolResult::success(vec![Content::text(skill_md)]))
+    }
 
     #[tool(
         description = "List tools available on an MCP publisher. MCP publishers expose tools, resources, and prompts that can be invoked. Use this to discover what capabilities an MCP publisher provides.",
@@ -13812,6 +13899,21 @@ mod tests {
         let first = &enriched["data"][0];
         assert_eq!(first["deployment_name"], "BTC Watcher");
         assert_eq!(first["deployment_id"], "dep-123");
+    }
+
+    #[test]
+    fn publisher_skill_doc_url_builds_seren_cloud_path() {
+        let url = super::publisher_skill_doc_url("https://api.serendb.com", "seren-cloud").unwrap();
+        assert_eq!(
+            url,
+            "https://api.serendb.com/publishers/seren-cloud/skill.md"
+        );
+    }
+
+    #[test]
+    fn seren_api_skill_doc_url_builds_root_path() {
+        let url = super::seren_api_skill_doc_url("https://api.serendb.com").unwrap();
+        assert_eq!(url, "https://api.serendb.com/skill.md");
     }
 
     #[test]

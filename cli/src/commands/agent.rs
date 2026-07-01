@@ -48,6 +48,92 @@ pub async fn get_publisher(publisher: &str, ctx: &CommandContext) -> Result<()> 
     Ok(())
 }
 
+/// Get generated skill.md guidance for a publisher.
+pub async fn get_publisher_skill_doc(publisher: &str, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = publisher_skill_doc_url(&ctx.api_base(), publisher)?;
+    let response = client
+        .get(url)
+        .header(reqwest::header::ACCEPT, "text/markdown")
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get publisher skill doc: {}", e))?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to get publisher skill doc: {} - {}",
+            status,
+            truncate_for_cli(&body, 1200)
+        ));
+    }
+
+    let skill_md = response
+        .text()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read publisher skill doc: {}", e))?;
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&serde_json::json!({
+            "publisher": publisher,
+            "skill_md": skill_md,
+        }))?,
+        OutputFormat::Table => println!("{skill_md}"),
+    }
+
+    Ok(())
+}
+
+/// Get the generated skill.md guidance for the core Seren API.
+pub async fn get_seren_api_skill_doc(ctx: &CommandContext) -> Result<()> {
+    let client = ctx.http_client().await?;
+    let url = seren_api_skill_doc_url(&ctx.api_base())?;
+    let response = client
+        .get(url)
+        .header(reqwest::header::ACCEPT, "text/markdown")
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get Seren API skill doc: {}", e))?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to get Seren API skill doc: {} - {}",
+            status,
+            truncate_for_cli(&body, 1200)
+        ));
+    }
+
+    let skill_md = response
+        .text()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read Seren API skill doc: {}", e))?;
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&serde_json::json!({
+            "skill_md": skill_md,
+        }))?,
+        OutputFormat::Table => println!("{skill_md}"),
+    }
+
+    Ok(())
+}
+
+fn publisher_skill_doc_url(api_base_url: &str, publisher: &str) -> Result<reqwest::Url> {
+    skill_doc_url(api_base_url, &["publishers", publisher, "skill.md"])
+}
+
+fn seren_api_skill_doc_url(api_base_url: &str) -> Result<reqwest::Url> {
+    skill_doc_url(api_base_url, &["skill.md"])
+}
+
+fn skill_doc_url(api_base_url: &str, segments: &[&str]) -> Result<reqwest::Url> {
+    let mut url = reqwest::Url::parse(api_base_url.trim_end_matches('/'))
+        .map_err(|e| anyhow::anyhow!("Invalid API base URL '{}': {}", api_base_url, e))?;
+    url.path_segments_mut()
+        .map_err(|_| anyhow::anyhow!("API base URL cannot be used for path-based requests"))?
+        .extend(segments);
+    Ok(url)
+}
+
 fn truncate_for_cli(value: &str, max_chars: usize) -> String {
     let mut chars = value.chars();
     let truncated: String = chars.by_ref().take(max_chars).collect();
@@ -8143,6 +8229,21 @@ mod tests {
         let first = &enriched["data"][0];
         assert_eq!(first["deployment_name"], "BTC Watcher");
         assert_eq!(first["deployment_id"], "dep-123");
+    }
+
+    #[test]
+    fn publisher_skill_doc_url_builds_seren_cloud_path() {
+        let url = publisher_skill_doc_url("https://api.serendb.com", "seren-cloud").unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://api.serendb.com/publishers/seren-cloud/skill.md"
+        );
+    }
+
+    #[test]
+    fn seren_api_skill_doc_url_builds_root_path() {
+        let url = seren_api_skill_doc_url("https://api.serendb.com").unwrap();
+        assert_eq!(url.as_str(), "https://api.serendb.com/skill.md");
     }
 
     #[test]
