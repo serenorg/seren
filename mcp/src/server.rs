@@ -1800,6 +1800,18 @@ pub struct GetSerenAgentDeploymentParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetSerenAgentDeploymentActivityParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Max run activity entries to return
+    #[serde(default)]
+    pub limit: Option<i64>,
+    /// Pagination offset
+    #[serde(default)]
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct UpdateSerenAgentDeploymentParams {
     /// Deployment UUID
     pub deployment_id: Uuid,
@@ -10517,6 +10529,50 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_get_deployment_health(&params.deployment_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get platform resources available to a managed seren-agent deployment, including runtime, storage, connector, schedule, tool, memory, and capability summaries.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn get_seren_agent_deployment_resources(
+        &self,
+        Parameters(params): Parameters<GetSerenAgentDeploymentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_get_deployment_resources(&params.deployment_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get recent redacted activity for a managed seren-agent deployment, including run status, timing, source, cost, token, and artifact-count summaries without prompts, outputs, tool arguments, connector payloads, or secrets.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn get_seren_agent_deployment_activity(
+        &self,
+        Parameters(params): Parameters<GetSerenAgentDeploymentActivityParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_get_deployment_activity(&params.deployment_id, params.limit, params.offset)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();

@@ -160,6 +160,76 @@
         ]
       }
     },
+    "/deployments/{id}/activity": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Get recent activity for a managed seren-agent deployment.",
+        "operationId": "seren_agent_get_deployment_activity",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max run activity entries to return (default: 20, max: 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Pagination offset",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed deployment activity retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentDeploymentActivityReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Deployment is not managed by seren-agent"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/health": {
       "get": {
         "tags": [
@@ -572,6 +642,56 @@
           },
           "404": {
             "description": "Deployment or revision not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/resources": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Get platform resources available to a managed seren-agent deployment.",
+        "operationId": "seren_agent_get_deployment_resources",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed deployment resources retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentDeploymentResources"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Deployment is not managed by seren-agent"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Deployment not found"
           }
         },
         "security": [
@@ -3679,6 +3799,63 @@
           }
         }
       },
+      "DataResponse_ManagedAgentDeploymentActivityReport": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "organization_id",
+              "deployment_id",
+              "generated_at",
+              "deployment",
+              "summary",
+              "runs"
+            ],
+            "properties": {
+              "deployment": {
+                "$ref": "#/components/schemas/ManagedAgentActivityDeploymentSummary"
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "generated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "runs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentRunActivity"
+                }
+              },
+              "summary": {
+                "$ref": "#/components/schemas/ManagedAgentActivitySummary"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentDeploymentDetail": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -4072,6 +4249,83 @@
               },
               "summary": {
                 "$ref": "#/components/schemas/ManagedAgentHealthSummary"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentDeploymentResources": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "organization_id",
+              "deployment_id",
+              "generated_at",
+              "deployment",
+              "runtime",
+              "storage",
+              "connectors",
+              "schedule",
+              "tools",
+              "memory",
+              "capabilities"
+            ],
+            "properties": {
+              "capabilities": {
+                "$ref": "#/components/schemas/ManagedAgentCapabilityResources"
+              },
+              "connectors": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentConnectorResource"
+                }
+              },
+              "deployment": {
+                "$ref": "#/components/schemas/ManagedAgentDeploymentResourceSummary"
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "generated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "memory": {
+                "$ref": "#/components/schemas/ManagedAgentMemoryResources"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "runtime": {
+                "$ref": "#/components/schemas/ManagedAgentRuntimeResources"
+              },
+              "schedule": {
+                "$ref": "#/components/schemas/ManagedAgentScheduleResources"
+              },
+              "storage": {
+                "$ref": "#/components/schemas/ManagedAgentObjectStorageResources"
+              },
+              "tools": {
+                "$ref": "#/components/schemas/ManagedAgentToolResources"
               }
             }
           },
@@ -4855,12 +5109,208 @@
         ],
         "description": "Capability granted by an `ActionLease`. `All` grants every sub-action of\nthe named action; `Specific` enumerates a closed set."
       },
+      "ManagedAgentActivityDeploymentSummary": {
+        "type": "object",
+        "required": [
+          "name",
+          "agent_slug",
+          "status",
+          "mode",
+          "compute_backend",
+          "runtime_kind"
+        ],
+        "properties": {
+          "active_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "agent_slug": {
+            "type": "string"
+          },
+          "compute_backend": {
+            "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CloudDeploymentMode"
+          },
+          "name": {
+            "type": "string"
+          },
+          "runtime_kind": {
+            "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CloudDeploymentStatus"
+          }
+        }
+      },
+      "ManagedAgentActivitySummary": {
+        "type": "object",
+        "required": [
+          "total_run_count",
+          "completed_run_count",
+          "failed_run_count",
+          "running_run_count",
+          "awaiting_approval_run_count",
+          "cancelled_run_count",
+          "blocked_run_count",
+          "artifact_count",
+          "inference_input_tokens",
+          "inference_output_tokens",
+          "compute_cost_usd",
+          "inference_cost_usd"
+        ],
+        "properties": {
+          "artifact_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "awaiting_approval_run_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "blocked_run_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cancelled_run_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "completed_run_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "compute_cost_usd": {
+            "type": "string"
+          },
+          "failed_run_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "inference_cost_usd": {
+            "type": "string"
+          },
+          "inference_input_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "inference_output_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "last_run_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "running_run_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_run_count": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "ManagedAgentApprovalPolicy": {
         "type": "string",
         "enum": [
           "read_only",
           "allow_mutations"
         ]
+      },
+      "ManagedAgentCapabilityResources": {
+        "type": "object",
+        "required": [
+          "policy_configured",
+          "skills_enabled",
+          "browser_enabled",
+          "audio_enabled",
+          "realtime_sessions_enabled",
+          "code_execution_enabled",
+          "workflows_enabled",
+          "eval_harness_enabled",
+          "tool_error_recovery_enabled"
+        ],
+        "properties": {
+          "audio_enabled": {
+            "type": "boolean"
+          },
+          "browser_enabled": {
+            "type": "boolean"
+          },
+          "code_execution_enabled": {
+            "type": "boolean"
+          },
+          "eval_harness_enabled": {
+            "type": "boolean"
+          },
+          "policy_configured": {
+            "type": "boolean"
+          },
+          "realtime_sessions_enabled": {
+            "type": "boolean"
+          },
+          "skills_enabled": {
+            "type": "boolean"
+          },
+          "tool_error_recovery_enabled": {
+            "type": "boolean"
+          },
+          "workflows_enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ManagedAgentConnectorResource": {
+        "type": "object",
+        "required": [
+          "connector_ref",
+          "connection_name",
+          "webhook_routes"
+        ],
+        "properties": {
+          "connection_name": {
+            "type": "string"
+          },
+          "connector_ref": {
+            "type": "string"
+          },
+          "webhook_routes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentConnectorWebhookResource"
+            }
+          }
+        }
+      },
+      "ManagedAgentConnectorWebhookResource": {
+        "type": "object",
+        "required": [
+          "route_id",
+          "url"
+        ],
+        "properties": {
+          "route_id": {
+            "type": "string"
+          },
+          "seren_verification_header_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "type": "string"
+          }
+        }
       },
       "ManagedAgentConnectorWebhookRoute": {
         "type": "object",
@@ -4894,6 +5344,43 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "ManagedAgentDeploymentActivityReport": {
+        "type": "object",
+        "required": [
+          "organization_id",
+          "deployment_id",
+          "generated_at",
+          "deployment",
+          "summary",
+          "runs"
+        ],
+        "properties": {
+          "deployment": {
+            "$ref": "#/components/schemas/ManagedAgentActivityDeploymentSummary"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "runs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentRunActivity"
+            }
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ManagedAgentActivitySummary"
           }
         }
       },
@@ -5361,6 +5848,109 @@
           }
         }
       },
+      "ManagedAgentDeploymentResourceSummary": {
+        "type": "object",
+        "required": [
+          "name",
+          "agent_slug",
+          "status",
+          "mode",
+          "visibility",
+          "template",
+          "approval_policy",
+          "model_policy"
+        ],
+        "properties": {
+          "active_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "agent_slug": {
+            "type": "string"
+          },
+          "approval_policy": {
+            "$ref": "#/components/schemas/ManagedAgentApprovalPolicy"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CloudDeploymentMode"
+          },
+          "model_policy": {
+            "$ref": "#/components/schemas/ManagedAgentModelPolicy"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CloudDeploymentStatus"
+          },
+          "template": {
+            "$ref": "#/components/schemas/ManagedAgentTemplate"
+          },
+          "visibility": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentDeploymentResources": {
+        "type": "object",
+        "required": [
+          "organization_id",
+          "deployment_id",
+          "generated_at",
+          "deployment",
+          "runtime",
+          "storage",
+          "connectors",
+          "schedule",
+          "tools",
+          "memory",
+          "capabilities"
+        ],
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/ManagedAgentCapabilityResources"
+          },
+          "connectors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentConnectorResource"
+            }
+          },
+          "deployment": {
+            "$ref": "#/components/schemas/ManagedAgentDeploymentResourceSummary"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "memory": {
+            "$ref": "#/components/schemas/ManagedAgentMemoryResources"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/ManagedAgentRuntimeResources"
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/ManagedAgentScheduleResources"
+          },
+          "storage": {
+            "$ref": "#/components/schemas/ManagedAgentObjectStorageResources"
+          },
+          "tools": {
+            "$ref": "#/components/schemas/ManagedAgentToolResources"
+          }
+        }
+      },
       "ManagedAgentDeploymentRevisionSummary": {
         "type": "object",
         "required": [
@@ -5722,6 +6312,41 @@
           }
         ]
       },
+      "ManagedAgentMemoryResources": {
+        "type": "object",
+        "required": [
+          "policy_configured",
+          "semantic_memory_enabled",
+          "graph_memory_enabled",
+          "knowledge_enabled",
+          "compaction_configured"
+        ],
+        "properties": {
+          "compaction_configured": {
+            "type": "boolean"
+          },
+          "graph_memory_enabled": {
+            "type": "boolean"
+          },
+          "knowledge_enabled": {
+            "type": "boolean"
+          },
+          "policy_configured": {
+            "type": "boolean"
+          },
+          "semantic_memory_enabled": {
+            "type": "boolean"
+          },
+          "transcript_retention_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "ManagedAgentModelPolicy": {
         "type": "string",
         "enum": [
@@ -5730,11 +6355,61 @@
           "deep"
         ]
       },
+      "ManagedAgentObjectStorageResources": {
+        "type": "object",
+        "required": [
+          "scope",
+          "configured",
+          "available",
+          "bucket_count",
+          "uploaded_object_count",
+          "pending_upload_count",
+          "delete_failed_count",
+          "uploaded_bytes"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "bucket_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "delete_failed_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pending_upload_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ManagedAgentResourceScope"
+          },
+          "uploaded_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "uploaded_object_count": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "ManagedAgentPrivateOutputPolicy": {
         "type": "string",
         "enum": [
           "control_plane",
           "private_session_database"
+        ]
+      },
+      "ManagedAgentResourceScope": {
+        "type": "string",
+        "enum": [
+          "organization"
         ]
       },
       "ManagedAgentRevisionChangeKind": {
@@ -5745,11 +6420,231 @@
           "rollback"
         ]
       },
+      "ManagedAgentRunActivity": {
+        "type": "object",
+        "required": [
+          "run_id",
+          "execution_id",
+          "source",
+          "status",
+          "compute_backend",
+          "execution_time_ms",
+          "billed_duration_ms",
+          "inference_input_tokens",
+          "inference_output_tokens",
+          "compute_cost_usd",
+          "inference_cost_usd",
+          "artifact_count",
+          "started_at",
+          "updated_at"
+        ],
+        "properties": {
+          "artifact_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "billed_duration_ms": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "compute_backend": {
+            "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
+          },
+          "compute_cost_usd": {
+            "type": "string"
+          },
+          "execution_id": {
+            "type": "string"
+          },
+          "execution_time_ms": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "inference_cost_usd": {
+            "type": "string"
+          },
+          "inference_input_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "inference_output_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "run_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "status_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stop_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "ManagedAgentRuntimeAdapter": {
         "type": "string",
         "enum": [
           "seren_agent"
         ]
+      },
+      "ManagedAgentRuntimeResources": {
+        "type": "object",
+        "required": [
+          "compute_backend",
+          "runtime_kind",
+          "runtime_adapter",
+          "private_output_policy",
+          "runtime_policy_configured",
+          "filesystem_policy_configured",
+          "network_policy_configured",
+          "process_policy_configured",
+          "deployment_network_policy_configured",
+          "alert_policy_configured"
+        ],
+        "properties": {
+          "alert_policy_configured": {
+            "type": "boolean"
+          },
+          "compute_backend": {
+            "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
+          },
+          "deployment_network_policy_configured": {
+            "type": "boolean"
+          },
+          "filesystem_policy_configured": {
+            "type": "boolean"
+          },
+          "llm_connection": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentLlmConnection"
+              }
+            ]
+          },
+          "model_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "network_policy_configured": {
+            "type": "boolean"
+          },
+          "private_output_policy": {
+            "$ref": "#/components/schemas/ManagedAgentPrivateOutputPolicy"
+          },
+          "process_policy_configured": {
+            "type": "boolean"
+          },
+          "runtime_adapter": {
+            "$ref": "#/components/schemas/ManagedAgentRuntimeAdapter"
+          },
+          "runtime_class": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentRuntimeClass"
+              }
+            ]
+          },
+          "runtime_kind": {
+            "$ref": "#/components/schemas/CloudDeploymentRuntimeKind"
+          },
+          "runtime_policy_configured": {
+            "type": "boolean"
+          },
+          "runtime_resources": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentResourcePolicy"
+              }
+            ]
+          },
+          "session_database": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentSessionDatabaseResource"
+              }
+            ]
+          }
+        }
+      },
+      "ManagedAgentScheduleResources": {
+        "type": "object",
+        "required": [
+          "mode",
+          "eval_gate_configured",
+          "eval_gate_schedule_configured"
+        ],
+        "properties": {
+          "cron_schedule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cron_timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "eval_gate_configured": {
+            "type": "boolean"
+          },
+          "eval_gate_schedule_configured": {
+            "type": "boolean"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CloudDeploymentMode"
+          }
+        }
       },
       "ManagedAgentSessionDatabase": {
         "type": "object",
@@ -5794,6 +6689,31 @@
           "direct_url",
           "seren_organization_database"
         ]
+      },
+      "ManagedAgentSessionDatabaseResource": {
+        "type": "object",
+        "required": [
+          "provider",
+          "engine",
+          "url_secret_key_configured"
+        ],
+        "properties": {
+          "database_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "engine": {
+            "$ref": "#/components/schemas/ManagedAgentSessionDatabaseEngine"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ManagedAgentSessionDatabaseProvider"
+          },
+          "url_secret_key_configured": {
+            "type": "boolean"
+          }
+        }
       },
       "ManagedAgentStorageBucketHealth": {
         "type": "object",
@@ -5959,6 +6879,59 @@
           "publisher_actions",
           "database"
         ]
+      },
+      "ManagedAgentToolResources": {
+        "type": "object",
+        "required": [
+          "tool_presets",
+          "resolved_tools",
+          "allowed_publisher_operations",
+          "allowed_remote_agent_origins",
+          "tool_ref_count",
+          "credential_count",
+          "guardrail_count"
+        ],
+        "properties": {
+          "allowed_publisher_operations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowed_remote_agent_origins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "credential_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "guardrail_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "resolved_tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tool_presets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentToolPreset"
+            }
+          },
+          "tool_ref_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
       },
       "ManagedDeploymentCondition": {
         "type": "object",

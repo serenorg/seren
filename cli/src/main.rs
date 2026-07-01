@@ -1385,6 +1385,22 @@ enum AgentAction {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
     },
+    /// Get platform resources available to a managed seren-agent deployment
+    ManagedDeploymentResources {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+    /// Get recent activity for a managed seren-agent deployment
+    ManagedDeploymentActivity {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Max run activity entries to return
+        #[arg(long, default_value_t = 20)]
+        limit: i64,
+        /// Pagination offset
+        #[arg(long, default_value_t = 0)]
+        offset: i64,
+    },
     /// Get health for a managed seren-agent deployment
     ManagedDeploymentHealth {
         /// Deployment ID (UUID)
@@ -6190,6 +6206,22 @@ async fn main() -> anyhow::Result<()> {
             }
             AgentAction::ManagedGet { deployment_id } => {
                 commands::agent::managed_agent_get(deployment_id, &ctx).await?
+            }
+            AgentAction::ManagedDeploymentResources { deployment_id } => {
+                commands::agent::managed_agent_deployment_resources(deployment_id, &ctx).await?
+            }
+            AgentAction::ManagedDeploymentActivity {
+                deployment_id,
+                limit,
+                offset,
+            } => {
+                commands::agent::managed_agent_deployment_activity(
+                    deployment_id,
+                    Some(limit),
+                    Some(offset),
+                    &ctx,
+                )
+                .await?
             }
             AgentAction::ManagedDeploymentHealth { deployment_id } => {
                 commands::agent::managed_agent_deployment_health(deployment_id, &ctx).await?

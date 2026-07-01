@@ -2912,6 +2912,149 @@ fn print_managed_agent_health_table(title: &str, payload: &serde_json::Value) {
     }
 }
 
+fn print_managed_agent_resources_table(payload: &serde_json::Value) {
+    let data = payload.get("data").unwrap_or(payload);
+    let deployment = data.get("deployment").unwrap_or(&serde_json::Value::Null);
+    let runtime = data.get("runtime").unwrap_or(&serde_json::Value::Null);
+    let storage = data.get("storage").unwrap_or(&serde_json::Value::Null);
+    let schedule = data.get("schedule").unwrap_or(&serde_json::Value::Null);
+    let tools = data.get("tools").unwrap_or(&serde_json::Value::Null);
+    let memory = data.get("memory").unwrap_or(&serde_json::Value::Null);
+    let capabilities = data.get("capabilities").unwrap_or(&serde_json::Value::Null);
+    let connectors = data
+        .get("connectors")
+        .and_then(|value| value.as_array())
+        .map_or(0, Vec::len);
+    let rows = vec![
+        ("Deployment ID", json_string_field(data, "deployment_id")),
+        ("Name", json_string_field(deployment, "name")),
+        ("Agent Slug", json_string_field(deployment, "agent_slug")),
+        ("Status", json_string_field(deployment, "status")),
+        ("Mode", json_string_field(deployment, "mode")),
+        (
+            "Cron Schedule",
+            json_string_field(schedule, "cron_schedule"),
+        ),
+        (
+            "Cron Timezone",
+            json_string_field(schedule, "cron_timezone"),
+        ),
+        ("Runtime", json_string_field(runtime, "runtime_kind")),
+        ("Compute", json_string_field(runtime, "compute_backend")),
+        ("Model", json_string_field(runtime, "model_id")),
+        ("Storage Configured", json_bool_field(storage, "configured")),
+        ("Storage Available", json_bool_field(storage, "available")),
+        (
+            "Storage Buckets",
+            json_number_field(storage, "bucket_count"),
+        ),
+        ("Connectors", connectors.to_string()),
+        ("Tool Presets", json_array_join_field(tools, "tool_presets")),
+        (
+            "Resolved Tools",
+            json_array_len_field(tools, "resolved_tools"),
+        ),
+        (
+            "Publisher Ops",
+            json_array_len_field(tools, "allowed_publisher_operations"),
+        ),
+        (
+            "Remote Origins",
+            json_array_len_field(tools, "allowed_remote_agent_origins"),
+        ),
+        ("Tool Refs", json_number_field(tools, "tool_ref_count")),
+        ("Credentials", json_number_field(tools, "credential_count")),
+        ("Guardrails", json_number_field(tools, "guardrail_count")),
+        (
+            "Memory Policy",
+            json_bool_field(memory, "policy_configured"),
+        ),
+        (
+            "Semantic Memory",
+            json_bool_field(memory, "semantic_memory_enabled"),
+        ),
+        ("Browser", json_bool_field(capabilities, "browser_enabled")),
+        (
+            "Code Execution",
+            json_bool_field(capabilities, "code_execution_enabled"),
+        ),
+    ];
+    output::print_key_value_table(Some("Managed Deployment Resources"), &rows);
+}
+
+fn print_managed_agent_activity_table(payload: &serde_json::Value) {
+    let data = payload.get("data").unwrap_or(payload);
+    let deployment = data.get("deployment").unwrap_or(&serde_json::Value::Null);
+    let summary = data.get("summary").unwrap_or(&serde_json::Value::Null);
+    let rows = vec![
+        ("Deployment ID", json_string_field(data, "deployment_id")),
+        ("Name", json_string_field(deployment, "name")),
+        ("Agent Slug", json_string_field(deployment, "agent_slug")),
+        ("Status", json_string_field(deployment, "status")),
+        ("Mode", json_string_field(deployment, "mode")),
+        ("Total Runs", json_number_field(summary, "total_run_count")),
+        (
+            "Completed",
+            json_number_field(summary, "completed_run_count"),
+        ),
+        ("Failed", json_number_field(summary, "failed_run_count")),
+        ("Running", json_number_field(summary, "running_run_count")),
+        (
+            "Awaiting Approval",
+            json_number_field(summary, "awaiting_approval_run_count"),
+        ),
+        (
+            "Cancelled",
+            json_number_field(summary, "cancelled_run_count"),
+        ),
+        ("Blocked", json_number_field(summary, "blocked_run_count")),
+        ("Artifacts", json_number_field(summary, "artifact_count")),
+        (
+            "Input Tokens",
+            json_number_field(summary, "inference_input_tokens"),
+        ),
+        (
+            "Output Tokens",
+            json_number_field(summary, "inference_output_tokens"),
+        ),
+        (
+            "Compute Cost USD",
+            json_scalar_field(summary, "compute_cost_usd"),
+        ),
+        (
+            "Inference Cost USD",
+            json_scalar_field(summary, "inference_cost_usd"),
+        ),
+        ("Last Run", json_string_field(summary, "last_run_at")),
+    ];
+    output::print_key_value_table(Some("Managed Deployment Activity"), &rows);
+
+    let recent_runs = data
+        .get("runs")
+        .and_then(|value| value.as_array())
+        .map(|runs| {
+            runs.iter()
+                .take(10)
+                .map(format_managed_agent_activity_run)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    output::print_list_table(Some("Recent Runs (first 10)"), "Run", &recent_runs);
+}
+
+fn format_managed_agent_activity_run(run: &serde_json::Value) -> String {
+    let started = json_string_field(run, "started_at");
+    let status = json_string_field(run, "status");
+    let source = json_string_field(run, "source");
+    let run_id = json_string_field(run, "run_id");
+    let artifacts = json_number_field(run, "artifact_count");
+    let input_tokens = json_number_field(run, "inference_input_tokens");
+    let output_tokens = json_number_field(run, "inference_output_tokens");
+    format!(
+        "{started} {status} source={source} run={run_id} artifacts={artifacts} tokens={input_tokens}/{output_tokens}"
+    )
+}
+
 fn json_string_field(value: &serde_json::Value, key: &str) -> String {
     value
         .get(key)
@@ -2921,11 +3064,34 @@ fn json_string_field(value: &serde_json::Value, key: &str) -> String {
 }
 
 fn json_number_field(value: &serde_json::Value, key: &str) -> String {
-    value
-        .get(key)
-        .and_then(|value| value.as_i64().or_else(|| value.as_u64().map(|n| n as i64)))
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "-".to_string())
+    let Some(value) = value.get(key) else {
+        return "-".to_string();
+    };
+    if let Some(number) = value.as_i64() {
+        return number.to_string();
+    }
+    if let Some(number) = value.as_u64() {
+        return number.to_string();
+    }
+    "-".to_string()
+}
+
+fn json_scalar_field(value: &serde_json::Value, key: &str) -> String {
+    let Some(value) = value.get(key) else {
+        return "-".to_string();
+    };
+    match value {
+        serde_json::Value::String(text) => text.clone(),
+        serde_json::Value::Number(number) => number.to_string(),
+        serde_json::Value::Bool(flag) => {
+            if *flag {
+                "true".to_string()
+            } else {
+                "false".to_string()
+            }
+        }
+        _ => "-".to_string(),
+    }
 }
 
 fn json_bool_field(value: &serde_json::Value, key: &str) -> String {
@@ -2934,6 +3100,28 @@ fn json_bool_field(value: &serde_json::Value, key: &str) -> String {
         Some(false) => "no".to_string(),
         None => "-".to_string(),
     }
+}
+
+fn json_array_len_field(value: &serde_json::Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(|value| value.as_array())
+        .map(|items| items.len().to_string())
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn json_array_join_field(value: &serde_json::Value, key: &str) -> String {
+    let Some(items) = value.get(key).and_then(|value| value.as_array()) else {
+        return "-".to_string();
+    };
+    if items.is_empty() {
+        return "-".to_string();
+    }
+    items
+        .iter()
+        .filter_map(|value| value.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn print_managed_agent_detail_table(payload: &serde_json::Value) {
@@ -3598,6 +3786,64 @@ pub async fn managed_agent_deployment_health(
         OutputFormat::Table => {
             let value = serde_json::to_value(&payload)?;
             print_managed_agent_health_table("Managed Deployment Health", &value);
+        }
+    }
+    Ok(())
+}
+
+/// Get platform resources available to a managed seren-agent deployment.
+pub async fn managed_agent_deployment_resources(
+    deployment_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_agent_get_deployment_resources(&deployment_id)
+        .await
+    {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(
+                anyhow_from_seren_error("Failed to get managed deployment resources", err).await,
+            );
+        }
+    };
+    let payload = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&payload)?,
+        OutputFormat::Table => {
+            let value = serde_json::to_value(&payload)?;
+            print_managed_agent_resources_table(&value);
+        }
+    }
+    Ok(())
+}
+
+/// Get recent activity for a managed seren-agent deployment.
+pub async fn managed_agent_deployment_activity(
+    deployment_id: Uuid,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_agent_get_deployment_activity(&deployment_id, limit, offset)
+        .await
+    {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(
+                anyhow_from_seren_error("Failed to get managed deployment activity", err).await,
+            );
+        }
+    };
+    let payload = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&payload)?,
+        OutputFormat::Table => {
+            let value = serde_json::to_value(&payload)?;
+            print_managed_agent_activity_table(&value);
         }
     }
     Ok(())
