@@ -1887,18 +1887,18 @@
         ]
       }
     },
-    "/oauth/connections/providers/{provider_id}": {
+    "/oauth/connections/{connection_id}": {
       "delete": {
         "tags": [
           "OAuth"
         ],
-        "summary": "Revoke an OAuth connection by provider ID (supports org-scoped providers)",
+        "summary": "Revoke an OAuth connection by connection ID.",
         "operationId": "revoke_connection_by_id",
         "parameters": [
           {
-            "name": "provider_id",
+            "name": "connection_id",
             "in": "path",
-            "description": "OAuth provider UUID to disconnect",
+            "description": "OAuth connection UUID to disconnect",
             "required": true,
             "schema": {
               "type": "string",
@@ -1928,32 +1928,33 @@
         ]
       }
     },
-    "/oauth/connections/{provider}": {
-      "delete": {
+    "/oauth/connections/{connection_id}/default": {
+      "put": {
         "tags": [
           "OAuth"
         ],
-        "summary": "Revoke an OAuth connection",
-        "description": "Disconnects the user's account from the OAuth provider and deletes stored tokens.",
-        "operationId": "revoke_connection",
+        "summary": "Set the default OAuth connection",
+        "description": "Marks one of the authenticated user's OAuth connections as the default for its provider.",
+        "operationId": "set_default_connection",
         "parameters": [
           {
-            "name": "provider",
+            "name": "connection_id",
             "in": "path",
-            "description": "OAuth provider slug to disconnect",
+            "description": "OAuth connection UUID",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Connection revoked successfully",
+            "description": "Default connection updated",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RevokeResponse"
+                  "$ref": "#/components/schemas/SetDefaultConnectionResponse"
                 }
               }
             }
@@ -8267,6 +8268,29 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "x-seren-oauth-connection-id",
+            "in": "header",
+            "description": "Optional OAuth connection UUID for BYOC publishers",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "connection_id",
+            "in": "query",
+            "description": "Optional OAuth connection UUID for MCP publisher routes",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "requestBody": {
@@ -8301,6 +8325,16 @@
           },
           "404": {
             "description": "Publisher or endpoint not found"
+          },
+          "409": {
+            "description": "Multiple OAuth connections are available and no selector/default was provided",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MultipleOAuthConnectionsAmbiguousResponse"
+                }
+              }
+            }
           },
           "500": {
             "description": "Internal server error"
@@ -8330,6 +8364,29 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "x-seren-oauth-connection-id",
+            "in": "header",
+            "description": "Optional OAuth connection UUID for BYOC publishers",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "connection_id",
+            "in": "query",
+            "description": "Optional OAuth connection UUID for MCP publisher routes",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "requestBody": {
@@ -8364,6 +8421,16 @@
           },
           "404": {
             "description": "Publisher or endpoint not found"
+          },
+          "409": {
+            "description": "Multiple OAuth connections are available and no selector/default was provided",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MultipleOAuthConnectionsAmbiguousResponse"
+                }
+              }
+            }
           },
           "500": {
             "description": "Internal server error"
@@ -22562,6 +22629,37 @@
           }
         }
       },
+      "MultipleOAuthConnectionsAmbiguousResponse": {
+        "type": "object",
+        "required": [
+          "error",
+          "message",
+          "provider_id",
+          "provider_slug",
+          "connections"
+        ],
+        "properties": {
+          "connections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserOAuthConnectionResponse"
+            }
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "provider_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provider_slug": {
+            "type": "string"
+          }
+        }
+      },
       "NotificationReadResponse": {
         "type": "object",
         "required": [
@@ -26697,6 +26795,17 @@
           }
         }
       },
+      "SetDefaultConnectionResponse": {
+        "type": "object",
+        "required": [
+          "connection"
+        ],
+        "properties": {
+          "connection": {
+            "$ref": "#/components/schemas/UserOAuthConnectionResponse"
+          }
+        }
+      },
       "SetRecoveryRequest": {
         "type": "object",
         "description": "Request to set up account recovery",
@@ -28653,6 +28762,7 @@
           "provider_name",
           "scopes",
           "is_valid",
+          "is_default",
           "created_at"
         ],
         "properties": {
@@ -28670,6 +28780,9 @@
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "is_default": {
+            "type": "boolean"
           },
           "is_valid": {
             "type": "boolean"

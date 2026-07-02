@@ -939,10 +939,10 @@ enum OAuthAction {
         /// Provider slug (e.g., "attio", "neon")
         provider_slug: String,
     },
-    /// Disconnect from an OAuth provider
+    /// Disconnect an OAuth connection
     Disconnect {
-        /// Provider slug
-        provider_slug: String,
+        /// Connection ID, or provider slug if only one matching connection exists
+        connection: String,
     },
 }
 
@@ -6405,8 +6405,8 @@ async fn main() -> anyhow::Result<()> {
             OAuthAction::Connect { provider_slug } => {
                 commands::oauth::connect(&provider_slug, &ctx).await?
             }
-            OAuthAction::Disconnect { provider_slug } => {
-                commands::oauth::disconnect(&provider_slug, &ctx).await?
+            OAuthAction::Disconnect { connection } => {
+                commands::oauth::disconnect(&connection, &ctx).await?
             }
         },
     }

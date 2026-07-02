@@ -5,9 +5,10 @@
 
 use anyhow::{Context, Result};
 use colored::Colorize;
-use seren::{ConnectionsResponse, ProvidersResponse};
+use seren::{ConnectionsResponse, ProvidersResponse, UserOAuthConnectionResponse};
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
+use uuid::Uuid;
 
 use crate::CommandContext;
 
@@ -97,6 +98,7 @@ pub async fn list_connections(ctx: &CommandContext) -> Result<()> {
             conn.provider_name.bold(),
             conn.provider_slug.cyan()
         );
+        println!("    Connection ID: {}", conn.id);
         println!("    Status: {}", status);
         if let Some(email) = &conn.provider_email {
             println!("    Email: {}", email);
@@ -245,29 +247,75 @@ pub async fn connect(provider_slug: &str, ctx: &CommandContext) -> Result<()> {
 }
 
 /// Disconnect/revoke an OAuth connection
-pub async fn disconnect(provider_slug: &str, ctx: &CommandContext) -> Result<()> {
+pub async fn disconnect(connection: &str, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
 
-    println!("Disconnecting from {}...", provider_slug);
-
-    client.revoke_connection(provider_slug).await.map_err(|e| {
-        if let seren::Error::ErrorResponse(ref resp) = e
-            && resp.status() == 404
-        {
-            return anyhow::anyhow!("No connection found for provider '{}'", provider_slug);
+    let connection_id = match Uuid::parse_str(connection) {
+        Ok(connection_id) => connection_id,
+        Err(_) => {
+            let response = client
+                .list_connections()
+                .await
+                .context("Failed to list OAuth connections")?;
+            let ConnectionsResponse { connections } = response.into_inner();
+            resolve_connection_id_for_disconnect(&connections, connection)?
         }
-        anyhow::anyhow!("Failed to disconnect: {}", e)
-    })?;
+    };
+
+    println!("Disconnecting OAuth connection {}...", connection_id);
+
+    client
+        .revoke_connection_by_id(&connection_id)
+        .await
+        .map_err(|e| {
+            if let seren::Error::ErrorResponse(ref resp) = e
+                && resp.status() == 404
+            {
+                return anyhow::anyhow!("No OAuth connection found for '{}'", connection);
+            }
+            anyhow::anyhow!("Failed to disconnect: {}", e)
+        })?;
 
     println!();
     println!(
         "{}",
-        format!("✓ Disconnected from {}", provider_slug)
+        format!("✓ Disconnected OAuth connection {}", connection_id)
             .green()
             .bold()
     );
 
     Ok(())
+}
+
+fn resolve_connection_id_for_disconnect(
+    connections: &[UserOAuthConnectionResponse],
+    provider_slug: &str,
+) -> Result<Uuid> {
+    let matches = connections
+        .iter()
+        .filter(|connection| connection.provider_slug == provider_slug)
+        .collect::<Vec<_>>();
+
+    match matches.as_slice() {
+        [] => anyhow::bail!("No connection found for provider '{}'", provider_slug),
+        [connection] => Ok(connection.id),
+        _ => {
+            let mut details = String::new();
+            for connection in matches {
+                let account = connection
+                    .provider_email
+                    .as_deref()
+                    .or(connection.provider_user_id.as_deref())
+                    .unwrap_or("unknown account");
+                details.push_str(&format!("\n  {} ({})", connection.id, account));
+            }
+            anyhow::bail!(
+                "Multiple connections found for provider '{}'. Disconnect by connection ID:{}\nUse 'seren oauth connections' to inspect connections.",
+                provider_slug,
+                details
+            );
+        }
+    }
 }
 
 /// Receive OAuth callback on local server
@@ -345,4 +393,56 @@ fn receive_oauth_callback(listener: TcpListener) -> Result<LocalOAuthCallback> {
         error,
         error_description,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_connection(
+        id: &str,
+        provider_slug: &str,
+        account: &str,
+    ) -> UserOAuthConnectionResponse {
+        UserOAuthConnectionResponse {
+            id: Uuid::parse_str(id).expect("valid connection id"),
+            provider_id: Uuid::parse_str("99999999-9999-4999-8999-999999999999")
+                .expect("valid provider id"),
+            provider_slug: provider_slug.to_string(),
+            provider_name: provider_slug.to_string(),
+            provider_logo_url: None,
+            provider_user_id: None,
+            provider_email: Some(account.to_string()),
+            scopes: Vec::new(),
+            is_valid: true,
+            is_default: false,
+            expires_at: None,
+            last_used_at: None,
+            created_at: jiff::Timestamp::from_second(0).expect("valid timestamp"),
+        }
+    }
+
+    #[test]
+    fn resolve_connection_id_for_disconnect_rejects_multiple_provider_matches() {
+        let connections = vec![
+            test_connection(
+                "11111111-1111-4111-8111-111111111111",
+                "google",
+                "first@example.com",
+            ),
+            test_connection(
+                "22222222-2222-4222-8222-222222222222",
+                "google",
+                "second@example.com",
+            ),
+        ];
+
+        let err = resolve_connection_id_for_disconnect(&connections, "google")
+            .expect_err("multiple provider matches should be ambiguous");
+        let message = err.to_string();
+
+        assert!(message.contains("Multiple connections found for provider 'google'"));
+        assert!(message.contains("11111111-1111-4111-8111-111111111111"));
+        assert!(message.contains("22222222-2222-4222-8222-222222222222"));
+    }
 }

@@ -35,11 +35,12 @@ fn collect_refs(value: &serde_json::Value, acc: &mut HashSet<String>) {
 fn strip_error_response_content(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(map) => {
-            if let Some(serde_json::Value::Object(resp_obj)) = map.get_mut("402") {
-                resp_obj.remove("content");
-            }
-            if let Some(serde_json::Value::Object(resp_obj)) = map.get_mut("403") {
-                resp_obj.remove("content");
+            for (key, response) in map.iter_mut() {
+                let is_error_status =
+                    key == "default" || key.len() == 3 && key.starts_with(['4', '5']);
+                if is_error_status && let serde_json::Value::Object(resp_obj) = response {
+                    resp_obj.remove("content");
+                }
             }
             for v in map.values_mut() {
                 strip_error_response_content(v);
@@ -536,7 +537,7 @@ fn main() -> anyhow::Result<()> {
     downconvert_31_to_30(&mut raw_json);
     raw_json["openapi"] = serde_json::json!("3.0.3");
 
-    // Strip 402/403 response content bodies for progenitor code generation.
+    // Strip error response content bodies for progenitor code generation.
     // Progenitor panics with "response_types.len() <= 1" if an operation has
     // multiple typed responses (e.g., 200 success + 402 payment required).
     // We still document error bodies in the source OpenAPI spec - this only affects codegen.

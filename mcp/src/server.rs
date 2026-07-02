@@ -10212,7 +10212,13 @@ API endpoint: {endpoint}",
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
         let result_json = match api_client
-            .proxy_to_publisher_get(&params.publisher, "_mcp/tools", Vec::<u8>::new())
+            .proxy_to_publisher_get(
+                &params.publisher,
+                "_mcp/tools",
+                None,
+                None,
+                Vec::<u8>::new(),
+            )
             .await
         {
             Ok(response) => response.into_inner(),
@@ -10269,7 +10275,13 @@ API endpoint: {endpoint}",
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
         let result_json = match api_client
-            .proxy_to_publisher_get(&params.publisher, "_mcp/resources", Vec::<u8>::new())
+            .proxy_to_publisher_get(
+                &params.publisher,
+                "_mcp/resources",
+                None,
+                None,
+                Vec::<u8>::new(),
+            )
             .await
         {
             Ok(response) => response.into_inner(),
