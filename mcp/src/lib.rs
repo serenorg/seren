@@ -1620,11 +1620,15 @@ async fn run_oauth(config: Config) -> Result<()> {
         }
     });
 
-    // Create restorable session manager that can restore sessions after server restart
-    // Sessions are persisted to PostgreSQL and restored transparently when clients reconnect
+    // Keep in-process session workers warm across normal usage gaps so requests
+    // handled by the same server instance do not repeatedly depend on database
+    // restoration. Persisted session rows remain the durability boundary; this
+    // only bounds idle workers.
+    let mut session_config = SessionConfig::default();
+    session_config.keep_alive = Some(std::time::Duration::from_secs(60 * 60));
     let session_manager = Arc::new(middleware::RestorableSessionManager::new(
         Arc::new(store.clone()),
-        SessionConfig::default(),
+        session_config,
         api_base_url_for_session_manager,
         passwords_api_base_url_for_session_manager,
     ));
