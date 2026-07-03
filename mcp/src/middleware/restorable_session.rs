@@ -29,8 +29,11 @@ use time::Duration;
 use tokio::sync::{Mutex, RwLock};
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::oauth::store::TokenStore;
+use crate::oauth::store::{McpSession, TokenStore};
 use crate::server::SerenMcpServer;
+
+const SESSION_RESTORE_LOOKUP_ATTEMPTS: usize = 4;
+const SESSION_RESTORE_LOOKUP_BASE_DELAY_MS: u64 = 25;
 
 /// Check if a SessionError indicates the session is dead and should be restored.
 ///
@@ -79,6 +82,9 @@ pub enum RestorableSessionError {
     #[error("Restoration failed: {0}")]
     RestorationFailed(String),
 
+    #[error("No restorable session state found")]
+    NoRestorableState,
+
     #[error("Service creation failed: {0}")]
     ServiceCreation(String),
 
@@ -113,6 +119,55 @@ impl RestorableSessionManager {
         }
     }
 
+    async fn get_session_for_restore_with_retries(
+        &self,
+        id: &SessionId,
+    ) -> Result<Option<McpSession>, RestorableSessionError> {
+        for attempt in 1..=SESSION_RESTORE_LOOKUP_ATTEMPTS {
+            match self.store.get_session_for_restore(id.as_ref()).await {
+                Ok(Some(state)) => {
+                    if attempt > 1 {
+                        tracing::info!(
+                            event = "session_restore_state_visible_after_retry",
+                            session_id = %id,
+                            attempts = attempt,
+                            "Session restore state became visible after retry"
+                        );
+                    }
+                    return Ok(Some(state));
+                }
+                Ok(None) if attempt == SESSION_RESTORE_LOOKUP_ATTEMPTS => return Ok(None),
+                Ok(None) => {
+                    tracing::debug!(
+                        event = "session_restore_state_not_visible",
+                        session_id = %id,
+                        attempt = attempt,
+                        "Session restore state not visible yet"
+                    );
+                }
+                Err(e) if attempt == SESSION_RESTORE_LOOKUP_ATTEMPTS => {
+                    return Err(RestorableSessionError::Database(e.to_string()));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        event = "session_restore_state_lookup_retry",
+                        session_id = %id,
+                        attempt = attempt,
+                        error = %e,
+                        "Session restore state lookup failed; retrying"
+                    );
+                }
+            }
+
+            tokio::time::sleep(std::time::Duration::from_millis(
+                SESSION_RESTORE_LOOKUP_BASE_DELAY_MS * attempt as u64,
+            ))
+            .await;
+        }
+
+        Ok(None)
+    }
+
     /// Attempt to restore a session from database state.
     ///
     /// This method:
@@ -138,15 +193,9 @@ impl RestorableSessionManager {
 
         // Load session state from database
         let state = self
-            .store
-            .get_session_for_restore(id.as_ref())
-            .await
-            .map_err(|e| RestorableSessionError::Database(e.to_string()))?
-            .ok_or_else(|| {
-                RestorableSessionError::RestorationFailed(
-                    "Session state not found in database".into(),
-                )
-            })?;
+            .get_session_for_restore_with_retries(id)
+            .await?
+            .ok_or(RestorableSessionError::NoRestorableState)?;
 
         // Create new session infrastructure with the SAME session ID
         let (handle, worker) = create_local_session(id.clone(), self.session_config.clone());
@@ -421,50 +470,49 @@ impl SessionManager for RestorableSessionManager {
             return Ok(true);
         }
 
-        // Not in memory - check if we can restore from database
-        match self.store.get_session_for_restore(id.as_ref()).await {
-            Ok(Some(_state)) => {
-                // Session exists in DB with initialization state - attempt restoration
-                match self.restore_session(id).await {
-                    Ok(()) => {
-                        tracing::info!(
-                            event = "session_restored_on_check",
-                            session_id = %id,
-                            "Session restored from database during has_session check"
-                        );
-                        Ok(true)
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            event = "session_restore_failed",
-                            session_id = %id,
-                            error = %e,
-                            "Failed to restore session, client must reconnect"
-                        );
-                        Ok(false)
-                    }
-                }
+        // Not in memory - restore from database state before rmcp can return
+        // a permanent unknown-session response to the client.
+        match self.restore_session(id).await {
+            Ok(()) => {
+                tracing::info!(
+                    event = "session_restored_on_check",
+                    session_id = %id,
+                    "Session restored from database during has_session check"
+                );
+                Ok(true)
             }
-            Ok(None) => {
-                // Check if it's a tracked but non-restorable session (no init state)
-                match self.store.has_session(id.as_ref()).await {
-                    Ok(true) => {
-                        tracing::warn!(
-                            event = "stale_session_no_state",
-                            session_id = %id,
-                            "Session tracked but has no restoration state"
-                        );
-                        Ok(false)
-                    }
-                    _ => Ok(false),
+            Err(RestorableSessionError::NoRestorableState) => {
+                // Genuinely unknown, or tracked but never carried init state. Either
+                // way there is nothing to restore, so a 404 is correct and the client
+                // must reconnect.
+                if let Ok(true) = self.store.has_session(id.as_ref()).await {
+                    tracing::warn!(
+                        event = "stale_session_no_state",
+                        session_id = %id,
+                        "Session tracked but has no restoration state"
+                    );
                 }
+                Ok(false)
+            }
+            Err(e @ RestorableSessionError::Database(_)) => {
+                // Transient database failure while looking up restorable state.
+                // Surface as a retryable 5xx rather than Ok(false): the latter maps
+                // to a terminal 404 that permanently declares a restorable session
+                // gone, which is the failure mode in the P0 scenario.
+                tracing::warn!(
+                    event = "session_restore_db_error",
+                    session_id = %id,
+                    error = %e,
+                    "Database error while restoring session; returning retryable error"
+                );
+                Err(e)
             }
             Err(e) => {
                 tracing::warn!(
-                    event = "session_state_lookup_failed",
+                    event = "session_restore_failed",
                     session_id = %id,
                     error = %e,
-                    "Database error checking session state"
+                    "Failed to restore session, client must reconnect"
                 );
                 Ok(false)
             }
