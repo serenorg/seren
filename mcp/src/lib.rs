@@ -1482,7 +1482,7 @@ async fn run_http(config: Config) -> Result<()> {
         ]);
 
     // MCP endpoint with auth
-    // Wrap with StaleSessionRecoveryService to handle stale sessions after pod restarts
+    // Recover stale in-memory session handles after server restarts.
     let mcp_router = axum::Router::new()
         .route(
             "/mcp",
@@ -1780,7 +1780,7 @@ async fn run_oauth(config: Config) -> Result<()> {
         oauth_state: oauth_state.clone(),
     };
 
-    // Wrap with StaleSessionRecoveryService to handle stale sessions after pod restarts
+    // Recover stale in-memory session handles after server restarts.
     let mcp_router = axum::Router::new()
         .route(
             "/mcp",

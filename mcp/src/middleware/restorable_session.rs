@@ -360,9 +360,8 @@ impl SessionManager for RestorableSessionManager {
         // Generate a new session ID
         let id: SessionId = uuid::Uuid::new_v4().to_string().into();
 
-        // Track in database before returning a session ID. In multi-replica
-        // deployments, a session that is not persisted cannot be restored by the
-        // next pod that receives a request for it.
+        // Track in database before returning a session ID so another server
+        // instance can restore it.
         self.store
             .create_mcp_session(id.as_ref())
             .await
@@ -470,8 +469,7 @@ impl SessionManager for RestorableSessionManager {
             return Ok(true);
         }
 
-        // Not in memory - restore from database state before rmcp can return
-        // a permanent unknown-session response to the client.
+        // Restore from persisted state before classifying an id as unavailable.
         match self.restore_session(id).await {
             Ok(()) => {
                 tracing::info!(
@@ -482,9 +480,7 @@ impl SessionManager for RestorableSessionManager {
                 Ok(true)
             }
             Err(RestorableSessionError::NoRestorableState) => {
-                // Genuinely unknown, or tracked but never carried init state. Either
-                // way there is nothing to restore, so a 404 is correct and the client
-                // must reconnect.
+                // Without persisted initialize state, this session id cannot be restored.
                 if let Ok(true) = self.store.has_session(id.as_ref()).await {
                     tracing::warn!(
                         event = "stale_session_no_state",
@@ -495,10 +491,7 @@ impl SessionManager for RestorableSessionManager {
                 Ok(false)
             }
             Err(e @ RestorableSessionError::Database(_)) => {
-                // Transient database failure while looking up restorable state.
-                // Surface as a retryable 5xx rather than Ok(false): the latter maps
-                // to a terminal 404 that permanently declares a restorable session
-                // gone, which is the failure mode in the P0 scenario.
+                // Lookup failure does not prove absence; preserve retry semantics.
                 tracing::warn!(
                     event = "session_restore_db_error",
                     session_id = %id,

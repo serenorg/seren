@@ -12600,6 +12600,98 @@ API endpoint: {endpoint}",
 }
 
 // ============================================================================
+// Tool input schema normalization
+// ============================================================================
+
+/// JSON Schema keywords whose value is a single subschema.
+const SCHEMA_SLOT_KEYWORDS: &[&str] = &[
+    "items",
+    "contains",
+    "not",
+    "propertyNames",
+    "if",
+    "then",
+    "else",
+    "additionalItems",
+    "additionalProperties",
+    "unevaluatedItems",
+    "unevaluatedProperties",
+];
+/// JSON Schema keywords whose value maps names to subschemas.
+const SCHEMA_MAP_KEYWORDS: &[&str] = &[
+    "properties",
+    "patternProperties",
+    "$defs",
+    "definitions",
+    "dependentSchemas",
+];
+/// JSON Schema keywords whose value is an array of subschemas.
+const SCHEMA_ARRAY_KEYWORDS: &[&str] = &["allOf", "anyOf", "oneOf", "prefixItems"];
+/// Keywords whose value is literal instance data, not a subschema. Never recurse
+/// into these: a boolean or object here is a value, not a schema to normalize.
+const SCHEMA_DATA_KEYWORDS: &[&str] = &["default", "const", "enum", "examples", "example"];
+
+/// Rewrite boolean subschemas to equivalent object schemas throughout a JSON Schema document.
+fn normalize_json_schema(node: &mut serde_json::Value) {
+    match node {
+        serde_json::Value::Object(map) => {
+            for (key, value) in map.iter_mut() {
+                let key = key.as_str();
+                if SCHEMA_DATA_KEYWORDS.contains(&key) {
+                    continue;
+                } else if SCHEMA_MAP_KEYWORDS.contains(&key) {
+                    if let serde_json::Value::Object(entries) = value {
+                        for entry in entries.values_mut() {
+                            normalize_schema_slot(entry);
+                        }
+                    }
+                } else if SCHEMA_ARRAY_KEYWORDS.contains(&key) {
+                    if let serde_json::Value::Array(items) = value {
+                        for item in items.iter_mut() {
+                            normalize_schema_slot(item);
+                        }
+                    }
+                } else if SCHEMA_SLOT_KEYWORDS.contains(&key) {
+                    normalize_schema_slot(value);
+                } else {
+                    // Recurse through unknown objects without treating scalar keyword values as schemas.
+                    normalize_json_schema(value);
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items.iter_mut() {
+                normalize_json_schema(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Normalize a value that occupies a subschema slot.
+fn normalize_schema_slot(node: &mut serde_json::Value) {
+    if let serde_json::Value::Bool(accepts_any) = node {
+        *node = if *accepts_any {
+            serde_json::json!({})
+        } else {
+            serde_json::json!({ "not": {} })
+        };
+        return;
+    }
+    normalize_json_schema(node);
+}
+
+/// Apply [`normalize_json_schema`] to a tool's input schema before serving it.
+fn normalize_tool_input_schema(mut tool: rmcp::model::Tool) -> rmcp::model::Tool {
+    let mut schema = serde_json::Value::Object((*tool.input_schema).clone());
+    normalize_json_schema(&mut schema);
+    if let serde_json::Value::Object(map) = schema {
+        tool.input_schema = std::sync::Arc::new(map);
+    }
+    tool
+}
+
+// ============================================================================
 // Server Handler Implementation
 // ============================================================================
 
@@ -12642,7 +12734,12 @@ impl ServerHandler for SerenMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
-        let items = self.tool_router.list_all();
+        let items = self
+            .tool_router
+            .list_all()
+            .into_iter()
+            .map(normalize_tool_input_schema)
+            .collect::<Vec<_>>();
         Ok(ListToolsResult::with_all_items(items))
     }
 
@@ -12705,6 +12802,108 @@ mod tests {
             passwords_agent: None,
             passwords_hosted_store: None,
         }
+    }
+
+    /// Collect boolean subschemas using the same position logic as `normalize_json_schema`.
+    fn collect_schema_slot_booleans(node: &serde_json::Value, path: &str, out: &mut Vec<String>) {
+        match node {
+            serde_json::Value::Object(map) => {
+                for (key, value) in map {
+                    let child = format!("{path}/{key}");
+                    if super::SCHEMA_DATA_KEYWORDS.contains(&key.as_str()) {
+                        continue;
+                    } else if super::SCHEMA_MAP_KEYWORDS.contains(&key.as_str()) {
+                        if let serde_json::Value::Object(entries) = value {
+                            for (name, entry) in entries {
+                                check_schema_slot(entry, &format!("{child}/{name}"), out);
+                            }
+                        }
+                    } else if super::SCHEMA_ARRAY_KEYWORDS.contains(&key.as_str()) {
+                        if let serde_json::Value::Array(items) = value {
+                            for (index, item) in items.iter().enumerate() {
+                                check_schema_slot(item, &format!("{child}/{index}"), out);
+                            }
+                        }
+                    } else if super::SCHEMA_SLOT_KEYWORDS.contains(&key.as_str()) {
+                        check_schema_slot(value, &child, out);
+                    } else {
+                        collect_schema_slot_booleans(value, &child, out);
+                    }
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for (index, item) in items.iter().enumerate() {
+                    collect_schema_slot_booleans(item, &format!("{path}/{index}"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn check_schema_slot(node: &serde_json::Value, path: &str, out: &mut Vec<String>) {
+        if node.is_boolean() {
+            out.push(path.to_string());
+        } else {
+            collect_schema_slot_booleans(node, path, out);
+        }
+    }
+
+    #[test]
+    fn no_served_tool_input_schema_has_boolean_subschema() {
+        let server = server_with_http_client(reqwest::Client::new());
+        let mut offenders = Vec::new();
+        for tool in server.tool_router.list_all() {
+            let normalized = super::normalize_tool_input_schema(tool);
+            let schema = serde_json::Value::Object((*normalized.input_schema).clone());
+            let mut out = Vec::new();
+            collect_schema_slot_booleans(&schema, "", &mut out);
+            if !out.is_empty() {
+                offenders.push(format!("{}: {}", normalized.name, out.join(", ")));
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "served tool schemas still contain boolean subschemas:\n{}",
+            offenders.join("\n")
+        );
+    }
+
+    #[test]
+    fn normalize_json_schema_rewrites_boolean_slots_but_keeps_data_bools() {
+        let mut schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "metadata": true,
+                "tags": { "type": "array", "items": true },
+                "nested": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": { "inner": true }
+                }
+            },
+            "additionalProperties": false,
+            "$defs": { "Blob": true },
+            "default": true
+        });
+        super::normalize_json_schema(&mut schema);
+
+        assert_eq!(schema["properties"]["metadata"], serde_json::json!({}));
+        assert_eq!(schema["properties"]["tags"]["items"], serde_json::json!({}));
+        assert_eq!(
+            schema["properties"]["nested"]["properties"]["inner"],
+            serde_json::json!({})
+        );
+        assert_eq!(schema["$defs"]["Blob"], serde_json::json!({}));
+        assert_eq!(
+            schema["additionalProperties"],
+            serde_json::json!({ "not": {} })
+        );
+        assert_eq!(
+            schema["properties"]["nested"]["additionalProperties"],
+            serde_json::json!({ "not": {} })
+        );
+        // Literal instance data remains unchanged.
+        assert_eq!(schema["default"], serde_json::json!(true));
     }
 
     #[test]
