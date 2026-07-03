@@ -1,6 +1,33 @@
 # Seren CLI
 
-Command-line interface for managing SerenAI's SerenDB databases, projects, branches, and agent commerce.
+Command-line interface for managing SerenAI from a terminal, script, CI job, or coding agent.
+
+The `seren` binary is the operational interface for SerenDB and the surrounding agent platform. Use it to deploy Seren Employees and other managed agents on Seren Cloud, provision encrypted vault access for agents, install skills, configure model services, manage Postgres databases and supporting storage, and emit JSON for automation.
+
+## What You Can Do
+
+| Area | CLI workflows |
+|------|---------------|
+| Seren Employees and managed agents | Deploy prompt-defined `seren-agent` services on Seren Cloud, manage revisions, start/stop deployments, configure tool and model policy, and roll back changes |
+| Seren Cloud operations | Review cloud activity, approve or reject blocked runs, inspect artifacts/eval sets, manage schedules, and deploy agent bundles |
+| Seren Passwords | Create encrypted vaults, store logins/API keys/secure notes, upload encrypted attachments, grant scoped agent identities, require approvals, audit access, and rotate vault keys |
+| Skills and agent workspace support | Search/install skills, fetch generated skill docs, manage organization custom skills, configure private-model policy, and prepare workflows used by Seren Desktop employees and agents |
+| Organizations and security | Manage members, invites, OAuth providers, IP allow lists, VPC endpoints, RBAC, sessions, audit logs, webhooks, billing, and operations |
+| Agent automation | Use stable command groups, `-o json`, and saved context so coding agents can inspect state, make changes, and verify results without scraping the dashboard |
+| SerenDB projects | Create projects, list branches, manage databases and roles, fetch direct or pooled connection strings, configure endpoints, and initialize `.env` files |
+| Branching and recovery | Create development branches, restore a branch from a timestamp, compare schemas, set branch expiration, protect production branches, and reset or delete branches |
+| Object storage | Create buckets, upload/download objects, attach metadata, and manage supporting files for Seren agents, employees, and applications |
+| Publishers and payments | Discover publishers, call paid SQL/API/MCP integrations, estimate cost, manage prepaid balance, and prepare x402 payment flows |
+
+## CLI vs MCP
+
+Use the CLI when a human, script, CI job, or coding agent can run shell commands. Use the MCP server when an AI assistant should call Seren tools directly inside the assistant protocol. The same binary includes both interfaces:
+
+```bash
+seren projects list
+seren -o json agent cloud overview
+seren mcp start
+```
 
 ## Installation
 
@@ -24,18 +51,52 @@ Download pre-built binaries from GitHub Releases (tagged versions): https://gith
 
 ## Quick Start
 
+Start with browser login for interactive use:
+
 ```bash
-# Authenticate with SerenAI
 seren auth login
-
-# List your projects
+seren agent cloud overview
+seren skills search issues
 seren projects list
+```
 
-# Create a new project
-seren projects create --name my-app --region aws-us-east-1
+For automation, set an API key and request JSON output:
 
-# Get connection string
-seren projects connection-uri <project-id>
+```bash
+export SEREN_API_KEY=seren_your_api_key_here
+seren -o json agent cloud overview
+seren -o json projects list
+```
+
+Common first workflows:
+
+```bash
+# Deploy a managed prompt-based agent
+seren agent deploy-prompt \
+  --name "Ops Router" \
+  --template workflow_agent \
+  --tool-preset live_data,publisher_actions \
+  --approval-policy allow_mutations \
+  --model-policy balanced \
+  --prompt "Triage requests, use Seren publishers first, and ask for approval before mutations."
+
+# Create a vault and provision an agent identity with read access
+seren passwords vaults create --name "Production APIs" --requires-approval sensitive-only
+seren passwords agent provision --vault <vault-id> --access read --name "Claude ops agent" --expires-in-days 30
+
+# Search reusable skills and model services
+seren skills search browser
+seren agent private-models list
+
+# Review cloud activity across the organization
+seren agent cloud overview
+seren agent cloud approvals list --limit 20
+
+# Create an isolated branch for development
+seren branches --project-id <project-id> create --name feature-auth
+
+# Initialize an env file with a database URL
+seren env init --project-id <project-id> --branch-id <branch-id> --key DATABASE_URL --pooled
 ```
 
 ## Authentication
@@ -144,6 +205,54 @@ seren endpoints --project-id <id> --branch-id <id> metrics <endpoint-id>
 seren endpoints --project-id <id> --branch-id <id> delete <endpoint-id>
 ```
 
+### Seren Passwords
+
+Use Seren Passwords when an agent needs credentials without copying them into prompts, shell history, or plaintext config files. Vaults can store logins, API keys, secure notes, and encrypted attachments. Agent identities can be granted read/write access to specific vaults and revoked later.
+
+```bash
+# Vaults
+seren passwords vaults list
+seren passwords vaults create --name "Production APIs" --requires-approval sensitive-only
+seren passwords vaults update <vault-id> --name "Production Integrations"
+seren passwords vaults rotate initiate <vault-id>
+seren passwords vaults rotate complete <vault-id>
+
+# Items
+printf "%s" "$API_TOKEN" | seren passwords items create-api-key \
+  --vault-id <vault-id> --title "Stripe API" --key-stdin --credential-kind api_key \
+  --tag production --tag billing --sensitive
+seren passwords items create-login \
+  --vault-id <vault-id> --title "Admin console" --username ops@example.com \
+  --password-stdin --url https://admin.example.com --sensitive
+seren passwords items create-note --vault-id <vault-id> --title "Runbook note" --body-stdin
+seren passwords items list --vault-id <vault-id>
+seren passwords items get --vault-id <vault-id> --item-id <item-id>
+seren passwords items get --vault-id <vault-id> --item-id <item-id> --reveal
+
+# Attachments
+seren passwords attachments upload --vault-id <vault-id> --item-id <item-id> --path ./client.pem
+seren passwords attachments list --vault-id <vault-id> --item-id <item-id>
+seren passwords attachments download \
+  --vault-id <vault-id> --item-id <item-id> --attachment-id <attachment-id> --output ./client.pem
+
+# Agent access
+seren passwords agent provision --vault <vault-id> --access read --name "Research agent"
+seren passwords agent list
+seren passwords agent revoke <agent-identity-id> --vault <vault-id>
+seren passwords agent freeze
+
+# Approvals, membership, sharing, and audit
+seren passwords approvals list
+seren passwords approvals approve <approval-id>
+seren passwords memberships list <vault-id>
+seren passwords invitations create <vault-id> --email teammate@example.com --access read
+seren passwords shares outbound
+seren passwords audit list --limit 100
+seren passwords audit verify
+```
+
+Use `--password-stdin`, `--key-stdin`, and `--body-stdin` for secret material so values do not end up in shell history. Use `seren passwords export` and `seren passwords import` only for explicit plaintext backup or migration workflows.
+
 ### Environment Files
 
 ```bash
@@ -158,6 +267,24 @@ seren organizations                              # list organizations
 seren orgs members --org-id <id>                  # list members
 seren orgs invites --org-id <id>                  # list invites
 seren orgs invite --org-id <id> --email user@example.com --role member
+seren orgs skills --org-id <id> list
+seren orgs private-models-policy --org-id <id> get
+```
+
+### Skills
+
+Seren skills are installable capability packs that drop into the skills directory of whatever coding agent you use (Claude Code, Codex, Cursor, Gemini, GitHub Copilot, Windsurf, and more), pulled from the public [seren-skills](https://github.com/serenorg/seren-skills) registry.
+
+```bash
+seren skills list                        # browse the registry
+seren skills search issues               # search by name or description
+seren skills show linear-issue-tracking  # view a skill's details
+seren skills add linear-issue-tracking   # install into detected agent directories
+seren skills add --all                   # install every available skill
+seren skills installed                   # list locally installed skills
+seren skills update                      # update all installed skills
+seren skills remove linear-issue-tracking
+seren skills init my-skill               # scaffold a new skill template
 ```
 
 ### Agent Commerce
@@ -190,11 +317,20 @@ seren agent get-template <slug>
 seren agent publish-template --name "My Agent" --slug my-agent \
   --code agent.py --language python --price "0.05"
 seren agent invoke-template --slug my-agent --input '{"query": "..."}'
+
+# Generated skill guidance
+seren agent api-skill-doc
+seren agent publisher-skill-doc seren-agent
+
+# Private models
+seren agent private-models list
+seren agent private-models catalog --region aws-us-east-1
+seren agent private-models chat --model <model-id> --message "Summarize this incident."
 ```
 
 ### Managed Agents
 
-Managed prompt-based agents run through the first-class `seren-agent` publisher. Use them when you want a hosted agent with prompt-defined behavior, publisher-backed tool presets, approval controls, revision history, and optional remote A2A delegation without shipping a code bundle.
+Managed prompt-based agents run through the first-class `seren-agent` publisher. Use them when you want a hosted agent with prompt-defined behavior, publisher-backed tool presets, approval controls, revision history, and optional remote A2A delegation without shipping a code bundle. Seren Employees is the product name for managed `seren-agent` deployments that run on Seren Cloud with a stable role, instructions, tools, approvals, and lifecycle.
 
 See [docs/managed-agents.md](../docs/managed-agents.md) for the full guide.
 
@@ -280,6 +416,26 @@ seren agent cloud run pending-approvals <run-id>
 seren agent cloud run approve <run-id>
 seren agent cloud run reject <run-id>
 ```
+
+### Object Storage
+
+```bash
+seren object-storage buckets list
+seren object-storage buckets create \
+  --slug employee-files --display-name "Employee files" \
+  --metadata '{"team":"ops"}'
+seren object-storage buckets delete --bucket employee-files
+
+seren object-storage objects --bucket employee-files list
+seren object-storage objects --bucket employee-files list --prefix reports/ --limit 50
+seren object-storage objects --bucket employee-files upload \
+  --key reports/q1.txt --path ./q1.txt --content-type text/plain
+seren object-storage objects --bucket employee-files download \
+  --key reports/q1.txt --output ./q1-copy.txt
+seren object-storage objects --bucket employee-files delete --object-id <uuid>
+```
+
+`storage` is also accepted as a short alias for `object-storage`.
 
 ### OAuth Connections (BYOC)
 

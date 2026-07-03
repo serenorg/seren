@@ -12,7 +12,7 @@
 //!     let config = ClientConfig::new("seren_your_api_key_here");
 //!     let client = Client::from_config(&config)?;
 //!
-//!     let projects = client.list_projects(None, None, None).await?;
+//!     let projects = client.seren_db_list_projects().await?;
 //!     println!("Found {} projects", projects.into_inner().data.len());
 //!
 //!     Ok(())

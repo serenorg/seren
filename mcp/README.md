@@ -1,17 +1,47 @@
 # Seren MCP Server
 
-Model Context Protocol (MCP) server for SerenAI, exposing database operations, publisher access, managed agents, and seren-cloud workflows to MCP clients.
+Model Context Protocol (MCP) server for SerenAI. It lets Claude, Codex, and other MCP-compatible assistants operate SerenDB and the Seren agent platform directly from a conversation.
+
+Seren MCP is the agent-facing control plane for Seren. Once connected, an assistant can deploy Seren Employees and other managed agents on Seren Cloud, request approved vault access, fetch skills and model-service guidance, inspect backend state, work with Postgres databases and branches, manage supporting storage, and use payment flows without switching to a dashboard.
+
+## What Assistants Can Do
+
+| Area | MCP capabilities |
+|------|------------------|
+| Seren Employees and managed agents | Deploy prompt-defined `seren-agent` services on Seren Cloud, inspect revisions, preview updates, roll back deployments, and configure tool presets, model policy, approval policy, eval gates, and remote A2A delegation |
+| Seren Cloud operations | Get organization-wide cloud overview, list deployments, inspect runs and conversations, stream activity, approve or reject pending actions, manage schedules, and inspect artifacts/eval sets |
+| Seren Passwords | Let agents list vaults and retrieve approved secrets through encrypted vault access, hosted browser consent, scoped agent identities, read approvals, audit logs, and local unlock modes |
+| Skills, models, and services | Fetch publisher and Seren API skill docs so the assistant learns an integration before calling it, create and publish organization custom skills, apply private-model policy and model routing, and reach the notes, memory, and browser-automation services Desktop agents build on |
+| Publisher integrations | Discover Seren publishers, list MCP tools/resources exposed by a publisher, estimate cost, and call SQL/API/MCP publishers through one interface |
+| Backend context | List projects, branches, databases, roles, endpoints, connection strings, and organization resources so the assistant understands the current environment |
+| Database work | Create projects and branches, run SQL, inspect schema differences, manage databases/roles, and prepare connection strings for application code |
+| Object storage | Create buckets, list objects, create presigned uploads, download objects, and manage supporting file metadata for Seren agents, employees, and applications |
+| Payments | Use prepaid balance flows for publisher access, request wallet transfers, or use local x402 wallet signing when running a local MCP server |
+
+## Hosted vs Local
+
+Most users should start with the hosted streamable-HTTP endpoint. It requires no local process and uses OAuth 2.1 for account authorization:
+
+```bash
+claude mcp add --scope user --transport http seren https://mcp.serendb.com/mcp
+```
+
+Run locally when you need an API key based stdio server, a custom API backend, local Seren Passwords unlock mode, local x402 wallet signing, or development access to MCP logs:
+
+```bash
+seren mcp start
+```
 
 ## Features
 
-- **Project Management**: Create, list, and manage SerenDB projects
-- **Branch Operations**: Create branches, manage development workflows
-- **Database Queries**: Execute SQL queries directly through your AI assistant
-- **Publisher Access**: Discover paid publishers, MCP publishers, and agent templates
-- **Managed Agents**: Deploy and operate prompt-defined `seren-agent` services
-- **Cloud Operations**: Inspect deployments, runs, approvals, artifacts, and eval sets
-- **Payments**: Use prepaid balance flows or local x402 wallet signing when configured
-- **Secure OAuth**: OAuth 2.1 (Auth Code + PKCE) for hosted deployments
+- Hosted streamable-HTTP MCP at `https://mcp.serendb.com/mcp`
+- Local stdio mode through the unified `seren` CLI binary
+- HTTP bearer mode for local testing
+- OAuth 2.1 (Authorization Code + PKCE) mode for hosted deployments
+- Read-only mode for safer inspection-only use
+- Seren Passwords hosted delegation and local vault unlock modes
+- Optional local x402 wallet signing for advanced paid publisher flows
+- Tool schemas normalized for strict MCP clients
 
 ## Usage Modes
 
@@ -88,7 +118,7 @@ Download pre-built binaries from GitHub Releases (tagged versions): https://gith
 
 #### Method 1: Using the Hosted Remote Server (Recommended)
 
-The easiest way to use Seren MCP is through our hosted server at `mcp.serendb.com`. No local installation required!
+The easiest way to use Seren MCP is through the hosted server at `mcp.serendb.com`. No local installation is required.
 
 **Using the Claude CLI:**
 
@@ -145,26 +175,49 @@ claude mcp add seren seren mcp start --env API_KEY=seren_...
 }
 ```
 
-After adding the server configuration (either method), restart Claude Desktop and you can start using Seren MCP in your conversations!
+After adding the server configuration, restart Claude Desktop and use Seren MCP from your conversations.
 
 ## Usage Examples
 
 Once configured, you can ask Claude to:
 
-- "List all my SerenDB projects"
-- "Create a new project called 'analytics-db'"
-- "Show me the branches in my project"
-- "Create a development branch from main"
-- "Run this SQL query on my database: SELECT * FROM users LIMIT 10"
-- "Run a prepaid API request against a store publisher"
-- "Show me all cloud deployments waiting for approval"
-- "Deploy a managed seren-agent for triage and show me its revision history"
-- "Deploy this tar.gz deployment bundle to Seren Cloud and return the deployment id"
-- "List MCP tools exposed by a publisher before calling it"
+- "Deploy a managed seren-agent for triage, then show me its revision history."
+- "Show all cloud deployments waiting for approval and summarize what each run wants to do."
+- "Approve this run after you inspect the pending approval details."
+- "Deploy this tar.gz deployment bundle to Seren Cloud and return the deployment id."
+- "Request access to my Seren Passwords vault, then retrieve the approved API key for the staging deploy."
+- "Fetch skill docs for this publisher before calling its tools."
+- "List MCP tools exposed by a publisher before calling it."
+- "List my SerenDB projects and tell me which branch is production."
+- "Create a development branch for this migration and give me a pooled connection string."
+- "Run this SQL query on the analytics database: SELECT * FROM users LIMIT 10."
+- "Create an object storage bucket for customer exports and upload this file."
+- "Find a publisher that can answer this task, estimate the cost, and call it if the prepaid balance is enough."
+
+### Seren Passwords Tools
+
+Seren Passwords lets agents use credentials without pasting secrets into prompts or committing them into project files. Hosted MCP uses browser consent to create a scoped agent identity, and local MCP can unlock a vault from the user's machine. Vault owners can require approvals for sensitive reads, grant or revoke memberships, rotate vault keys, and inspect audit logs.
+
+Typical hosted flow:
+
+1. Call `passwords_request_access` to create a short-lived browser consent URL.
+2. Open the returned URL and approve the vaults the hosted MCP agent may access.
+3. Call `passwords_grant_status` until it returns `granted`.
+4. Use `passwords_vaults_list`, `passwords_items_list`, and `passwords_item_get` directly, or call them through `call_publisher` with publisher `seren-passwords`.
+
+Built-in helper tools:
+
+- `passwords_request_access` starts hosted access setup and returns a consent URL
+- `passwords_grant_status` checks and finalizes the hosted access request
+- `passwords_vaults_list` lists vaults available to the current agent/session
+- `passwords_items_list` lists decrypted item metadata in a vault
+- `passwords_item_get` retrieves one item, with reveal behavior controlled by the tool parameters
+
+Local MCP mode also exposes vault administration and migration tools, including vault create/archive/rotate, item create/update/delete/restore, encrypted attachments, approvals, memberships, invitations, shares, audit verification, import/export, and agent identity provisioning.
 
 ### Managed Agent Tools
 
-The MCP server also exposes first-class tools for managed `seren-agent` deployments. Use these when you want prompt-defined cloud agents without uploading a code bundle.
+The MCP server also exposes first-class tools for managed `seren-agent` deployments. Use these when you want prompt-defined cloud agents without uploading a code bundle. Seren Employees is the product name for managed `seren-agent` deployments that run on Seren Cloud with a stable role, instructions, tools, approvals, and lifecycle.
 
 See [docs/managed-agents.md](../docs/managed-agents.md) for the full model and CLI equivalents.
 
@@ -261,7 +314,7 @@ Use prepaid balance (fiat/Stripe) for store access:
 - `execute_paid_query` - Run a prepaid SQL query against a publisher database
 - `execute_paid_api` - Run a prepaid HTTP request against a publisher API
 
-Both tools accept an optional `request_id` (UUID) for idempotency.
+`execute_paid_query` and `execute_paid_api` accept an optional `request_id` (UUID) for idempotency.
 
 ### X402 Local Signing (Advanced)
 
