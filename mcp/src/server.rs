@@ -1807,6 +1807,23 @@ pub struct GetSerenAgentDeploymentParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ListSerenAgentDeploymentToolsParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Optional case-insensitive search over tool names, descriptions, and sources
+    #[serde(default)]
+    pub q: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct DescribeSerenAgentDeploymentToolParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Tool name exactly as reported by list_seren_agent_deployment_tools
+    pub tool_name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GetSerenAgentDeploymentActivityParams {
     /// Deployment UUID
     pub deployment_id: Uuid,
@@ -10650,6 +10667,72 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_get_deployment_resources(&params.deployment_id)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List tools visible to a managed seren-agent deployment. Use this to inspect what an employee can read or act on without loading every tool as a top-level MCP tool.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn list_seren_agent_deployment_tools(
+        &self,
+        Parameters(params): Parameters<ListSerenAgentDeploymentToolsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_list_deployment_tools(&params.deployment_id, params.q.as_deref())
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Describe one tool visible to a managed seren-agent deployment, including source, input schema, side-effecting status, checkpoint status, and approval metadata.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn describe_seren_agent_deployment_tool(
+        &self,
+        Parameters(params): Parameters<DescribeSerenAgentDeploymentToolParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_describe_deployment_tool(&params.deployment_id, &params.tool_name)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List resolved tool groups for a managed seren-agent deployment. Tool groups are the display/read model derived from enabled tool presets and future explicit groups.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn list_seren_agent_deployment_tool_groups(
+        &self,
+        Parameters(params): Parameters<GetSerenAgentDeploymentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_list_deployment_tool_groups(&params.deployment_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();

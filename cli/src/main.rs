@@ -1399,6 +1399,26 @@ enum AgentAction {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
     },
+    /// List tools visible to a managed seren-agent deployment
+    ManagedDeploymentTools {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Optional case-insensitive search over tool names, descriptions, and sources
+        #[arg(long)]
+        q: Option<String>,
+    },
+    /// Describe one tool visible to a managed seren-agent deployment
+    ManagedDeploymentTool {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Tool name
+        tool_name: String,
+    },
+    /// List resolved tool groups for a managed seren-agent deployment
+    ManagedDeploymentToolGroups {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
     /// Get recent managed-agent activity for a deployment
     ManagedDeploymentActivity {
         /// Deployment ID (UUID)
@@ -6223,6 +6243,24 @@ async fn main() -> anyhow::Result<()> {
             AgentAction::ManagedDeploymentResources { deployment_id } => {
                 commands::agent::managed_agent_deployment_resources(deployment_id, &ctx).await?
             }
+            AgentAction::ManagedDeploymentTools { deployment_id, q } => {
+                commands::agent::managed_agent_deployment_tools(deployment_id, q.as_deref(), &ctx)
+                    .await?
+            }
+            AgentAction::ManagedDeploymentTool {
+                deployment_id,
+                tool_name,
+            } => {
+                commands::agent::managed_agent_deployment_tool(
+                    deployment_id,
+                    tool_name.as_str(),
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::ManagedDeploymentToolGroups { deployment_id } => {
+                commands::agent::managed_agent_deployment_tool_groups(deployment_id, &ctx).await?
+            }
             AgentAction::ManagedDeploymentActivity {
                 deployment_id,
                 limit,
@@ -6989,6 +7027,70 @@ mod tests {
                 },
                 _ => panic!("unexpected command parsed"),
             }
+        }
+    }
+
+    #[test]
+    fn managed_tool_catalog_commands_accept_deployment_id() {
+        let deployment_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+
+        let tools = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-deployment-tools",
+            "11111111-1111-1111-1111-111111111111",
+            "--q",
+            "web",
+        ]);
+        match tools.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedDeploymentTools {
+                    deployment_id: parsed_id,
+                    q,
+                } => {
+                    assert_eq!(parsed_id, deployment_id);
+                    assert_eq!(q.as_deref(), Some("web"));
+                }
+                _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let tool = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-deployment-tool",
+            "11111111-1111-1111-1111-111111111111",
+            "seren_publishers_get",
+        ]);
+        match tool.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedDeploymentTool {
+                    deployment_id: parsed_id,
+                    tool_name,
+                } => {
+                    assert_eq!(parsed_id, deployment_id);
+                    assert_eq!(tool_name, "seren_publishers_get");
+                }
+                _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let groups = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-deployment-tool-groups",
+            "11111111-1111-1111-1111-111111111111",
+        ]);
+        match groups.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedDeploymentToolGroups {
+                    deployment_id: parsed_id,
+                } => assert_eq!(parsed_id, deployment_id),
+                _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
         }
     }
 

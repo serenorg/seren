@@ -793,6 +793,177 @@
         ]
       }
     },
+    "/deployments/{id}/tool-groups": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "List tool groups currently assigned to a managed seren-agent deployment.",
+        "description": "Returns the resolved tool-group read model for a managed seren-agent deployment. Today these groups are derived from the deployment's tool_presets config inputs; future explicit tool-group assignments will use the same response shape.",
+        "operationId": "seren_agent_list_deployment_tool_groups",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed deployment tool groups retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentToolGroupResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Deployment is not managed by seren-agent"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/tools": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "List tools currently visible to a managed seren-agent deployment.",
+        "description": "Returns the declared tool catalog for a managed seren-agent deployment, including source, approval, and side-effect metadata. This endpoint is a managed-agent projection; use seren-cloud run APIs for runtime execution.",
+        "operationId": "seren_agent_list_deployment_tools",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Optional case-insensitive search over tool names, descriptions, and sources",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed deployment tool catalog retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentToolCatalogResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Deployment is not managed by seren-agent"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/tools/{tool_name}": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Describe one tool currently visible to a managed seren-agent deployment.",
+        "description": "Returns one declared tool descriptor for a managed seren-agent deployment, including source, approval, and side-effect metadata. This endpoint is a managed-agent projection; use seren-cloud run APIs for runtime execution.",
+        "operationId": "seren_agent_describe_deployment_tool",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "tool_name",
+            "in": "path",
+            "description": "Tool name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed deployment tool descriptor retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentToolCatalogEntry"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Deployment is not managed by seren-agent"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Deployment or tool not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -2526,7 +2697,7 @@
             "items": {
               "$ref": "#/components/schemas/ManagedAgentToolPreset"
             },
-            "description": "Managed tool presets. Defaults to `live_data`."
+            "description": "Managed tool preset configuration. Defaults to `live_data`. Presets are\ncompact config inputs, not resolved display groups."
           },
           "tool_refs": {
             "type": [
@@ -2536,7 +2707,7 @@
             "items": {
               "$ref": "#/components/schemas/AgentToolRef"
             },
-            "description": "Optional typed tool references. Coexists with `tool_presets` so the\nruntime can resolve from typed refs and preset groups together."
+            "description": "Optional typed tool references. Coexists with `tool_presets` so the\nruntime can resolve from typed refs and preset configuration together."
           },
           "visibility": {
             "type": [
@@ -2794,7 +2965,7 @@
             "items": {
               "$ref": "#/components/schemas/ManagedAgentToolPreset"
             },
-            "description": "Updated managed tool presets."
+            "description": "Updated managed tool preset configuration. Presets are compact config\ninputs, not resolved display groups."
           },
           "tool_refs": {
             "type": [
@@ -4177,7 +4348,8 @@
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/ManagedAgentToolPreset"
-                }
+                },
+                "description": "Preset configuration enabled on the deployment. Presets are compact\nconfig inputs; use the tool-groups endpoint for the resolved display\nmodel with labels, descriptions, and tool membership."
               },
               "tool_refs": {
                 "type": "array",
@@ -4514,6 +4686,190 @@
               },
               "summary": {
                 "$ref": "#/components/schemas/ManagedAgentHealthSummary"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentToolCatalogEntry": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "name",
+              "description",
+              "source",
+              "approval_type",
+              "approval_rule_count",
+              "side_effecting",
+              "checkpoint_required"
+            ],
+            "properties": {
+              "approval_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "approval_rule_count": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "approval_type": {
+                "$ref": "#/components/schemas/ToolApprovalType"
+              },
+              "checkpoint_required": {
+                "type": "boolean",
+                "description": "Whether this tool is included in the durable tool-call checkpoint used\nfor conservative resume. Today this mirrors `side_effecting`; it is\nseparate so future deployment policy can narrow checkpointing without\nchanging the response shape."
+              },
+              "data_labels": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "description": {
+                "type": "string"
+              },
+              "input_schema": {},
+              "name": {
+                "type": "string"
+              },
+              "preset": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentToolPreset"
+                  }
+                ]
+              },
+              "side_effecting": {
+                "type": "boolean"
+              },
+              "source": {
+                "$ref": "#/components/schemas/ManagedAgentToolSource"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentToolCatalogResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "deployment_id",
+              "tool_presets",
+              "allowed_publisher_operations",
+              "approval_policy",
+              "tools"
+            ],
+            "properties": {
+              "allowed_publisher_operations": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "approval_policy": {
+                "$ref": "#/components/schemas/ManagedAgentApprovalPolicy"
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "tool_presets": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentToolPreset"
+                },
+                "description": "Preset configuration enabled on the deployment. The catalog expands\nthese presets into concrete tool descriptors."
+              },
+              "tools": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentToolCatalogEntry"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentToolGroupResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "deployment_id",
+              "implicit",
+              "tool_groups"
+            ],
+            "properties": {
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "implicit": {
+                "type": "boolean",
+                "description": "True when the response is derived from preset configuration instead of\nexplicit persisted tool-group assignments."
+              },
+              "tool_groups": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAgentToolGroupEntry"
+                },
+                "description": "Resolved display/read model for the deployment's named tool groups.\nToday these are derived from `tool_presets`; future custom groups use\nthe same shape with `preset` omitted."
               }
             }
           },
@@ -5698,7 +6054,8 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ManagedAgentToolPreset"
-            }
+            },
+            "description": "Preset configuration enabled on the deployment. Presets are compact\nconfig inputs; use the tool-groups endpoint for the resolved display\nmodel with labels, descriptions, and tool membership."
           },
           "tool_refs": {
             "type": "array",
@@ -6877,6 +7234,192 @@
           "workflow_agent"
         ]
       },
+      "ManagedAgentToolCatalogEntry": {
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "source",
+          "approval_type",
+          "approval_rule_count",
+          "side_effecting",
+          "checkpoint_required"
+        ],
+        "properties": {
+          "approval_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "approval_rule_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "approval_type": {
+            "$ref": "#/components/schemas/ToolApprovalType"
+          },
+          "checkpoint_required": {
+            "type": "boolean",
+            "description": "Whether this tool is included in the durable tool-call checkpoint used\nfor conservative resume. Today this mirrors `side_effecting`; it is\nseparate so future deployment policy can narrow checkpointing without\nchanging the response shape."
+          },
+          "data_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": "string"
+          },
+          "input_schema": {},
+          "name": {
+            "type": "string"
+          },
+          "preset": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentToolPreset"
+              }
+            ]
+          },
+          "side_effecting": {
+            "type": "boolean"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ManagedAgentToolSource"
+          }
+        }
+      },
+      "ManagedAgentToolCatalogResponse": {
+        "type": "object",
+        "required": [
+          "deployment_id",
+          "tool_presets",
+          "allowed_publisher_operations",
+          "approval_policy",
+          "tools"
+        ],
+        "properties": {
+          "allowed_publisher_operations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "approval_policy": {
+            "$ref": "#/components/schemas/ManagedAgentApprovalPolicy"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tool_presets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentToolPreset"
+            },
+            "description": "Preset configuration enabled on the deployment. The catalog expands\nthese presets into concrete tool descriptors."
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentToolCatalogEntry"
+            }
+          }
+        }
+      },
+      "ManagedAgentToolGroupEntry": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "description",
+          "tool_count",
+          "tool_names",
+          "side_effecting",
+          "checkpoint_required",
+          "approval_type"
+        ],
+        "properties": {
+          "approval_type": {
+            "$ref": "#/components/schemas/ToolApprovalType"
+          },
+          "checkpoint_required": {
+            "type": "boolean",
+            "description": "Whether any tool in this group is included in the durable tool-call\ncheckpoint used for conservative resume."
+          },
+          "data_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "preset": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentToolPreset",
+                "description": "Source preset when this group is derived from preset configuration.\nFuture explicit/custom groups may omit this field."
+              }
+            ]
+          },
+          "side_effecting": {
+            "type": "boolean"
+          },
+          "tool_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "tool_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ManagedAgentToolGroupResponse": {
+        "type": "object",
+        "required": [
+          "deployment_id",
+          "implicit",
+          "tool_groups"
+        ],
+        "properties": {
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "implicit": {
+            "type": "boolean",
+            "description": "True when the response is derived from preset configuration instead of\nexplicit persisted tool-group assignments."
+          },
+          "tool_groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentToolGroupEntry"
+            },
+            "description": "Resolved display/read model for the deployment's named tool groups.\nToday these are derived from `tool_presets`; future custom groups use\nthe same shape with `preset` omitted."
+          }
+        }
+      },
       "ManagedAgentToolPreset": {
         "type": "string",
         "enum": [
@@ -6929,7 +7472,8 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ManagedAgentToolPreset"
-            }
+            },
+            "description": "Preset configuration enabled on the deployment. Presets are compact\nconfig inputs; use the tool-groups endpoint for the resolved display\nmodel."
           },
           "tool_ref_count": {
             "type": "integer",
@@ -6937,6 +7481,15 @@
             "minimum": 0
           }
         }
+      },
+      "ManagedAgentToolSource": {
+        "type": "string",
+        "enum": [
+          "publisher",
+          "mcp",
+          "database",
+          "custom"
+        ]
       },
       "ManagedDeploymentCondition": {
         "type": "object",

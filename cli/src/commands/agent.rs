@@ -3068,6 +3068,136 @@ fn print_managed_agent_resources_table(payload: &serde_json::Value) {
     output::print_key_value_table(Some("Managed Deployment Resources"), &rows);
 }
 
+fn print_managed_agent_tools_table(payload: &serde_json::Value) {
+    let data = payload.get("data").unwrap_or(payload);
+    let rows = vec![
+        ("Deployment ID", json_string_field(data, "deployment_id")),
+        ("Tool Presets", json_array_join_field(data, "tool_presets")),
+        (
+            "Approval Policy",
+            json_string_field(data, "approval_policy"),
+        ),
+        (
+            "Publisher Ops",
+            json_array_len_field(data, "allowed_publisher_operations"),
+        ),
+        ("Tools", json_array_len_field(data, "tools")),
+    ];
+    output::print_key_value_table(Some("Managed Deployment Tools"), &rows);
+
+    let tool_rows = data
+        .get("tools")
+        .and_then(|value| value.as_array())
+        .map(|tools| {
+            tools
+                .iter()
+                .map(format_managed_agent_tool)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    output::print_list_table(Some("Tools"), "Tool", &tool_rows);
+}
+
+fn print_managed_agent_tool_detail_table(payload: &serde_json::Value) {
+    let tool = payload.get("data").unwrap_or(payload);
+    let rows = vec![
+        ("Name", json_string_field(tool, "name")),
+        ("Source", json_string_field(tool, "source")),
+        ("Preset", json_string_field(tool, "preset")),
+        ("Description", json_string_field(tool, "description")),
+        ("Side Effecting", json_bool_field(tool, "side_effecting")),
+        (
+            "Checkpoint Required",
+            json_bool_field(tool, "checkpoint_required"),
+        ),
+        ("Approval", json_string_field(tool, "approval_type")),
+        (
+            "Approval Rules",
+            json_number_field(tool, "approval_rule_count"),
+        ),
+        ("Data Labels", json_array_join_field(tool, "data_labels")),
+        (
+            "Input Schema",
+            if tool
+                .get("input_schema")
+                .is_some_and(|value| !value.is_null())
+            {
+                "yes".to_string()
+            } else {
+                "no".to_string()
+            },
+        ),
+    ];
+    output::print_key_value_table(Some("Managed Deployment Tool"), &rows);
+}
+
+fn print_managed_agent_tool_groups_table(payload: &serde_json::Value) {
+    let data = payload.get("data").unwrap_or(payload);
+    let rows = vec![
+        ("Deployment ID", json_string_field(data, "deployment_id")),
+        ("Implicit", json_bool_field(data, "implicit")),
+        ("Groups", json_array_len_field(data, "tool_groups")),
+    ];
+    output::print_key_value_table(Some("Managed Deployment Tool Groups"), &rows);
+
+    let group_rows = data
+        .get("tool_groups")
+        .and_then(|value| value.as_array())
+        .map(|groups| {
+            groups
+                .iter()
+                .map(format_managed_agent_tool_group)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    output::print_list_table(Some("Tool Groups"), "Group", &group_rows);
+}
+
+fn format_managed_agent_tool(tool: &serde_json::Value) -> String {
+    let name = json_string_field(tool, "name");
+    let source = json_string_field(tool, "source");
+    let approval = json_string_field(tool, "approval_type");
+    let mode = if tool
+        .get("side_effecting")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+    {
+        "action"
+    } else {
+        "read"
+    };
+    let labels = json_array_join_field(tool, "data_labels");
+    let label_suffix = if labels == "-" {
+        String::new()
+    } else {
+        format!(" labels={labels}")
+    };
+    format!("{name} [{source}] mode={mode} approval={approval}{label_suffix}")
+}
+
+fn format_managed_agent_tool_group(group: &serde_json::Value) -> String {
+    let label = json_string_field(group, "label");
+    let id = json_string_field(group, "id");
+    let tool_count = json_number_field(group, "tool_count");
+    let approval = json_string_field(group, "approval_type");
+    let mode = if group
+        .get("side_effecting")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+    {
+        "action"
+    } else {
+        "read"
+    };
+    let tools = json_array_join_field(group, "tool_names");
+    let tool_suffix = if tools == "-" {
+        format!("{tool_count} tools")
+    } else {
+        tools
+    };
+    format!("{label} ({id}) mode={mode} approval={approval} tools={tool_suffix}")
+}
+
 fn print_managed_agent_activity_table(payload: &serde_json::Value) {
     let data = payload.get("data").unwrap_or(payload);
     let deployment = data.get("deployment").unwrap_or(&serde_json::Value::Null);
@@ -3900,6 +4030,94 @@ pub async fn managed_agent_deployment_resources(
         OutputFormat::Table => {
             let value = serde_json::to_value(&payload)?;
             print_managed_agent_resources_table(&value);
+        }
+    }
+    Ok(())
+}
+
+/// List tools visible to a managed seren-agent deployment.
+pub async fn managed_agent_deployment_tools(
+    deployment_id: Uuid,
+    q: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_agent_list_deployment_tools(&deployment_id, q)
+        .await
+    {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(
+                anyhow_from_seren_error("Failed to list managed deployment tools", err).await,
+            );
+        }
+    };
+    let payload = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&payload)?,
+        OutputFormat::Table => {
+            let value = serde_json::to_value(&payload)?;
+            print_managed_agent_tools_table(&value);
+        }
+    }
+    Ok(())
+}
+
+/// Describe one tool visible to a managed seren-agent deployment.
+pub async fn managed_agent_deployment_tool(
+    deployment_id: Uuid,
+    tool_name: &str,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_agent_describe_deployment_tool(&deployment_id, tool_name)
+        .await
+    {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(
+                anyhow_from_seren_error("Failed to describe managed deployment tool", err).await,
+            );
+        }
+    };
+    let payload = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&payload)?,
+        OutputFormat::Table => {
+            let value = serde_json::to_value(&payload)?;
+            print_managed_agent_tool_detail_table(&value);
+        }
+    }
+    Ok(())
+}
+
+/// List resolved tool groups for a managed seren-agent deployment.
+pub async fn managed_agent_deployment_tool_groups(
+    deployment_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_agent_list_deployment_tool_groups(&deployment_id)
+        .await
+    {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to list managed deployment tool groups",
+                err,
+            )
+            .await);
+        }
+    };
+    let payload = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&payload)?,
+        OutputFormat::Table => {
+            let value = serde_json::to_value(&payload)?;
+            print_managed_agent_tool_groups_table(&value);
         }
     }
     Ok(())
