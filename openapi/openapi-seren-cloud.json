@@ -7100,6 +7100,26 @@
           "unknown"
         ]
       },
+      "CloudRunErrorCode": {
+        "type": "string",
+        "description": "Stable error code for expected run failures. This lets clients render\nconfiguration and tool failures without parsing provider messages.",
+        "enum": [
+          "tool_unavailable",
+          "tool_not_configured",
+          "tool_missing_credential",
+          "tool_permission_denied",
+          "tool_rate_limited",
+          "tool_provider_failed",
+          "model_tool_response_rejected",
+          "model_tool_calls_unsupported",
+          "model_provider_rejected",
+          "approval_required",
+          "guardrail_blocked",
+          "runtime_error",
+          "timeout",
+          "unknown"
+        ]
+      },
       "CloudRunEvalsResponse": {
         "type": "object",
         "description": "Eval records linked to a run, either as the promoted source or as an actual replay target.",
@@ -7780,8 +7800,14 @@
                   }
                 ]
               },
+              "code": {
+                "$ref": "#/components/schemas/CloudRunErrorCode"
+              },
               "message": {
                 "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
               },
               "type": {
                 "type": "string",
