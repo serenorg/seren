@@ -318,6 +318,45 @@ struct CachedApiKeyValidation {
     expires_at: std::time::Instant,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SerenRequestCredential {
+    UserSession,
+    UserApiKey {
+        api_key_id: Option<Uuid>,
+    },
+    AgentApiKey {
+        api_key_id: Option<Uuid>,
+        agent_identity_id: Option<Uuid>,
+    },
+    ApiKey {
+        api_key_id: Option<Uuid>,
+    },
+}
+
+impl SerenRequestCredential {
+    fn from_user_me(user_info: &seren::DataResponseUserMeData) -> Self {
+        match user_info.api_key_type.as_ref() {
+            Some(seren::ApiKeyType::User) => Self::UserApiKey {
+                api_key_id: user_info.api_key_id,
+            },
+            Some(seren::ApiKeyType::Agent) => Self::AgentApiKey {
+                api_key_id: user_info.api_key_id,
+                agent_identity_id: user_info.agent_identity_id,
+            },
+            None => Self::ApiKey {
+                api_key_id: user_info.api_key_id,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SerenRequestAuthContext {
+    pub user_id: Uuid,
+    pub email: Option<String>,
+    pub credential: SerenRequestCredential,
+}
+
 #[derive(Debug)]
 enum ApiKeyValidationError {
     InvalidToken,
@@ -591,11 +630,11 @@ async fn require_oauth_auth(
                         );
                     }
 
-                    // Mark this as an API key session (no MCP client registration)
-                    req.headers_mut().insert(
-                        axum::http::header::HeaderName::from_static("x-auth-method"),
-                        axum::http::HeaderValue::from_static("api_key"),
-                    );
+                    req.extensions_mut().insert(SerenRequestAuthContext {
+                        user_id: user_info.id,
+                        email: Some(user_info.email.to_string()),
+                        credential: SerenRequestCredential::from_user_me(&user_info),
+                    });
 
                     let response = next.run(req).await;
 
@@ -1150,6 +1189,11 @@ async fn require_oauth_auth(
             v,
         );
     }
+    req.extensions_mut().insert(SerenRequestAuthContext {
+        user_id,
+        email: resolved_auth.email.clone(),
+        credential: SerenRequestCredential::UserSession,
+    });
 
     // Look up client metadata for agent tracking
     if let Some(ref cid) = client_id

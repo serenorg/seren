@@ -215,7 +215,26 @@ pub struct PendingConsent {
 #[derive(Clone)]
 pub struct HostedPasswordsAgent {
     pub kem_private: Zeroizing<String>,
-    pub api_key: Zeroizing<String>,
+    pub api_key: Option<Zeroizing<String>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HostedPasswordsCredentialSubject {
+    User,
+    UserApiKey(Uuid),
+}
+
+impl HostedPasswordsCredentialSubject {
+    pub fn storage_key(&self) -> String {
+        match self {
+            Self::User => "user".to_string(),
+            Self::UserApiKey(api_key_id) => format!("user_api_key:{api_key_id}"),
+        }
+    }
+
+    pub fn is_user_api_key(&self) -> bool {
+        matches!(self, Self::UserApiKey(_))
+    }
 }
 
 /// Pending hosted agent keypair waiting for browser-side vault consent.
@@ -228,6 +247,7 @@ pub struct HostedPasswordsAgentRequest {
 
 pub struct PendingHostedPasswordsAgentRequest<'a> {
     pub user_id: Uuid,
+    pub credential_subject: &'a str,
     pub request_id: Uuid,
     pub display_name: &'a str,
     pub kem_public: &'a str,
@@ -236,25 +256,42 @@ pub struct PendingHostedPasswordsAgentRequest<'a> {
     pub expires_at: OffsetDateTime,
 }
 
+pub struct HostedPasswordsAgentUpsert<'a> {
+    pub user_id: Uuid,
+    pub credential_subject: &'a str,
+    pub identity_id: Uuid,
+    pub display_name: &'a str,
+    pub kem_private: &'a str,
+    pub api_key: Option<&'a str>,
+    pub granted_vaults: &'a serde_json::Value,
+}
+
 #[derive(Serialize, Deserialize)]
 struct HostedPasswordsAgentSecretBundle {
     user_id: Uuid,
+    #[serde(default = "default_hosted_passwords_credential_subject")]
+    credential_subject: String,
     identity_id: Uuid,
     kem_private: String,
-    api_key: String,
+    #[serde(default)]
+    api_key: Option<String>,
 }
 
 #[derive(Serialize)]
 struct HostedPasswordsAgentSecretBundleRef<'a> {
     user_id: Uuid,
+    credential_subject: &'a str,
     identity_id: Uuid,
     kem_private: &'a str,
-    api_key: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    api_key: Option<&'a str>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct HostedPasswordsAgentRequestSecretBundle {
     user_id: Uuid,
+    #[serde(default = "default_hosted_passwords_credential_subject")]
+    credential_subject: String,
     request_id: Uuid,
     kem_private: String,
 }
@@ -262,8 +299,13 @@ struct HostedPasswordsAgentRequestSecretBundle {
 #[derive(Serialize)]
 struct HostedPasswordsAgentRequestSecretBundleRef<'a> {
     user_id: Uuid,
+    credential_subject: &'a str,
     request_id: Uuid,
     kem_private: &'a str,
+}
+
+fn default_hosted_passwords_credential_subject() -> String {
+    "user".to_string()
 }
 
 /// Token store backed by PostgreSQL with LRU cache for client metadata
@@ -399,18 +441,14 @@ impl TokenStore {
     /// buffers. This method encrypts them before they reach Postgres.
     pub async fn upsert_hosted_passwords_agent(
         &self,
-        user_id: Uuid,
-        identity_id: Uuid,
-        display_name: &str,
-        kem_private: &str,
-        api_key: &str,
-        granted_vaults: &serde_json::Value,
+        request: HostedPasswordsAgentUpsert<'_>,
     ) -> Result<()> {
         let credential_bundle = HostedPasswordsAgentSecretBundleRef {
-            user_id,
-            identity_id,
-            kem_private,
-            api_key,
+            user_id: request.user_id,
+            credential_subject: request.credential_subject,
+            identity_id: request.identity_id,
+            kem_private: request.kem_private,
+            api_key: request.api_key,
         };
         let credential_json =
             Zeroizing::new(serde_json::to_string(&credential_bundle).map_err(|e| {
@@ -423,20 +461,23 @@ impl TokenStore {
         sqlx::query(
             r#"
             INSERT INTO mcp_oauth.hosted_passwords_agents
-                (user_id, identity_id, display_name, credential_ciphertext, granted_vaults)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (user_id, identity_id)
+                (user_id, credential_subject, identity_id, display_name,
+                    credential_ciphertext, granted_vaults)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (user_id, credential_subject)
             DO UPDATE SET
+                identity_id = EXCLUDED.identity_id,
                 display_name = EXCLUDED.display_name,
                 credential_ciphertext = EXCLUDED.credential_ciphertext,
                 granted_vaults = EXCLUDED.granted_vaults
             "#,
         )
-        .bind(user_id)
-        .bind(identity_id)
-        .bind(display_name)
+        .bind(request.user_id)
+        .bind(request.credential_subject)
+        .bind(request.identity_id)
+        .bind(request.display_name)
         .bind(&credential_ciphertext)
-        .bind(granted_vaults)
+        .bind(request.granted_vaults)
         .execute(&self.pool)
         .await
         .map_err(McpError::Database)?;
@@ -450,6 +491,7 @@ impl TokenStore {
     ) -> Result<()> {
         let credential_bundle = HostedPasswordsAgentRequestSecretBundleRef {
             user_id: request.user_id,
+            credential_subject: request.credential_subject,
             request_id: request.request_id,
             kem_private: request.kem_private,
         };
@@ -464,10 +506,10 @@ impl TokenStore {
         sqlx::query(
             r#"
             INSERT INTO mcp_oauth.hosted_passwords_agent_requests
-                (user_id, request_id, display_name, kem_public, signing_public,
-                    credential_ciphertext, expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (user_id)
+                (user_id, credential_subject, request_id, display_name,
+                    kem_public, signing_public, credential_ciphertext, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (user_id, credential_subject)
             DO UPDATE SET
                 request_id = EXCLUDED.request_id,
                 display_name = EXCLUDED.display_name,
@@ -480,6 +522,7 @@ impl TokenStore {
             "#,
         )
         .bind(request.user_id)
+        .bind(request.credential_subject)
         .bind(request.request_id)
         .bind(request.display_name)
         .bind(request.kem_public)
@@ -496,6 +539,7 @@ impl TokenStore {
     pub async fn get_pending_hosted_passwords_agent(
         &self,
         user_id: Uuid,
+        credential_subject: &str,
         request_id: Uuid,
     ) -> Result<Option<HostedPasswordsAgentRequest>> {
         #[derive(sqlx::FromRow)]
@@ -510,10 +554,14 @@ impl TokenStore {
             r#"
             SELECT request_id, kem_public, signing_public, credential_ciphertext
             FROM mcp_oauth.hosted_passwords_agent_requests
-            WHERE user_id = $1 AND request_id = $2 AND expires_at > NOW()
+            WHERE user_id = $1
+                AND credential_subject = $2
+                AND request_id = $3
+                AND expires_at > NOW()
             "#,
         )
         .bind(user_id)
+        .bind(credential_subject)
         .bind(request_id)
         .fetch_optional(&self.pool)
         .await
@@ -535,7 +583,10 @@ impl TokenStore {
             serde_json::from_str(&credential_json).map_err(|e| {
                 McpError::Config(format!("Hosted passwords request decode failed: {e}"))
             })?;
-        if bundle.user_id != user_id || bundle.request_id != row.request_id {
+        if bundle.user_id != user_id
+            || bundle.credential_subject != credential_subject
+            || bundle.request_id != row.request_id
+        {
             return Err(McpError::Config(
                 "Hosted passwords pending credential binding mismatch".into(),
             ));
@@ -551,6 +602,7 @@ impl TokenStore {
     pub async fn claim_pending_hosted_passwords_agent(
         &self,
         user_id: Uuid,
+        credential_subject: &str,
         request_id: Uuid,
     ) -> Result<Option<HostedPasswordsAgentRequest>> {
         #[derive(sqlx::FromRow)]
@@ -566,7 +618,8 @@ impl TokenStore {
             UPDATE mcp_oauth.hosted_passwords_agent_requests
             SET finalizing_at = NOW()
             WHERE user_id = $1
-                AND request_id = $2
+                AND credential_subject = $2
+                AND request_id = $3
                 AND expires_at > NOW()
                 AND (
                     finalizing_at IS NULL
@@ -576,6 +629,7 @@ impl TokenStore {
             "#,
         )
         .bind(user_id)
+        .bind(credential_subject)
         .bind(request_id)
         .fetch_optional(&self.pool)
         .await
@@ -597,7 +651,10 @@ impl TokenStore {
             serde_json::from_str(&credential_json).map_err(|e| {
                 McpError::Config(format!("Hosted passwords request decode failed: {e}"))
             })?;
-        if bundle.user_id != user_id || bundle.request_id != row.request_id {
+        if bundle.user_id != user_id
+            || bundle.credential_subject != credential_subject
+            || bundle.request_id != row.request_id
+        {
             return Err(McpError::Config(
                 "Hosted passwords pending credential binding mismatch".into(),
             ));
@@ -613,15 +670,17 @@ impl TokenStore {
     pub async fn delete_pending_hosted_passwords_agent(
         &self,
         user_id: Uuid,
+        credential_subject: &str,
         request_id: Uuid,
     ) -> Result<u64> {
         let result = sqlx::query(
             r#"
             DELETE FROM mcp_oauth.hosted_passwords_agent_requests
-            WHERE user_id = $1 AND request_id = $2
+            WHERE user_id = $1 AND credential_subject = $2 AND request_id = $3
             "#,
         )
         .bind(user_id)
+        .bind(credential_subject)
         .bind(request_id)
         .execute(&self.pool)
         .await
@@ -646,6 +705,7 @@ impl TokenStore {
     pub async fn get_hosted_passwords_agent(
         &self,
         user_id: Uuid,
+        credential_subject: &str,
     ) -> Result<Option<HostedPasswordsAgent>> {
         #[derive(sqlx::FromRow)]
         struct HostedPasswordsAgentRow {
@@ -659,12 +719,13 @@ impl TokenStore {
                 identity_id,
                 credential_ciphertext
             FROM mcp_oauth.hosted_passwords_agents
-            WHERE user_id = $1
+            WHERE user_id = $1 AND credential_subject = $2
             ORDER BY updated_at DESC
             LIMIT 1
             "#,
         )
         .bind(user_id)
+        .bind(credential_subject)
         .fetch_optional(&self.pool)
         .await
         .map_err(McpError::Database)?;
@@ -692,7 +753,10 @@ impl TokenStore {
             .map_err(|e| {
                 McpError::Config(format!("Hosted passwords credential decode failed: {e}"))
             })?;
-        if bundle.user_id != user_id || bundle.identity_id != row.identity_id {
+        if bundle.user_id != user_id
+            || bundle.credential_subject != credential_subject
+            || bundle.identity_id != row.identity_id
+        {
             return Err(McpError::Config(
                 "Hosted passwords agent credential binding mismatch".into(),
             ));
@@ -700,7 +764,7 @@ impl TokenStore {
 
         Ok(Some(HostedPasswordsAgent {
             kem_private: Zeroizing::new(bundle.kem_private),
-            api_key: Zeroizing::new(bundle.api_key),
+            api_key: bundle.api_key.map(Zeroizing::new),
         }))
     }
 

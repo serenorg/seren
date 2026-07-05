@@ -47,7 +47,7 @@ use seren_secrets_crypto::protocol::vault::{
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-use crate::oauth::store::PendingHostedPasswordsAgentRequest;
+use crate::oauth::store::{HostedPasswordsAgentUpsert, PendingHostedPasswordsAgentRequest};
 use crate::server::SerenMcpServer;
 
 /// Idle timeout for a user-mode unlocked session before it is discarded.
@@ -790,8 +790,11 @@ impl SerenMcpServer {
                     None,
                 )
             })?;
+        let credential_subject =
+            crate::server::hosted_passwords_credential_subject_from_extensions(&extensions)?;
+        let credential_subject_key = credential_subject.storage_key();
         if store
-            .get_hosted_passwords_agent(user_id)
+            .get_hosted_passwords_agent(user_id, &credential_subject_key)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .is_some()
@@ -824,6 +827,7 @@ impl SerenMcpServer {
         store
             .upsert_pending_hosted_passwords_agent(PendingHostedPasswordsAgentRequest {
                 user_id,
+                credential_subject: &credential_subject_key,
                 request_id,
                 display_name,
                 kem_public: &kem_public,
@@ -847,7 +851,11 @@ impl SerenMcpServer {
             Ok(record) => record,
             Err(err) => {
                 let _ = store
-                    .delete_pending_hosted_passwords_agent(user_id, request_id)
+                    .delete_pending_hosted_passwords_agent(
+                        user_id,
+                        &credential_subject_key,
+                        request_id,
+                    )
                     .await;
                 return Err(err);
             }
@@ -856,7 +864,11 @@ impl SerenMcpServer {
             Ok(value) => value,
             Err(err) => {
                 let _ = store
-                    .delete_pending_hosted_passwords_agent(user_id, request_id)
+                    .delete_pending_hosted_passwords_agent(
+                        user_id,
+                        &credential_subject_key,
+                        request_id,
+                    )
                     .await;
                 return Err(err);
             }
@@ -864,6 +876,7 @@ impl SerenMcpServer {
         store
             .upsert_pending_hosted_passwords_agent(PendingHostedPasswordsAgentRequest {
                 user_id,
+                credential_subject: &credential_subject_key,
                 request_id,
                 display_name,
                 kem_public: &kem_public,
@@ -905,12 +918,15 @@ impl SerenMcpServer {
                     None,
                 )
             })?;
+        let credential_subject =
+            crate::server::hosted_passwords_credential_subject_from_extensions(&extensions)?;
+        let credential_subject_key = credential_subject.storage_key();
         store
             .delete_expired_pending_hosted_passwords_agents()
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         let pending = store
-            .get_pending_hosted_passwords_agent(user_id, params.request_id)
+            .get_pending_hosted_passwords_agent(user_id, &credential_subject_key, params.request_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .ok_or_else(|| McpError::invalid_request("Hosted access request not found", None))?;
@@ -950,7 +966,11 @@ impl SerenMcpServer {
             }
             DelegationStatus::Denied | DelegationStatus::Expired => {
                 store
-                    .delete_pending_hosted_passwords_agent(user_id, params.request_id)
+                    .delete_pending_hosted_passwords_agent(
+                        user_id,
+                        &credential_subject_key,
+                        params.request_id,
+                    )
                     .await
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?;
                 Ok(CallToolResult::success(vec![crate::server::json_content(
@@ -965,7 +985,11 @@ impl SerenMcpServer {
                     McpError::internal_error("Approved delegation is missing identity id", None)
                 })?;
                 let claimed = store
-                    .claim_pending_hosted_passwords_agent(user_id, params.request_id)
+                    .claim_pending_hosted_passwords_agent(
+                        user_id,
+                        &credential_subject_key,
+                        params.request_id,
+                    )
                     .await
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?
                     .ok_or_else(|| {
@@ -982,9 +1006,18 @@ impl SerenMcpServer {
                         None,
                     ));
                 }
-                let api_key = self
-                    .mint_hosted_passwords_agent_key(&extensions, identity_id, &record.display_name)
-                    .await?;
+                let api_key = if credential_subject.is_user_api_key() {
+                    None
+                } else {
+                    Some(
+                        self.mint_hosted_passwords_agent_key(
+                            &extensions,
+                            identity_id,
+                            &record.display_name,
+                        )
+                        .await?,
+                    )
+                };
                 let granted_vaults = serde_json::Value::Array(
                     record
                         .granted_vault_ids
@@ -993,18 +1026,23 @@ impl SerenMcpServer {
                         .collect(),
                 );
                 store
-                    .upsert_hosted_passwords_agent(
+                    .upsert_hosted_passwords_agent(HostedPasswordsAgentUpsert {
                         user_id,
+                        credential_subject: &credential_subject_key,
                         identity_id,
-                        &record.display_name,
-                        &claimed.kem_private,
-                        &api_key,
-                        &granted_vaults,
-                    )
+                        display_name: &record.display_name,
+                        kem_private: &claimed.kem_private,
+                        api_key: api_key.as_ref().map(|key| key.as_str()),
+                        granted_vaults: &granted_vaults,
+                    })
                     .await
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?;
                 store
-                    .delete_pending_hosted_passwords_agent(user_id, params.request_id)
+                    .delete_pending_hosted_passwords_agent(
+                        user_id,
+                        &credential_subject_key,
+                        params.request_id,
+                    )
                     .await
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?;
                 Ok(CallToolResult::success(vec![crate::server::json_content(
@@ -4832,7 +4870,9 @@ mod tests {
         seren::DelegationRequestRecord {
             agent_kem_public: "kem-public".to_string(),
             agent_signing_public: "signing-public".to_string(),
+            api_key_id: None,
             created_at: timestamp,
+            credential_kind: None,
             decided_at: None,
             display_name: "Hosted MCP".to_string(),
             expires_at: timestamp,

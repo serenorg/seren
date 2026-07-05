@@ -2034,6 +2034,9 @@
           },
           "404": {
             "description": "Provider not found"
+          },
+          "503": {
+            "description": "OAuth account access is unavailable"
           }
         },
         "security": [
@@ -2130,6 +2133,9 @@
           },
           "404": {
             "description": "Provider not found"
+          },
+          "503": {
+            "description": "OAuth account access is unavailable"
           }
         },
         "security": [
@@ -11370,7 +11376,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Granular permission scopes for the key. Meaningful for agent keys."
+            "description": "Granular permission scopes for publisher and operation access."
           }
         }
       },
@@ -17432,6 +17438,33 @@
                   "default_organization_id"
                 ],
                 "properties": {
+                  "agent_identity_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid",
+                    "description": "Present when the API key is bound to an agent identity."
+                  },
+                  "api_key_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid",
+                    "description": "Present when /auth/me is authenticated by an API key."
+                  },
+                  "api_key_type": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/ApiKeyType",
+                        "description": "Present when /auth/me is authenticated by an API key."
+                      }
+                    ]
+                  },
                   "default_organization_id": {
                     "type": "string",
                     "format": "uuid",
@@ -28742,6 +28775,33 @@
               "default_organization_id"
             ],
             "properties": {
+              "agent_identity_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Present when the API key is bound to an agent identity."
+              },
+              "api_key_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Present when /auth/me is authenticated by an API key."
+              },
+              "api_key_type": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ApiKeyType",
+                    "description": "Present when /auth/me is authenticated by an API key."
+                  }
+                ]
+              },
               "default_organization_id": {
                 "type": "string",
                 "format": "uuid",

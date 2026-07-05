@@ -3775,6 +3775,39 @@ pub(crate) fn extract_user_id_from_extensions(extensions: &Extensions) -> Option
     Uuid::parse_str(user_id).ok()
 }
 
+fn request_auth_context_from_extensions(
+    extensions: &Extensions,
+) -> Option<&crate::SerenRequestAuthContext> {
+    let parts = extensions.get::<axum::http::request::Parts>()?;
+    parts.extensions.get::<crate::SerenRequestAuthContext>()
+}
+
+pub(crate) fn hosted_passwords_credential_subject_from_extensions(
+    extensions: &Extensions,
+) -> Result<crate::oauth::store::HostedPasswordsCredentialSubject, McpError> {
+    let Some(auth) = request_auth_context_from_extensions(extensions) else {
+        return Ok(crate::oauth::store::HostedPasswordsCredentialSubject::User);
+    };
+
+    match &auth.credential {
+        crate::SerenRequestCredential::UserSession => {
+            Ok(crate::oauth::store::HostedPasswordsCredentialSubject::User)
+        }
+        crate::SerenRequestCredential::UserApiKey {
+            api_key_id: Some(api_key_id),
+        } => Ok(crate::oauth::store::HostedPasswordsCredentialSubject::UserApiKey(*api_key_id)),
+        crate::SerenRequestCredential::UserApiKey { api_key_id: None }
+        | crate::SerenRequestCredential::ApiKey { .. } => Err(McpError::invalid_request(
+            "Hosted password access requires API key metadata from Seren Core",
+            None,
+        )),
+        crate::SerenRequestCredential::AgentApiKey { .. } => Err(McpError::invalid_request(
+            "Hosted password access setup requires a user API key or OAuth session",
+            None,
+        )),
+    }
+}
+
 /// Agent metadata extracted from OAuth client registration
 #[derive(Debug, Clone, Default)]
 struct AgentMetadata {
@@ -4204,8 +4237,11 @@ impl SerenMcpServer {
                     None,
                 )
             })?;
+            let credential_subject =
+                hosted_passwords_credential_subject_from_extensions(extensions)?;
+            let credential_subject_key = credential_subject.storage_key();
             let agent = store
-                .get_hosted_passwords_agent(user_id)
+                .get_hosted_passwords_agent(user_id, &credential_subject_key)
                 .await
                 .map_err(|e| McpError::internal_error(e.to_string(), None))?
                 .ok_or_else(|| {
@@ -4222,7 +4258,19 @@ impl SerenMcpServer {
                 &kem_bytes,
             )
             .map_err(|_| McpError::internal_error("Stored hosted agent key is invalid", None))?;
-            Ok((agent.api_key.as_str().to_owned(), kem_private))
+            let bearer = match (credential_subject, agent.api_key.as_ref()) {
+                (crate::oauth::store::HostedPasswordsCredentialSubject::UserApiKey(_), _) => {
+                    self.bearer_token(extensions)?
+                }
+                (_, Some(api_key)) => api_key.as_str().to_owned(),
+                (_, None) => {
+                    return Err(McpError::internal_error(
+                        "Stored hosted agent API key is missing",
+                        None,
+                    ));
+                }
+            };
+            Ok((bearer, kem_private))
         } else if !self.passwords_local_mode {
             Err(McpError::invalid_request(
                 "Vault access requires a delegated agent key in hosted mode.",
@@ -12870,6 +12918,18 @@ mod tests {
         extensions
     }
 
+    fn extensions_with_auth_context(auth: crate::SerenRequestAuthContext) -> Extensions {
+        let request = Request::builder()
+            .uri("http://localhost/")
+            .body(Body::empty())
+            .unwrap();
+        let (mut parts, _body) = request.into_parts();
+        parts.extensions.insert(auth);
+        let mut extensions = Extensions::default();
+        extensions.insert(parts);
+        extensions
+    }
+
     fn server_with_http_client(http_client: reqwest::Client) -> SerenMcpServer {
         SerenMcpServer {
             api_base_url: "https://api.serendb.com".to_string(),
@@ -14064,6 +14124,52 @@ mod tests {
         let extensions = extensions_with_headers(&[]);
         let metadata = extract_agent_metadata_from_extensions(&extensions);
         assert!(metadata.user_id.is_none());
+    }
+
+    #[test]
+    fn hosted_passwords_credential_subject_uses_user_api_key_id() {
+        let api_key_id = Uuid::new_v4();
+        let extensions = extensions_with_auth_context(crate::SerenRequestAuthContext {
+            user_id: Uuid::new_v4(),
+            email: None,
+            credential: crate::SerenRequestCredential::UserApiKey {
+                api_key_id: Some(api_key_id),
+            },
+        });
+
+        let subject = hosted_passwords_credential_subject_from_extensions(&extensions).unwrap();
+
+        assert_eq!(
+            subject,
+            crate::oauth::store::HostedPasswordsCredentialSubject::UserApiKey(api_key_id)
+        );
+    }
+
+    #[test]
+    fn hosted_passwords_credential_subject_defaults_to_user_for_oauth() {
+        let extensions = extensions_with_auth_context(crate::SerenRequestAuthContext {
+            user_id: Uuid::new_v4(),
+            email: None,
+            credential: crate::SerenRequestCredential::UserSession,
+        });
+
+        let subject = hosted_passwords_credential_subject_from_extensions(&extensions).unwrap();
+
+        assert_eq!(
+            subject,
+            crate::oauth::store::HostedPasswordsCredentialSubject::User
+        );
+    }
+
+    #[test]
+    fn hosted_passwords_credential_subject_rejects_api_key_without_metadata() {
+        let extensions = extensions_with_auth_context(crate::SerenRequestAuthContext {
+            user_id: Uuid::new_v4(),
+            email: None,
+            credential: crate::SerenRequestCredential::UserApiKey { api_key_id: None },
+        });
+
+        assert!(hosted_passwords_credential_subject_from_extensions(&extensions).is_err());
     }
 
     #[test]
