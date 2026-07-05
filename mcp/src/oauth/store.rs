@@ -245,6 +245,10 @@ pub struct HostedPasswordsAgentRequest {
     pub kem_private: Zeroizing<String>,
 }
 
+pub struct HostedPasswordsPendingAgentRequest {
+    pub request_id: Uuid,
+}
+
 pub struct PendingHostedPasswordsAgentRequest<'a> {
     pub user_id: Uuid,
     pub credential_subject: &'a str,
@@ -596,6 +600,64 @@ impl TokenStore {
             kem_public: row.kem_public,
             signing_public: row.signing_public,
             kem_private: Zeroizing::new(bundle.kem_private),
+        }))
+    }
+
+    pub async fn get_pending_hosted_passwords_agent_for_subject(
+        &self,
+        user_id: Uuid,
+        credential_subject: &str,
+    ) -> Result<Option<HostedPasswordsPendingAgentRequest>> {
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            request_id: Uuid,
+            credential_ciphertext: String,
+        }
+
+        let row = sqlx::query_as::<_, Row>(
+            r#"
+            SELECT request_id, credential_ciphertext
+            FROM mcp_oauth.hosted_passwords_agent_requests
+            WHERE user_id = $1
+                AND credential_subject = $2
+                AND expires_at > NOW()
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(user_id)
+        .bind(credential_subject)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(McpError::Database)?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        if !TokenCipher::is_encrypted(&row.credential_ciphertext) {
+            return Err(McpError::Config(
+                "Hosted passwords pending credential is not encrypted".into(),
+            ));
+        }
+        let credential_json = Zeroizing::new(
+            self.hosted_passwords_agent_cipher("reading pending")?
+                .decrypt_or_plain(&row.credential_ciphertext)?,
+        );
+        let bundle: HostedPasswordsAgentRequestSecretBundle =
+            serde_json::from_str(&credential_json).map_err(|e| {
+                McpError::Config(format!("Hosted passwords request decode failed: {e}"))
+            })?;
+        if bundle.user_id != user_id
+            || bundle.credential_subject != credential_subject
+            || bundle.request_id != row.request_id
+        {
+            return Err(McpError::Config(
+                "Hosted passwords pending credential binding mismatch".into(),
+            ));
+        }
+
+        Ok(Some(HostedPasswordsPendingAgentRequest {
+            request_id: row.request_id,
         }))
     }
 

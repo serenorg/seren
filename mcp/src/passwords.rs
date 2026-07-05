@@ -803,6 +803,48 @@ impl SerenMcpServer {
                 &serde_json::json!({ "status": "already_granted" }),
             )?]));
         }
+        store
+            .delete_expired_pending_hosted_passwords_agents()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        if let Some(pending) = store
+            .get_pending_hosted_passwords_agent_for_subject(user_id, &credential_subject_key)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+        {
+            let record = self
+                .get_passwords_delegation_request(&extensions, pending.request_id)
+                .await?;
+            if record.request_id != pending.request_id || record.user_id != user_id {
+                return Err(McpError::internal_error(
+                    "Hosted access request identity mismatch",
+                    None,
+                ));
+            }
+            match &record.status {
+                DelegationStatus::Denied | DelegationStatus::Expired => {
+                    store
+                        .delete_pending_hosted_passwords_agent(
+                            user_id,
+                            &credential_subject_key,
+                            pending.request_id,
+                        )
+                        .await
+                        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                }
+                DelegationStatus::Pending | DelegationStatus::Approved => {
+                    let consent_url = hosted_passwords_consent_url(pending.request_id)?;
+                    return Ok(CallToolResult::success(vec![crate::server::json_content(
+                        &serde_json::json!({
+                            "status": "pending",
+                            "request_id": record.request_id,
+                            "consent_url": consent_url,
+                            "expires_at": record.expires_at,
+                        }),
+                    )?]));
+                }
+            }
+        }
 
         let display_name = params
             .display_name
