@@ -18,6 +18,7 @@ pub mod org_skills;
 pub mod organizations;
 pub mod passwords;
 pub mod projects;
+pub mod psql;
 pub mod rbac;
 pub mod replication;
 pub mod roles;

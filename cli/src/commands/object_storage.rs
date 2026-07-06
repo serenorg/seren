@@ -1,4 +1,8 @@
-use std::{fs, io::Write, path::PathBuf};
+use std::{
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result};
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
@@ -15,6 +19,116 @@ pub struct UploadObjectOptions {
     pub content_type: Option<String>,
     pub metadata_json: Option<String>,
     pub metadata_file: Option<PathBuf>,
+}
+
+pub fn resolve_bucket_prefix(
+    bucket: Option<&str>,
+    target: Option<&str>,
+    prefix: Option<&str>,
+) -> Result<(String, Option<String>)> {
+    let Some(target) = target else {
+        let bucket = bucket.ok_or_else(|| {
+            anyhow::anyhow!("Bucket is required. Pass --bucket or a bucket[/prefix] target.")
+        })?;
+        return Ok((bucket.to_string(), prefix.map(str::to_string)));
+    };
+
+    if let Some(bucket) = bucket {
+        let prefix = prefix
+            .map(str::to_string)
+            .or_else(|| (!target.is_empty()).then(|| target.to_string()));
+        return Ok((bucket.to_string(), prefix));
+    }
+
+    let (target_bucket, target_prefix) = split_bucket_target(target)?;
+    if prefix.is_some() && target_prefix.is_some() {
+        anyhow::bail!("Pass the prefix either in the target or with --prefix, not both.");
+    }
+
+    Ok((target_bucket, prefix.map(str::to_string).or(target_prefix)))
+}
+
+pub fn resolve_bucket_key(
+    bucket: Option<&str>,
+    target: Option<&str>,
+    key: Option<&str>,
+) -> Result<(String, String)> {
+    if target.is_some() && key.is_some() {
+        anyhow::bail!("Pass the object key either as a target or with --key, not both.");
+    }
+
+    if let Some(key) = key {
+        let bucket = bucket.ok_or_else(|| {
+            anyhow::anyhow!("Bucket is required when --key is used. Pass --bucket.")
+        })?;
+        ensure_non_empty_key(key)?;
+        return Ok((bucket.to_string(), key.to_string()));
+    }
+
+    let target = target.ok_or_else(|| {
+        anyhow::anyhow!("Object target is required. Pass bucket/key or use --bucket with --key.")
+    })?;
+
+    if let Some(bucket) = bucket {
+        ensure_non_empty_key(target)?;
+        return Ok((bucket.to_string(), target.to_string()));
+    }
+
+    let (bucket, key) = split_bucket_target(target)?;
+    let key =
+        key.ok_or_else(|| anyhow::anyhow!("Object target must include a key: bucket/key."))?;
+    ensure_non_empty_key(&key)?;
+    Ok((bucket, key))
+}
+
+pub fn resolve_bucket_for_object_id(bucket: Option<&str>, target: Option<&str>) -> Result<String> {
+    match (bucket, target) {
+        (Some(bucket), None) => Ok(bucket.to_string()),
+        (None, Some(target)) if !target.contains('/') => Ok(target.to_string()),
+        (Some(_), Some(_)) => {
+            anyhow::bail!("Pass the bucket either with --bucket or as the target, not both.")
+        }
+        (None, Some(_)) => anyhow::bail!("Object ID deletion target must be a bucket slug."),
+        (None, None) => anyhow::bail!("Bucket is required. Pass --bucket or a bucket target."),
+    }
+}
+
+pub fn resolve_download_output(key: &str, output: Option<PathBuf>) -> Result<PathBuf> {
+    if let Some(output) = output {
+        return Ok(output);
+    }
+
+    Path::new(key)
+        .file_name()
+        .filter(|name| !name.is_empty())
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            anyhow::anyhow!("Could not infer output path from object key. Pass --output.")
+        })
+}
+
+fn split_bucket_target(target: &str) -> Result<(String, Option<String>)> {
+    let target = target.trim_matches('/');
+    if target.is_empty() {
+        anyhow::bail!("Target must not be empty.");
+    }
+
+    if let Some((bucket, rest)) = target.split_once('/') {
+        if bucket.is_empty() {
+            anyhow::bail!("Target bucket must not be empty.");
+        }
+        let rest = (!rest.is_empty()).then(|| rest.to_string());
+        Ok((bucket.to_string(), rest))
+    } else {
+        Ok((target.to_string(), None))
+    }
+}
+
+fn ensure_non_empty_key(key: &str) -> Result<()> {
+    if key.trim_matches('/').is_empty() {
+        anyhow::bail!("Object key must not be empty.");
+    }
+    Ok(())
 }
 
 pub async fn list_buckets(org_id: &str, ctx: &CommandContext) -> Result<()> {
@@ -276,6 +390,51 @@ pub async fn delete_object(
     Ok(())
 }
 
+pub async fn delete_object_by_key(
+    org_id: &str,
+    bucket_slug: &str,
+    object_key: &str,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let limit = 100;
+    let mut offset = 0;
+    let object = loop {
+        let response = client
+            .list_object_storage_objects(
+                org_id,
+                bucket_slug,
+                Some(limit),
+                Some(offset),
+                Some(object_key),
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to list object storage objects: {}", e))?
+            .into_inner();
+
+        let page_len = response.data.len();
+        if let Some(object) = response
+            .data
+            .into_iter()
+            .find(|object| object.object_key == object_key)
+        {
+            break object;
+        }
+
+        if page_len < limit as usize {
+            anyhow::bail!(
+                "Object '{}' was not found in bucket '{}'",
+                object_key,
+                bucket_slug
+            );
+        }
+
+        offset += limit;
+    };
+
+    delete_object(org_id, bucket_slug, object.id, ctx).await
+}
+
 async fn put_presigned_object(
     url: &str,
     headers: &std::collections::HashMap<String, String>,
@@ -483,6 +642,30 @@ mod tests {
         assert!(!should_replay_upload_header("Content-Length"));
         assert!(should_replay_upload_header("x-amz-checksum-sha256"));
         assert!(should_replay_upload_header("x-amz-server-side-encryption"));
+    }
+
+    #[test]
+    fn resolve_bucket_key_accepts_bucket_key_target() {
+        let (bucket, key) = resolve_bucket_key(None, Some("assets/reports/q1.txt"), None).unwrap();
+        assert_eq!(bucket, "assets");
+        assert_eq!(key, "reports/q1.txt");
+    }
+
+    #[test]
+    fn resolve_bucket_key_uses_parent_bucket_for_plain_target() {
+        let (bucket, key) =
+            resolve_bucket_key(Some("assets"), Some("reports/q1.txt"), None).unwrap();
+        assert_eq!(bucket, "assets");
+        assert_eq!(key, "reports/q1.txt");
+    }
+
+    #[test]
+    fn resolve_bucket_prefix_rejects_duplicate_prefix_sources() {
+        let err = resolve_bucket_prefix(None, Some("assets/reports"), Some("other")).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("either in the target or with --prefix")
+        );
     }
 }
 

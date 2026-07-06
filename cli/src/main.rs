@@ -152,6 +152,40 @@ enum Commands {
         #[command(subcommand)]
         action: EnvAction,
     },
+    /// Connect to a database with psql
+    Psql {
+        /// Project ID (defaults to CLI context if not provided)
+        #[arg(long)]
+        project_id: Option<String>,
+
+        /// Branch ID to connect to
+        #[arg(long)]
+        branch_id: Option<String>,
+
+        /// Endpoint ID override
+        #[arg(long)]
+        endpoint_id: Option<String>,
+
+        /// Database name override
+        #[arg(long)]
+        database: Option<String>,
+
+        /// Role name override
+        #[arg(long)]
+        role: Option<String>,
+
+        /// Request pooled connection string
+        #[arg(long, action = ArgAction::SetTrue)]
+        pooled: bool,
+
+        /// Override SSL mode (require, prefer, disable)
+        #[arg(long)]
+        ssl: Option<String>,
+
+        /// Arguments passed to psql after `--`
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        psql_args: Vec<String>,
+    },
     /// Manage VPC endpoints
     Vpc {
         #[command(subcommand)]
@@ -2527,7 +2561,7 @@ enum ObjectStorageAction {
     Objects {
         /// Object storage bucket slug
         #[arg(long)]
-        bucket: String,
+        bucket: Option<String>,
 
         #[command(subcommand)]
         action: ObjectStorageObjectAction,
@@ -2565,6 +2599,8 @@ enum ObjectStorageBucketAction {
 enum ObjectStorageObjectAction {
     /// List uploaded objects
     List {
+        /// Bucket slug, optionally followed by a key prefix as bucket/prefix
+        target: Option<String>,
         /// Optional key prefix filter
         #[arg(long)]
         prefix: Option<String>,
@@ -2576,10 +2612,13 @@ enum ObjectStorageObjectAction {
         offset: Option<i64>,
     },
     /// Upload a local file
+    #[command(visible_alias = "put")]
     Upload {
+        /// Bucket/key target. When provided, --bucket and --key are optional.
+        target: Option<String>,
         /// Object key to store
         #[arg(long)]
-        key: String,
+        key: Option<String>,
         /// Local file path
         #[arg(long)]
         path: std::path::PathBuf,
@@ -2594,13 +2633,16 @@ enum ObjectStorageObjectAction {
         metadata_file: Option<std::path::PathBuf>,
     },
     /// Download an object by key
+    #[command(visible_alias = "get")]
     Download {
+        /// Bucket/key target. When provided, --bucket and --key are optional.
+        target: Option<String>,
         /// Object key to download
         #[arg(long)]
-        key: String,
+        key: Option<String>,
         /// Destination file path. The file must not already exist.
         #[arg(long)]
-        output: std::path::PathBuf,
+        output: Option<std::path::PathBuf>,
     },
     /// Retry confirmation for a pending upload
     Confirm {
@@ -2617,11 +2659,13 @@ enum ObjectStorageObjectAction {
         #[arg(long)]
         etag: Option<String>,
     },
-    /// Delete an object by ID
+    /// Delete an object by ID or bucket/key target
     Delete {
         /// Object ID
         #[arg(long)]
-        object_id: Uuid,
+        object_id: Option<Uuid>,
+        /// Bucket/key target. When provided, --bucket and --object-id are optional.
+        target: Option<String>,
     },
 }
 
@@ -4612,6 +4656,29 @@ async fn main() -> anyhow::Result<()> {
                 }
             },
         },
+        Commands::Psql {
+            project_id,
+            branch_id,
+            endpoint_id,
+            database,
+            role,
+            pooled,
+            ssl,
+            psql_args,
+        } => {
+            commands::psql::run(
+                project_id,
+                branch_id,
+                endpoint_id,
+                database,
+                role,
+                pooled,
+                ssl,
+                psql_args,
+                &ctx,
+            )
+            .await?
+        }
         Commands::ObjectStorage { org_id, action } => match action {
             ObjectStorageAction::Buckets { action } => match action {
                 ObjectStorageBucketAction::List => {
@@ -4639,22 +4706,34 @@ async fn main() -> anyhow::Result<()> {
             },
             ObjectStorageAction::Objects { bucket, action } => match action {
                 ObjectStorageObjectAction::List {
+                    target,
                     prefix,
                     limit,
                     offset,
                 } => {
+                    let (bucket, prefix) = commands::object_storage::resolve_bucket_prefix(
+                        bucket.as_deref(),
+                        target.as_deref(),
+                        prefix.as_deref(),
+                    )?;
                     commands::object_storage::list_objects(
                         &org_id, &bucket, prefix, limit, offset, &ctx,
                     )
                     .await?
                 }
                 ObjectStorageObjectAction::Upload {
+                    target,
                     key,
                     path,
                     content_type,
                     metadata_json,
                     metadata_file,
                 } => {
+                    let (bucket, key) = commands::object_storage::resolve_bucket_key(
+                        bucket.as_deref(),
+                        target.as_deref(),
+                        key.as_deref(),
+                    )?;
                     commands::object_storage::upload_object(
                         &org_id,
                         &bucket,
@@ -4669,7 +4748,17 @@ async fn main() -> anyhow::Result<()> {
                     )
                     .await?
                 }
-                ObjectStorageObjectAction::Download { key, output } => {
+                ObjectStorageObjectAction::Download {
+                    target,
+                    key,
+                    output,
+                } => {
+                    let (bucket, key) = commands::object_storage::resolve_bucket_key(
+                        bucket.as_deref(),
+                        target.as_deref(),
+                        key.as_deref(),
+                    )?;
+                    let output = commands::object_storage::resolve_download_output(&key, output)?;
                     commands::object_storage::download_object(&org_id, &bucket, &key, output, &ctx)
                         .await?
                 }
@@ -4679,6 +4768,10 @@ async fn main() -> anyhow::Result<()> {
                     byte_length,
                     etag,
                 } => {
+                    let bucket = commands::object_storage::resolve_bucket_for_object_id(
+                        bucket.as_deref(),
+                        None,
+                    )?;
                     commands::object_storage::confirm_object(
                         &org_id,
                         &bucket,
@@ -4690,9 +4783,23 @@ async fn main() -> anyhow::Result<()> {
                     )
                     .await?
                 }
-                ObjectStorageObjectAction::Delete { object_id } => {
-                    commands::object_storage::delete_object(&org_id, &bucket, object_id, &ctx)
-                        .await?
+                ObjectStorageObjectAction::Delete { object_id, target } => {
+                    if let Some(object_id) = object_id {
+                        let bucket = commands::object_storage::resolve_bucket_for_object_id(
+                            bucket.as_deref(),
+                            target.as_deref(),
+                        )?;
+                        commands::object_storage::delete_object(&org_id, &bucket, object_id, &ctx)
+                            .await?
+                    } else {
+                        let (bucket, key) = commands::object_storage::resolve_bucket_key(
+                            bucket.as_deref(),
+                            target.as_deref(),
+                            None,
+                        )?;
+                        commands::object_storage::delete_object_by_key(&org_id, &bucket, &key, &ctx)
+                            .await?
+                    }
                 }
             },
         },
@@ -8234,16 +8341,18 @@ mod tests {
                 assert_eq!(org_id, "default");
                 match action {
                     ObjectStorageAction::Objects { bucket, action } => {
-                        assert_eq!(bucket, "employee-files");
+                        assert_eq!(bucket.as_deref(), Some("employee-files"));
                         match action {
                             ObjectStorageObjectAction::Upload {
+                                target,
                                 key,
                                 path,
                                 content_type,
                                 metadata_json,
                                 metadata_file,
                             } => {
-                                assert_eq!(key, "notes/report.txt");
+                                assert!(target.is_none());
+                                assert_eq!(key.as_deref(), Some("notes/report.txt"));
                                 assert_eq!(path, std::path::PathBuf::from("report.txt"));
                                 assert_eq!(content_type.as_deref(), Some("text/plain"));
                                 assert!(metadata_json.is_none());
@@ -8276,11 +8385,19 @@ mod tests {
                 assert_eq!(org_id, "default");
                 match action {
                     ObjectStorageAction::Objects { bucket, action } => {
-                        assert_eq!(bucket, "employee-files");
+                        assert_eq!(bucket.as_deref(), Some("employee-files"));
                         match action {
-                            ObjectStorageObjectAction::Download { key, output } => {
-                                assert_eq!(key, "notes/report.txt");
-                                assert_eq!(output, std::path::PathBuf::from("report-copy.txt"));
+                            ObjectStorageObjectAction::Download {
+                                target,
+                                key,
+                                output,
+                            } => {
+                                assert!(target.is_none());
+                                assert_eq!(key.as_deref(), Some("notes/report.txt"));
+                                assert_eq!(
+                                    output,
+                                    Some(std::path::PathBuf::from("report-copy.txt"))
+                                );
                             }
                             _ => panic!("unexpected object storage object action parsed"),
                         }
@@ -8313,7 +8430,7 @@ mod tests {
                 assert_eq!(org_id, "default");
                 match action {
                     ObjectStorageAction::Objects { bucket, action } => {
-                        assert_eq!(bucket, "employee-files");
+                        assert_eq!(bucket.as_deref(), Some("employee-files"));
                         match action {
                             ObjectStorageObjectAction::Confirm {
                                 object_id,
@@ -8340,6 +8457,104 @@ mod tests {
                     }
                     _ => panic!("unexpected object storage action parsed"),
                 }
+            }
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn object_storage_object_target_forms_parse() {
+        let upload = parse_cli_with_large_stack(vec![
+            "seren",
+            "storage",
+            "objects",
+            "put",
+            "employee-files/notes/report.txt",
+            "--path",
+            "report.txt",
+        ]);
+
+        match upload.command {
+            Commands::ObjectStorage { action, .. } => match action {
+                ObjectStorageAction::Objects { bucket, action } => {
+                    assert!(bucket.is_none());
+                    match action {
+                        ObjectStorageObjectAction::Upload {
+                            target, key, path, ..
+                        } => {
+                            assert_eq!(target.as_deref(), Some("employee-files/notes/report.txt"));
+                            assert!(key.is_none());
+                            assert_eq!(path, std::path::PathBuf::from("report.txt"));
+                        }
+                        _ => panic!("unexpected object storage object action parsed"),
+                    }
+                }
+                _ => panic!("unexpected object storage action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let download = parse_cli_with_large_stack(vec![
+            "seren",
+            "storage",
+            "objects",
+            "get",
+            "employee-files/notes/report.txt",
+        ]);
+
+        match download.command {
+            Commands::ObjectStorage { action, .. } => match action {
+                ObjectStorageAction::Objects { bucket, action } => {
+                    assert!(bucket.is_none());
+                    match action {
+                        ObjectStorageObjectAction::Download {
+                            target,
+                            key,
+                            output,
+                        } => {
+                            assert_eq!(target.as_deref(), Some("employee-files/notes/report.txt"));
+                            assert!(key.is_none());
+                            assert!(output.is_none());
+                        }
+                        _ => panic!("unexpected object storage object action parsed"),
+                    }
+                }
+                _ => panic!("unexpected object storage action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn psql_command_accepts_args_after_separator() {
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "psql",
+            "--project-id",
+            "11111111-1111-1111-1111-111111111111",
+            "--branch-id",
+            "22222222-2222-2222-2222-222222222222",
+            "--",
+            "-c",
+            "select 1",
+        ]);
+
+        match cli.command {
+            Commands::Psql {
+                project_id,
+                branch_id,
+                psql_args,
+                ..
+            } => {
+                assert_eq!(
+                    project_id.as_deref(),
+                    Some("11111111-1111-1111-1111-111111111111")
+                );
+                assert_eq!(
+                    branch_id.as_deref(),
+                    Some("22222222-2222-2222-2222-222222222222")
+                );
+                assert_eq!(psql_args, vec!["-c", "select 1"]);
             }
             _ => panic!("unexpected command parsed"),
         }
