@@ -7337,6 +7337,16 @@
               "type"
             ],
             "properties": {
+              "code": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudRunErrorCode"
+                  }
+                ]
+              },
               "content": {
                 "type": "string"
               },
@@ -7344,6 +7354,9 @@
                 "type": "string"
               },
               "is_error": {
+                "type": "boolean"
+              },
+              "retryable": {
                 "type": "boolean"
               },
               "type": {

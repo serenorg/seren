@@ -3195,6 +3195,947 @@ pub(crate) fn json_content<T: Serialize>(data: &T) -> Result<Content, McpError> 
     Ok(Content::text(text))
 }
 
+fn text_and_json_content<T: Serialize>(text: String, data: &T) -> Result<Vec<Content>, McpError> {
+    Ok(vec![Content::text(text), json_content(data)?])
+}
+
+fn cloud_run_state_summary<T: Serialize>(response: &T) -> Result<String, McpError> {
+    let envelope = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let state = envelope.get("data").unwrap_or(&envelope);
+    if !state.is_object() {
+        return Ok("Run state is unavailable.".to_string());
+    }
+
+    let mut parts = Vec::new();
+    if let Some(run_id) = json_string_field(state, "run_id") {
+        parts.push(format!("run={run_id}"));
+    }
+    if let Some(status) = json_string_field(state, "status") {
+        parts.push(format!("status={status}"));
+    }
+    if let Some(phase) = json_string_field(state, "phase") {
+        parts.push(format!("phase={phase}"));
+    }
+    if let Some(step) = json_string_field(state, "current_step") {
+        parts.push(format!("step={step}"));
+    }
+    if let Some(tool) = json_string_field(state, "current_tool") {
+        parts.push(format!("tool={tool}"));
+    }
+    if let Some(approvals) = json_scalar_field(state, "pending_approval_count") {
+        parts.push(format!("pending_approvals={approvals}"));
+    }
+    if let Some(checkpoint_id) = json_string_field(state, "checkpoint_id") {
+        parts.push(format!("checkpoint={checkpoint_id}"));
+    }
+    if let Some(sequence) = json_scalar_field(state, "latest_sequence") {
+        parts.push(format!("latest_sequence={sequence}"));
+    }
+    if let Some(kind) = json_string_field(state, "latest_event_kind") {
+        parts.push(format!("latest_event={kind}"));
+    }
+    if let Some(terminal) = json_scalar_field(state, "terminal") {
+        parts.push(format!("terminal={terminal}"));
+    }
+    if let Some(message) = json_string_field(state, "status_message") {
+        parts.push(format!(
+            "message={}",
+            truncate_for_client(message.as_str(), 180)
+        ));
+    }
+
+    if parts.is_empty() {
+        Ok("Run state is available.".to_string())
+    } else {
+        Ok(format!("Run state: {}", parts.join(" ")))
+    }
+}
+
+fn pending_cloud_approvals_summary<T: Serialize>(response: &T) -> Result<String, McpError> {
+    let envelope = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let runs = envelope
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    if runs.is_empty() {
+        return Ok("No runs are currently awaiting approval.".to_string());
+    }
+
+    let mut lines = vec![format!("{} run(s) awaiting approval:", runs.len())];
+    for run in runs.iter().take(8) {
+        lines.push(format!("- {}", format_pending_approval_run_summary(run)));
+    }
+    if runs.len() > 8 {
+        lines.push(format!("- {} more run(s)", runs.len() - 8));
+    }
+    Ok(lines.join("\n"))
+}
+
+fn cloud_runs_summary<T: Serialize>(response: &T) -> Result<String, McpError> {
+    let envelope = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let runs = envelope
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    if runs.is_empty() {
+        return Ok("No cloud runs found.".to_string());
+    }
+
+    let mut lines = vec![format!("{} cloud run(s):", runs.len())];
+    for run in runs.iter().take(8) {
+        lines.push(format!("- {}", format_cloud_run_summary(run)));
+    }
+    if runs.len() > 8 {
+        lines.push(format!("- {} more run(s)", runs.len() - 8));
+    }
+    Ok(lines.join("\n"))
+}
+
+fn cloud_run_summary<T: Serialize>(response: &T, title: &str) -> Result<String, McpError> {
+    let envelope = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let run = envelope.get("data").unwrap_or(&envelope);
+    if !run.is_object() {
+        return Ok(format!("{title}: unavailable."));
+    }
+
+    let summary = format_cloud_run_summary(run);
+    if summary.is_empty() {
+        Ok(format!("{title}: available."))
+    } else {
+        Ok(format!("{title}: {summary}"))
+    }
+}
+
+fn format_cloud_run_summary(run: &serde_json::Value) -> String {
+    let mut parts = Vec::new();
+    if let Some(run_id) = json_string_field(run, "run_id").or_else(|| json_string_field(run, "id"))
+    {
+        parts.push(format!("run={run_id}"));
+    }
+    if let Some(deployment) = json_string_field(run, "deployment_name")
+        .or_else(|| json_string_field(run, "deployment_id"))
+    {
+        parts.push(format!("deployment={deployment}"));
+    }
+    if let Some(status) = json_string_field(run, "status") {
+        parts.push(format!("status={status}"));
+    }
+    if let Some(source) = json_string_field(run, "source") {
+        parts.push(format!("source={source}"));
+    }
+    if let Some(created_at) = json_string_field(run, "created_at") {
+        parts.push(format!("created={created_at}"));
+    } else if let Some(started_at) = json_string_field(run, "started_at") {
+        parts.push(format!("started={started_at}"));
+    }
+    if let Some(model) = json_string_field(run, "model_id") {
+        parts.push(format!("model={model}"));
+    }
+    if let Some(sequence) = json_scalar_field(run, "latest_sequence") {
+        parts.push(format!("latest_sequence={sequence}"));
+    }
+    if let Some(approvals) = run
+        .get("pending_approvals")
+        .and_then(serde_json::Value::as_array)
+        .map(Vec::len)
+        .filter(|count| *count > 0)
+    {
+        parts.push(format!("pending_approvals={approvals}"));
+    }
+    if let Some(error) = json_string_field(run, "error") {
+        parts.push(format!(
+            "error={}",
+            truncate_for_client(&compact_text(&error), 160)
+        ));
+    }
+    parts.join(" ")
+}
+
+fn cloud_agents_summary<T: Serialize>(response: &T) -> Result<String, McpError> {
+    let envelope = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let deployments = envelope
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    if deployments.is_empty() {
+        return Ok("No cloud agent deployments found.".to_string());
+    }
+
+    let mut lines = vec![format!("{} cloud agent deployment(s):", deployments.len())];
+    for deployment in deployments.iter().take(8) {
+        lines.push(format!("- {}", format_cloud_agent_summary(deployment)));
+    }
+    if deployments.len() > 8 {
+        lines.push(format!("- {} more deployment(s)", deployments.len() - 8));
+    }
+    Ok(lines.join("\n"))
+}
+
+fn cloud_agent_summary<T: Serialize>(response: &T, title: &str) -> Result<String, McpError> {
+    let envelope = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let deployment = envelope.get("data").unwrap_or(&envelope);
+    if !deployment.is_object() {
+        return Ok(format!("{title}: unavailable."));
+    }
+
+    let summary = format_cloud_agent_summary(deployment);
+    if summary.is_empty() {
+        Ok(format!("{title}: available."))
+    } else {
+        Ok(format!("{title}: {summary}"))
+    }
+}
+
+fn cloud_overview_summary<T: Serialize>(response: &T) -> Result<String, McpError> {
+    let payload = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let summary = payload
+        .get("summary")
+        .or_else(|| payload.get("data").and_then(|data| data.get("summary")));
+    let Some(summary) = summary else {
+        return Ok("Cloud overview is available.".to_string());
+    };
+
+    let mut parts = Vec::new();
+    if let Some(count) = json_scalar_field(summary, "deployment_count") {
+        parts.push(format!("deployments={count}"));
+    }
+    if let Some(count) = json_scalar_field(summary, "running_count") {
+        parts.push(format!("running={count}"));
+    }
+    if let Some(count) = json_scalar_field(summary, "managed_count") {
+        parts.push(format!("managed={count}"));
+    }
+    if let Some(count) = json_scalar_field(summary, "cron_count") {
+        parts.push(format!("cron={count}"));
+    }
+    if let Some(count) = json_scalar_field(summary, "recent_runs_loaded") {
+        parts.push(format!("recent_runs={count}"));
+    }
+    if let Some(count) = json_scalar_field(summary, "pending_approvals_loaded") {
+        parts.push(format!("pending_approvals={count}"));
+    }
+
+    if parts.is_empty() {
+        Ok("Cloud overview is available.".to_string())
+    } else {
+        Ok(format!("Cloud overview: {}", parts.join(" ")))
+    }
+}
+
+fn cloud_deployment_spend_summary<T: Serialize>(response: &T) -> Result<String, McpError> {
+    let envelope = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let spend = envelope.get("data").unwrap_or(&envelope);
+    if !spend.is_object() {
+        return Ok("Deployment spend is unavailable.".to_string());
+    }
+
+    let mut parts = Vec::new();
+    if let Some(total) = json_scalar_field(spend, "total_cost_usd") {
+        parts.push(format!("total_usd={total}"));
+    }
+    if let Some(compute) = json_scalar_field(spend, "compute_cost_usd") {
+        parts.push(format!("compute_usd={compute}"));
+    }
+    if let Some(inference) = json_scalar_field(spend, "inference_cost_usd") {
+        parts.push(format!("inference_usd={inference}"));
+    }
+    if let Some(runs) = json_scalar_field(spend, "run_count") {
+        parts.push(format!("runs={runs}"));
+    }
+    if let Some(first_event) = json_string_field(spend, "first_event_at") {
+        parts.push(format!("first={first_event}"));
+    }
+    if let Some(last_event) = json_string_field(spend, "last_event_at") {
+        parts.push(format!("last={last_event}"));
+    }
+
+    if parts.is_empty() {
+        Ok("Deployment spend is available.".to_string())
+    } else {
+        Ok(format!("Deployment spend: {}", parts.join(" ")))
+    }
+}
+
+fn cloud_audit_entries_summary<T: Serialize>(response: &T) -> Result<String, McpError> {
+    let envelope = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let entries = envelope
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    if entries.is_empty() {
+        return Ok("No cloud audit entries found.".to_string());
+    }
+
+    let mut lines = vec![format!("{} cloud audit entry(s):", entries.len())];
+    for entry in entries.iter().take(8) {
+        lines.push(format!("- {}", format_cloud_audit_entry_summary(entry)));
+    }
+    if entries.len() > 8 {
+        lines.push(format!("- {} more audit entry(s)", entries.len() - 8));
+    }
+    Ok(lines.join("\n"))
+}
+
+fn cloud_audit_entry_summary<T: Serialize>(response: &T) -> Result<String, McpError> {
+    let envelope = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let entry = envelope.get("data").unwrap_or(&envelope);
+    if !entry.is_object() {
+        return Ok("Cloud audit entry is unavailable.".to_string());
+    }
+
+    let summary = format_cloud_audit_entry_summary(entry);
+    if summary.is_empty() {
+        Ok("Cloud audit entry is available.".to_string())
+    } else {
+        Ok(format!("Cloud audit entry: {summary}"))
+    }
+}
+
+fn cloud_audit_verify_summary<T: Serialize>(response: &T) -> Result<String, McpError> {
+    let envelope = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let result = envelope.get("data").unwrap_or(&envelope);
+    if !result.is_object() {
+        return Ok("Cloud audit verification is unavailable.".to_string());
+    }
+
+    let mut parts = Vec::new();
+    if let Some(verified) = json_scalar_field(result, "verified") {
+        parts.push(format!("verified={verified}"));
+    }
+    if let Some(entries_checked) = json_scalar_field(result, "entries_checked") {
+        parts.push(format!("entries_checked={entries_checked}"));
+    }
+    if let Some(sequence) = json_scalar_field(result, "first_invalid_sequence") {
+        parts.push(format!("first_invalid_sequence={sequence}"));
+    }
+    if let Some(error) = json_string_field(result, "error") {
+        parts.push(format!(
+            "error={}",
+            truncate_for_client(&compact_text(&error), 160)
+        ));
+    }
+
+    if parts.is_empty() {
+        Ok("Cloud audit verification is available.".to_string())
+    } else {
+        Ok(format!("Cloud audit verification: {}", parts.join(" ")))
+    }
+}
+
+fn format_cloud_audit_entry_summary(entry: &serde_json::Value) -> String {
+    let mut parts = Vec::new();
+    if let Some(sequence) = json_scalar_field(entry, "sequence_number") {
+        parts.push(format!("#{sequence}"));
+    }
+    if let Some(action) = json_string_field(entry, "action") {
+        parts.push(format!("action={action}"));
+    }
+    if let Some(actor) = json_string_field(entry, "actor") {
+        parts.push(format!("actor={actor}"));
+    }
+    if let Some(id) = json_string_field(entry, "id") {
+        parts.push(format!("id={id}"));
+    }
+    if let Some(invocation_id) = json_string_field(entry, "invocation_id") {
+        parts.push(format!("invocation={invocation_id}"));
+    }
+    if let Some(publisher_id) = json_string_field(entry, "publisher_id") {
+        parts.push(format!("publisher={publisher_id}"));
+    }
+    if let Some(created_at) = json_string_field(entry, "created_at") {
+        parts.push(format!("created={created_at}"));
+    }
+    parts.join(" ")
+}
+
+fn format_cloud_agent_summary(deployment: &serde_json::Value) -> String {
+    let mut parts = Vec::new();
+    if let Some(name) = json_string_field(deployment, "name") {
+        parts.push(format!(
+            "name={}",
+            truncate_for_client(&compact_text(&name), 80)
+        ));
+    }
+    if let Some(id) = json_string_field(deployment, "id")
+        .or_else(|| json_string_field(deployment, "deployment_id"))
+    {
+        parts.push(format!("id={id}"));
+    }
+    if let Some(status) = json_string_field(deployment, "status") {
+        parts.push(format!("status={status}"));
+    }
+    if let Some(mode) = json_string_field(deployment, "mode") {
+        parts.push(format!("mode={mode}"));
+    }
+    if let Some(backend) = json_string_field(deployment, "compute_backend") {
+        parts.push(format!("backend={backend}"));
+    }
+    if let Some(model) = deployment
+        .get("managed_agent")
+        .and_then(|agent| json_string_field(agent, "model_id"))
+        .or_else(|| json_string_field(deployment, "model_id"))
+    {
+        parts.push(format!("model={model}"));
+    }
+    if let Some(updated_at) = json_string_field(deployment, "updated_at") {
+        parts.push(format!("updated={updated_at}"));
+    }
+    parts.join(" ")
+}
+
+fn cloud_run_artifacts_summary<T: Serialize>(response: &T) -> Result<String, McpError> {
+    let envelope = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let artifacts = envelope
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    if artifacts.is_empty() {
+        return Ok("No run artifacts found.".to_string());
+    }
+
+    let mut lines = vec![format!("{} run artifact(s):", artifacts.len())];
+    for artifact in artifacts.iter().take(8) {
+        lines.push(format!("- {}", format_cloud_run_artifact_summary(artifact)));
+    }
+    if artifacts.len() > 8 {
+        lines.push(format!("- {} more artifact(s)", artifacts.len() - 8));
+    }
+    Ok(lines.join("\n"))
+}
+
+fn format_cloud_run_artifact_summary(artifact: &serde_json::Value) -> String {
+    let mut parts = Vec::new();
+    if let Some(id) = json_string_field(artifact, "id") {
+        parts.push(format!("id={id}"));
+    }
+    if let Some(artifact_type) = json_string_field(artifact, "artifact_type") {
+        parts.push(format!("type={artifact_type}"));
+    }
+    if let Some(title) = json_string_field(artifact, "title") {
+        parts.push(format!(
+            "title={}",
+            truncate_for_client(&compact_text(&title), 80)
+        ));
+    }
+    if let Some(url) = json_string_field(artifact, "url") {
+        parts.push(format!(
+            "url={}",
+            truncate_for_client(&compact_text(&url), 120)
+        ));
+    }
+    if let Some(created_at) = json_string_field(artifact, "created_at") {
+        parts.push(format!("created={created_at}"));
+    }
+    parts.join(" ")
+}
+
+fn cloud_run_evals_summary<T: Serialize>(response: &T) -> Result<String, McpError> {
+    let envelope = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let data = envelope.get("data").unwrap_or(&envelope);
+    if !data.is_object() {
+        return Ok("Run eval links are unavailable.".to_string());
+    }
+
+    let source_cases = data
+        .get("source_eval_cases")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let actual_results = data
+        .get("actual_eval_case_results")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    let mut parts = Vec::new();
+    if let Some(run_id) = json_string_field(data, "run_id") {
+        parts.push(format!("run={run_id}"));
+    }
+    parts.push(format!("source_eval_cases={}", source_cases.len()));
+    parts.push(format!("actual_eval_results={}", actual_results.len()));
+    if let Some(first_case) = source_cases.first()
+        && let Some(case_id) = json_string_field(first_case, "id")
+    {
+        parts.push(format!("first_source_case={case_id}"));
+    }
+    if let Some(first_result) = actual_results.first()
+        && let Some(case_id) = json_string_field(first_result, "eval_case_id")
+    {
+        parts.push(format!("first_result_case={case_id}"));
+    }
+    if let Some(first_result) = actual_results.first()
+        && let Some(status) = json_string_field(first_result, "status")
+    {
+        parts.push(format!("first_result_status={status}"));
+    }
+
+    Ok(format!("Run eval links: {}", parts.join(" ")))
+}
+
+fn cloud_agent_schedules_summary<T: Serialize>(response: &T) -> Result<String, McpError> {
+    let envelope = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let schedules = envelope
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    if schedules.is_empty() {
+        return Ok("No agent schedules found.".to_string());
+    }
+
+    let mut lines = vec![format!("{} agent schedule(s):", schedules.len())];
+    for schedule in schedules.iter().take(8) {
+        lines.push(format!(
+            "- {}",
+            format_cloud_agent_schedule_summary(schedule)
+        ));
+    }
+    if schedules.len() > 8 {
+        lines.push(format!("- {} more schedule(s)", schedules.len() - 8));
+    }
+    Ok(lines.join("\n"))
+}
+
+fn cloud_agent_schedule_summary<T: Serialize>(
+    response: &T,
+    title: &str,
+) -> Result<String, McpError> {
+    let envelope = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let schedule = envelope.get("data").unwrap_or(&envelope);
+    if !schedule.is_object() {
+        return Ok(format!("{title}: unavailable."));
+    }
+
+    let summary = format_cloud_agent_schedule_summary(schedule);
+    if summary.is_empty() {
+        Ok(format!("{title}: available."))
+    } else {
+        Ok(format!("{title}: {summary}"))
+    }
+}
+
+fn format_cloud_agent_schedule_summary(schedule: &serde_json::Value) -> String {
+    let mut parts = Vec::new();
+    if let Some(id) = json_string_field(schedule, "id") {
+        parts.push(format!("id={id}"));
+    }
+    if let Some(key) = json_string_field(schedule, "schedule_key") {
+        parts.push(format!("key={key}"));
+    }
+    if let Some(kind) = json_string_field(schedule, "schedule_kind") {
+        parts.push(format!("kind={kind}"));
+    }
+    if let Some(status) = json_string_field(schedule, "status") {
+        parts.push(format!("status={status}"));
+    }
+    if let Some(next_run_at) = json_string_field(schedule, "next_run_at") {
+        parts.push(format!("next={next_run_at}"));
+    }
+    if let Some(cron) = json_string_field(schedule, "cron_schedule") {
+        parts.push(format!("cron={cron}"));
+    }
+    if let Some(timezone) = json_string_field(schedule, "cron_timezone") {
+        parts.push(format!("tz={timezone}"));
+    }
+    let attempts = json_scalar_field(schedule, "attempts");
+    let max_attempts = json_scalar_field(schedule, "max_attempts");
+    if attempts.is_some() || max_attempts.is_some() {
+        parts.push(format!(
+            "attempts={}/{}",
+            attempts.unwrap_or_else(|| "-".to_string()),
+            max_attempts.unwrap_or_else(|| "-".to_string())
+        ));
+    }
+    if let Some(last_error) = json_string_field(schedule, "last_error") {
+        parts.push(format!(
+            "error={}",
+            truncate_for_client(&compact_text(&last_error), 160)
+        ));
+    }
+    parts.join(" ")
+}
+
+fn format_pending_approval_run_summary(run: &serde_json::Value) -> String {
+    let approvals = run
+        .get("pending_approvals")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let tools = approval_tool_names(&approvals);
+    let mut parts = Vec::new();
+    if let Some(run_id) = json_string_field(run, "run_id").or_else(|| json_string_field(run, "id"))
+    {
+        parts.push(format!("run={run_id}"));
+    }
+    if let Some(deployment) = json_string_field(run, "deployment_name")
+        .or_else(|| json_string_field(run, "deployment_id"))
+    {
+        parts.push(format!("deployment={deployment}"));
+    }
+    if let Some(status) = json_string_field(run, "status") {
+        parts.push(format!("status={status}"));
+    }
+    parts.push(format!("pending_approvals={}", approvals.len()));
+    if !tools.is_empty() {
+        parts.push(format!("tools={}", truncate_for_client(&tools, 120)));
+    }
+    parts.join(" ")
+}
+
+fn run_pending_approvals_summary<T: Serialize>(response: &T) -> Result<String, McpError> {
+    let envelope = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let run = envelope.get("data").unwrap_or(&envelope);
+    if !run.is_object() {
+        return Ok("Pending approval state is unavailable.".to_string());
+    }
+
+    let approvals = run
+        .get("pending_approvals")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let tools = approval_tool_names(&approvals);
+    let mut parts = Vec::new();
+    if let Some(run_id) = json_string_field(run, "run_id").or_else(|| json_string_field(run, "id"))
+    {
+        parts.push(format!("run={run_id}"));
+    }
+    if let Some(status) = json_string_field(run, "status") {
+        parts.push(format!("status={status}"));
+    }
+    if let Some(checkpoint_id) = json_string_field(run, "checkpoint_id") {
+        parts.push(format!("checkpoint={checkpoint_id}"));
+    }
+    parts.push(format!("pending_approvals={}", approvals.len()));
+    if !tools.is_empty() {
+        parts.push(format!("tools={}", truncate_for_client(&tools, 120)));
+    }
+
+    if approvals.is_empty() {
+        Ok(format!(
+            "No pending approvals for this run{}.",
+            parts
+                .first()
+                .map(|run| format!(" ({run})"))
+                .unwrap_or_default()
+        ))
+    } else {
+        Ok(format!("Pending approval state: {}", parts.join(" ")))
+    }
+}
+
+fn approval_tool_names(approvals: &[serde_json::Value]) -> String {
+    approvals
+        .iter()
+        .filter_map(|approval| approval.get("tool").and_then(serde_json::Value::as_str))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn cloud_conversations_summary<T: Serialize>(response: &T) -> Result<String, McpError> {
+    let envelope = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let data = envelope.get("data").unwrap_or(&envelope);
+    let conversations = data
+        .get("conversations")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    if conversations.is_empty() {
+        return Ok("No employee conversations found.".to_string());
+    }
+
+    let mut lines = vec![format!("{} employee conversation(s):", conversations.len())];
+    for conversation in conversations.iter().take(8) {
+        lines.push(format!(
+            "- {}",
+            format_cloud_conversation_summary(conversation)
+        ));
+    }
+    if conversations.len() > 8 {
+        lines.push(format!(
+            "- {} more conversation(s)",
+            conversations.len() - 8
+        ));
+    }
+    if let Some(cursor) = data
+        .get("next_cursor")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        lines.push(format!("next_cursor={cursor}"));
+    }
+    Ok(lines.join("\n"))
+}
+
+fn format_cloud_conversation_summary(conversation: &serde_json::Value) -> String {
+    let mut parts = Vec::new();
+    if let Some(conversation_id) = json_string_field(conversation, "conversation_id") {
+        parts.push(format!("id={conversation_id}"));
+    }
+    if let Some(title) = json_string_field(conversation, "title") {
+        parts.push(format!(
+            "title={}",
+            truncate_for_client(&compact_text(&title), 80)
+        ));
+    }
+    if let Some(count) = json_scalar_field(conversation, "message_count") {
+        parts.push(format!("messages={count}"));
+    }
+    if let Some(source) = json_string_field(conversation, "last_source") {
+        parts.push(format!("source={source}"));
+    }
+    if let Some(last_activity) = json_string_field(conversation, "last_activity_at") {
+        parts.push(format!("last={last_activity}"));
+    }
+    parts.join(" ")
+}
+
+fn cloud_conversation_messages_summary<T: Serialize>(response: &T) -> Result<String, McpError> {
+    let envelope = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let data = envelope.get("data").unwrap_or(&envelope);
+    let messages = data
+        .get("messages")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    if messages.is_empty() {
+        return Ok("No employee conversation messages found.".to_string());
+    }
+
+    let mut lines = vec![format!("{} conversation message(s):", messages.len())];
+    for message in messages.iter().take(8) {
+        lines.push(format!(
+            "- {}",
+            format_cloud_conversation_message_summary(message)
+        ));
+    }
+    if messages.len() > 8 {
+        lines.push(format!("- {} more message(s)", messages.len() - 8));
+    }
+    if let Some(cursor) = data
+        .get("next_cursor")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        lines.push(format!("next_cursor={cursor}"));
+    }
+    Ok(lines.join("\n"))
+}
+
+fn format_cloud_conversation_message_summary(message: &serde_json::Value) -> String {
+    let mut parts = Vec::new();
+    if let Some(created_at) = json_string_field(message, "created_at") {
+        parts.push(created_at);
+    }
+    if let Some(role) = json_string_field(message, "role") {
+        parts.push(format!("role={role}"));
+    }
+    if let Some(source) = json_string_field(message, "source") {
+        parts.push(format!("source={source}"));
+    }
+    if let Some(run_id) = json_string_field(message, "run_id").or_else(|| {
+        message
+            .get("run_summary")
+            .and_then(|summary| json_string_field(summary, "run_id"))
+    }) {
+        parts.push(format!("run={run_id}"));
+    }
+    if let Some(status) = message
+        .get("run_summary")
+        .and_then(|summary| json_string_field(summary, "status"))
+        .or_else(|| {
+            message
+                .get("run")
+                .and_then(|run| json_string_field(run, "status"))
+        })
+    {
+        parts.push(format!("status={status}"));
+    }
+    if let Some(events) = message.get("events").and_then(serde_json::Value::as_array)
+        && !events.is_empty()
+    {
+        parts.push(format!("events={}", events.len()));
+    }
+    if let Some(content) = json_string_field(message, "content") {
+        parts.push(format!(
+            "content={}",
+            truncate_for_client(&compact_text(&content), 180)
+        ));
+    }
+    parts.join(" ")
+}
+
+fn compact_text(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn cloud_run_events_summary<T: Serialize>(response: &T) -> Result<String, McpError> {
+    let envelope = serde_json::to_value(response)
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let events = envelope
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    if events.is_empty() {
+        return Ok("No run events found.".to_string());
+    }
+
+    let mut lines = vec![format!("{} run event(s):", events.len())];
+    for event in events.iter().take(8) {
+        lines.push(format!("- {}", format_cloud_run_event_summary(event)));
+    }
+    if events.len() > 8 {
+        lines.push(format!("- {} more event(s)", events.len() - 8));
+    }
+    Ok(lines.join("\n"))
+}
+
+fn format_cloud_run_event_summary(envelope: &serde_json::Value) -> String {
+    let event = envelope.get("event").unwrap_or(&serde_json::Value::Null);
+    let sequence = json_scalar_field(envelope, "sequence_number");
+    let kind = json_string_field(envelope, "kind")
+        .or_else(|| json_string_field(envelope, "event_type"))
+        .unwrap_or_else(|| "event".to_string());
+    let mut parts = Vec::new();
+    if let Some(sequence) = sequence {
+        parts.push(format!("#{sequence}"));
+    }
+    parts.push(kind);
+    if let Some(id) =
+        json_string_field(event, "id").or_else(|| json_string_field(envelope, "item_id"))
+    {
+        parts.push(format!("id={id}"));
+    }
+    if let Some(tool) = json_string_field(event, "name") {
+        parts.push(format!("tool={tool}"));
+    }
+    if let Some(code) = json_string_field(event, "code") {
+        parts.push(format!("code={code}"));
+    }
+    if event
+        .get("retryable")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        parts.push("retryable=true".to_string());
+    }
+    if let Some(summary) = summarize_cloud_run_event_payload(event) {
+        parts.push(format!("summary={}", truncate_for_client(&summary, 180)));
+    }
+    parts.join(" ")
+}
+
+fn summarize_cloud_run_event_payload(event: &serde_json::Value) -> Option<String> {
+    for key in ["message", "text", "content", "reason"] {
+        if let Some(value) = event.get(key).and_then(json_value_to_string) {
+            return Some(value);
+        }
+    }
+    event.get("details").and_then(json_value_to_string)
+}
+
+fn json_string_field(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn json_scalar_field(value: &serde_json::Value, key: &str) -> Option<String> {
+    match value.get(key)? {
+        serde_json::Value::String(text) => {
+            let text = text.trim();
+            if text.is_empty() {
+                None
+            } else {
+                Some(text.to_string())
+            }
+        }
+        serde_json::Value::Number(number) => Some(number.to_string()),
+        serde_json::Value::Bool(flag) => Some(flag.to_string()),
+        _ => None,
+    }
+}
+
+fn json_value_to_string(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        serde_json::Value::Number(number) => Some(number.to_string()),
+        serde_json::Value::Bool(flag) => Some(flag.to_string()),
+        serde_json::Value::Array(items) => {
+            let rendered = items
+                .iter()
+                .filter_map(json_value_to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if rendered.is_empty() {
+                None
+            } else {
+                Some(rendered)
+            }
+        }
+        serde_json::Value::Object(object) => {
+            let rendered = object
+                .iter()
+                .filter_map(|(key, value)| {
+                    json_value_to_string(value).map(|value| format!("{key}={value}"))
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            if rendered.is_empty() {
+                None
+            } else {
+                Some(rendered)
+            }
+        }
+    }
+}
+
 fn truncate_for_client(value: &str, max_chars: usize) -> String {
     let mut chars = value.chars();
     let truncated: String = chars.by_ref().take(max_chars).collect();
@@ -10722,7 +11663,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "List tools visible to a managed seren-agent deployment. Use this to inspect what an employee can read or act on without loading every tool as a top-level MCP tool.",
+        description = "List tools visible to a managed seren-agent deployment, including effective policy metadata. Use this to inspect what an employee can read or act on without loading every tool as a top-level MCP tool.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -10744,7 +11685,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Describe one tool visible to a managed seren-agent deployment, including source, input schema, side-effecting status, checkpoint status, and approval metadata.",
+        description = "Describe one tool visible to a managed seren-agent deployment, including source, input schema, side-effecting status, checkpoint status, and effective policy metadata.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -10766,7 +11707,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "List resolved tool groups for a managed seren-agent deployment. Tool groups are the display/read model derived from enabled tool presets and future explicit groups.",
+        description = "List resolved tool groups for a managed seren-agent deployment, including aggregate effective policy metadata. Tool groups are the display/read model derived from enabled tool presets and future explicit groups.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -11283,7 +12224,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_agents_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -11380,7 +12324,10 @@ API endpoint: {endpoint}",
             "pending_approvals": pending_approvals_data,
         });
 
-        Ok(CallToolResult::success(vec![json_content(&payload)?]))
+        let summary = cloud_overview_summary(&payload)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &payload,
+        )?))
     }
 
     #[tool(
@@ -11398,7 +12345,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_agent_summary(&response, "Cloud agent")?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -11416,7 +12366,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_deployment_spend_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -11439,7 +12392,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_audit_entries_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -11457,7 +12413,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_audit_entry_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -11475,7 +12434,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_audit_verify_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -11499,7 +12461,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_audit_entries_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -11652,7 +12617,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_runs_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -11670,7 +12638,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_run_summary(&response, "Cloud run")?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -11688,7 +12659,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_run_artifacts_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -11706,7 +12680,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_run_evals_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -11732,7 +12709,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_run_events_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -11754,7 +12734,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_conversations_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -11787,7 +12770,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_conversation_messages_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -11813,7 +12799,10 @@ API endpoint: {endpoint}",
                 .map_err(|e| McpError::internal_error(e.to_string(), None))?
                 .into_inner()
         };
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_run_state_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -11835,7 +12824,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_agent_schedules_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -11889,7 +12881,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_agent_schedule_summary(&response, "Agent schedule")?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -11907,7 +12902,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_agent_schedule_summary(&response, "Cancelled agent schedule")?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -11978,9 +12976,11 @@ API endpoint: {endpoint}",
                 .map_err(|e| McpError::internal_error(e.to_string(), None))?,
             &deployment_names,
         );
-        Ok(CallToolResult::success(vec![json_content(
+        let summary = cloud_runs_summary(&enriched_response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary,
             &enriched_response,
-        )?]))
+        )?))
     }
 
     #[tool(
@@ -12056,7 +13056,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = pending_cloud_approvals_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -12074,7 +13077,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = run_pending_approvals_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -12122,7 +13128,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = run_pending_approvals_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -12544,7 +13553,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_run_artifacts_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -12568,7 +13580,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_audit_entries_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -12586,7 +13601,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_run_evals_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -12611,7 +13629,10 @@ API endpoint: {endpoint}",
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .into_inner();
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+        let summary = cloud_run_events_summary(&response)?;
+        Ok(CallToolResult::success(text_and_json_content(
+            summary, &response,
+        )?))
     }
 
     #[tool(
@@ -12945,6 +13966,480 @@ mod tests {
             passwords_agent: None,
             passwords_hosted_store: None,
         }
+    }
+
+    #[test]
+    fn cloud_run_events_summary_includes_tool_result_error_code() {
+        let response = serde_json::json!({
+            "data": [
+                {
+                    "sequence_number": 4,
+                    "event_type": "response.output_item.done",
+                    "kind": "tool_call_completed",
+                    "item_id": "call_123",
+                    "event": {
+                        "type": "tool_result",
+                        "id": "call_123",
+                        "content": "Provider rate limit exceeded",
+                        "is_error": true,
+                        "code": "tool_rate_limited",
+                        "retryable": true
+                    }
+                }
+            ]
+        });
+
+        let summary = cloud_run_events_summary(&response).unwrap();
+        assert!(summary.contains("1 run event(s):"));
+        assert!(summary.contains("#4"));
+        assert!(summary.contains("tool_call_completed"));
+        assert!(summary.contains("id=call_123"));
+        assert!(summary.contains("code=tool_rate_limited"));
+        assert!(summary.contains("retryable=true"));
+        assert!(summary.contains("summary=Provider rate limit exceeded"));
+    }
+
+    #[test]
+    fn cloud_run_events_summary_handles_empty_pages() {
+        let response = serde_json::json!({ "data": [] });
+
+        let summary = cloud_run_events_summary(&response).unwrap();
+        assert_eq!(summary, "No run events found.");
+    }
+
+    #[test]
+    fn cloud_run_state_summary_includes_live_progress_fields() {
+        let response = serde_json::json!({
+            "data": {
+                "run_id": "run-1",
+                "deployment_id": "dep-1",
+                "status": "awaiting_approval",
+                "phase": "waiting",
+                "current_step": "approval",
+                "current_tool": "send_email",
+                "pending_approval_count": 2,
+                "checkpoint_id": "chk-1",
+                "latest_sequence": 7,
+                "latest_event_kind": "approval_wait",
+                "terminal": false
+            }
+        });
+
+        let summary = cloud_run_state_summary(&response).unwrap();
+        assert!(summary.contains("run=run-1"));
+        assert!(summary.contains("status=awaiting_approval"));
+        assert!(summary.contains("phase=waiting"));
+        assert!(summary.contains("tool=send_email"));
+        assert!(summary.contains("pending_approvals=2"));
+        assert!(summary.contains("checkpoint=chk-1"));
+        assert!(summary.contains("latest_sequence=7"));
+        assert!(summary.contains("terminal=false"));
+    }
+
+    #[test]
+    fn pending_cloud_approvals_summary_lists_runs_and_tools() {
+        let response = serde_json::json!({
+            "data": [
+                {
+                    "run_id": "run-1",
+                    "deployment_name": "Quinn",
+                    "status": "awaiting_approval",
+                    "pending_approvals": [
+                        { "id": "approval-1", "tool": "send_email" },
+                        { "id": "approval-2", "tool": "create_ticket" }
+                    ]
+                }
+            ]
+        });
+
+        let summary = pending_cloud_approvals_summary(&response).unwrap();
+        assert!(summary.contains("1 run(s) awaiting approval:"));
+        assert!(summary.contains("run=run-1"));
+        assert!(summary.contains("deployment=Quinn"));
+        assert!(summary.contains("status=awaiting_approval"));
+        assert!(summary.contains("pending_approvals=2"));
+        assert!(summary.contains("tools=send_email, create_ticket"));
+    }
+
+    #[test]
+    fn cloud_runs_summary_lists_general_run_metadata() {
+        let response = serde_json::json!({
+            "data": [
+                {
+                    "run_id": "run-1",
+                    "deployment_name": "Quinn",
+                    "status": "completed",
+                    "source": "interactive_session",
+                    "created_at": "2026-07-06T00:00:00Z",
+                    "model_id": "anthropic.claude-sonnet-4"
+                }
+            ]
+        });
+
+        let summary = cloud_runs_summary(&response).unwrap();
+        assert!(summary.contains("1 cloud run(s):"));
+        assert!(summary.contains("run=run-1"));
+        assert!(summary.contains("deployment=Quinn"));
+        assert!(summary.contains("status=completed"));
+        assert!(summary.contains("source=interactive_session"));
+        assert!(summary.contains("model=anthropic.claude-sonnet-4"));
+        assert!(!summary.contains("awaiting approval"));
+    }
+
+    #[test]
+    fn cloud_run_summary_includes_error_preview() {
+        let response = serde_json::json!({
+            "data": {
+                "id": "run-1",
+                "deployment_id": "dep-1",
+                "status": "failed",
+                "source": "scheduler",
+                "error": "provider returned an error"
+            }
+        });
+
+        let summary = cloud_run_summary(&response, "Cloud run").unwrap();
+        assert!(summary.contains("Cloud run:"));
+        assert!(summary.contains("run=run-1"));
+        assert!(summary.contains("deployment=dep-1"));
+        assert!(summary.contains("status=failed"));
+        assert!(summary.contains("source=scheduler"));
+        assert!(summary.contains("error=provider returned an error"));
+    }
+
+    #[test]
+    fn cloud_agents_summary_lists_deployment_metadata() {
+        let response = serde_json::json!({
+            "data": [
+                {
+                    "id": "dep-1",
+                    "name": "Quinn Atlas",
+                    "status": "running",
+                    "mode": "always_on",
+                    "compute_backend": "aws_container",
+                    "managed_agent": {
+                        "model_id": "anthropic.claude-sonnet-4"
+                    },
+                    "updated_at": "2026-07-06T00:00:00Z"
+                }
+            ]
+        });
+
+        let summary = cloud_agents_summary(&response).unwrap();
+        assert!(summary.contains("1 cloud agent deployment(s):"));
+        assert!(summary.contains("name=Quinn Atlas"));
+        assert!(summary.contains("id=dep-1"));
+        assert!(summary.contains("status=running"));
+        assert!(summary.contains("mode=always_on"));
+        assert!(summary.contains("backend=aws_container"));
+        assert!(summary.contains("model=anthropic.claude-sonnet-4"));
+    }
+
+    #[test]
+    fn cloud_agent_summary_unwraps_data_envelope() {
+        let response = serde_json::json!({
+            "data": {
+                "id": "dep-1",
+                "name": "Quinn Atlas",
+                "status": "stopped"
+            }
+        });
+
+        let summary = cloud_agent_summary(&response, "Cloud agent").unwrap();
+        assert!(summary.contains("Cloud agent:"));
+        assert!(summary.contains("name=Quinn Atlas"));
+        assert!(summary.contains("id=dep-1"));
+        assert!(summary.contains("status=stopped"));
+    }
+
+    #[test]
+    fn cloud_overview_summary_lists_counts() {
+        let response = serde_json::json!({
+            "summary": {
+                "deployment_count": 4,
+                "running_count": 2,
+                "managed_count": 3,
+                "cron_count": 1,
+                "recent_runs_loaded": 8,
+                "pending_approvals_loaded": 1
+            }
+        });
+
+        let summary = cloud_overview_summary(&response).unwrap();
+        assert!(summary.contains("deployments=4"));
+        assert!(summary.contains("running=2"));
+        assert!(summary.contains("managed=3"));
+        assert!(summary.contains("cron=1"));
+        assert!(summary.contains("recent_runs=8"));
+        assert!(summary.contains("pending_approvals=1"));
+    }
+
+    #[test]
+    fn cloud_deployment_spend_summary_lists_costs_and_window() {
+        let response = serde_json::json!({
+            "data": {
+                "total_cost_usd": "12.34",
+                "compute_cost_usd": "3.21",
+                "inference_cost_usd": "9.13",
+                "run_count": 42,
+                "first_event_at": "2026-07-01T00:00:00Z",
+                "last_event_at": "2026-07-06T00:00:00Z"
+            }
+        });
+
+        let summary = cloud_deployment_spend_summary(&response).unwrap();
+        assert!(summary.contains("Deployment spend:"));
+        assert!(summary.contains("total_usd=12.34"));
+        assert!(summary.contains("compute_usd=3.21"));
+        assert!(summary.contains("inference_usd=9.13"));
+        assert!(summary.contains("runs=42"));
+        assert!(summary.contains("first=2026-07-01T00:00:00Z"));
+        assert!(summary.contains("last=2026-07-06T00:00:00Z"));
+    }
+
+    #[test]
+    fn cloud_audit_entries_summary_uses_top_level_metadata() {
+        let response = serde_json::json!({
+            "data": [
+                {
+                    "id": "entry-1",
+                    "sequence_number": 42,
+                    "action": "run.created",
+                    "actor": "system",
+                    "invocation_id": "11111111-1111-4111-8111-111111111111",
+                    "publisher_id": "22222222-2222-4222-8222-222222222222",
+                    "created_at": "2026-07-06T00:00:00Z",
+                    "details": { "ignored": true }
+                }
+            ]
+        });
+
+        let summary = cloud_audit_entries_summary(&response).unwrap();
+        assert!(summary.contains("1 cloud audit entry(s):"));
+        assert!(summary.contains("#42"));
+        assert!(summary.contains("action=run.created"));
+        assert!(summary.contains("actor=system"));
+        assert!(summary.contains("id=entry-1"));
+        assert!(summary.contains("invocation=11111111-1111-4111-8111-111111111111"));
+        assert!(summary.contains("publisher=22222222-2222-4222-8222-222222222222"));
+        assert!(summary.contains("created=2026-07-06T00:00:00Z"));
+        assert!(!summary.contains("ignored"));
+    }
+
+    #[test]
+    fn cloud_audit_entry_summary_unwraps_data_envelope() {
+        let response = serde_json::json!({
+            "data": {
+                "id": "entry-1",
+                "sequence_number": 42,
+                "action": "run.created",
+                "actor": "system",
+                "created_at": "2026-07-06T00:00:00Z"
+            }
+        });
+
+        let summary = cloud_audit_entry_summary(&response).unwrap();
+        assert!(summary.contains("Cloud audit entry:"));
+        assert!(summary.contains("#42"));
+        assert!(summary.contains("action=run.created"));
+        assert!(summary.contains("actor=system"));
+        assert!(summary.contains("id=entry-1"));
+    }
+
+    #[test]
+    fn cloud_audit_verify_summary_shows_integrity_result() {
+        let response = serde_json::json!({
+            "data": {
+                "verified": false,
+                "entries_checked": 100,
+                "first_invalid_sequence": 42,
+                "error": "hash mismatch"
+            }
+        });
+
+        let summary = cloud_audit_verify_summary(&response).unwrap();
+        assert!(summary.contains("Cloud audit verification:"));
+        assert!(summary.contains("verified=false"));
+        assert!(summary.contains("entries_checked=100"));
+        assert!(summary.contains("first_invalid_sequence=42"));
+        assert!(summary.contains("error=hash mismatch"));
+    }
+
+    #[test]
+    fn cloud_run_artifacts_summary_lists_declared_metadata() {
+        let response = serde_json::json!({
+            "data": [
+                {
+                    "id": "artifact-1",
+                    "artifact_type": "screenshot",
+                    "title": "Home page screenshot",
+                    "url": "https://example.com/artifacts/1",
+                    "created_at": "2026-07-06T00:00:00Z"
+                }
+            ]
+        });
+
+        let summary = cloud_run_artifacts_summary(&response).unwrap();
+        assert!(summary.contains("1 run artifact(s):"));
+        assert!(summary.contains("id=artifact-1"));
+        assert!(summary.contains("type=screenshot"));
+        assert!(summary.contains("title=Home page screenshot"));
+        assert!(summary.contains("url=https://example.com/artifacts/1"));
+        assert!(summary.contains("created=2026-07-06T00:00:00Z"));
+    }
+
+    #[test]
+    fn cloud_run_evals_summary_lists_counts_and_first_links() {
+        let response = serde_json::json!({
+            "data": {
+                "run_id": "run-1",
+                "source_eval_cases": [
+                    { "id": "case-1", "name": "Homepage loads" }
+                ],
+                "actual_eval_case_results": [
+                    { "eval_case_id": "case-1", "status": "passed" }
+                ]
+            }
+        });
+
+        let summary = cloud_run_evals_summary(&response).unwrap();
+        assert!(summary.contains("Run eval links:"));
+        assert!(summary.contains("run=run-1"));
+        assert!(summary.contains("source_eval_cases=1"));
+        assert!(summary.contains("actual_eval_results=1"));
+        assert!(summary.contains("first_source_case=case-1"));
+        assert!(summary.contains("first_result_case=case-1"));
+        assert!(summary.contains("first_result_status=passed"));
+    }
+
+    #[test]
+    fn run_pending_approvals_summary_lists_checkpoint_and_tools() {
+        let response = serde_json::json!({
+            "data": {
+                "run_id": "run-1",
+                "status": "awaiting_approval",
+                "checkpoint_id": "chk-1",
+                "pending_approvals": [
+                    { "id": "approval-1", "tool": "send_email" }
+                ]
+            }
+        });
+
+        let summary = run_pending_approvals_summary(&response).unwrap();
+        assert!(summary.contains("run=run-1"));
+        assert!(summary.contains("status=awaiting_approval"));
+        assert!(summary.contains("checkpoint=chk-1"));
+        assert!(summary.contains("pending_approvals=1"));
+        assert!(summary.contains("tools=send_email"));
+    }
+
+    #[test]
+    fn cloud_agent_schedules_summary_lists_status_and_timing() {
+        let response = serde_json::json!({
+            "data": [
+                {
+                    "id": "sched-1",
+                    "schedule_key": "daily-report",
+                    "schedule_kind": "cron",
+                    "status": "active",
+                    "next_run_at": "2026-07-07T00:00:00Z",
+                    "cron_schedule": "0 0 * * *",
+                    "cron_timezone": "UTC",
+                    "attempts": 1,
+                    "max_attempts": 3
+                }
+            ]
+        });
+
+        let summary = cloud_agent_schedules_summary(&response).unwrap();
+        assert!(summary.contains("1 agent schedule(s):"));
+        assert!(summary.contains("id=sched-1"));
+        assert!(summary.contains("key=daily-report"));
+        assert!(summary.contains("kind=cron"));
+        assert!(summary.contains("status=active"));
+        assert!(summary.contains("next=2026-07-07T00:00:00Z"));
+        assert!(summary.contains("cron=0 0 * * *"));
+        assert!(summary.contains("tz=UTC"));
+        assert!(summary.contains("attempts=1/3"));
+    }
+
+    #[test]
+    fn cloud_agent_schedule_summary_includes_terminal_error() {
+        let response = serde_json::json!({
+            "data": {
+                "id": "sched-1",
+                "schedule_key": "daily-report",
+                "schedule_kind": "cron",
+                "status": "failed_terminal",
+                "next_run_at": "2026-07-07T00:00:00Z",
+                "attempts": 3,
+                "max_attempts": 3,
+                "last_error": "provider error"
+            }
+        });
+
+        let summary = cloud_agent_schedule_summary(&response, "Agent schedule").unwrap();
+        assert!(summary.contains("Agent schedule:"));
+        assert!(summary.contains("id=sched-1"));
+        assert!(summary.contains("key=daily-report"));
+        assert!(summary.contains("status=failed_terminal"));
+        assert!(summary.contains("error=provider error"));
+    }
+
+    #[test]
+    fn cloud_conversations_summary_lists_counts_and_cursor() {
+        let response = serde_json::json!({
+            "data": {
+                "conversations": [
+                    {
+                        "conversation_id": "thread-1",
+                        "title": "Research notes",
+                        "message_count": 5,
+                        "last_source": "interactive_session",
+                        "last_activity_at": "2026-07-06T00:00:00Z"
+                    }
+                ],
+                "has_more": true,
+                "next_cursor": "cursor-2"
+            }
+        });
+
+        let summary = cloud_conversations_summary(&response).unwrap();
+        assert!(summary.contains("1 employee conversation(s):"));
+        assert!(summary.contains("id=thread-1"));
+        assert!(summary.contains("title=Research notes"));
+        assert!(summary.contains("messages=5"));
+        assert!(summary.contains("source=interactive_session"));
+        assert!(summary.contains("next_cursor=cursor-2"));
+    }
+
+    #[test]
+    fn cloud_conversation_messages_summary_lists_run_status_and_preview() {
+        let response = serde_json::json!({
+            "data": {
+                "messages": [
+                    {
+                        "created_at": "2026-07-06T00:00:05Z",
+                        "role": "assistant",
+                        "source": "interactive_session",
+                        "run_id": "11111111-1111-4111-8111-111111111111",
+                        "run_summary": { "status": "completed" },
+                        "events": [{ "kind": "text" }, { "kind": "done" }],
+                        "content": "Hello\n\nfrom the employee"
+                    }
+                ],
+                "has_more": false
+            }
+        });
+
+        let summary = cloud_conversation_messages_summary(&response).unwrap();
+        assert!(summary.contains("1 conversation message(s):"));
+        assert!(summary.contains("role=assistant"));
+        assert!(summary.contains("source=interactive_session"));
+        assert!(summary.contains("run=11111111-1111-4111-8111-111111111111"));
+        assert!(summary.contains("status=completed"));
+        assert!(summary.contains("events=2"));
+        assert!(summary.contains("content=Hello from the employee"));
     }
 
     /// Collect boolean subschemas using the same position logic as `normalize_json_schema`.

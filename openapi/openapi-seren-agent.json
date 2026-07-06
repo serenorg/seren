@@ -4717,6 +4717,7 @@
               "source",
               "approval_type",
               "approval_rule_count",
+              "effective_policy",
               "side_effecting",
               "checkpoint_required"
             ],
@@ -4747,6 +4748,9 @@
               },
               "description": {
                 "type": "string"
+              },
+              "effective_policy": {
+                "$ref": "#/components/schemas/ManagedAgentToolEffectivePolicy"
               },
               "input_schema": {},
               "name": {
@@ -7242,6 +7246,7 @@
           "source",
           "approval_type",
           "approval_rule_count",
+          "effective_policy",
           "side_effecting",
           "checkpoint_required"
         ],
@@ -7272,6 +7277,9 @@
           },
           "description": {
             "type": "string"
+          },
+          "effective_policy": {
+            "$ref": "#/components/schemas/ManagedAgentToolEffectivePolicy"
           },
           "input_schema": {},
           "name": {
@@ -7333,6 +7341,38 @@
           }
         }
       },
+      "ManagedAgentToolEffectivePolicy": {
+        "type": "object",
+        "required": [
+          "status",
+          "source"
+        ],
+        "properties": {
+          "conditional_status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentToolPolicyStatus",
+                "description": "Most restrictive conditional status that may apply for matching\narguments. The runtime resolves conditional rules per call with actual\narguments; the catalog only reports that stricter rules exist."
+              }
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/ManagedAgentToolPolicySource"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ManagedAgentToolPolicyStatus"
+          }
+        }
+      },
       "ManagedAgentToolGroupEntry": {
         "type": "object",
         "required": [
@@ -7343,7 +7383,8 @@
           "tool_names",
           "side_effecting",
           "checkpoint_required",
-          "approval_type"
+          "approval_type",
+          "effective_policy"
         ],
         "properties": {
           "approval_type": {
@@ -7361,6 +7402,9 @@
           },
           "description": {
             "type": "string"
+          },
+          "effective_policy": {
+            "$ref": "#/components/schemas/ManagedAgentToolEffectivePolicy"
           },
           "id": {
             "type": "string"
@@ -7419,6 +7463,22 @@
             "description": "Resolved display/read model for the deployment's named tool groups.\nToday these are derived from `tool_presets`; future custom groups use\nthe same shape with `preset` omitted."
           }
         }
+      },
+      "ManagedAgentToolPolicySource": {
+        "type": "string",
+        "enum": [
+          "deployment_approval_policy",
+          "tool_definition"
+        ]
+      },
+      "ManagedAgentToolPolicyStatus": {
+        "type": "string",
+        "enum": [
+          "allowed",
+          "audited",
+          "requires_approval",
+          "blocked"
+        ]
       },
       "ManagedAgentToolPreset": {
         "type": "string",
