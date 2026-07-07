@@ -4167,6 +4167,14 @@ fn truncate_for_client(value: &str, max_chars: usize) -> String {
     format!("{truncated}... (truncated)")
 }
 
+fn api_error_message(status: reqwest::StatusCode, body: &str) -> String {
+    if body.is_empty() {
+        format!("API error {status}")
+    } else {
+        format!("API error {status}: {}", truncate_for_client(body, 1200))
+    }
+}
+
 fn publisher_skill_doc_url(api_base_url: &str, publisher: &str) -> Result<String, McpError> {
     skill_doc_url(api_base_url, &["publishers", publisher, "skill.md"])
 }
@@ -4186,12 +4194,13 @@ fn skill_doc_url(api_base_url: &str, segments: &[&str]) -> Result<String, McpErr
     Ok(url.to_string())
 }
 
-/// Convert a seren SDK error to an MCP error without forwarding server response bodies.
+/// Convert a seren SDK error to an MCP error.
 pub(crate) async fn seren_error_to_mcp_error<T: std::fmt::Debug>(e: seren::Error<T>) -> McpError {
     match e {
         seren::Error::UnexpectedResponse(response) => {
             let status = response.status();
-            McpError::internal_error(format!("API error {status}"), None)
+            let body = response.text().await.unwrap_or_default();
+            McpError::internal_error(api_error_message(status, &body), None)
         }
         seren::Error::ErrorResponse(resp) => {
             let status = resp.status();
@@ -14226,6 +14235,34 @@ mod tests {
 
         let err = validate_object_storage_key("/").expect_err("empty key should be rejected");
         assert!(err.message.contains("object_key must not be empty"));
+    }
+
+    #[tokio::test]
+    async fn seren_error_to_mcp_error_includes_unexpected_response_body() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+                "error": {
+                    "message": "user authentication required",
+                    "code": 403
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let response = reqwest::Client::new()
+            .get(server.uri())
+            .send()
+            .await
+            .expect("mock response should be returned");
+        let error =
+            seren_error_to_mcp_error::<()>(seren::Error::UnexpectedResponse(response)).await;
+
+        assert!(error.message.contains("API error 403 Forbidden:"));
+        assert!(error.message.contains("user authentication required"));
     }
 
     #[test]
