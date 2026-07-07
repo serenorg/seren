@@ -1,12 +1,12 @@
 # seren
 
-Rust SDK for the [SerenAI](https://serendb.com) API. Type-safe client generated from the OpenAPI spec via [progenitor](https://github.com/oxidecomputer/progenitor).
+Rust SDK for the [Seren](https://serendb.com) API. The client is generated from the Seren OpenAPI specs via [progenitor](https://github.com/oxidecomputer/progenitor) and covers managed agents, Seren Passwords, branchable Postgres, object storage, payments, and other platform APIs.
 
 ## Installation
 
 ```toml
 [dependencies]
-seren = "0.3"
+seren = "0.8"
 ```
 
 ## Quick Start
@@ -19,8 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = ClientConfig::new("seren_your_api_key_here");
     let client = Client::from_config(&config)?;
 
-    // List all projects
-    let projects = client.list_projects(None, None, None).await?;
+    let projects = client.seren_db_list_projects().await?;
     println!("Found {} projects", projects.into_inner().data.len());
 
     Ok(())
@@ -31,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### API Key
 
-Get your API key from the SerenAI Console at: https://console.serendb.com/settings/api-keys
+Get your API key from the Seren Console at https://console.serendb.com/settings/api-keys.
 
 ### Custom API Host
 
@@ -44,18 +43,35 @@ let config = ClientConfig::new("seren_your_api_key")
 
 ```rust
 let config = ClientConfig::new("seren_your_api_key")
-    .with_timeout(120); // 120 seconds
+    .with_timeout(120);
 ```
+
+## Product Examples
+
+The crate exports static product example metadata for docs, CLIs, notebooks, and onboarding flows:
+
+```rust
+use seren::get_seren_product_examples;
+
+for example in get_seren_product_examples() {
+    println!("{}", example.title);
+    for request in example.requests {
+        println!("{} {}", request.method.as_str(), request.path);
+    }
+}
+```
+
+The examples cover Seren Employees, Seren Passwords, branchable Postgres, and object storage. They do not make network calls on their own.
 
 ## API
 
-The client is auto-generated from `openapi/openapi.json` at build time. All API methods are available directly on the `Client` struct (e.g., `client.list_projects()`, `client.get_project()`, `client.create_project()`).
+The client is auto-generated from the OpenAPI specs at build time. Methods are available directly on the `Client` struct, such as `client.seren_db_list_projects()`, `client.seren_agent_list_deployments()`, and `client.list_object_storage_buckets(...)`.
 
-Return values are wrapped in `ResponseValue<T>` - call `.into_inner()` to get the response body.
+Return values are wrapped in `ResponseValue<T>`. Call `.into_inner()` to get the response body.
 
 ### Error Handling
 
-The SDK uses `progenitor_client::Error` for all errors:
+The SDK uses `progenitor_client::Error` for API and transport errors:
 
 ```rust
 use seren::{Client, ClientConfig, Error};
@@ -63,7 +79,7 @@ use seren::{Client, ClientConfig, Error};
 let config = ClientConfig::new("seren_your_api_key");
 let client = Client::from_config(&config)?;
 
-match client.get_project("project-id").await {
+match client.seren_db_list_projects().await {
     Ok(response) => println!("Found: {:?}", response.into_inner()),
     Err(Error::InvalidRequest(msg)) => println!("Bad request: {}", msg),
     Err(Error::ErrorResponse(resp)) => {
@@ -75,9 +91,10 @@ match client.get_project("project-id").await {
 
 ## Features
 
-- **Type-safe**: Generated from OpenAPI spec with compile-time type checking
-- **Async**: Built on tokio and reqwest
-- **Complete**: Covers all SerenAI API endpoints including agent commerce and x402 payments
+- Type-safe generated client.
+- Async API built on `reqwest`.
+- Configuration for API keys, bearer tokens, custom base URLs, user agents, and timeouts.
+- Static product example metadata for Seren Employees, Seren Passwords, branchable Postgres, and object storage.
 
 ## Support
 

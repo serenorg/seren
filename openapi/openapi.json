@@ -496,7 +496,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "POST /auth/verify-email\nVerify email address using a token from the verification email link.\nCalled by the console frontend when the user clicks the link — agents\ndo not need to call this directly.\nOn success, automatically logs the user in and returns tokens",
+        "summary": "POST /auth/verify-email\nVerify email address using a token from the verification email link.\nCalled by an application frontend when the user clicks the link; agents\ndo not need to call this directly.\nOn success, automatically logs the user in and returns tokens",
         "operationId": "verify_email",
         "requestBody": {
           "content": {

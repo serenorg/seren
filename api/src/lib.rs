@@ -1,6 +1,6 @@
 //! # Seren API Client
 //!
-//! Rust SDK for the Seren API, providing programmatic access to Seren database management.
+//! Rust SDK for the Seren API, providing programmatic access to managed agents, Seren Passwords, branchable Postgres, object storage, payments, and other Seren platform APIs.
 //!
 //! ## Example
 //!
@@ -25,6 +25,7 @@ mod generated {
 }
 
 mod config;
+mod examples;
 mod models;
 mod shared;
 
@@ -37,6 +38,9 @@ pub use progenitor_client::{ByteStream, Error, ResponseValue};
 
 // Re-export our config
 pub use config::ClientConfig;
+
+// Re-export product example metadata
+pub use examples::*;
 
 // Re-export additional model types
 pub use models::*;

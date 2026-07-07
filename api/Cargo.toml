@@ -4,9 +4,9 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Rust SDK for the Seren API - Programmatic access to Seren database management"
-repository = "https://github.com/seren/seren"
-keywords = ["seren", "database", "sdk", "api"]
+description = "Rust SDK for the Seren API"
+repository = "https://github.com/serenorg/seren"
+keywords = ["seren", "database", "agents", "sdk", "api"]
 categories = ["api-bindings", "database"]
 readme = "README.md"
 
