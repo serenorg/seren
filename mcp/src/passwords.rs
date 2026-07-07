@@ -865,7 +865,7 @@ impl SerenMcpServer {
         let kem_public = BASE64.encode(kem.public.as_bytes());
         let signing_public = BASE64.encode(signing.public.as_bytes());
         let kem_private = Zeroizing::new(BASE64.encode(kem.private.as_bytes()));
-        let local_expires_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(10);
+        let local_expires_at = time::OffsetDateTime::now_utc() + time::Duration::hours(1);
         store
             .upsert_pending_hosted_passwords_agent(PendingHostedPasswordsAgentRequest {
                 user_id,
