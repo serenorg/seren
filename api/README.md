@@ -32,6 +32,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Get your API key from the Seren Console at https://console.serendb.com/settings/api-keys.
 
+### From the environment
+
+`ClientConfig::from_env()` reads `SEREN_API_KEY` for the bearer token and `SEREN_API_BASE` for the base URL, matching the `@serendb/sdk` and `seren-python` defaults. Both are optional; a missing key yields an unauthenticated configuration.
+
+```rust
+let config = ClientConfig::from_env();
+let client = Client::from_config(&config)?;
+```
+
 ### Custom API Host
 
 ```rust
