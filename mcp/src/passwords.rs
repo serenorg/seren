@@ -807,7 +807,7 @@ impl SerenMcpServer {
                     "identity_id": agent.identity_id,
                     "display_name": agent.display_name,
                     "granted_vaults": agent.granted_vaults,
-                    "next_step": "Call passwords_request_access with force=true to open a new consent URL for additional vault access.",
+                    "next_step": "Call passwords_request_access with force=true to open a new consent URL. Approving it replaces this agent's grant, so on the consent page re-select every vault in granted_vaults that should be kept, plus any new vaults.",
                 }),
             )?]));
         }
@@ -5013,6 +5013,51 @@ mod tests {
 
         assert!(err.contains("403 Forbidden"));
         assert!(err.contains("caller is not an active member"));
+    }
+
+    #[test]
+    fn hosted_delegation_parser_surfaces_string_gateway_error_body() {
+        let gateway = serde_json::json!({
+            "data": {
+                "status": 404,
+                "body": "{\"error\":\"Not Found\",\"message\":\"approval target item not found\"}",
+                "response_bytes": 67,
+                "execution_time_ms": 3,
+                "cost": "0",
+                "asset_symbol": "USDC",
+                "payment_source": "none"
+            }
+        });
+        let err = crate::server::decode_publisher_gateway_body::<
+            seren::DataResponseDelegationRequestRecord,
+        >(serde_json::to_string(&gateway).unwrap().as_bytes())
+        .unwrap_err();
+
+        assert!(err.contains("404 Not Found"));
+        assert!(err.contains("approval target item not found"));
+    }
+
+    #[test]
+    fn hosted_delegation_parser_surfaces_gateway_error_without_body() {
+        let gateway = serde_json::json!({
+            "data": {
+                "status": 451,
+                "response_bytes": 0,
+                "execution_time_ms": 3,
+                "cost": "0",
+                "asset_symbol": "USDC",
+                "payment_source": "none"
+            }
+        });
+        let err = crate::server::decode_publisher_gateway_body::<
+            seren::DataResponseDelegationRequestRecord,
+        >(serde_json::to_string(&gateway).unwrap().as_bytes())
+        .unwrap_err();
+
+        assert_eq!(
+            err,
+            "gateway returned upstream status 451 Unavailable For Legal Reasons"
+        );
     }
 
     #[test]
