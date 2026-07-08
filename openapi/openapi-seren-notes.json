@@ -1,0 +1,2869 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SerenNotes API",
+    "description": "AI-native notes service with BYOD (Bring Your Own Database) storage",
+    "license": {
+      "name": ""
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/attachments/{attachment_id}": {
+      "get": {
+        "tags": [
+          "attachments"
+        ],
+        "summary": "Get attachment metadata",
+        "operationId": "get_attachment",
+        "parameters": [
+          {
+            "name": "attachment_id",
+            "in": "path",
+            "description": "Attachment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Attachment metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Attachment"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Attachment not found"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "attachments"
+        ],
+        "summary": "Delete an attachment",
+        "operationId": "delete_attachment",
+        "parameters": [
+          {
+            "name": "attachment_id",
+            "in": "path",
+            "description": "Attachment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Attachment deleted"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Attachment not found"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "attachments"
+        ],
+        "summary": "Update attachment metadata",
+        "operationId": "update_attachment",
+        "parameters": [
+          {
+            "name": "attachment_id",
+            "in": "path",
+            "description": "Attachment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAttachmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Attachment updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Attachment"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Attachment not found"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/attachments/{attachment_id}/data": {
+      "get": {
+        "tags": [
+          "attachments"
+        ],
+        "summary": "Download attachment data",
+        "operationId": "download_attachment",
+        "parameters": [
+          {
+            "name": "attachment_id",
+            "in": "path",
+            "description": "Attachment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Attachment binary data"
+          },
+          "304": {
+            "description": "Not modified (ETag match)"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Attachment not found"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/attachments/{attachment_id}/thumbnail": {
+      "get": {
+        "tags": [
+          "attachments"
+        ],
+        "summary": "Download attachment thumbnail (generated on-demand)",
+        "operationId": "download_thumbnail",
+        "parameters": [
+          {
+            "name": "attachment_id",
+            "in": "path",
+            "description": "Attachment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "width",
+            "in": "query",
+            "description": "Maximum width in pixels (default: 200, max: 800)",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "height",
+            "in": "query",
+            "description": "Maximum height in pixels (default: 200, max: 800)",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Thumbnail image (JPEG)"
+          },
+          "304": {
+            "description": "Not modified (ETag match)"
+          },
+          "400": {
+            "description": "Not an image attachment"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Attachment not found"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/notes": {
+      "get": {
+        "tags": [
+          "notes"
+        ],
+        "summary": "List notes with filters",
+        "operationId": "list_notes",
+        "parameters": [
+          {
+            "name": "parent_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of notes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_NoteSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "notes"
+        ],
+        "summary": "Create a new note",
+        "operationId": "create_note",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateNoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Note created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_NoteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/notes/embeddings/stale": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Get notes that need embedding updates",
+        "operationId": "get_stale_embeddings",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum notes to return",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of note IDs needing embeddings"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/notes/search": {
+      "get": {
+        "tags": [
+          "notes"
+        ],
+        "summary": "Full-text search notes",
+        "operationId": "search_notes",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_NoteSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/notes/search/semantic": {
+      "post": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Semantic search using embedding vector",
+        "operationId": "semantic_search",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SemanticSearchQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Semantic search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_SemanticSearchResultResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid embedding"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/notes/tags": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "List all tags",
+        "operationId": "list_tags",
+        "responses": {
+          "200": {
+            "description": "List of tags",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_String"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/notes/{note_id}": {
+      "get": {
+        "tags": [
+          "notes"
+        ],
+        "summary": "Get a specific note",
+        "operationId": "get_note",
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "description": "Note ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/NoteFormat"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Note found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_NoteResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Note not found"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "notes"
+        ],
+        "summary": "Delete a note",
+        "operationId": "delete_note",
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "description": "Note ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Note deleted"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Note not found"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "notes"
+        ],
+        "summary": "Update a note",
+        "operationId": "update_note",
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "description": "Note ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Note updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_NoteResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Note not found"
+          },
+          "409": {
+            "description": "Version conflict"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/notes/{note_id}/append": {
+      "post": {
+        "tags": [
+          "notes"
+        ],
+        "summary": "Append content to a note",
+        "operationId": "append_to_note",
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "description": "Note ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppendToNoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Content appended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_NoteResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Note not found"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/notes/{note_id}/attachments": {
+      "get": {
+        "tags": [
+          "attachments"
+        ],
+        "summary": "List attachments for a note",
+        "operationId": "list_attachments",
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "description": "Note ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of attachments",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_Attachment"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "attachments"
+        ],
+        "summary": "Upload an attachment (binary body with headers)",
+        "operationId": "upload_attachment",
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "description": "Note ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Filename",
+            "in": "header",
+            "description": "Original filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Content-Type",
+            "in": "header",
+            "description": "MIME type",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Alt-Text",
+            "in": "header",
+            "description": "Alt text for accessibility",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Attachment created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Attachment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or file too large"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Note not found"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/notes/{note_id}/attachments/import": {
+      "post": {
+        "tags": [
+          "attachments"
+        ],
+        "summary": "Import an image from an external URL and store it as an attachment",
+        "operationId": "import_attachment_from_url",
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "description": "Note ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportAttachmentFromUrlRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Attachment created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Attachment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or URL not allowed"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Note not found"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/notes/{note_id}/embedding": {
+      "put": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Update a note's embedding",
+        "operationId": "update_embedding",
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "description": "Note ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEmbeddingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Embedding updated"
+          },
+          "400": {
+            "description": "Invalid embedding"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Note not found"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/notes/{note_id}/embedding/content": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Get note content for embedding generation",
+        "operationId": "get_embedding_content",
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "description": "Note ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Note content for embedding"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Note not found"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/notes/{note_id}/shares": {
+      "get": {
+        "tags": [
+          "shares"
+        ],
+        "summary": "List shares for a note",
+        "operationId": "list_shares",
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "description": "Note ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of shares",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_NoteShare"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/notes/{note_id}/tags": {
+      "post": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Add tags to a note",
+        "operationId": "add_tags",
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "description": "Note ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTagsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Tags added",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_NoteResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Note not found"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Remove tags from a note",
+        "operationId": "remove_tags",
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "description": "Note ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveTagsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Tags removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_NoteResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Note not found"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/share/{token}": {
+      "get": {
+        "tags": [
+          "shares"
+        ],
+        "summary": "Get a publicly shared note by cryptographic share token",
+        "description": "This endpoint does not require authentication. The token contains an embedded\norganization_id (cryptographically signed) which is used to route to the correct\ntenant database via serencore's service JWT API. The token is verified before use.",
+        "operationId": "get_public_shared_note",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "description": "Cryptographic share token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Shared note found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SharedNoteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid token format or signature"
+          },
+          "403": {
+            "description": "Share does not allow anonymous access"
+          },
+          "404": {
+            "description": "Share not found, expired, or not public"
+          }
+        }
+      }
+    },
+    "/shares": {
+      "post": {
+        "tags": [
+          "shares"
+        ],
+        "summary": "Create a share for a note",
+        "operationId": "create_share",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateShareApiRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Share created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_NoteShare"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Note not found"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/shares/token/{token}": {
+      "get": {
+        "tags": [
+          "shares"
+        ],
+        "summary": "Get a share by token (for public access)",
+        "operationId": "get_share_by_token",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "description": "Share token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Share found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_NoteShare"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Share not found or expired"
+          }
+        }
+      }
+    },
+    "/shares/{share_id}": {
+      "get": {
+        "tags": [
+          "shares"
+        ],
+        "summary": "Get a share by ID",
+        "operationId": "get_share",
+        "parameters": [
+          {
+            "name": "share_id",
+            "in": "path",
+            "description": "Share ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Share found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_NoteShare"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Share not found"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "shares"
+        ],
+        "summary": "Delete (revoke) a share",
+        "operationId": "delete_share",
+        "parameters": [
+          {
+            "name": "share_id",
+            "in": "path",
+            "description": "Share ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Share deleted"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Share not found"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "shares"
+        ],
+        "summary": "Update a share",
+        "operationId": "update_share",
+        "parameters": [
+          {
+            "name": "share_id",
+            "in": "path",
+            "description": "Share ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateShareApiRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Share updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_NoteShare"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Share not found"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AddTagsRequest": {
+        "type": "object",
+        "required": [
+          "tags"
+        ],
+        "properties": {
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AppendToNoteRequest": {
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "format": {
+            "$ref": "#/components/schemas/NoteFormat"
+          },
+          "idempotency_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Attachment": {
+        "type": "object",
+        "description": "An attachment record",
+        "required": [
+          "id",
+          "note_id",
+          "filename",
+          "content_type",
+          "size_bytes",
+          "content_hash",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "alt_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content_hash": {
+            "type": "string"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "note_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "width": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "CreateNoteRequest": {
+        "type": "object",
+        "required": [
+          "title",
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "format": {
+            "$ref": "#/components/schemas/NoteFormat"
+          },
+          "idempotency_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "tags": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateShareApiRequest": {
+        "type": "object",
+        "description": "Request to create a share",
+        "required": [
+          "note_id"
+        ],
+        "properties": {
+          "allow_anonymous": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "expires_in_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "is_public": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "note_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "permission": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shared_with_email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "DataResponse_Attachment": {
+        "type": "object",
+        "description": "Wrapper for API responses.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "An attachment record",
+            "required": [
+              "id",
+              "note_id",
+              "filename",
+              "content_type",
+              "size_bytes",
+              "content_hash",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "alt_text": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "content_hash": {
+                "type": "string"
+              },
+              "content_type": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "filename": {
+                "type": "string"
+              },
+              "height": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "note_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "size_bytes": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "width": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_NoteResponse": {
+        "type": "object",
+        "description": "Wrapper for API responses.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Response type for note retrieval with converted content",
+            "required": [
+              "id",
+              "title",
+              "content",
+              "format",
+              "position",
+              "is_archived",
+              "is_pinned",
+              "tags",
+              "version",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "archived_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "content": {
+                "type": "string",
+                "description": "Content in the requested format (markdown, org, or JSON string)"
+              },
+              "content_json": {
+                "description": "Raw ProseMirror JSON (only included when format is Json)"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "format": {
+                "$ref": "#/components/schemas/NoteFormat"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "is_archived": {
+                "type": "boolean"
+              },
+              "is_pinned": {
+                "type": "boolean"
+              },
+              "parent_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "position": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "title": {
+                "type": "string"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "version": {
+                "type": "integer",
+                "format": "int32"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_NoteShare": {
+        "type": "object",
+        "description": "Wrapper for API responses.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A share record for a note",
+            "required": [
+              "id",
+              "note_id",
+              "permission",
+              "is_public",
+              "allow_anonymous",
+              "access_count",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "access_count": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "allow_anonymous": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "created_by": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expires_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "is_public": {
+                "type": "boolean"
+              },
+              "last_accessed_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "note_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "permission": {
+                "$ref": "#/components/schemas/Permission"
+              },
+              "share_token": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "shared_with_email": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_SharedNoteResponse": {
+        "type": "object",
+        "description": "Wrapper for API responses.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Response for publicly shared note content",
+            "required": [
+              "share",
+              "note"
+            ],
+            "properties": {
+              "note": {
+                "$ref": "#/components/schemas/NoteResponse"
+              },
+              "share": {
+                "$ref": "#/components/schemas/NoteShare"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_Attachment": {
+        "type": "object",
+        "description": "Wrapper for API responses.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "An attachment record",
+              "required": [
+                "id",
+                "note_id",
+                "filename",
+                "content_type",
+                "size_bytes",
+                "content_hash",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "alt_text": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "content_hash": {
+                  "type": "string"
+                },
+                "content_type": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "height": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int32"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "note_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "size_bytes": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "width": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int32"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_NoteShare": {
+        "type": "object",
+        "description": "Wrapper for API responses.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A share record for a note",
+              "required": [
+                "id",
+                "note_id",
+                "permission",
+                "is_public",
+                "allow_anonymous",
+                "access_count",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "access_count": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "allow_anonymous": {
+                  "type": "boolean"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "created_by": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "expires_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "is_public": {
+                  "type": "boolean"
+                },
+                "last_accessed_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "note_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "permission": {
+                  "$ref": "#/components/schemas/Permission"
+                },
+                "share_token": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "shared_with_email": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_NoteSummary": {
+        "type": "object",
+        "description": "Wrapper for API responses.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Note summary for list/search responses (without full content)",
+              "required": [
+                "id",
+                "title",
+                "excerpt",
+                "is_archived",
+                "is_pinned",
+                "version",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "excerpt": {
+                  "type": "string",
+                  "description": "First ~200 characters of content_text"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "is_archived": {
+                  "type": "boolean"
+                },
+                "is_pinned": {
+                  "type": "boolean"
+                },
+                "parent_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "version": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_SemanticSearchResultResponse": {
+        "type": "object",
+        "description": "Wrapper for API responses.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "note",
+                "similarity"
+              ],
+              "properties": {
+                "note": {
+                  "$ref": "#/components/schemas/NoteSummary"
+                },
+                "similarity": {
+                  "type": "number",
+                  "format": "float"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_String": {
+        "type": "object",
+        "description": "Wrapper for API responses.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "GetNoteQuery": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "$ref": "#/components/schemas/NoteFormat"
+          }
+        }
+      },
+      "ImportAttachmentFromUrlRequest": {
+        "type": "object",
+        "description": "Request body for importing an external image URL as an attachment",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "alt_text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional alt text for accessibility (stored on the attachment record)"
+          },
+          "filename": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional filename override"
+          },
+          "url": {
+            "type": "string",
+            "description": "External URL to fetch (http/https only)"
+          }
+        }
+      },
+      "ListNotesQuery": {
+        "type": "object",
+        "description": "Query parameters for listing notes",
+        "properties": {
+          "include_archived": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "tag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "NoteFormat": {
+        "type": "string",
+        "description": "Note format for input/output",
+        "enum": [
+          "markdown",
+          "json",
+          "org"
+        ]
+      },
+      "NoteResponse": {
+        "type": "object",
+        "description": "Response type for note retrieval with converted content",
+        "required": [
+          "id",
+          "title",
+          "content",
+          "format",
+          "position",
+          "is_archived",
+          "is_pinned",
+          "tags",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "archived_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "content": {
+            "type": "string",
+            "description": "Content in the requested format (markdown, org, or JSON string)"
+          },
+          "content_json": {
+            "description": "Raw ProseMirror JSON (only included when format is Json)"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "format": {
+            "$ref": "#/components/schemas/NoteFormat"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_archived": {
+            "type": "boolean"
+          },
+          "is_pinned": {
+            "type": "boolean"
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "position": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "NoteShare": {
+        "type": "object",
+        "description": "A share record for a note",
+        "required": [
+          "id",
+          "note_id",
+          "permission",
+          "is_public",
+          "allow_anonymous",
+          "access_count",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "access_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "allow_anonymous": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_public": {
+            "type": "boolean"
+          },
+          "last_accessed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "note_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "permission": {
+            "$ref": "#/components/schemas/Permission"
+          },
+          "share_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shared_with_email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "NoteSummary": {
+        "type": "object",
+        "description": "Note summary for list/search responses (without full content)",
+        "required": [
+          "id",
+          "title",
+          "excerpt",
+          "is_archived",
+          "is_pinned",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "excerpt": {
+            "type": "string",
+            "description": "First ~200 characters of content_text"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_archived": {
+            "type": "boolean"
+          },
+          "is_pinned": {
+            "type": "boolean"
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "description": "Pagination metadata for collection responses.",
+        "required": [
+          "total",
+          "count",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "Permission": {
+        "type": "string",
+        "description": "Permission levels for shared notes",
+        "enum": [
+          "view",
+          "comment",
+          "edit",
+          "admin"
+        ]
+      },
+      "RemoveTagsRequest": {
+        "type": "object",
+        "required": [
+          "tags"
+        ],
+        "properties": {
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SearchNotesQuery": {
+        "type": "object",
+        "description": "Query parameters for searching notes",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "include_archived": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "query": {
+            "type": "string"
+          }
+        }
+      },
+      "SemanticSearchQuery": {
+        "type": "object",
+        "description": "Query parameters for semantic search",
+        "required": [
+          "embedding"
+        ],
+        "properties": {
+          "embedding": {
+            "type": "string",
+            "description": "The embedding vector as JSON array (1536 dimensions)"
+          },
+          "include_archived": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "SemanticSearchResultResponse": {
+        "type": "object",
+        "required": [
+          "note",
+          "similarity"
+        ],
+        "properties": {
+          "note": {
+            "$ref": "#/components/schemas/NoteSummary"
+          },
+          "similarity": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      },
+      "SharedNoteResponse": {
+        "type": "object",
+        "description": "Response for publicly shared note content",
+        "required": [
+          "share",
+          "note"
+        ],
+        "properties": {
+          "note": {
+            "$ref": "#/components/schemas/NoteResponse"
+          },
+          "share": {
+            "$ref": "#/components/schemas/NoteShare"
+          }
+        }
+      },
+      "UpdateAttachmentRequest": {
+        "type": "object",
+        "description": "Request to update attachment metadata",
+        "properties": {
+          "alt_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filename": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateEmbeddingRequest": {
+        "type": "object",
+        "description": "Request to update note embedding",
+        "required": [
+          "embedding"
+        ],
+        "properties": {
+          "embedding": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "float"
+            },
+            "description": "The embedding vector (1536 dimensions)"
+          }
+        }
+      },
+      "UpdateNoteRequest": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expected_version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "format": {
+            "$ref": "#/components/schemas/NoteFormat"
+          },
+          "is_archived": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "is_pinned": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateShareApiRequest": {
+        "type": "object",
+        "description": "Request to update a share",
+        "properties": {
+          "allow_anonymous": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "expires_in_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "is_public": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "permission": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UploadAttachmentRequest": {
+        "type": "object",
+        "description": "Multipart form for uploading attachments (reserved for future multipart upload support)",
+        "required": [
+          "note_id",
+          "filename",
+          "content_type"
+        ],
+        "properties": {
+          "alt_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "note_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "width": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "api_key": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "notes",
+      "description": "Note management operations"
+    },
+    {
+      "name": "tags",
+      "description": "Tag management operations"
+    },
+    {
+      "name": "search",
+      "description": "Search operations including semantic search"
+    },
+    {
+      "name": "shares",
+      "description": "Note sharing and permissions"
+    },
+    {
+      "name": "attachments",
+      "description": "File attachments"
+    }
+  ]
+}

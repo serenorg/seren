@@ -109,7 +109,7 @@ use seren::{Client, ClientConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = ClientConfig::new("seren_your_api_key");
+    let config = ClientConfig::new("your_seren_api_key");
     let client = Client::from_config(&config)?;
 
     let projects = client.seren_db_list_projects().await?;

@@ -63,7 +63,7 @@ seren projects list
 For automation, set an API key and request JSON output:
 
 ```bash
-export SEREN_API_KEY=seren_your_api_key_here
+export SEREN_API_KEY=your_seren_api_key
 seren -o json agent cloud overview
 seren -o json projects list
 ```
@@ -113,11 +113,11 @@ Opens your browser for secure OAuth authentication.
 
 ```bash
 # Set via environment variable
-export SEREN_API_KEY=seren_your_api_key_here
+export SEREN_API_KEY=your_seren_api_key
 seren projects list
 
 # Or pass directly
-seren --api-key seren_your_api_key projects list
+seren --api-key your_seren_api_key projects list
 ```
 
 ### Check Status

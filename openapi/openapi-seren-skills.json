@@ -31,7 +31,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DataResponse_Value"
                 }
               }
             }
@@ -53,7 +53,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OrphanFoldersResponse"
+                  "$ref": "#/components/schemas/DataResponse_OrphanFoldersResponse"
                 }
               }
             }
@@ -76,7 +76,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AuthorIdentity"
+                  "$ref": "#/components/schemas/DataResponse_AuthorIdentity"
                 }
               }
             }
@@ -104,7 +104,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AuthorIdentity"
+                  "$ref": "#/components/schemas/DataResponse_AuthorIdentity"
                 }
               }
             }
@@ -136,7 +136,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DataResponse_Value"
                 }
               }
             }
@@ -176,7 +176,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DataResponse_Value"
                 }
               }
             }
@@ -216,7 +216,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DataResponse_Value"
                 }
               }
             }
@@ -256,7 +256,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DataResponse_Value"
                 }
               }
             }
@@ -298,7 +298,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DataResponse_Value"
                 }
               }
             }
@@ -421,7 +421,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListSkillsResponse"
+                  "$ref": "#/components/schemas/DataResponse_Vec_SkillSummary"
                 }
               }
             }
@@ -449,7 +449,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SkillDetail"
+                  "$ref": "#/components/schemas/DataResponse_SkillDetail"
                 }
               }
             }
@@ -480,7 +480,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SkillDetail"
+                  "$ref": "#/components/schemas/DataResponse_SkillDetail"
                 }
               }
             }
@@ -509,7 +509,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DataResponse_Value"
                 }
               }
             }
@@ -548,7 +548,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SkillDetail"
+                  "$ref": "#/components/schemas/DataResponse_SkillDetail"
                 }
               }
             }
@@ -579,7 +579,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListCollaboratorsResponse"
+                  "$ref": "#/components/schemas/DataResponse_Vec_Collaborator"
                 }
               }
             }
@@ -630,7 +630,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Collaborator"
+                  "$ref": "#/components/schemas/DataResponse_Collaborator"
                 }
               }
             }
@@ -669,7 +669,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DataResponse_Value"
                 }
               }
             }
@@ -700,7 +700,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SkillBundle"
+                  "$ref": "#/components/schemas/DataResponse_SkillBundle"
                 }
               }
             }
@@ -740,7 +740,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SkillBundleFileDownload"
+                  "$ref": "#/components/schemas/DataResponse_SkillBundleFileDownload"
                 }
               }
             }
@@ -771,7 +771,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SkillBundleManifest"
+                  "$ref": "#/components/schemas/DataResponse_SkillBundleManifest"
                 }
               }
             }
@@ -812,7 +812,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ChatDraftResponse"
+                  "$ref": "#/components/schemas/DataResponse_ChatDraftResponse"
                 }
               }
             }
@@ -853,7 +853,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MergeStateResponse"
+                  "$ref": "#/components/schemas/DataResponse_MergeStateResponse"
                 }
               }
             }
@@ -904,7 +904,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CreateVersionResponse"
+                  "$ref": "#/components/schemas/DataResponse_CreateVersionResponse"
                 }
               }
             }
@@ -935,7 +935,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SkillEditDocument"
+                  "$ref": "#/components/schemas/DataResponse_SkillEditDocument"
                 }
               }
             }
@@ -970,7 +970,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListFilesResponse"
+                  "$ref": "#/components/schemas/DataResponse_Vec_FileListing"
                 }
               }
             }
@@ -1011,7 +1011,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GetFileResponse"
+                  "$ref": "#/components/schemas/DataResponse_GetFileResponse"
                 }
               }
             }
@@ -1060,7 +1060,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileEditResponse"
+                  "$ref": "#/components/schemas/DataResponse_FileEditResponse"
                 }
               }
             }
@@ -1109,7 +1109,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileEditResponse"
+                  "$ref": "#/components/schemas/DataResponse_FileEditResponse"
                 }
               }
             }
@@ -1140,7 +1140,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DataResponse_Value"
                 }
               }
             }
@@ -1183,7 +1183,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DataResponse_Value"
                 }
               }
             }
@@ -1224,7 +1224,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DataResponse_Value"
                 }
               }
             }
@@ -1256,7 +1256,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DataResponse_Value"
                 }
               }
             }
@@ -1287,7 +1287,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PurchaseResponse"
+                  "$ref": "#/components/schemas/DataResponse_PurchaseResponse"
                 }
               }
             }
@@ -1331,7 +1331,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SkillDetail"
+                  "$ref": "#/components/schemas/DataResponse_SkillDetail"
                 }
               }
             }
@@ -1362,7 +1362,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListUpdateRequestsResponse"
+                  "$ref": "#/components/schemas/DataResponse_Vec_UpdateRequest"
                 }
               }
             }
@@ -1401,7 +1401,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UpdateRequest"
+                  "$ref": "#/components/schemas/DataResponse_UpdateRequest"
                 }
               }
             }
@@ -1432,7 +1432,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListVersionsResponse"
+                  "$ref": "#/components/schemas/DataResponse_Vec_SkillVersion"
                 }
               }
             }
@@ -1471,7 +1471,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CreateVersionResponse"
+                  "$ref": "#/components/schemas/DataResponse_CreateVersionResponse"
                 }
               }
             }
@@ -1511,7 +1511,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DataResponse_Value"
                 }
               }
             }
@@ -1543,7 +1543,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UpdateRequestDetail"
+                  "$ref": "#/components/schemas/DataResponse_UpdateRequestDetail"
                 }
               }
             }
@@ -1585,7 +1585,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UpdateRequest"
+                  "$ref": "#/components/schemas/DataResponse_UpdateRequest"
                 }
               }
             }
@@ -1617,7 +1617,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListUpdateRequestCommentsResponse"
+                  "$ref": "#/components/schemas/DataResponse_Vec_UpdateRequestComment"
                 }
               }
             }
@@ -1657,7 +1657,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DataResponse_Value"
                 }
               }
             }
@@ -1689,7 +1689,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UpdateRequestDiff"
+                  "$ref": "#/components/schemas/DataResponse_UpdateRequestDiff"
                 }
               }
             }
@@ -1721,7 +1721,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UpdateRequest"
+                  "$ref": "#/components/schemas/DataResponse_UpdateRequest"
                 }
               }
             }
@@ -1767,7 +1767,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListUsageEventsResponse"
+                  "$ref": "#/components/schemas/DataResponse_Vec_UsageEvent"
                 }
               }
             }
@@ -1787,7 +1787,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UsageSummaryResponse"
+                  "$ref": "#/components/schemas/DataResponse_UsageSummaryResponse"
                 }
               }
             }
@@ -2191,6 +2191,1576 @@
           }
         }
       },
+      "DataResponse_AuthorIdentity": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "user_id",
+              "display_name",
+              "git_email",
+              "updated_at"
+            ],
+            "properties": {
+              "display_name": {
+                "type": "string"
+              },
+              "git_email": {
+                "type": "string"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "user_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ChatDraftResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "skill_id",
+              "editor_user_id",
+              "session_id",
+              "base_version_id",
+              "status",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "base_version_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "editor_user_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "session_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "skill_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "status": {
+                "type": "string"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Collaborator": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "skill_id",
+              "user_id",
+              "role",
+              "granted_by_user_id",
+              "granted_at"
+            ],
+            "properties": {
+              "granted_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "granted_by_user_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "role": {
+                "type": "string"
+              },
+              "skill_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "user_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_CreateVersionResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "draft": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ChatDraftResponse"
+                  }
+                ]
+              },
+              "merge_state": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MergeStateResponse"
+                  }
+                ]
+              },
+              "status": {
+                "type": "string"
+              },
+              "version": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SkillVersion"
+                  }
+                ]
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_FileEditResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Per-file edit response. `unchanged: true` means the resulting\nbundle hash matches the current version's `content_hash_bundle`\nand no new version was written; `version` then carries the\nexisting current version. On conflict, `status = \"conflict\"` and\n`draft` + `merge_state` come from the standard chat-conflict\npipeline reused from `create_version`.",
+            "required": [
+              "status",
+              "unchanged"
+            ],
+            "properties": {
+              "draft": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ChatDraftResponse"
+                  }
+                ]
+              },
+              "merge_state": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MergeStateResponse"
+                  }
+                ]
+              },
+              "status": {
+                "type": "string"
+              },
+              "unchanged": {
+                "type": "boolean"
+              },
+              "version": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SkillVersion"
+                  }
+                ]
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_GetFileResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "`GET /skills/{slug}/files/{path...}` response: one file's bytes.",
+            "required": [
+              "path",
+              "content_b64",
+              "mode",
+              "is_binary",
+              "content_hash"
+            ],
+            "properties": {
+              "content_b64": {
+                "type": "string"
+              },
+              "content_hash": {
+                "type": "string"
+              },
+              "is_binary": {
+                "type": "boolean"
+              },
+              "mode": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "path": {
+                "type": "string"
+              },
+              "version": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_MergeStateResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "skill_id",
+              "editor_user_id",
+              "base_version_id",
+              "incoming_version_id",
+              "conflict_count",
+              "merged_skill_md",
+              "merged_content_doc",
+              "created_at"
+            ],
+            "properties": {
+              "base_version_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "chat_draft_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "conflict_count": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "editor_user_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "incoming_version_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "merged_content_doc": {},
+              "merged_skill_md": {
+                "type": "string"
+              },
+              "resolved_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "skill_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "update_request_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_OrphanFoldersResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "head_commit_sha",
+              "head_tree_sha",
+              "orphan_folders"
+            ],
+            "properties": {
+              "head_commit_sha": {
+                "type": "string"
+              },
+              "head_tree_sha": {
+                "type": "string"
+              },
+              "orphan_folders": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/OrphanFolderEntry"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_PurchaseResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "skill_id",
+              "access_granted",
+              "source"
+            ],
+            "properties": {
+              "access_granted": {
+                "type": "boolean"
+              },
+              "charge_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "purchase_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "skill_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "source": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_SkillBundle": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "skill",
+              "version",
+              "skill_md",
+              "manifest",
+              "content_hash"
+            ],
+            "properties": {
+              "content_hash": {
+                "type": "string"
+              },
+              "content_hash_bundle": {
+                "type": "string",
+                "description": "Full-bundle freshness token (issue #57): hex of the version's\n`content_hash_bundle`, the SHA-256 fingerprint over SKILL.md **and\nevery file's bytes** ([`crate::content::compute_content_hash_bundle`]).\nUnlike `content_hash` (SKILL.md + manifest only), this moves on any\nfile-body change, so installs must key their sync-revision compare on\nthis field — not `content_hash` — to detect code-only updates.\nEmpty only for the impossible case of a version predating migration\n010, which made the column `NOT NULL`."
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SkillBundleFile"
+                },
+                "description": "Non-SKILL.md files attached to the version. Empty for versions that\npredate bundle persistence."
+              },
+              "manifest": {},
+              "skill": {
+                "$ref": "#/components/schemas/SkillSummary"
+              },
+              "skill_md": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_SkillBundleFileDownload": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Single-file body returned by `GET /skills/{slug}/download/file`.\nShares the [`SkillBundleFile`] field shape (path + base64 body +\nper-file hash + mode + is_binary) and adds the bundle `version` so a\nclient can detect a publish that landed between its manifest fetch\nand this body fetch (version mismatch -> restart from the manifest).",
+            "required": [
+              "path",
+              "content_b64",
+              "content_hash",
+              "mode",
+              "is_binary",
+              "version"
+            ],
+            "properties": {
+              "content_b64": {
+                "type": "string"
+              },
+              "content_hash": {
+                "type": "string"
+              },
+              "is_binary": {
+                "type": "boolean"
+              },
+              "mode": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "path": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_SkillBundleManifest": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Split-download manifest (issue #53): the same envelope as\n[`SkillBundle`] but every entry in `files` carries *metadata only* —\nno `content_b64` body. Clients fetch each body separately via\n`GET /skills/{slug}/download/file?path=...`, keeping every response\nunder the gateway's per-response byte cap even for bundles whose\nsingle-shot `/download` JSON would exceed it.",
+            "required": [
+              "skill",
+              "version",
+              "skill_md",
+              "manifest",
+              "content_hash"
+            ],
+            "properties": {
+              "content_hash": {
+                "type": "string"
+              },
+              "content_hash_bundle": {
+                "type": "string",
+                "description": "Full-bundle freshness token (issue #57): hex of the version's\n`content_hash_bundle`. Identical semantics to [`SkillBundle::content_hash_bundle`]\n— the split-download client keys its sync-revision compare on this\nfield so a code-only publish (SKILL.md/manifest unchanged) is detected."
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SkillBundleManifestFile"
+                },
+                "description": "Per-file metadata with no bodies. Empty for versions that predate\nbundle persistence."
+              },
+              "manifest": {},
+              "skill": {
+                "$ref": "#/components/schemas/SkillSummary"
+              },
+              "skill_md": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_SkillDetail": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SkillSummary"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "access"
+                ],
+                "properties": {
+                  "access": {
+                    "$ref": "#/components/schemas/SkillAccess"
+                  },
+                  "latest_version": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/SkillVersion"
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_SkillEditDocument": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Editor-facing payload: ProseMirror document tree for the rich-text editor\nplus the parsed frontmatter as JSON. Returned by GET /skills/{slug}/edit\nand accepted by POST /skills/{slug}/versions when a client wants to write\nthe document directly instead of round-tripping through markdown.",
+            "required": [
+              "skill",
+              "frontmatter",
+              "content_doc"
+            ],
+            "properties": {
+              "content_doc": {},
+              "content_hash": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "current_version_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "frontmatter": {},
+              "skill": {
+                "$ref": "#/components/schemas/SkillSummary"
+              },
+              "version": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_UpdateRequest": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "skill_id",
+              "proposer_user_id",
+              "title",
+              "body",
+              "status",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "base_version_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "body": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "proposed_content_hash": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "proposer_user_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "skill_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "status": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_UpdateRequestDetail": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/UpdateRequest"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "skill"
+                ],
+                "properties": {
+                  "base_version": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/SkillVersion"
+                      }
+                    ]
+                  },
+                  "proposed_content_doc": {},
+                  "proposed_frontmatter": {},
+                  "proposed_skill_md": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "skill": {
+                    "$ref": "#/components/schemas/SkillSummary"
+                  }
+                }
+              }
+            ]
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_UpdateRequestDiff": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "request_id",
+              "is_outdated"
+            ],
+            "properties": {
+              "base_skill_md": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "base_version_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "current_version_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "is_outdated": {
+                "type": "boolean"
+              },
+              "proposed_skill_md": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "request_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_UsageSummaryResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "month",
+              "rows",
+              "total_amount_atomic",
+              "note"
+            ],
+            "properties": {
+              "month": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/UsageSummaryRow"
+                }
+              },
+              "total_amount_atomic": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Value": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {},
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_Collaborator": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "skill_id",
+                "user_id",
+                "role",
+                "granted_by_user_id",
+                "granted_at"
+              ],
+              "properties": {
+                "granted_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "granted_by_user_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "skill_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "user_id": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_FileListing": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One row in the file listing. `preview` is the first 200 chars of the\nfile when it is text; `null` for binaries.",
+              "required": [
+                "path",
+                "mode",
+                "is_binary",
+                "size_bytes",
+                "content_hash"
+              ],
+              "properties": {
+                "content_hash": {
+                  "type": "string"
+                },
+                "is_binary": {
+                  "type": "boolean"
+                },
+                "mode": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                },
+                "path": {
+                  "type": "string"
+                },
+                "preview": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "size_bytes": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_SkillSummary": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "owner_kind",
+                "slug",
+                "skill_folder_name",
+                "name",
+                "description",
+                "visibility",
+                "discoverability",
+                "status",
+                "sponsor_mode",
+                "price_cents",
+                "install_count",
+                "owner_organization_id",
+                "created_by_user_id",
+                "github_mirror_health",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "created_by_user_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "current_version": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "current_version_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "deleted_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "discoverability": {
+                  "$ref": "#/components/schemas/SkillDiscoverability"
+                },
+                "folder_slug": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Per-skill override for the GitHub mirror folder. When set, takes\nprecedence over `skill_org_folders.folder_slug`. `None` means\nfall through to the org default. See migration 009 + issue #17."
+                },
+                "github_mirror_health": {
+                  "$ref": "#/components/schemas/GithubMirrorHealth"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "install_count": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "owner_kind": {
+                  "$ref": "#/components/schemas/SkillOwnerKind"
+                },
+                "owner_organization_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "owner_user_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "price_cents": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "seren_bounty_campaign_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "skill_folder_name": {
+                  "type": "string"
+                },
+                "slug": {
+                  "type": "string"
+                },
+                "sponsor_mode": {
+                  "$ref": "#/components/schemas/SkillSponsorMode"
+                },
+                "sponsor_referral_code": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sponsor_static": {},
+                "status": {
+                  "$ref": "#/components/schemas/SkillStatus"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "visibility": {
+                  "$ref": "#/components/schemas/SkillVisibility"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_SkillVersion": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "skill_id",
+                "version",
+                "manifest",
+                "content_hash",
+                "review_status",
+                "created_by_user_id",
+                "created_at"
+              ],
+              "properties": {
+                "changelog": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "content_hash": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "created_by_user_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "manifest": {},
+                "review_status": {
+                  "type": "string"
+                },
+                "skill_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "version": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_UpdateRequest": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "skill_id",
+                "proposer_user_id",
+                "title",
+                "body",
+                "status",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "base_version_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "body": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "proposed_content_hash": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "proposer_user_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "skill_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_UpdateRequestComment": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "request_id",
+                "author_user_id",
+                "body",
+                "created_at"
+              ],
+              "properties": {
+                "author_user_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "body": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "request_id": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_UsageEvent": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "user_id",
+                "organization_id",
+                "event_type",
+                "units",
+                "amount_atomic",
+                "billing_status",
+                "created_at"
+              ],
+              "properties": {
+                "amount_atomic": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "billing_charge_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "billing_status": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "event_type": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "organization_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "skill_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "units": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "user_id": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
       "DeleteFileRequest": {
         "type": "object",
         "description": "`DELETE /skills/{slug}/files/{path...}` body.",
@@ -2258,7 +3828,7 @@
       },
       "FileListing": {
         "type": "object",
-        "description": "One row in the [`ListFilesResponse`]. `preview` is the first 200\nchars of the file when it is text; `null` for binaries.",
+        "description": "One row in the file listing. `preview` is the first 200 chars of the\nfile when it is text; `null` for binaries.",
         "required": [
           "path",
           "mode",
@@ -2385,35 +3955,6 @@
           }
         }
       },
-      "ListCollaboratorsResponse": {
-        "type": "object",
-        "required": [
-          "collaborators"
-        ],
-        "properties": {
-          "collaborators": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Collaborator"
-            }
-          }
-        }
-      },
-      "ListFilesResponse": {
-        "type": "object",
-        "description": "`GET /skills/{slug}/files` response: every path in the current\nbundle including a synthetic `SKILL.md` entry for completeness.",
-        "required": [
-          "files"
-        ],
-        "properties": {
-          "files": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/FileListing"
-            }
-          }
-        }
-      },
       "ListSkillsQuery": {
         "type": "object",
         "properties": {
@@ -2465,100 +4006,12 @@
           }
         }
       },
-      "ListSkillsResponse": {
-        "type": "object",
-        "required": [
-          "skills",
-          "total",
-          "has_more"
-        ],
-        "properties": {
-          "has_more": {
-            "type": "boolean",
-            "description": "True when more pages remain after this one. Equivalent to\n`offset + skills.len() < total`, exposed so callers (and LLM\nagents reading SKILL.md) don't have to compute the loop\ncondition themselves."
-          },
-          "next_offset": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64",
-            "description": "The `offset` value to pass on the next request to continue\npaging, or `None` when the catalog is exhausted."
-          },
-          "skills": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SkillSummary"
-            }
-          },
-          "total": {
-            "type": "integer",
-            "format": "int64"
-          }
-        }
-      },
       "ListSkillsSort": {
         "type": "string",
         "enum": [
           "updated",
           "installs"
         ]
-      },
-      "ListUpdateRequestCommentsResponse": {
-        "type": "object",
-        "required": [
-          "comments"
-        ],
-        "properties": {
-          "comments": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/UpdateRequestComment"
-            }
-          }
-        }
-      },
-      "ListUpdateRequestsResponse": {
-        "type": "object",
-        "required": [
-          "update_requests"
-        ],
-        "properties": {
-          "update_requests": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/UpdateRequest"
-            }
-          }
-        }
-      },
-      "ListUsageEventsResponse": {
-        "type": "object",
-        "required": [
-          "events"
-        ],
-        "properties": {
-          "events": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/UsageEvent"
-            }
-          }
-        }
-      },
-      "ListVersionsResponse": {
-        "type": "object",
-        "required": [
-          "versions"
-        ],
-        "properties": {
-          "versions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SkillVersion"
-            }
-          }
-        }
       },
       "MergeStateResponse": {
         "type": "object",
@@ -2671,6 +4124,37 @@
             "items": {
               "$ref": "#/components/schemas/OrphanFolderEntry"
             }
+          }
+        }
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "required": [
+          "total",
+          "count",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -2842,6 +4326,10 @@
           "content_hash": {
             "type": "string"
           },
+          "content_hash_bundle": {
+            "type": "string",
+            "description": "Full-bundle freshness token (issue #57): hex of the version's\n`content_hash_bundle`, the SHA-256 fingerprint over SKILL.md **and\nevery file's bytes** ([`crate::content::compute_content_hash_bundle`]).\nUnlike `content_hash` (SKILL.md + manifest only), this moves on any\nfile-body change, so installs must key their sync-revision compare on\nthis field — not `content_hash` — to detect code-only updates.\nEmpty only for the impossible case of a version predating migration\n010, which made the column `NOT NULL`."
+          },
           "files": {
             "type": "array",
             "items": {
@@ -2937,6 +4425,10 @@
         "properties": {
           "content_hash": {
             "type": "string"
+          },
+          "content_hash_bundle": {
+            "type": "string",
+            "description": "Full-bundle freshness token (issue #57): hex of the version's\n`content_hash_bundle`. Identical semantics to [`SkillBundle::content_hash_bundle`]\n— the split-download client keys its sync-revision compare on this\nfield so a code-only publish (SKILL.md/manifest unchanged) is detected."
           },
           "files": {
             "type": "array",
@@ -3216,6 +4708,12 @@
           "sponsor_static": {},
           "status": {
             "$ref": "#/components/schemas/SkillStatus"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "updated_at": {
             "type": "string",
