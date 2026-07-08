@@ -4240,11 +4240,28 @@ where
         .ok_or_else(|| "missing data field".to_string())?;
     let status = data.get("status").and_then(serde_json::Value::as_u64);
     if status != Some(200) {
+        let status_text = status
+            .and_then(|value| u16::try_from(value).ok())
+            .and_then(|value| reqwest::StatusCode::from_u16(value).ok())
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| {
+                status
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            });
+        let body = data
+            .get("body")
+            .map(|body| match body.as_str() {
+                Some(raw) => raw.to_string(),
+                None => body.to_string(),
+            })
+            .unwrap_or_default();
+        if body.is_empty() {
+            return Err(format!("gateway returned upstream status {status_text}"));
+        }
         return Err(format!(
-            "gateway returned upstream status {}",
-            status
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "unknown".to_string())
+            "gateway returned upstream status {status_text}: {}",
+            truncate_for_client(&body, 1200)
         ));
     }
     let body = data

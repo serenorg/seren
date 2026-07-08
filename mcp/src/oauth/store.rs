@@ -214,8 +214,11 @@ pub struct PendingConsent {
 /// request-scoped value is dropped.
 #[derive(Clone)]
 pub struct HostedPasswordsAgent {
+    pub identity_id: Uuid,
+    pub display_name: String,
     pub kem_private: Zeroizing<String>,
     pub api_key: Option<Zeroizing<String>>,
+    pub granted_vaults: serde_json::Value,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -772,14 +775,18 @@ impl TokenStore {
         #[derive(sqlx::FromRow)]
         struct HostedPasswordsAgentRow {
             identity_id: Uuid,
+            display_name: String,
             credential_ciphertext: String,
+            granted_vaults: serde_json::Value,
         }
 
         let row = sqlx::query_as::<_, HostedPasswordsAgentRow>(
             r#"
             SELECT
                 identity_id,
-                credential_ciphertext
+                display_name,
+                credential_ciphertext,
+                granted_vaults
             FROM mcp_oauth.hosted_passwords_agents
             WHERE user_id = $1 AND credential_subject = $2
             ORDER BY updated_at DESC
@@ -825,8 +832,11 @@ impl TokenStore {
         }
 
         Ok(Some(HostedPasswordsAgent {
+            identity_id: row.identity_id,
+            display_name: row.display_name,
             kem_private: Zeroizing::new(bundle.kem_private),
             api_key: bundle.api_key.map(Zeroizing::new),
+            granted_vaults: row.granted_vaults,
         }))
     }
 

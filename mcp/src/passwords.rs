@@ -434,6 +434,8 @@ pub struct PasswordsGeneratePasswordParams {
 pub struct PasswordsRequestAccessParams {
     /// Display name shown to the user in the grant page.
     pub display_name: Option<String>,
+    /// Force a new consent URL even if this hosted MCP session already has a stored agent.
+    pub force: Option<bool>,
 }
 
 /// Parameters for polling a hosted MCP vault-access request.
@@ -793,14 +795,20 @@ impl SerenMcpServer {
         let credential_subject =
             crate::server::hosted_passwords_credential_subject_from_extensions(&extensions)?;
         let credential_subject_key = credential_subject.storage_key();
-        if store
-            .get_hosted_passwords_agent(user_id, &credential_subject_key)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .is_some()
+        if params.force != Some(true)
+            && let Some(agent) = store
+                .get_hosted_passwords_agent(user_id, &credential_subject_key)
+                .await
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?
         {
             return Ok(CallToolResult::success(vec![crate::server::json_content(
-                &serde_json::json!({ "status": "already_granted" }),
+                &serde_json::json!({
+                    "status": "already_granted",
+                    "identity_id": agent.identity_id,
+                    "display_name": agent.display_name,
+                    "granted_vaults": agent.granted_vaults,
+                    "next_step": "Call passwords_request_access with force=true to open a new consent URL for additional vault access.",
+                }),
             )?]));
         }
         store
@@ -3588,8 +3596,7 @@ pub(crate) fn vault_err(e: seren_secrets_resolver::ResolverError) -> McpError {
 /// These control ops reach Seren Passwords through the Seren publisher
 /// gateway, which wraps the upstream `DataResponse<T>` in a metered envelope.
 /// The generated SDK methods deserialize the direct `DataResponse<T>` shape, so
-/// the gateway envelope is unwrapped here when it appears. Errors never carry an
-/// upstream response body.
+/// the gateway envelope is unwrapped here when it appears.
 async fn passwords_gateway_data<T>(
     result: Result<seren::ResponseValue<T>, seren::Error<()>>,
 ) -> Result<T, McpError>
@@ -3599,8 +3606,8 @@ where
     match result {
         Ok(response) => Ok(response.into_inner()),
         Err(seren::Error::InvalidResponsePayload(bytes, _)) => {
-            crate::server::decode_publisher_gateway_body::<T>(&bytes).map_err(|_| {
-                McpError::internal_error("Invalid response payload from vault gateway", None)
+            crate::server::decode_publisher_gateway_body::<T>(&bytes).map_err(|err| {
+                McpError::internal_error(format!("Vault gateway error: {err}"), None)
             })
         }
         Err(e) => Err(crate::server::seren_error_to_mcp_error(e).await),
@@ -4927,6 +4934,18 @@ mod tests {
     }
 
     #[test]
+    fn request_access_params_accept_force_reconsent_flag() {
+        let params: PasswordsRequestAccessParams = serde_json::from_value(serde_json::json!({
+            "display_name": "Hosted MCP",
+            "force": true
+        }))
+        .unwrap();
+
+        assert_eq!(params.display_name.as_deref(), Some("Hosted MCP"));
+        assert_eq!(params.force, Some(true));
+    }
+
+    #[test]
     fn hosted_delegation_parser_accepts_direct_sdk_response() {
         let record = sample_delegation_record();
         let body = serde_json::to_vec(&seren::DataResponseDelegationRequestRecord {
@@ -4969,6 +4988,31 @@ mod tests {
 
         assert_eq!(parsed.display_name, "Hosted MCP");
         assert_eq!(parsed.status, seren::DelegationStatus::Pending);
+    }
+
+    #[test]
+    fn hosted_delegation_parser_surfaces_gateway_error_body() {
+        let gateway = serde_json::json!({
+            "data": {
+                "status": 403,
+                "body": {
+                    "error": "Forbidden",
+                    "message": "caller is not an active member of the target vault"
+                },
+                "response_bytes": 97,
+                "execution_time_ms": 3,
+                "cost": "0",
+                "asset_symbol": "USDC",
+                "payment_source": "none"
+            }
+        });
+        let err = crate::server::decode_publisher_gateway_body::<
+            seren::DataResponseDelegationRequestRecord,
+        >(serde_json::to_string(&gateway).unwrap().as_bytes())
+        .unwrap_err();
+
+        assert!(err.contains("403 Forbidden"));
+        assert!(err.contains("caller is not an active member"));
     }
 
     #[test]
