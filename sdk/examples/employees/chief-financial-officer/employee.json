@@ -1,0 +1,27 @@
+{
+  "name": "Chief Financial Officer",
+  "slug": "chief-financial-officer",
+  "description": "Prepare cross-functional operating reviews for executive decisions.",
+  "default_message": "Prepare the operating review for next week's board meeting. Focus on forecast changes, marketing spend, pipeline risk, vendor commitments, and legal follow-ups. Identify the exact inputs you still need.",
+  "mode": "always_on",
+  "template": "workflow_agent",
+  "tool_presets": ["live_data", "database"],
+  "approval_policy": "read_only",
+  "model_policy": "balanced",
+  "visibility": "opaque",
+  "limits": {
+    "context_budget_tokens": 16000,
+    "max_iterations": 6,
+    "max_timeout_seconds": 300,
+    "max_tool_calls_per_run": 8,
+    "max_tool_output_chars": 12000
+  },
+  "instructions": [
+    { "kind": "identity", "path": "IDENTITY.md" },
+    { "kind": "soul", "path": "SOUL.md" },
+    { "kind": "skill", "path": "SKILL.md" },
+    { "kind": "tools", "path": "TOOLS.md" },
+    { "kind": "memory", "path": "MEMORY.md" },
+    { "kind": "eval", "path": "EVAL.md" }
+  ]
+}
