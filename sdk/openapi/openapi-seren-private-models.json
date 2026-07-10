@@ -1,0 +1,499 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Seren Private Models",
+    "description": "List and run organization private models through seren-private-models.",
+    "contact": {
+      "name": "SerenAI",
+      "email": "hello@serendb.com"
+    },
+    "license": {
+      "name": "UNLICENSED",
+      "identifier": "UNLICENSED"
+    },
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "/publishers/seren-private-models"
+    }
+  ],
+  "paths": {
+    "/chat/completions": {
+      "post": {
+        "tags": [
+          "publishers"
+        ],
+        "operationId": "post_chat_completions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrivateModelsChatCompletionsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Publisher chat completion response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ApiResultResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Private models are not configured for this organization"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/models": {
+      "get": {
+        "tags": [
+          "publishers"
+        ],
+        "operationId": "get_private_models",
+        "responses": {
+          "200": {
+            "description": "Available private models",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_PrivateModelsListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Private models are not configured for this organization"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiResultResponse": {
+        "type": "object",
+        "description": "API result response",
+        "required": [
+          "status",
+          "body",
+          "response_bytes",
+          "execution_time_ms",
+          "cost",
+          "asset_symbol",
+          "payment_source"
+        ],
+        "properties": {
+          "asset_symbol": {
+            "type": "string",
+            "description": "Asset symbol (e.g., USDC, USDT)"
+          },
+          "body": {
+            "description": "Response body (JSON if available, raw text for textual upstreams, or null\nwhen body_base64 is set)"
+          },
+          "body_base64": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Raw binary response body, base64-encoded. Present only when the upstream\nreturned a non-JSON, non-text payload. When set, `body` is null."
+          },
+          "content_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Upstream Content-Type for a base64-encoded binary response body."
+          },
+          "cost": {
+            "type": "string",
+            "description": "Actual cost charged in configured asset"
+          },
+          "cost_breakdown": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CostBreakdown",
+                "description": "Optional cost breakdown (target + service fee) when a service fee is charged."
+              }
+            ]
+          },
+          "execution_time_ms": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Execution time in milliseconds"
+          },
+          "payment_source": {
+            "type": "string",
+            "description": "Payment source used"
+          },
+          "response_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Size of the publisher response body in bytes (raw, before JSON parsing).",
+            "minimum": 0
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "description": "HTTP status from publisher",
+            "minimum": 0
+          }
+        }
+      },
+      "CostBreakdown": {
+        "type": "object",
+        "description": "Cost breakdown when a service fee is charged (e.g., pre-authorization or geo-proxy routing).",
+        "required": [
+          "target",
+          "service_fee",
+          "total"
+        ],
+        "properties": {
+          "service_fee": {
+            "type": "string",
+            "description": "Service fee charged"
+          },
+          "target": {
+            "type": "string",
+            "description": "Cost charged for the target API"
+          },
+          "total": {
+            "type": "string",
+            "description": "Total cost (target + service_fee)"
+          }
+        }
+      },
+      "DataResponse_ApiResultResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "API result response",
+            "required": [
+              "status",
+              "body",
+              "response_bytes",
+              "execution_time_ms",
+              "cost",
+              "asset_symbol",
+              "payment_source"
+            ],
+            "properties": {
+              "asset_symbol": {
+                "type": "string",
+                "description": "Asset symbol (e.g., USDC, USDT)"
+              },
+              "body": {
+                "description": "Response body (JSON if available, raw text for textual upstreams, or null\nwhen body_base64 is set)"
+              },
+              "body_base64": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Raw binary response body, base64-encoded. Present only when the upstream\nreturned a non-JSON, non-text payload. When set, `body` is null."
+              },
+              "content_type": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Upstream Content-Type for a base64-encoded binary response body."
+              },
+              "cost": {
+                "type": "string",
+                "description": "Actual cost charged in configured asset"
+              },
+              "cost_breakdown": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CostBreakdown",
+                    "description": "Optional cost breakdown (target + service fee) when a service fee is charged."
+                  }
+                ]
+              },
+              "execution_time_ms": {
+                "type": "integer",
+                "format": "int32",
+                "description": "Execution time in milliseconds"
+              },
+              "payment_source": {
+                "type": "string",
+                "description": "Payment source used"
+              },
+              "response_bytes": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Size of the publisher response body in bytes (raw, before JSON parsing).",
+                "minimum": 0
+              },
+              "status": {
+                "type": "integer",
+                "format": "int32",
+                "description": "HTTP status from publisher",
+                "minimum": 0
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_PrivateModelsListResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "object",
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PrivateModelsModelInfo"
+                }
+              },
+              "object": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "description": "Pagination metadata included in responses.",
+        "required": [
+          "total",
+          "count",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of items in this response"
+          },
+          "has_more": {
+            "type": "boolean",
+            "description": "Whether there are more items after this page"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Maximum items per page"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Offset from start"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total number of items across all pages"
+          }
+        }
+      },
+      "PrivateModelsChatCompletionsRequest": {
+        "type": "object",
+        "required": [
+          "messages"
+        ],
+        "properties": {
+          "max_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "response_schema": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "stream": {
+            "type": "boolean"
+          },
+          "temperature": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "tools": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object"
+            }
+          },
+          "top_k": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "top_p": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          }
+        }
+      },
+      "PrivateModelsListResponse": {
+        "type": "object",
+        "required": [
+          "object",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PrivateModelsModelInfo"
+            }
+          },
+          "object": {
+            "type": "string"
+          }
+        }
+      },
+      "PrivateModelsModelInfo": {
+        "type": "object",
+        "required": [
+          "id",
+          "object",
+          "created",
+          "owned_by"
+        ],
+        "properties": {
+          "created": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "owned_by": {
+            "type": "string"
+          },
+          "recommended": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearer_auth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "publishers",
+      "description": "Unified publisher proxy API"
+    }
+  ]
+}

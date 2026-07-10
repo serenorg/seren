@@ -6,7 +6,7 @@ authors.workspace = true
 license.workspace = true
 default-run = "seren"
 description = "CLI tool for Seren database management"
-repository = "https://github.com/seren/seren-cli"
+repository = "https://github.com/serenorg/seren"
 
 [lib]
 name = "seren_cli"
@@ -21,7 +21,7 @@ default = []
 telemetry = ["seren-mcp/telemetry"]
 
 [dependencies]
-seren = { path = "../api" }
+seren = { package = "seren-sdk", path = "../sdk" }
 seren-mcp = { path = "../mcp" }
 seren-secrets-crypto = { git = "https://github.com/serenorg/seren-secrets.git", tag = "v0.2.0" }
 seren-secrets-resolver = { git = "https://github.com/serenorg/seren-secrets.git", tag = "v0.2.0" }

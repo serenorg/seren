@@ -1,5 +1,5 @@
 [package]
-name = "seren"
+name = "seren-sdk"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -9,8 +9,10 @@ repository = "https://github.com/serenorg/seren"
 keywords = ["seren", "database", "agents", "sdk", "api"]
 categories = ["api-bindings", "database"]
 readme = "README.md"
+include = ["build.rs", "src/*.rs", "README.md", "LICENSE", "openapi/*.json"]
 
 [lib]
+name = "seren"
 # The SDK is largely generated from OpenAPI. The generated docs currently contain
 # doctest blocks that reference internal server crates and fail to compile.
 doctest = false

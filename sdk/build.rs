@@ -1,4 +1,8 @@
-use std::{collections::HashSet, env, fs, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    env, fs,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Context;
 use openapiv3::{
@@ -423,16 +427,106 @@ fn remap_publisher_refs(value: &mut serde_json::Value) {
     }
 }
 
-/// Merge a publisher spec's paths and schemas into the main spec JSON.
-fn merge_publisher_spec(
+fn namespace_schema_refs(value: &mut serde_json::Value, names: &HashMap<String, String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::String(reference)) = map.get_mut("$ref") {
+                const MARKER: &str = "#/components/schemas/";
+                if let Some(name) = reference.strip_prefix(MARKER)
+                    && let Some(target) = names.get(name)
+                {
+                    *reference = format!("{MARKER}{target}");
+                }
+            }
+            for child in map.values_mut() {
+                namespace_schema_refs(child, names);
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for child in values {
+                namespace_schema_refs(child, names);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn namespace_component_schemas(publisher: &mut serde_json::Value, prefix: &str) {
+    let names = publisher
+        .pointer("/components/schemas")
+        .and_then(serde_json::Value::as_object)
+        .map(|schemas| {
+            schemas
+                .keys()
+                .map(|name| (name.clone(), format!("{prefix}{name}")))
+                .collect::<HashMap<_, _>>()
+        })
+        .unwrap_or_default();
+    if names.is_empty() {
+        return;
+    }
+
+    namespace_schema_refs(publisher, &names);
+    if let Some(schemas) = publisher
+        .pointer_mut("/components/schemas")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        let original = std::mem::take(schemas);
+        for (name, schema) in original {
+            let target = names.get(&name).cloned().unwrap_or(name);
+            schemas.insert(target, schema);
+        }
+    }
+}
+
+fn namespace_operation_ids(publisher: &mut serde_json::Value, prefix: &str) {
+    let Some(paths) = publisher
+        .get_mut("paths")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    for item in paths.values_mut() {
+        let Some(item) = item.as_object_mut() else {
+            continue;
+        };
+        for method in ["get", "post", "put", "patch", "delete"] {
+            let Some(operation_id) = item
+                .get_mut(method)
+                .and_then(serde_json::Value::as_object_mut)
+                .and_then(|operation| operation.get_mut("operationId"))
+                .and_then(|value| value.as_str())
+                .map(str::to_owned)
+            else {
+                continue;
+            };
+            if !operation_id.starts_with(prefix) {
+                item[method]["operationId"] =
+                    serde_json::Value::String(format!("{prefix}{operation_id}"));
+            }
+        }
+    }
+}
+
+/// Merge an API spec's paths and schemas into the main spec JSON.
+fn merge_api_spec(
     main: &mut serde_json::Value,
-    publisher_path: &str,
-    publisher_slug: &str,
+    spec_path: &Path,
+    path_prefix: &str,
+    schema_prefix: Option<&str>,
+    operation_id_prefix: Option<&str>,
 ) -> anyhow::Result<()> {
-    let publisher_str = fs::read_to_string(publisher_path)
-        .with_context(|| format!("failed to read publisher spec: {publisher_path}"))?;
+    let publisher_str = fs::read_to_string(spec_path)
+        .with_context(|| format!("failed to read API spec: {}", spec_path.display()))?;
     let mut publisher: serde_json::Value = serde_json::from_str(&publisher_str)
-        .with_context(|| format!("failed to parse publisher spec JSON: {publisher_path}"))?;
+        .with_context(|| format!("failed to parse API spec JSON: {}", spec_path.display()))?;
+
+    if let Some(prefix) = schema_prefix {
+        namespace_component_schemas(&mut publisher, prefix);
+    }
+    if let Some(prefix) = operation_id_prefix {
+        namespace_operation_ids(&mut publisher, prefix);
+    }
 
     // Convert 3.1 nullable syntax to 3.0 for progenitor compatibility.
     downconvert_31_to_30(&mut publisher);
@@ -441,21 +535,23 @@ fn merge_publisher_spec(
     remap_publisher_refs(&mut publisher);
 
     // Merge paths.
-    // Publisher specs use relative paths; convert to absolute paths under
-    // /publishers/<slug> when composing the monolithic client spec.
+    // Service specs use relative paths; mount them at their public gateway prefix.
     if let (Some(main_paths), Some(pub_paths)) = (
         main.get_mut("paths").and_then(|v| v.as_object_mut()),
         publisher.get("paths").and_then(|v| v.as_object()),
     ) {
         for (path, item) in pub_paths {
-            let absolute_path = if path.starts_with("/publishers/") {
+            let absolute_path = if path == path_prefix
+                || path.starts_with(&format!("{path_prefix}/"))
+                || path.starts_with("/publishers/")
+            {
                 path.to_string()
             } else if path == "/" {
-                format!("/publishers/{publisher_slug}")
+                path_prefix.to_string()
             } else if path.starts_with('/') {
-                format!("/publishers/{publisher_slug}{path}")
+                format!("{path_prefix}{path}")
             } else {
-                format!("/publishers/{publisher_slug}/{path}")
+                format!("{path_prefix}/{path}")
             };
 
             main_paths.insert(absolute_path, item.clone());
@@ -484,60 +580,99 @@ fn merge_publisher_spec(
 
     Ok(())
 }
-fn main() -> anyhow::Result<()> {
-    println!("cargo:rerun-if-changed=../openapi/openapi.json");
-    println!("cargo:rerun-if-changed=../openapi/openapi-seren-db.json");
-    println!("cargo:rerun-if-changed=../openapi/openapi-seren-cloud.json");
-    println!("cargo:rerun-if-changed=../openapi/openapi-seren-agent.json");
-    println!("cargo:rerun-if-changed=../openapi/openapi-seren-models.json");
-    println!("cargo:rerun-if-changed=../openapi/openapi-seren-private-models.json");
-    println!("cargo:rerun-if-changed=../openapi/openapi-seren-passwords.json");
-    println!("cargo:rerun-if-changed=../openapi/openapi-seren-skills.json");
-    println!("cargo:rerun-if-changed=../openapi/openapi-seren-notes.json");
 
-    let spec_str = fs::read_to_string("../openapi/openapi.json")?;
+fn merge_publisher_spec(
+    main: &mut serde_json::Value,
+    publisher_path: &Path,
+    publisher_slug: &str,
+) -> anyhow::Result<()> {
+    merge_api_spec(
+        main,
+        publisher_path,
+        &format!("/publishers/{publisher_slug}"),
+        None,
+        None,
+    )
+}
+
+fn main() -> anyhow::Result<()> {
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
+    let workspace_openapi_dir = manifest_dir.join("../openapi");
+    let bundled_openapi_dir = manifest_dir.join("openapi");
+    let openapi_dir = if workspace_openapi_dir.join("openapi.json").is_file() {
+        workspace_openapi_dir
+    } else {
+        bundled_openapi_dir
+    };
+    let spec_files = [
+        "openapi.json",
+        "openapi-seren-db.json",
+        "openapi-seren-cloud.json",
+        "openapi-seren-agent.json",
+        "openapi-seren-models.json",
+        "openapi-seren-private-models.json",
+        "openapi-seren-passwords.json",
+        "openapi-seren-skills.json",
+        "openapi-seren-notes.json",
+        "openapi-seren-memory.json",
+    ];
+    for file_name in spec_files {
+        println!(
+            "cargo:rerun-if-changed={}",
+            openapi_dir.join(file_name).display()
+        );
+    }
+
+    let spec_str = fs::read_to_string(openapi_dir.join("openapi.json"))?;
     let mut raw_json: serde_json::Value = serde_json::from_str(&spec_str)?;
 
     // Merge per-publisher specs so the generated client includes publisher endpoints.
     merge_publisher_spec(
         &mut raw_json,
-        "../openapi/openapi-seren-db.json",
+        &openapi_dir.join("openapi-seren-db.json"),
         "seren-db",
     )?;
     merge_publisher_spec(
         &mut raw_json,
-        "../openapi/openapi-seren-cloud.json",
+        &openapi_dir.join("openapi-seren-cloud.json"),
         "seren-cloud",
     )?;
     merge_publisher_spec(
         &mut raw_json,
-        "../openapi/openapi-seren-agent.json",
+        &openapi_dir.join("openapi-seren-agent.json"),
         "seren-agent",
     )?;
     merge_publisher_spec(
         &mut raw_json,
-        "../openapi/openapi-seren-models.json",
+        &openapi_dir.join("openapi-seren-models.json"),
         "seren-models",
     )?;
     merge_publisher_spec(
         &mut raw_json,
-        "../openapi/openapi-seren-private-models.json",
+        &openapi_dir.join("openapi-seren-private-models.json"),
         "seren-private-models",
     )?;
     merge_publisher_spec(
         &mut raw_json,
-        "../openapi/openapi-seren-passwords.json",
+        &openapi_dir.join("openapi-seren-passwords.json"),
         "seren-passwords",
     )?;
     merge_publisher_spec(
         &mut raw_json,
-        "../openapi/openapi-seren-skills.json",
+        &openapi_dir.join("openapi-seren-skills.json"),
         "seren-skills",
     )?;
     merge_publisher_spec(
         &mut raw_json,
-        "../openapi/openapi-seren-notes.json",
+        &openapi_dir.join("openapi-seren-notes.json"),
         "seren-notes",
+    )?;
+    merge_api_spec(
+        &mut raw_json,
+        &openapi_dir.join("openapi-seren-memory.json"),
+        "/publishers/seren-memory",
+        Some("SerenMemory"),
+        Some("seren_memory_"),
     )?;
 
     // Replace inline schemas in DataResponse_* wrappers with $ref to named equivalents.

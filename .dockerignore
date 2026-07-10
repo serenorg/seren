@@ -1,0 +1,12 @@
+*
+!.dockerignore
+!Cargo.toml
+!Cargo.lock
+!openapi/
+!openapi/**
+!sdk/
+!sdk/**
+!cli/
+!cli/**
+!mcp/
+!mcp/**

@@ -1,0 +1,2195 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "seren-memory",
+        "description": "Private agent memory and governed organizational knowledge API.",
+        "contact": {
+            "name": "SerenAI",
+            "email": "hello@serendb.com"
+        },
+        "license": {
+            "name": ""
+        },
+        "version": "0.1.0"
+    },
+    "servers": [
+        {
+            "url": "https://api.serendb.com/publishers/seren-memory",
+            "description": "Seren Memory production API"
+        }
+    ],
+    "paths": {
+        "/": {
+            "get": {
+                "tags": [
+                    "Health"
+                ],
+                "summary": "Describe the Seren Memory service",
+                "operationId": "root",
+                "responses": {
+                    "200": {
+                        "description": "Service health",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_HealthResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/bootstrap": {
+            "post": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Bootstrap private context for a session",
+                "operationId": "session_bootstrap",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SessionBootstrapParams"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Session memory context",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_SessionContext"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/forget": {
+            "post": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Soft-delete a private memory",
+                "operationId": "forget_memory",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ForgetParams"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Memory forgetting result",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ForgetMemoryResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Unexpected service error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/health": {
+            "get": {
+                "tags": [
+                    "Health"
+                ],
+                "summary": "Check service health",
+                "operationId": "health",
+                "responses": {
+                    "200": {
+                        "description": "Service health",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_HealthResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/health/detailed": {
+            "get": {
+                "tags": [
+                    "Health"
+                ],
+                "summary": "Check detailed service health",
+                "operationId": "health_detailed",
+                "responses": {
+                    "200": {
+                        "description": "Detailed service health",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_HealthResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/jobs/consolidate": {
+            "post": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Consolidate private memories",
+                "operationId": "consolidate_job",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ConsolidateJobRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Consolidation result",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ConsolidateJobResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Unexpected service error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/knowledge/entities/open": {
+            "post": {
+                "tags": [
+                    "Knowledge"
+                ],
+                "summary": "Open an organizational knowledge entity",
+                "operationId": "open_knowledge_entity",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/OpenKnowledgeEntityRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Organizational knowledge entity",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ReadOutput"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Knowledge graph is not configured",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Knowledge backend unavailable",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/knowledge/search": {
+            "post": {
+                "tags": [
+                    "Knowledge"
+                ],
+                "summary": "Search governed organizational knowledge",
+                "operationId": "search_knowledge",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SearchKnowledgeRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Organizational knowledge query result",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ReadOutput"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Knowledge graph is not configured",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Knowledge backend unavailable",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/learn_from_error": {
+            "post": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Store a verified error and fix",
+                "operationId": "learn_from_error",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LearnFromErrorParams"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Learned memory result",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_RememberOutput"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/livez": {
+            "get": {
+                "tags": [
+                    "Health"
+                ],
+                "summary": "Check process liveness",
+                "operationId": "livez",
+                "responses": {
+                    "200": {
+                        "description": "Process is live"
+                    }
+                }
+            }
+        },
+        "/mcp": {
+            "post": {
+                "tags": [
+                    "MCP"
+                ],
+                "summary": "Call the Seren Memory MCP transport",
+                "operationId": "mcp_handler",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {}
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "MCP protocol response"
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/memories": {
+            "get": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "List private memories",
+                "operationId": "list_memories",
+                "parameters": [
+                    {
+                        "name": "memory_type",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "is_pinned",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "is_consolidated",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "project_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "org_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Memories matching the requested scope",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ListMemoriesResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/memories/{id}": {
+            "get": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Get a private memory",
+                "operationId": "get_memory",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Memory ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Memory record",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_Option_MemoryOutput"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Unexpected service error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Permanently delete a private memory",
+                "operationId": "delete_memory",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Memory ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Memory deletion result",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_DeleteMemoryResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Unexpected service error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/openapi.json": {
+            "get": {
+                "tags": [
+                    "Meta"
+                ],
+                "summary": "Get the Seren Memory OpenAPI document",
+                "operationId": "serve_openapi",
+                "responses": {
+                    "200": {
+                        "description": "OpenAPI document",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/process_conversation": {
+            "post": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Extract private memories from a conversation",
+                "operationId": "process_conversation",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProcessConversationParams"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Extracted memory candidates",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ExtractionResult"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/readyz": {
+            "get": {
+                "tags": [
+                    "Health"
+                ],
+                "summary": "Check service readiness",
+                "operationId": "readyz",
+                "responses": {
+                    "200": {
+                        "description": "Service is ready",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ReadinessResponse"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "A required dependency is unavailable",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ReadinessResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/recall": {
+            "post": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Recall relevant private memories",
+                "operationId": "recall",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RecallParams"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Relevant memories",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_RecallResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/remember": {
+            "post": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Remember durable private context",
+                "operationId": "remember",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RememberParams"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Memory operation result",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_RememberOutput"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/skill.md": {
+            "get": {
+                "tags": [
+                    "Meta"
+                ],
+                "summary": "Get the Seren Memory skill document",
+                "operationId": "skill_md",
+                "responses": {
+                    "200": {
+                        "description": "Publisher skill definition",
+                        "content": {
+                            "text/markdown": {}
+                        }
+                    }
+                }
+            }
+        },
+        "/sync/status": {
+            "get": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Get memory synchronization status",
+                "operationId": "sync_status",
+                "responses": {
+                    "200": {
+                        "description": "Synchronization status",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_SyncStatus"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "ConflictAction": {
+                "type": "string",
+                "description": "Action determined by the conflict resolution pipeline.",
+                "enum": [
+                    "add",
+                    "update",
+                    "delete",
+                    "noop"
+                ]
+            },
+            "ConsolidateJobRequest": {
+                "type": "object",
+                "properties": {
+                    "project_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    }
+                },
+                "example": {
+                    "project_id": "123e4567-e89b-12d3-a456-426614174000"
+                }
+            },
+            "ConsolidateJobResponse": {
+                "type": "object",
+                "required": [
+                    "summaries_created",
+                    "memories_consolidated",
+                    "stale_deleted"
+                ],
+                "properties": {
+                    "memories_consolidated": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "stale_deleted": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "summaries_created": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                }
+            },
+            "DataResponse_ConsolidateJobResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "summaries_created",
+                            "memories_consolidated",
+                            "stale_deleted"
+                        ],
+                        "properties": {
+                            "memories_consolidated": {
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "stale_deleted": {
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "summaries_created": {
+                                "type": "integer",
+                                "minimum": 0
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_DeleteMemoryResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "deleted"
+                        ],
+                        "properties": {
+                            "deleted": {
+                                "type": "boolean"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_ExtractionResult": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "description": "Structured extraction output grouped by memory type.",
+                        "properties": {
+                            "episodic": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/ExtractedMemory"
+                                }
+                            },
+                            "error_fixes": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/ExtractedMemory"
+                                }
+                            },
+                            "preferences": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/ExtractedMemory"
+                                }
+                            },
+                            "procedural": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/ExtractedMemory"
+                                }
+                            },
+                            "semantic": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/ExtractedMemory"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_ForgetMemoryResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "forgotten"
+                        ],
+                        "properties": {
+                            "forgotten": {
+                                "type": "boolean"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_HealthResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "status",
+                            "server"
+                        ],
+                        "properties": {
+                            "server": {
+                                "type": "string"
+                            },
+                            "status": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_ListMemoriesResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "memories",
+                            "total",
+                            "has_more"
+                        ],
+                        "properties": {
+                            "has_more": {
+                                "type": "boolean"
+                            },
+                            "memories": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/MemoryOutput"
+                                }
+                            },
+                            "total": {
+                                "type": "integer",
+                                "format": "int64"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_Option_MemoryOutput": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "oneOf": [
+                            {
+                                "type": "null"
+                            },
+                            {
+                                "type": "object",
+                                "required": [
+                                    "id",
+                                    "user_id",
+                                    "memory_type",
+                                    "content",
+                                    "metadata",
+                                    "relevance_score",
+                                    "access_count",
+                                    "is_consolidated",
+                                    "is_pinned",
+                                    "created_at",
+                                    "updated_at"
+                                ],
+                                "properties": {
+                                    "access_count": {
+                                        "type": "integer",
+                                        "format": "int32"
+                                    },
+                                    "content": {
+                                        "type": "string"
+                                    },
+                                    "created_at": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                    },
+                                    "is_consolidated": {
+                                        "type": "boolean"
+                                    },
+                                    "is_pinned": {
+                                        "type": "boolean"
+                                    },
+                                    "memory_type": {
+                                        "type": "string"
+                                    },
+                                    "metadata": {},
+                                    "org_id": {
+                                        "type": [
+                                            "string",
+                                            "null"
+                                        ],
+                                        "format": "uuid"
+                                    },
+                                    "project_id": {
+                                        "type": [
+                                            "string",
+                                            "null"
+                                        ],
+                                        "format": "uuid"
+                                    },
+                                    "relevance_score": {
+                                        "type": "number",
+                                        "format": "double"
+                                    },
+                                    "session_id": {
+                                        "type": [
+                                            "string",
+                                            "null"
+                                        ],
+                                        "format": "uuid"
+                                    },
+                                    "summary": {
+                                        "type": [
+                                            "string",
+                                            "null"
+                                        ]
+                                    },
+                                    "updated_at": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                    },
+                                    "user_id": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            "DataResponse_ReadOutput": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "query_name",
+                            "target",
+                            "row_count",
+                            "rows"
+                        ],
+                        "properties": {
+                            "columns": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "query_name": {
+                                "type": "string"
+                            },
+                            "row_count": {
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "rows": {},
+                            "target": {
+                                "$ref": "#/components/schemas/ReadTargetOutput"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_ReadinessResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "status"
+                        ],
+                        "properties": {
+                            "reason": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "status": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_RecallResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "memories"
+                        ],
+                        "properties": {
+                            "memories": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/MemoryOutput"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_RememberOutput": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "description": "Output from the `remember` operation.",
+                        "required": [
+                            "memory_id",
+                            "action_taken",
+                            "edges_created",
+                            "enrichments_triggered"
+                        ],
+                        "properties": {
+                            "action_taken": {
+                                "$ref": "#/components/schemas/ConflictAction"
+                            },
+                            "edges_created": {
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "enrichments_triggered": {
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "memory_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "reason": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "superseded_memory_id": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "uuid"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_SessionContext": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "description": "Assembled session context for LLM system prompt injection.",
+                        "required": [
+                            "memories_by_type",
+                            "total_memories"
+                        ],
+                        "properties": {
+                            "memories_by_type": {
+                                "type": "object",
+                                "additionalProperties": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "propertyNames": {
+                                    "type": "string"
+                                }
+                            },
+                            "total_memories": {
+                                "type": "integer",
+                                "minimum": 0
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_SyncStatus": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "status",
+                            "server",
+                            "version"
+                        ],
+                        "properties": {
+                            "server": {
+                                "type": "string"
+                            },
+                            "status": {
+                                "type": "string"
+                            },
+                            "version": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "DeleteMemoryResponse": {
+                "type": "object",
+                "required": [
+                    "deleted"
+                ],
+                "properties": {
+                    "deleted": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "ErrorBody": {
+                "type": "object",
+                "required": [
+                    "error",
+                    "message"
+                ],
+                "properties": {
+                    "error": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ExtractedMemory": {
+                "type": "object",
+                "description": "A single piece of knowledge extracted from a conversation.",
+                "required": [
+                    "content",
+                    "metadata"
+                ],
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    },
+                    "metadata": {}
+                }
+            },
+            "ExtractionResult": {
+                "type": "object",
+                "description": "Structured extraction output grouped by memory type.",
+                "properties": {
+                    "episodic": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ExtractedMemory"
+                        }
+                    },
+                    "error_fixes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ExtractedMemory"
+                        }
+                    },
+                    "preferences": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ExtractedMemory"
+                        }
+                    },
+                    "procedural": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ExtractedMemory"
+                        }
+                    },
+                    "semantic": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ExtractedMemory"
+                        }
+                    }
+                }
+            },
+            "ForgetMemoryResponse": {
+                "type": "object",
+                "required": [
+                    "forgotten"
+                ],
+                "properties": {
+                    "forgotten": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "ForgetParams": {
+                "type": "object",
+                "required": [
+                    "memory_id"
+                ],
+                "properties": {
+                    "memory_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "example": {
+                    "memory_id": "123e4567-e89b-12d3-a456-426614174000"
+                }
+            },
+            "HealthResponse": {
+                "type": "object",
+                "required": [
+                    "status",
+                    "server"
+                ],
+                "properties": {
+                    "server": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    }
+                }
+            },
+            "LearnFromErrorParams": {
+                "type": "object",
+                "required": [
+                    "error_content",
+                    "fix_content"
+                ],
+                "properties": {
+                    "error_content": {
+                        "type": "string"
+                    },
+                    "fix_content": {
+                        "type": "string"
+                    },
+                    "metadata": {},
+                    "org_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "project_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    }
+                },
+                "example": {
+                    "error_content": "Migration failed because the extension was missing",
+                    "fix_content": "Install the extension before applying the migration",
+                    "project_id": "123e4567-e89b-12d3-a456-426614174000"
+                }
+            },
+            "ListMemoriesResponse": {
+                "type": "object",
+                "required": [
+                    "memories",
+                    "total",
+                    "has_more"
+                ],
+                "properties": {
+                    "has_more": {
+                        "type": "boolean"
+                    },
+                    "memories": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MemoryOutput"
+                        }
+                    },
+                    "total": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "MemoryOutput": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "user_id",
+                    "memory_type",
+                    "content",
+                    "metadata",
+                    "relevance_score",
+                    "access_count",
+                    "is_consolidated",
+                    "is_pinned",
+                    "created_at",
+                    "updated_at"
+                ],
+                "properties": {
+                    "access_count": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "content": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "is_consolidated": {
+                        "type": "boolean"
+                    },
+                    "is_pinned": {
+                        "type": "boolean"
+                    },
+                    "memory_type": {
+                        "type": "string"
+                    },
+                    "metadata": {},
+                    "org_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "project_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "relevance_score": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "session_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "summary": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "user_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                }
+            },
+            "OpenKnowledgeEntityRequest": {
+                "type": "object",
+                "required": [
+                    "entity_id"
+                ],
+                "properties": {
+                    "entity_id": {
+                        "type": "string"
+                    }
+                },
+                "additionalProperties": false,
+                "example": {
+                    "entity_id": "service:seren-memory"
+                }
+            },
+            "ProcessConversationParams": {
+                "type": "object",
+                "required": [
+                    "transcript"
+                ],
+                "properties": {
+                    "org_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "project_context": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "project_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "session_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "transcript": {
+                        "type": "string"
+                    }
+                },
+                "example": {
+                    "transcript": "User confirmed that production migrations require explicit rollback notes.",
+                    "project_id": "123e4567-e89b-12d3-a456-426614174000"
+                }
+            },
+            "ReadOutput": {
+                "type": "object",
+                "required": [
+                    "query_name",
+                    "target",
+                    "row_count",
+                    "rows"
+                ],
+                "properties": {
+                    "columns": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "query_name": {
+                        "type": "string"
+                    },
+                    "row_count": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "rows": {},
+                    "target": {
+                        "$ref": "#/components/schemas/ReadTargetOutput"
+                    }
+                }
+            },
+            "ReadTargetOutput": {
+                "type": "object",
+                "properties": {
+                    "branch": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "snapshot": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                }
+            },
+            "ReadinessResponse": {
+                "type": "object",
+                "required": [
+                    "status"
+                ],
+                "properties": {
+                    "reason": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "status": {
+                        "type": "string"
+                    }
+                }
+            },
+            "RecallParams": {
+                "type": "object",
+                "required": [
+                    "query"
+                ],
+                "properties": {
+                    "limit": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int64"
+                    },
+                    "memory_types": {
+                        "type": [
+                            "array",
+                            "null"
+                        ],
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "min_relevance": {
+                        "type": [
+                            "number",
+                            "null"
+                        ],
+                        "format": "double"
+                    },
+                    "org_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "project_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "query": {
+                        "type": "string"
+                    },
+                    "search_mode": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                },
+                "example": {
+                    "query": "database migration conventions",
+                    "project_id": "123e4567-e89b-12d3-a456-426614174000",
+                    "limit": 10
+                }
+            },
+            "RecallResponse": {
+                "type": "object",
+                "required": [
+                    "memories"
+                ],
+                "properties": {
+                    "memories": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MemoryOutput"
+                        }
+                    }
+                }
+            },
+            "RememberOutput": {
+                "type": "object",
+                "description": "Output from the `remember` operation.",
+                "required": [
+                    "memory_id",
+                    "action_taken",
+                    "edges_created",
+                    "enrichments_triggered"
+                ],
+                "properties": {
+                    "action_taken": {
+                        "$ref": "#/components/schemas/ConflictAction"
+                    },
+                    "edges_created": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "enrichments_triggered": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "memory_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "reason": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "superseded_memory_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    }
+                }
+            },
+            "RememberParams": {
+                "type": "object",
+                "required": [
+                    "content",
+                    "memory_type"
+                ],
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    },
+                    "memory_type": {
+                        "type": "string"
+                    },
+                    "metadata": {},
+                    "org_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "pin": {
+                        "type": [
+                            "boolean",
+                            "null"
+                        ]
+                    },
+                    "project_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "session_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "skip_conflict_check": {
+                        "type": [
+                            "boolean",
+                            "null"
+                        ]
+                    },
+                    "skip_enrichment": {
+                        "type": [
+                            "boolean",
+                            "null"
+                        ]
+                    }
+                },
+                "example": {
+                    "content": "This project uses PostgreSQL 16",
+                    "memory_type": "semantic",
+                    "project_id": "123e4567-e89b-12d3-a456-426614174000"
+                }
+            },
+            "SearchKnowledgeRequest": {
+                "type": "object",
+                "required": [
+                    "query"
+                ],
+                "properties": {
+                    "query": {
+                        "type": "string"
+                    }
+                },
+                "additionalProperties": false,
+                "example": {
+                    "query": "release approval process"
+                }
+            },
+            "SessionBootstrapParams": {
+                "type": "object",
+                "properties": {
+                    "include_git": {
+                        "type": [
+                            "boolean",
+                            "null"
+                        ]
+                    },
+                    "include_time": {
+                        "type": [
+                            "boolean",
+                            "null"
+                        ]
+                    },
+                    "org_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "project_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "token_budget": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "minimum": 0
+                    }
+                },
+                "example": {
+                    "project_id": "123e4567-e89b-12d3-a456-426614174000",
+                    "token_budget": 4000
+                }
+            },
+            "SessionContext": {
+                "type": "object",
+                "description": "Assembled session context for LLM system prompt injection.",
+                "required": [
+                    "memories_by_type",
+                    "total_memories"
+                ],
+                "properties": {
+                    "memories_by_type": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "propertyNames": {
+                            "type": "string"
+                        }
+                    },
+                    "total_memories": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                }
+            },
+            "SyncStatus": {
+                "type": "object",
+                "required": [
+                    "status",
+                    "server",
+                    "version"
+                ],
+                "properties": {
+                    "server": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "securitySchemes": {
+            "bearer_auth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+                "description": "Seren service identity bearer token."
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "Health",
+            "description": "Service health and readiness"
+        },
+        {
+            "name": "Memory",
+            "description": "Private agent memory operations"
+        },
+        {
+            "name": "Knowledge",
+            "description": "Organizational knowledge reads"
+        },
+        {
+            "name": "MCP",
+            "description": "Model Context Protocol transport"
+        },
+        {
+            "name": "Meta",
+            "description": "API and skill discovery"
+        }
+    ]
+}

@@ -5398,28 +5398,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "seren"
-version = "0.8.0"
-dependencies = [
- "anyhow",
- "base62",
- "futures",
- "jiff",
- "openapiv3",
- "prettyplease",
- "progenitor",
- "progenitor-client",
- "regress",
- "reqwest 0.13.4",
- "schemars 1.2.1",
- "serde",
- "serde_json",
- "syn 2.0.117",
- "thiserror 2.0.18",
- "uuid",
-]
-
-[[package]]
 name = "seren-cli"
 version = "0.8.0"
 dependencies = [
@@ -5440,8 +5418,8 @@ dependencies = [
  "rpassword",
  "serde",
  "serde_json",
- "seren",
  "seren-mcp",
+ "seren-sdk",
  "seren-secrets-crypto",
  "seren-secrets-resolver",
  "sha2 0.11.0",
@@ -5487,7 +5465,7 @@ dependencies = [
  "schemars 1.2.1",
  "serde",
  "serde_json",
- "seren",
+ "seren-sdk",
  "seren-secrets-crypto",
  "seren-secrets-resolver",
  "sha2 0.11.0",
@@ -5522,6 +5500,28 @@ source = "git+https://github.com/serenorg/seren-prosemirror.git?tag=v0.1.0#2f2d8
 dependencies = [
  "pulldown-cmark",
  "serde_json",
+ "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
+name = "seren-sdk"
+version = "0.8.0"
+dependencies = [
+ "anyhow",
+ "base62",
+ "futures",
+ "jiff",
+ "openapiv3",
+ "prettyplease",
+ "progenitor",
+ "progenitor-client",
+ "regress",
+ "reqwest 0.13.4",
+ "schemars 1.2.1",
+ "serde",
+ "serde_json",
+ "syn 2.0.117",
  "thiserror 2.0.18",
  "uuid",
 ]

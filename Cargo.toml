@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "cli",
-    "api",
+    "sdk",
     "mcp",
 ]
 default-members = ["cli"]

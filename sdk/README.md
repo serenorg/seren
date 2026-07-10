@@ -1,12 +1,12 @@
 # seren
 
-Rust SDK for the [Seren](https://serendb.com) API. The client is generated from the Seren OpenAPI specs via [progenitor](https://github.com/oxidecomputer/progenitor) and covers managed agents, Seren Passwords, Seren DB, Seren Object Storage, payments, and other platform APIs.
+Rust SDK for the [Seren](https://serendb.com) API. The client is generated from the Seren OpenAPI specs via [progenitor](https://github.com/oxidecomputer/progenitor) and covers managed agents, Seren Passwords, Seren Memory, Seren DB, Seren Object Storage, payments, and other platform APIs.
 
 ## Installation
 
 ```toml
 [dependencies]
-seren = "0.8"
+seren = { package = "seren-sdk", version = "0.8" }
 ```
 
 ## Quick Start
@@ -70,11 +70,13 @@ for example in get_seren_product_examples() {
 }
 ```
 
-The examples cover Seren Employees, Seren Cloud, Seren Passwords, Seren Skills, Seren Notes, Seren Models, Seren Private Models, Seren DB, Seren Object Storage, and Seren Publishers. They do not make network calls on their own.
+The examples cover Seren Employees, Seren Cloud, Seren Passwords, Seren Skills, Seren Notes, Seren Memory, Seren Models, Seren Private Models, Seren DB, Seren Object Storage, and Seren Publishers. They do not make network calls on their own.
 
 ## API
 
 The client is auto-generated from the OpenAPI specs at build time. Methods are available directly on the `Client` struct, including generated calls for Seren DB projects, Seren agent deployments, and Seren Object Storage buckets.
+
+The crate bundles a synchronized copy of its OpenAPI inputs so crates.io builds do not depend on the workspace layout. After changing a root spec, run `./sdk/scripts/sync-openapi.sh`; CI and the release workflow reject stale packaged inputs.
 
 Return values are wrapped in `ResponseValue<T>`. Call `.into_inner()` to get the response body.
 
@@ -113,4 +115,4 @@ match client.seren_db_list_projects().await {
 
 ## License
 
-MIT License - see [LICENSE](../LICENSE) for details.
+MIT License - see [LICENSE](./LICENSE) for details.

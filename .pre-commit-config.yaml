@@ -33,7 +33,7 @@ repos:
       - id: check-added-large-files
         name: Prevent large files (>500KB)
         args: [--maxkb=500]
-        exclude: '^openapi/openapi.json$'
+        exclude: '^(openapi|sdk/openapi)/openapi.json$'
 
   # Ensure files comply with .editorconfig (no formatting change, but fails fast)
   - repo: https://github.com/editorconfig-checker/editorconfig-checker.python

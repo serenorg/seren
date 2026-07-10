@@ -280,6 +280,53 @@ pub const SEREN_PRODUCT_EXAMPLES: &[SerenProductExample] = &[
         ],
     },
     SerenProductExample {
+        slug: "memory",
+        title: "Seren Memory",
+        description: "Durable private agent recall plus governed read access to organizational knowledge, with separate privacy and authorization boundaries.",
+        highlights: &[
+            "Bootstrap sessions from relevant private context.",
+            "Remember durable facts and recall them with hybrid retrieval.",
+            "Read curated organizational knowledge without copying private memory into it.",
+        ],
+        requests: &[
+            SerenDemoRequest {
+                method: DemoMethod::Post,
+                path: "/publishers/seren-memory/bootstrap",
+                label: "Bootstrap session context",
+            },
+            SerenDemoRequest {
+                method: DemoMethod::Post,
+                path: "/publishers/seren-memory/remember",
+                label: "Remember durable context",
+            },
+            SerenDemoRequest {
+                method: DemoMethod::Post,
+                path: "/publishers/seren-memory/recall",
+                label: "Recall relevant memories",
+            },
+            SerenDemoRequest {
+                method: DemoMethod::Get,
+                path: "/publishers/seren-memory/memories",
+                label: "List private memories",
+            },
+            SerenDemoRequest {
+                method: DemoMethod::Post,
+                path: "/publishers/seren-memory/learn_from_error",
+                label: "Store a verified error fix",
+            },
+            SerenDemoRequest {
+                method: DemoMethod::Post,
+                path: "/publishers/seren-memory/knowledge/search",
+                label: "Search organizational knowledge",
+            },
+            SerenDemoRequest {
+                method: DemoMethod::Post,
+                path: "/publishers/seren-memory/knowledge/entities/open",
+                label: "Open a knowledge entity",
+            },
+        ],
+    },
+    SerenProductExample {
         slug: "models",
         title: "Seren Models",
         description: "Public model chat completions through Seren's hosted model routing surface.",
@@ -504,6 +551,7 @@ mod tests {
                 "passwords",
                 "skills",
                 "notes",
+                "memory",
                 "models",
                 "private_models",
                 "database",
@@ -554,6 +602,30 @@ mod tests {
                 .requests
                 .iter()
                 .any(|request| request.path.contains("/download"))
+        );
+    }
+
+    #[test]
+    fn memory_example_uses_first_class_seren_memory_routes() {
+        let memory = get_seren_product_example("memory").unwrap();
+
+        assert!(
+            memory
+                .requests
+                .iter()
+                .all(|request| request.path.starts_with("/publishers/seren-memory"))
+        );
+        assert!(
+            memory
+                .requests
+                .iter()
+                .any(|request| request.path.ends_with("/remember"))
+        );
+        assert!(
+            memory
+                .requests
+                .iter()
+                .any(|request| request.path.contains("/knowledge/search"))
         );
     }
 
