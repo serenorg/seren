@@ -9,7 +9,7 @@ repository = "https://github.com/serenorg/seren"
 keywords = ["seren", "database", "agents", "sdk", "api"]
 categories = ["api-bindings", "database"]
 readme = "README.md"
-include = ["build.rs", "src/*.rs", "README.md", "LICENSE", "openapi/*.json"]
+include = ["build.rs", "src/*.rs", "examples/**", "README.md", "LICENSE", "openapi/*.json"]
 
 [lib]
 name = "seren"
@@ -37,3 +37,6 @@ prettyplease = { workspace = true }
 syn = { workspace = true }
 serde_json = { workspace = true }
 openapiv3 = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

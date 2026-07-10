@@ -57,7 +57,15 @@ let config = ClientConfig::new("your_seren_api_key")
 
 ## Product Examples
 
-The crate exports static product example metadata for docs, CLIs, notebooks, and onboarding flows:
+Runnable examples are included with the crate:
+
+```bash
+cargo run -p seren-sdk --example product_catalog
+SEREN_API_KEY=your_seren_api_key cargo run -p seren-sdk --example quickstart
+SEREN_API_KEY=your_seren_api_key cargo run -p seren-sdk --example memory -- "release approval process"
+```
+
+`quickstart` lists Seren DB projects, `memory` performs a typed private-memory recall, and `product_catalog` runs offline. The crate also exports the underlying static product example metadata for docs, CLIs, notebooks, and onboarding flows:
 
 ```rust
 use seren::get_seren_product_examples;
@@ -70,7 +78,7 @@ for example in get_seren_product_examples() {
 }
 ```
 
-The examples cover Seren Employees, Seren Cloud, Seren Passwords, Seren Skills, Seren Notes, Seren Memory, Seren Models, Seren Private Models, Seren DB, Seren Object Storage, and Seren Publishers. They do not make network calls on their own.
+The product catalog covers Seren Employees, Seren Cloud, Seren Passwords, Seren Skills, Seren Notes, Seren Memory, Seren Models, Seren Private Models, Seren DB, Seren Object Storage, and Seren Publishers. Catalog metadata does not make network calls on its own.
 
 ## API
 
