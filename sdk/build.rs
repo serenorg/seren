@@ -615,6 +615,7 @@ fn main() -> anyhow::Result<()> {
         "openapi-seren-skills.json",
         "openapi-seren-notes.json",
         "openapi-seren-memory.json",
+        "openapi-seren-storage.json",
     ];
     for file_name in spec_files {
         println!(
@@ -673,6 +674,13 @@ fn main() -> anyhow::Result<()> {
         "/publishers/seren-memory",
         Some("SerenMemory"),
         Some("seren_memory_"),
+    )?;
+    merge_api_spec(
+        &mut raw_json,
+        &openapi_dir.join("openapi-seren-storage.json"),
+        "/publishers/seren-storage",
+        Some("SerenStorage"),
+        Some("seren_storage_"),
     )?;
 
     // Replace inline schemas in DataResponse_* wrappers with $ref to named equivalents.

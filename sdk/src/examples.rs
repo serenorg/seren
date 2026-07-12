@@ -431,6 +431,43 @@ pub const SEREN_PRODUCT_EXAMPLES: &[SerenProductExample] = &[
         ],
     },
     SerenProductExample {
+        slug: "storage",
+        title: "Seren Storage",
+        description: "Publisher-backed object storage with logical buckets, user-scoped namespaces, and short-lived transfer URLs.",
+        highlights: &[
+            "Browse the buckets available to the authenticated organization.",
+            "Create checksum-bound uploads and confirm completed transfers.",
+            "List and download objects without proxying file bytes through the API.",
+        ],
+        requests: &[
+            SerenDemoRequest {
+                method: DemoMethod::Get,
+                path: "/publishers/seren-storage/buckets",
+                label: "List buckets",
+            },
+            SerenDemoRequest {
+                method: DemoMethod::Post,
+                path: "/publishers/seren-storage/buckets/{bucket_slug}/objects/uploads",
+                label: "Create upload",
+            },
+            SerenDemoRequest {
+                method: DemoMethod::Get,
+                path: "/publishers/seren-storage/buckets/{bucket_slug}/objects",
+                label: "List objects",
+            },
+            SerenDemoRequest {
+                method: DemoMethod::Get,
+                path: "/publishers/seren-storage/buckets/{bucket_slug}/objects/by-key/download",
+                label: "Create download URL",
+            },
+            SerenDemoRequest {
+                method: DemoMethod::Post,
+                path: "/publishers/seren-storage/buckets/{bucket_slug}/objects/{object_id}/confirm-upload",
+                label: "Confirm upload",
+            },
+        ],
+    },
+    SerenProductExample {
         slug: "object_storage",
         title: "Seren Object Storage",
         description: "Bucket and object APIs for agent artifacts, generated files, and application uploads.",
@@ -555,6 +592,7 @@ mod tests {
                 "models",
                 "private_models",
                 "database",
+                "storage",
                 "object_storage",
                 "publishers_payments"
             ]
@@ -573,6 +611,24 @@ mod tests {
         assert!(database.requests.iter().any(|request| {
             request.path == "/publishers/seren-db/projects/{id}/branches/{bid}/connection-string"
         }));
+    }
+
+    #[test]
+    fn storage_example_uses_seren_storage_publisher_routes() {
+        let storage = get_seren_product_example("storage").unwrap();
+
+        assert!(
+            storage
+                .requests
+                .iter()
+                .all(|request| request.path.starts_with("/publishers/seren-storage"))
+        );
+        assert!(
+            storage
+                .requests
+                .iter()
+                .any(|request| request.path.ends_with("/objects/uploads"))
+        );
     }
 
     #[test]

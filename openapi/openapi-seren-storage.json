@@ -1,0 +1,1211 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "seren-storage",
+        "description": "Organization-scoped durable object storage for Seren agents and services.",
+        "contact": {
+            "name": "SerenAI",
+            "email": "hello@serendb.com"
+        },
+        "license": {
+            "name": ""
+        },
+        "version": "0.1.0"
+    },
+    "servers": [
+        {
+            "url": "https://api.serendb.com/publishers/seren-storage",
+            "description": "Seren Storage production API"
+        }
+    ],
+    "paths": {
+        "/": {
+            "get": {
+                "tags": [
+                    "Meta"
+                ],
+                "operationId": "root",
+                "responses": {
+                    "200": {
+                        "description": "Service metadata",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ServiceInfo"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/buckets": {
+            "get": {
+                "tags": [
+                    "Objects"
+                ],
+                "operationId": "list_buckets",
+                "responses": {
+                    "200": {
+                        "description": "Storage buckets retrieved",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_Vec_ObjectStorageBucket"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/buckets/{bucket_slug}/objects": {
+            "get": {
+                "tags": [
+                    "Objects"
+                ],
+                "operationId": "list_objects",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "prefix",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Storage objects retrieved",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_Vec_ObjectStorageObject"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/buckets/{bucket_slug}/objects/by-key/download": {
+            "get": {
+                "tags": [
+                    "Objects"
+                ],
+                "operationId": "download_object",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "object_key",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Download URL created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageDownload"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/buckets/{bucket_slug}/objects/uploads": {
+            "post": {
+                "tags": [
+                    "Objects"
+                ],
+                "operationId": "create_upload",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateObjectStorageUploadRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Upload intent created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageUpload"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Object key already exists",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/buckets/{bucket_slug}/objects/{object_id}": {
+            "delete": {
+                "tags": [
+                    "Objects"
+                ],
+                "operationId": "delete_object",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "object_id",
+                        "in": "path",
+                        "description": "Storage object ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Storage object deleted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageObject"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/buckets/{bucket_slug}/objects/{object_id}/confirm-upload": {
+            "post": {
+                "tags": [
+                    "Objects"
+                ],
+                "operationId": "confirm_upload",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "object_id",
+                        "in": "path",
+                        "description": "Storage object ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ConfirmObjectStorageUploadRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Upload confirmed",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageObject"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/buckets/{bucket_slug}/objects/{object_id}/download": {
+            "get": {
+                "tags": [
+                    "Objects"
+                ],
+                "operationId": "download_object_by_id",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "object_id",
+                        "in": "path",
+                        "description": "Storage object ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Download URL created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageDownload"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/health": {
+            "get": {
+                "tags": [
+                    "Health"
+                ],
+                "operationId": "health",
+                "responses": {
+                    "200": {
+                        "description": "Service health",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_HealthStatus"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/openapi.json": {
+            "get": {
+                "tags": [
+                    "Meta"
+                ],
+                "operationId": "serve_openapi",
+                "responses": {
+                    "200": {
+                        "description": "OpenAPI document",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "ConfirmObjectStorageUploadRequest": {
+                "type": "object",
+                "properties": {
+                    "byte_length": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int64"
+                    },
+                    "etag": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "sha256": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                }
+            },
+            "CreateObjectStorageUploadRequest": {
+                "type": "object",
+                "required": [
+                    "object_key",
+                    "byte_length",
+                    "sha256"
+                ],
+                "properties": {
+                    "byte_length": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "content_type": {
+                        "type": "string"
+                    },
+                    "metadata": {},
+                    "object_key": {
+                        "type": "string"
+                    },
+                    "sha256": {
+                        "type": "string"
+                    }
+                }
+            },
+            "DataResponse_HealthStatus": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "status"
+                        ],
+                        "properties": {
+                            "status": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "pagination": {
+                        "oneOf": [
+                            {
+                                "type": "null"
+                            },
+                            {
+                                "$ref": "#/components/schemas/PaginationMeta"
+                            }
+                        ]
+                    }
+                }
+            },
+            "DataResponse_ObjectStorageDownload": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "object",
+                            "download_url",
+                            "download_headers",
+                            "download_expires_at"
+                        ],
+                        "properties": {
+                            "download_expires_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "download_headers": {
+                                "type": "object",
+                                "additionalProperties": {
+                                    "type": "string"
+                                },
+                                "propertyNames": {
+                                    "type": "string"
+                                }
+                            },
+                            "download_url": {
+                                "type": "string"
+                            },
+                            "object": {
+                                "$ref": "#/components/schemas/ObjectStorageObject"
+                            }
+                        }
+                    },
+                    "pagination": {
+                        "oneOf": [
+                            {
+                                "type": "null"
+                            },
+                            {
+                                "$ref": "#/components/schemas/PaginationMeta"
+                            }
+                        ]
+                    }
+                }
+            },
+            "DataResponse_ObjectStorageObject": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "id",
+                            "organization_id",
+                            "bucket_id",
+                            "bucket_slug",
+                            "object_key",
+                            "content_type",
+                            "byte_length",
+                            "sha256",
+                            "status",
+                            "uri",
+                            "metadata",
+                            "created_by_user_id",
+                            "created_at",
+                            "updated_at"
+                        ],
+                        "properties": {
+                            "bucket_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "bucket_slug": {
+                                "type": "string"
+                            },
+                            "byte_length": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "content_type": {
+                                "type": "string"
+                            },
+                            "created_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "created_by_user_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "etag": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "metadata": {},
+                            "object_key": {
+                                "type": "string"
+                            },
+                            "organization_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "sha256": {
+                                "type": "string"
+                            },
+                            "status": {
+                                "type": "string"
+                            },
+                            "updated_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "uploaded_at": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "date-time"
+                            },
+                            "uploaded_by_user_id": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "uuid"
+                            },
+                            "uri": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "pagination": {
+                        "oneOf": [
+                            {
+                                "type": "null"
+                            },
+                            {
+                                "$ref": "#/components/schemas/PaginationMeta"
+                            }
+                        ]
+                    }
+                }
+            },
+            "DataResponse_ObjectStorageUpload": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "object",
+                            "upload_url",
+                            "upload_headers",
+                            "upload_expires_at"
+                        ],
+                        "properties": {
+                            "object": {
+                                "$ref": "#/components/schemas/ObjectStorageObject"
+                            },
+                            "upload_expires_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "upload_headers": {
+                                "type": "object",
+                                "additionalProperties": {
+                                    "type": "string"
+                                },
+                                "propertyNames": {
+                                    "type": "string"
+                                }
+                            },
+                            "upload_url": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "pagination": {
+                        "oneOf": [
+                            {
+                                "type": "null"
+                            },
+                            {
+                                "$ref": "#/components/schemas/PaginationMeta"
+                            }
+                        ]
+                    }
+                }
+            },
+            "DataResponse_ServiceInfo": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "name",
+                            "version"
+                        ],
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "version": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "pagination": {
+                        "oneOf": [
+                            {
+                                "type": "null"
+                            },
+                            {
+                                "$ref": "#/components/schemas/PaginationMeta"
+                            }
+                        ]
+                    }
+                }
+            },
+            "DataResponse_Vec_ObjectStorageBucket": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "id",
+                                "organization_id",
+                                "slug",
+                                "metadata",
+                                "created_at",
+                                "updated_at"
+                            ],
+                            "properties": {
+                                "created_at": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                "created_by_user_id": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "format": "uuid"
+                                },
+                                "display_name": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                },
+                                "id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "metadata": {},
+                                "organization_id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "slug": {
+                                    "type": "string"
+                                },
+                                "updated_at": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                }
+                            }
+                        }
+                    },
+                    "pagination": {
+                        "oneOf": [
+                            {
+                                "type": "null"
+                            },
+                            {
+                                "$ref": "#/components/schemas/PaginationMeta"
+                            }
+                        ]
+                    }
+                }
+            },
+            "DataResponse_Vec_ObjectStorageObject": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "id",
+                                "organization_id",
+                                "bucket_id",
+                                "bucket_slug",
+                                "object_key",
+                                "content_type",
+                                "byte_length",
+                                "sha256",
+                                "status",
+                                "uri",
+                                "metadata",
+                                "created_by_user_id",
+                                "created_at",
+                                "updated_at"
+                            ],
+                            "properties": {
+                                "bucket_id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "bucket_slug": {
+                                    "type": "string"
+                                },
+                                "byte_length": {
+                                    "type": "integer",
+                                    "format": "int64"
+                                },
+                                "content_type": {
+                                    "type": "string"
+                                },
+                                "created_at": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                "created_by_user_id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "etag": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                },
+                                "id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "metadata": {},
+                                "object_key": {
+                                    "type": "string"
+                                },
+                                "organization_id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "sha256": {
+                                    "type": "string"
+                                },
+                                "status": {
+                                    "type": "string"
+                                },
+                                "updated_at": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                "uploaded_at": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "format": "date-time"
+                                },
+                                "uploaded_by_user_id": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "format": "uuid"
+                                },
+                                "uri": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "pagination": {
+                        "oneOf": [
+                            {
+                                "type": "null"
+                            },
+                            {
+                                "$ref": "#/components/schemas/PaginationMeta"
+                            }
+                        ]
+                    }
+                }
+            },
+            "ErrorBody": {
+                "type": "object",
+                "required": [
+                    "error",
+                    "message"
+                ],
+                "properties": {
+                    "error": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    }
+                }
+            },
+            "HealthStatus": {
+                "type": "object",
+                "required": [
+                    "status"
+                ],
+                "properties": {
+                    "status": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ObjectStorageBucket": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "organization_id",
+                    "slug",
+                    "metadata",
+                    "created_at",
+                    "updated_at"
+                ],
+                "properties": {
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "created_by_user_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "display_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "metadata": {},
+                    "organization_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "slug": {
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "ObjectStorageDownload": {
+                "type": "object",
+                "required": [
+                    "object",
+                    "download_url",
+                    "download_headers",
+                    "download_expires_at"
+                ],
+                "properties": {
+                    "download_expires_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "download_headers": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "propertyNames": {
+                            "type": "string"
+                        }
+                    },
+                    "download_url": {
+                        "type": "string"
+                    },
+                    "object": {
+                        "$ref": "#/components/schemas/ObjectStorageObject"
+                    }
+                }
+            },
+            "ObjectStorageObject": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "organization_id",
+                    "bucket_id",
+                    "bucket_slug",
+                    "object_key",
+                    "content_type",
+                    "byte_length",
+                    "sha256",
+                    "status",
+                    "uri",
+                    "metadata",
+                    "created_by_user_id",
+                    "created_at",
+                    "updated_at"
+                ],
+                "properties": {
+                    "bucket_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "bucket_slug": {
+                        "type": "string"
+                    },
+                    "byte_length": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "content_type": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "created_by_user_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "etag": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "metadata": {},
+                    "object_key": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "sha256": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "uploaded_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "uploaded_by_user_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "uri": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ObjectStorageUpload": {
+                "type": "object",
+                "required": [
+                    "object",
+                    "upload_url",
+                    "upload_headers",
+                    "upload_expires_at"
+                ],
+                "properties": {
+                    "object": {
+                        "$ref": "#/components/schemas/ObjectStorageObject"
+                    },
+                    "upload_expires_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "upload_headers": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "propertyNames": {
+                            "type": "string"
+                        }
+                    },
+                    "upload_url": {
+                        "type": "string"
+                    }
+                }
+            },
+            "PaginationMeta": {
+                "type": "object",
+                "required": [
+                    "total",
+                    "count",
+                    "limit",
+                    "offset",
+                    "has_more"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "has_more": {
+                        "type": "boolean"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "total": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ServiceInfo": {
+                "type": "object",
+                "required": [
+                    "name",
+                    "version"
+                ],
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "securitySchemes": {
+            "bearer_auth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+                "description": "Seren bearer token accepted by the publisher gateway."
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "Objects",
+            "description": "Durable object storage operations"
+        },
+        {
+            "name": "Health",
+            "description": "Service health"
+        },
+        {
+            "name": "Meta",
+            "description": "Service and API discovery"
+        }
+    ]
+}
