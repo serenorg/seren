@@ -5236,6 +5236,9 @@ fn validate_token_cache_ttl_seconds(value: Option<i32>) -> Result<Option<i32>, M
 }
 
 fn passwords_generated_api_base_url(passwords_api_base_url: &str) -> String {
+    // Generated Seren client methods include the publisher prefix in their
+    // operation paths; VaultClient appends raw Passwords paths to this stored
+    // publisher gateway URL.
     let trimmed = passwords_api_base_url.trim_end_matches('/');
     let publisher_prefix = "/publishers/seren-passwords";
     trimmed
@@ -6594,9 +6597,11 @@ impl SerenMcpServer {
         api_base_url: &str,
         passwords_hosted_store: Option<Arc<crate::oauth::store::TokenStore>>,
     ) -> Result<Self, seren::Error> {
+        let passwords_api_base_url =
+            crate::config::publisher_api_base_url(api_base_url, "seren-passwords");
         Self::new_oauth_with_store_and_passwords_api_url(
             api_base_url,
-            api_base_url,
+            &passwords_api_base_url,
             passwords_hosted_store,
         )
     }
@@ -14947,6 +14952,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn call_publisher_seren_passwords_vaults_list_maps_invalid_gateway_url_to_setup_error() {
+        let mut server = server_with_http_client(reqwest::Client::new());
+        server.passwords_api_base_url =
+            "http://gateway.internal.example/publishers/seren-passwords".to_string();
+        let kem = seren_secrets_crypto::keys::IdentityKemKeypair::generate();
+        let signing = seren_secrets_crypto::keys::IdentitySigningKeypair::generate();
+        *server.passwords_session.lock().await = Some(crate::passwords::PasswordsSession {
+            kem_private: kem.private,
+            signing_private: signing.private,
+            last_activity: std::time::Instant::now(),
+        });
+        let params = CallPublisherParams {
+            publisher: "seren-passwords".to_string(),
+            query: None,
+            database: None,
+            method: None,
+            path: None,
+            headers: None,
+            body: None,
+            body_base64: None,
+            tool: Some("passwords_vaults_list".to_string()),
+            tool_args: None,
+            resource_uri: None,
+            response_format: None,
+            request_id: None,
+            confirm: false,
+            x402_payment: None,
+        };
+
+        let err = server
+            .call_publisher_mcp_tool(
+                &params,
+                &Extensions::default(),
+                &AgentMetadata::default(),
+                false,
+            )
+            .await
+            .expect_err("invalid passwords gateway URL must fail before network access");
+
+        assert!(
+            err.message.contains("Seren Passwords is misconfigured"),
+            "unexpected error: {err}"
+        );
+        assert!(err.message.contains("SEREN_PASSWORDS_API_URL"));
+        assert!(!err.message.contains("uri shape is invalid"));
+    }
+
+    #[tokio::test]
     async fn call_publisher_seren_passwords_vaults_list_rejects_tool_args() {
         let server = server_with_http_client(reqwest::Client::new());
         let mut tool_args = serde_json::Map::new();
@@ -16323,6 +16376,26 @@ mod tests {
 
         // The hosted-mode gate leaves the session untouched.
         assert!(server.passwords_session.lock().await.is_none());
+    }
+
+    #[test]
+    fn new_oauth_derives_passwords_publisher_gateway_url() {
+        let server = SerenMcpServer::new_oauth("https://api.serendb.com/").unwrap();
+        assert_eq!(
+            server.passwords_api_base_url,
+            "https://api.serendb.com/publishers/seren-passwords"
+        );
+    }
+
+    #[test]
+    fn new_oauth_does_not_duplicate_passwords_publisher_gateway_prefix() {
+        let server =
+            SerenMcpServer::new_oauth("https://api.serendb.com/publishers/seren-passwords/")
+                .unwrap();
+        assert_eq!(
+            server.passwords_api_base_url,
+            "https://api.serendb.com/publishers/seren-passwords"
+        );
     }
 
     #[tokio::test]

@@ -1,10 +1,12 @@
 use crate::error::{McpError, Result};
-use std::path::PathBuf;
+use std::{net::IpAddr, path::PathBuf};
 
 /// OAuth client ID for upstream authentication.
 /// This identifies the MCP server as a trusted OAuth client.
 const UPSTREAM_OAUTH_CLIENT_ID: &str = crate::MCP_SERVER_NAME;
 const SEREN_PASSWORDS_PUBLISHER_SLUG: &str = "seren-passwords";
+const API_URL_ENV: &str = "API_URL";
+const SEREN_PASSWORDS_API_URL_ENV: &str = "SEREN_PASSWORDS_API_URL";
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -34,12 +36,18 @@ impl Config {
     #[allow(clippy::result_large_err)]
     pub fn from_env_for_command(command: &str) -> Result<Self> {
         let api_base_url =
-            std::env::var("API_URL").unwrap_or_else(|_| "https://api.serendb.com".into());
-        let passwords_api_base_url = std::env::var("SEREN_PASSWORDS_API_URL")
-            .map(|base_url| publisher_api_base_url(&base_url, SEREN_PASSWORDS_PUBLISHER_SLUG))
-            .unwrap_or_else(|_| {
-                publisher_api_base_url(&api_base_url, SEREN_PASSWORDS_PUBLISHER_SLUG)
-            });
+            std::env::var(API_URL_ENV).unwrap_or_else(|_| "https://api.serendb.com".into());
+        let (passwords_api_base_url, passwords_api_base_url_source) =
+            match std::env::var(SEREN_PASSWORDS_API_URL_ENV) {
+                Ok(base_url) => (
+                    publisher_api_base_url(&base_url, SEREN_PASSWORDS_PUBLISHER_SLUG),
+                    SEREN_PASSWORDS_API_URL_ENV,
+                ),
+                Err(_) => (
+                    publisher_api_base_url(&api_base_url, SEREN_PASSWORDS_PUBLISHER_SLUG),
+                    API_URL_ENV,
+                ),
+            };
         let oauth_redirect_base_url =
             std::env::var("OAUTH_REDIRECT_URL").unwrap_or_else(|_| api_base_url.clone());
         let public_url = std::env::var("PUBLIC_URL").ok();
@@ -68,6 +76,13 @@ impl Config {
             _ => return Err(McpError::Config(format!("Unknown command: {}", command))),
         };
 
+        if matches!(auth, AuthConfig::OAuth { .. }) {
+            validate_hosted_passwords_api_base_url(
+                &passwords_api_base_url,
+                passwords_api_base_url_source,
+            )?;
+        }
+
         Ok(Self {
             auth,
             api_base_url,
@@ -84,7 +99,7 @@ impl Config {
     }
 }
 
-fn publisher_api_base_url(api_base_url: &str, publisher_slug: &str) -> String {
+pub(crate) fn publisher_api_base_url(api_base_url: &str, publisher_slug: &str) -> String {
     let publisher_prefix = format!("/publishers/{publisher_slug}");
     let trimmed = api_base_url.trim_end_matches('/');
     if trimmed.ends_with(&publisher_prefix) {
@@ -92,6 +107,45 @@ fn publisher_api_base_url(api_base_url: &str, publisher_slug: &str) -> String {
     } else {
         format!("{trimmed}{publisher_prefix}")
     }
+}
+
+#[allow(clippy::result_large_err)]
+fn validate_hosted_passwords_api_base_url(base_url: &str, source_env: &str) -> Result<()> {
+    let url = reqwest::Url::parse(base_url).map_err(|e| {
+        McpError::Config(format!(
+            "Invalid {source_env} for hosted Seren Passwords gateway URL: {e}"
+        ))
+    })?;
+    match url.scheme() {
+        "https" => Ok(()),
+        "http" if url.host_str().is_some_and(is_loopback_host) => Ok(()),
+        "http" => {
+            let source_detail = if source_env == SEREN_PASSWORDS_API_URL_ENV {
+                format!("{SEREN_PASSWORDS_API_URL_ENV} is set to {base_url}")
+            } else {
+                format!(
+                    "{SEREN_PASSWORDS_API_URL_ENV} is not set, so the Passwords gateway URL was derived from {API_URL_ENV} as {base_url}"
+                )
+            };
+            Err(McpError::Config(format!(
+                "Hosted Seren Passwords helpers require an HTTPS gateway URL or loopback HTTP for local development. {source_detail}. Set {SEREN_PASSWORDS_API_URL_ENV} to the HTTPS Seren API gateway URL."
+            )))
+        }
+        _ => Err(McpError::Config(format!(
+            "Invalid {source_env} for hosted Seren Passwords gateway URL: scheme must be http or https"
+        ))),
+    }
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    let host = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
+    host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
 }
 
 #[cfg(test)]
@@ -230,11 +284,74 @@ mod tests {
     }
 
     #[test]
+    fn start_server_rejects_internal_http_passwords_url_derived_from_api_url() {
+        temp_env::with_vars(
+            [
+                ("DATABASE_URL", Some("postgres://localhost/test")),
+                ("PUBLIC_URL", Some("https://mcp.serendb.com")),
+                ("API_URL", Some("http://gateway.internal.example")),
+                ("SEREN_PASSWORDS_API_URL", None),
+            ],
+            || {
+                let err = Config::from_env_for_command("start:server")
+                    .expect_err("hosted mode must reject non-loopback HTTP passwords URL");
+                let message = err.to_string();
+                assert!(message.contains("SEREN_PASSWORDS_API_URL"));
+                assert!(message.contains("API_URL"));
+                assert!(message.contains("HTTPS gateway URL"));
+            },
+        );
+    }
+
+    #[test]
+    fn start_server_rejects_internal_http_passwords_url_override() {
+        temp_env::with_vars(
+            [
+                ("DATABASE_URL", Some("postgres://localhost/test")),
+                ("PUBLIC_URL", Some("https://mcp.serendb.com")),
+                ("API_URL", Some("https://api.serendb.com")),
+                (
+                    "SEREN_PASSWORDS_API_URL",
+                    Some("http://gateway.internal.example"),
+                ),
+            ],
+            || {
+                let err = Config::from_env_for_command("start:server")
+                    .expect_err("hosted mode must reject non-loopback HTTP passwords URL");
+                let message = err.to_string();
+                assert!(message.contains("SEREN_PASSWORDS_API_URL"));
+                assert!(message.contains("HTTPS gateway URL"));
+            },
+        );
+    }
+
+    #[test]
+    fn start_server_allows_loopback_http_passwords_url_for_local_hosted_tests() {
+        temp_env::with_vars(
+            [
+                ("DATABASE_URL", Some("postgres://localhost/test")),
+                ("PUBLIC_URL", Some("https://mcp.serendb.com")),
+                ("API_URL", Some("http://127.0.0.1:3000")),
+                ("SEREN_PASSWORDS_API_URL", None),
+            ],
+            || {
+                let cfg = Config::from_env_for_command("start:server").unwrap();
+                assert_eq!(
+                    cfg.passwords_api_base_url,
+                    "http://127.0.0.1:3000/publishers/seren-passwords"
+                );
+            },
+        );
+    }
+
+    #[test]
     fn start_oauth_legacy_alias_still_builds_oauth_config() {
         temp_env::with_vars(
             [
                 ("DATABASE_URL", Some("postgres://localhost/test")),
                 ("PUBLIC_URL", Some("https://mcp.serendb.com")),
+                ("API_URL", None),
+                ("SEREN_PASSWORDS_API_URL", None),
             ],
             || {
                 let cfg = Config::from_env_for_command("start:oauth").unwrap();

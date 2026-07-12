@@ -3587,6 +3587,13 @@ pub(crate) fn vault_err(e: seren_secrets_resolver::ResolverError) -> McpError {
         ResolverError::ServerError { status, .. } => {
             McpError::internal_error(format!("vault server returned status {status}"), None)
         }
+        ResolverError::InvalidUri(_) => McpError::invalid_request(
+            "Seren Passwords is misconfigured. Set SEREN_PASSWORDS_API_URL to the public HTTPS Seren Passwords gateway URL.",
+            Some(serde_json::json!({
+                "configuration_error": true,
+                "env": "SEREN_PASSWORDS_API_URL",
+            })),
+        ),
         other => McpError::internal_error(other.to_string(), None),
     }
 }
