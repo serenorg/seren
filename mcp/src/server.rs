@@ -4167,11 +4167,17 @@ fn truncate_for_client(value: &str, max_chars: usize) -> String {
     format!("{truncated}... (truncated)")
 }
 
-fn api_error_message(status: reqwest::StatusCode, body: &str) -> String {
+fn api_error_message(status: reqwest::StatusCode, body: &str, request_id: Option<&str>) -> String {
+    let request_context = request_id
+        .map(|value| format!(" (request ID: {value})"))
+        .unwrap_or_default();
     if body.is_empty() {
-        format!("API error {status}")
+        format!("API error {status}{request_context}")
     } else {
-        format!("API error {status}: {}", truncate_for_client(body, 1200))
+        format!(
+            "API error {status}{request_context}: {}",
+            truncate_for_client(body, 1200)
+        )
     }
 }
 
@@ -4199,8 +4205,21 @@ pub(crate) async fn seren_error_to_mcp_error<T: std::fmt::Debug>(e: seren::Error
     match e {
         seren::Error::UnexpectedResponse(response) => {
             let status = response.status();
+            let request_id = response
+                .headers()
+                .get("x-request-id")
+                .and_then(|value| value.to_str().ok())
+                .map(ToOwned::to_owned);
             let body = response.text().await.unwrap_or_default();
-            McpError::internal_error(api_error_message(status, &body), None)
+            McpError::internal_error(
+                api_error_message(status, &body, request_id.as_deref()),
+                Some(serde_json::json!({
+                    "kind": "http_error",
+                    "status": status.as_u16(),
+                    "body": truncate_for_client(&body, 1200),
+                    "request_id": request_id,
+                })),
+            )
         }
         seren::Error::ErrorResponse(resp) => {
             let status = resp.status();
@@ -4210,7 +4229,14 @@ pub(crate) async fn seren_error_to_mcp_error<T: std::fmt::Debug>(e: seren::Error
             McpError::invalid_params(format!("Invalid request: {msg}"), None)
         }
         seren::Error::CommunicationError(e) => {
-            McpError::internal_error(format!("Communication error: {e}"), None)
+            let message = e.to_string();
+            McpError::internal_error(
+                format!("Communication error: {message}"),
+                Some(serde_json::json!({
+                    "kind": "transport_error",
+                    "message": message,
+                })),
+            )
         }
         seren::Error::InvalidUpgrade(e) => {
             McpError::internal_error(format!("Upgrade error: {e}"), None)
@@ -11860,11 +11886,10 @@ API endpoint: {endpoint}",
                 .map(ToOwned::to_owned),
         };
         let api_client = self.api_client(&extensions)?;
-        let response = api_client
-            .seren_agent_test_run(&request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
+        let response = match api_client.seren_agent_test_run(&request).await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -12358,10 +12383,10 @@ API endpoint: {endpoint}",
             },
         };
 
-        let result = api_client
-            .seren_agent_deploy(&request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let result = match api_client.seren_agent_deploy(&request).await {
+            Ok(result) => result,
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
         let result = serde_json::to_value(result.into_inner())
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![json_content(&result)?]))
@@ -14285,6 +14310,82 @@ mod tests {
 
         assert!(error.message.contains("API error 403 Forbidden:"));
         assert!(error.message.contains("user authentication required"));
+    }
+
+    #[tokio::test]
+    async fn seren_error_to_mcp_error_includes_server_request_id() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(
+                ResponseTemplate::new(500)
+                    .insert_header("x-request-id", "request-198")
+                    .set_body_json(serde_json::json!({
+                        "error": "InternalError",
+                        "message": "Draft runtime could not be initialized"
+                    })),
+            )
+            .mount(&server)
+            .await;
+
+        let response = reqwest::Client::new()
+            .post(server.uri())
+            .send()
+            .await
+            .expect("mock response should be returned");
+        let error =
+            seren_error_to_mcp_error::<()>(seren::Error::UnexpectedResponse(response)).await;
+
+        assert!(
+            error
+                .message
+                .contains("API error 500 Internal Server Error")
+        );
+        assert!(error.message.contains("request ID: request-198"));
+        assert!(
+            error
+                .message
+                .contains("Draft runtime could not be initialized")
+        );
+        assert_eq!(
+            error.data.as_ref().and_then(|data| data.get("kind")),
+            Some(&serde_json::json!("http_error"))
+        );
+        assert_eq!(
+            error.data.as_ref().and_then(|data| data.get("status")),
+            Some(&serde_json::json!(500))
+        );
+        assert_eq!(
+            error.data.as_ref().and_then(|data| data.get("request_id")),
+            Some(&serde_json::json!("request-198"))
+        );
+    }
+
+    #[tokio::test]
+    async fn seren_error_to_mcp_error_distinguishes_transport_failures() {
+        let listener =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("temporary listener should bind");
+        let address = listener
+            .local_addr()
+            .expect("listener should have an address");
+        drop(listener);
+
+        let transport_error = reqwest::Client::new()
+            .get(format!("http://{address}"))
+            .send()
+            .await
+            .expect_err("closed local port should reject the connection");
+        let error =
+            seren_error_to_mcp_error::<()>(seren::Error::CommunicationError(transport_error)).await;
+
+        assert!(error.message.contains("Communication error:"));
+        assert!(!error.message.contains("API error"));
+        assert_eq!(
+            error.data.as_ref().and_then(|data| data.get("kind")),
+            Some(&serde_json::json!("transport_error"))
+        );
     }
 
     #[test]

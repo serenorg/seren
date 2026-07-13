@@ -775,11 +775,12 @@ fn main() -> anyhow::Result<()> {
         )
         .replace("chrono::DateTime<chrono::offset::Utc>", "::jiff::Timestamp");
 
-    // Convert 400/402/403 responses from ErrorResponse (which discards body) to UnexpectedResponse
-    // (which preserves the raw response). This allows callers to read and display the actual
-    // error body while keeping these status codes documented in the OpenAPI spec.
+    // Convert documented error responses from ErrorResponse (which discards the response) to
+    // UnexpectedResponse so callers retain the status, headers, and response body while the
+    // status codes remain documented in the OpenAPI spec.
     // 400: Bad request errors include a JSON body with {error, message} that should be surfaced.
     // 402/403: Payment-required and forbidden errors may carry structured body payloads.
+    // 500: Internal errors carry diagnostics and a request ID header for support correlation.
     let formatted = formatted.replace(
         "400u16 => Err(Error::ErrorResponse(ResponseValue::empty(response)))",
         "400u16 => Err(Error::UnexpectedResponse(response))",
@@ -791,6 +792,10 @@ fn main() -> anyhow::Result<()> {
     let formatted = formatted.replace(
         "403u16 => Err(Error::ErrorResponse(ResponseValue::empty(response)))",
         "403u16 => Err(Error::UnexpectedResponse(response))",
+    );
+    let formatted = formatted.replace(
+        "500u16 => Err(Error::ErrorResponse(ResponseValue::empty(response)))",
+        "500u16 => Err(Error::UnexpectedResponse(response))",
     );
 
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
