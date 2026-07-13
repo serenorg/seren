@@ -1,29 +1,42 @@
 {
-  "name": "Research Analyst",
-  "slug": "research-analyst",
-  "description": "Turn sourced research into a short, auditable decision brief.",
-  "default_message": "Research the strongest evidence for and against expanding our partner channel this quarter, then produce a decision brief with open questions and next steps.",
-  "mode": "cron",
-  "cron_schedule": "0 13 * * 1-5",
-  "cron_timezone": "UTC",
-  "template": "research_monitor",
-  "tool_presets": ["live_data", "database"],
-  "approval_policy": "read_only",
-  "model_policy": "balanced",
-  "visibility": "opaque",
-  "limits": {
-    "context_budget_tokens": 16000,
-    "max_iterations": 6,
-    "max_timeout_seconds": 300,
-    "max_tool_calls_per_run": 8,
-    "max_tool_output_chars": 12000
-  },
-  "instructions": [
-    { "kind": "identity", "path": "IDENTITY.md" },
-    { "kind": "soul", "path": "SOUL.md" },
-    { "kind": "skill", "path": "SKILL.md" },
-    { "kind": "tools", "path": "TOOLS.md" },
-    { "kind": "memory", "path": "MEMORY.md" },
-    { "kind": "eval", "path": "EVAL.md" }
-  ]
+    "name": "Research Analyst",
+    "slug": "research-analyst",
+    "description": "Turn sourced research into an auditable decision brief and publish one approved report.",
+    "default_message": "Research the strongest evidence for and against expanding our partner channel this quarter, draft a decision brief with open questions and next steps, then request approval to publish exactly one new Seren Note containing the completed report.",
+    "mode": "cron",
+    "cron_schedule": "0 13 * * 1-5",
+    "cron_timezone": "UTC",
+    "template": "research_monitor",
+    "tool_presets": ["live_data", "database"],
+    "tool_refs": [
+        {
+            "kind": "publisher",
+            "publisher_slug": "seren-notes",
+            "operation_id": "create_note",
+            "require_approval": true
+        }
+    ],
+    "approval_policy": "allow_mutations",
+    "side_effect_policy": {
+        "max_mutating_calls_per_run": 1,
+        "min_seconds_between_mutating_calls": 60,
+        "require_idempotency_key": true
+    },
+    "model_policy": "balanced",
+    "visibility": "opaque",
+    "limits": {
+        "context_budget_tokens": 16000,
+        "max_iterations": 6,
+        "max_timeout_seconds": 300,
+        "max_tool_calls_per_run": 8,
+        "max_tool_output_chars": 12000
+    },
+    "instructions": [
+        { "kind": "identity", "path": "IDENTITY.md" },
+        { "kind": "soul", "path": "SOUL.md" },
+        { "kind": "skill", "path": "SKILL.md" },
+        { "kind": "tools", "path": "TOOLS.md" },
+        { "kind": "memory", "path": "MEMORY.md" },
+        { "kind": "eval", "path": "EVAL.md" }
+    ]
 }

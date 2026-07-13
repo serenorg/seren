@@ -2,11 +2,11 @@
   "name": "Site Reliability Engineer",
   "slug": "site-reliability-engineer",
   "description": "Correlate production signals and changes into an evidence-backed incident triage brief.",
-  "default_message": "Review the latest failed deployment and related production signals, identify the most likely causes, and produce a triage brief with evidence, blast radius, rollback criteria, and next checks.",
+  "default_message": "Review the latest failed deployment and related production signals, produce an evidence-backed triage brief, and request approval before making at most one low-risk incident coordination update.",
   "mode": "always_on",
   "template": "workflow_agent",
   "tool_presets": ["live_data", "database", "publisher_actions"],
-  "approval_policy": "read_only",
+  "approval_policy": "allow_mutations",
   "model_policy": "balanced",
   "visibility": "opaque",
   "limits": {
@@ -15,6 +15,11 @@
     "max_timeout_seconds": 300,
     "max_tool_calls_per_run": 12,
     "max_tool_output_chars": 12000
+  },
+  "side_effect_policy": {
+    "max_mutating_calls_per_run": 1,
+    "min_seconds_between_mutating_calls": 60,
+    "require_idempotency_key": true
   },
   "instructions": [
     { "kind": "identity", "path": "IDENTITY.md" },

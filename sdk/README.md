@@ -66,7 +66,7 @@ SEREN_API_KEY=your_seren_api_key cargo run -p seren-sdk --example quickstart
 SEREN_API_KEY=your_seren_api_key cargo run -p seren-sdk --example memory -- "release approval process"
 ```
 
-`examples/employees/` contains four portable employee bundles: `chief-financial-officer/`, `research-analyst/`, `launch-operations-coordinator/`, and `site-reliability-engineer/`. The first is grounded in the complete Seren Desktop demo employee, the second follows the ADK research-then-write pattern, the third combines the Seren Desktop Launch Room scenario with an ADK-style sequential workflow, and the fourth demonstrates evidence-first incident triage across operational data and authorized connectors.
+`examples/employees/` contains four portable employee bundles: `chief-financial-officer/`, `research-analyst/`, `launch-operations-coordinator/`, and `site-reliability-engineer/`. The first is grounded in the complete Seren Desktop demo employee, the second follows the ADK research-then-write pattern and publishes one approval-gated completed report, the third combines the Seren Desktop Launch Room scenario with an ADK-style sequential workflow, and the fourth demonstrates evidence-first incident triage with one approval-gated low-risk coordination update per run.
 
 Every folder owns its `employee.json` deployment manifest, `IDENTITY.md`, `SOUL.md`, `SKILL.md`, `TOOLS.md`, `MEMORY.md`, `EVAL.md`, and a short README. `employee_lifecycle` validates the selected folder and converts it to the generated `AgentSpec`; employee content does not live in the runner. Previewing is offline. `quickstart` lists Seren DB projects, `memory` performs a typed private-memory recall, and `product_catalog` runs offline.
 

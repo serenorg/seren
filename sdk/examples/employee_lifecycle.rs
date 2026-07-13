@@ -3,9 +3,9 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::Deserialize;
 use seren::{
-    AgentBundle, AgentInstructionFile, AgentInstructionKind, AgentSpec, Client, ClientConfig,
-    CloudDeploymentMode, ManagedAgentApprovalPolicy, ManagedAgentModelPolicy,
-    ManagedAgentRuntimeAdapter, ManagedAgentTemplate, ManagedAgentToolPreset,
+    AgentBundle, AgentInstructionFile, AgentInstructionKind, AgentSpec, AgentToolRef, Client,
+    ClientConfig, CloudDeploymentMode, ManagedAgentApprovalPolicy, ManagedAgentModelPolicy,
+    ManagedAgentRuntimeAdapter, ManagedAgentTemplate, ManagedAgentToolPreset, SideEffectPolicy,
     TestSerenAgentDraftRunRequest, WorkloadExecution, WorkloadLimits, WorkloadSpec,
 };
 
@@ -30,7 +30,11 @@ struct EmployeeManifest {
     cron_timezone: Option<String>,
     template: ManagedAgentTemplate,
     tool_presets: Vec<ManagedAgentToolPreset>,
+    #[serde(default)]
+    tool_refs: Vec<AgentToolRef>,
     approval_policy: ManagedAgentApprovalPolicy,
+    #[serde(default)]
+    side_effect_policy: Option<SideEffectPolicy>,
     model_policy: ManagedAgentModelPolicy,
     visibility: String,
     limits: WorkloadLimits,
@@ -166,6 +170,29 @@ fn load_employee(slug: &str) -> Result<EmployeeBlueprint, Box<dyn std::error::Er
     if manifest.mode != CloudDeploymentMode::Cron && manifest.cron_schedule.is_some() {
         return Err(format!("Employee {slug:?} declares cron_schedule outside cron mode.").into());
     }
+    let publisher_actions = manifest
+        .tool_presets
+        .contains(&ManagedAgentToolPreset::PublisherActions);
+    if publisher_actions && manifest.approval_policy != ManagedAgentApprovalPolicy::AllowMutations {
+        return Err(format!(
+            "Employee {slug:?} enables publisher_actions without allow_mutations."
+        )
+        .into());
+    }
+    if manifest.approval_policy == ManagedAgentApprovalPolicy::AllowMutations
+        && manifest.side_effect_policy.is_none()
+    {
+        return Err(
+            format!("Employee {slug:?} allows mutations without a side_effect_policy.").into(),
+        );
+    }
+    if manifest.approval_policy == ManagedAgentApprovalPolicy::ReadOnly
+        && manifest.side_effect_policy.is_some()
+    {
+        return Err(
+            format!("Employee {slug:?} declares side_effect_policy under read_only.").into(),
+        );
+    }
 
     let instructions = manifest
         .instructions
@@ -197,7 +224,7 @@ fn load_employee(slug: &str) -> Result<EmployeeBlueprint, Box<dyn std::error::Er
         session_database: None,
         template: Some(manifest.template),
         tool_presets: Some(manifest.tool_presets),
-        tool_refs: None,
+        tool_refs: (!manifest.tool_refs.is_empty()).then_some(manifest.tool_refs),
         visibility: Some(manifest.visibility),
         workload: WorkloadSpec {
             compute_backend: None,
@@ -219,7 +246,7 @@ fn load_employee(slug: &str) -> Result<EmployeeBlueprint, Box<dyn std::error::Er
             publisher_only: Some(true),
             requirements: None,
             secrets: None,
-            side_effect_policy: None,
+            side_effect_policy: manifest.side_effect_policy,
         },
     };
 
@@ -236,6 +263,9 @@ fn load_instruction(
     reference: InstructionReference,
 ) -> Result<AgentInstructionFile, Box<dyn std::error::Error>> {
     let path = Path::new(&reference.path);
+    if reference.path.contains('\\') {
+        return Err(format!("Unsafe instruction path: {:?}.", reference.path).into());
+    }
     let mut components = path.components();
     if !matches!(components.next(), Some(Component::Normal(_))) || components.next().is_some() {
         return Err(format!("Unsafe instruction path: {:?}.", reference.path).into());
