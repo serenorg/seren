@@ -435,7 +435,7 @@ pub async fn delete_object_by_key(
     delete_object(org_id, bucket_slug, object.id, ctx).await
 }
 
-async fn put_presigned_object(
+pub(crate) async fn put_presigned_object(
     url: &str,
     headers: &std::collections::HashMap<String, String>,
     bytes: Vec<u8>,
@@ -454,7 +454,7 @@ fn should_replay_upload_header(name: &str) -> bool {
     !name.eq_ignore_ascii_case(CONTENT_LENGTH.as_str())
 }
 
-async fn get_presigned_object(
+pub(crate) async fn get_presigned_object(
     url: &str,
     headers: &std::collections::HashMap<String, String>,
 ) -> Result<Vec<u8>> {
@@ -493,7 +493,7 @@ fn header_value(name: &str, value: &str) -> Result<HeaderValue> {
         .with_context(|| format!("Invalid presigned header value for '{name}'"))
 }
 
-fn parse_optional_metadata_object(
+pub(crate) fn parse_optional_metadata_object(
     metadata_json: Option<&str>,
     metadata_file: Option<&PathBuf>,
 ) -> Result<Option<serde_json::Value>> {

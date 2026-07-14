@@ -282,6 +282,72 @@ pub struct ConfirmObjectStorageUploadParams {
     pub body: seren::ConfirmObjectStorageUploadRequest,
 }
 
+/// Seren Storage publisher bucket selector.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct SerenStorageBucketPath {
+    /// Seren Storage bucket slug
+    pub bucket_slug: String,
+}
+
+/// Seren Storage publisher object selector.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct SerenStorageObjectPath {
+    /// Seren Storage bucket slug
+    pub bucket_slug: String,
+    /// Object ID
+    pub object_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenStorageListObjectsParams {
+    #[serde(flatten)]
+    pub path: SerenStorageBucketPath,
+    /// Optional key prefix filter
+    pub prefix: Option<String>,
+    /// Maximum number of objects to return
+    pub limit: Option<i64>,
+    /// Offset for pagination
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenStorageCreateUploadParams {
+    #[serde(flatten)]
+    pub path: SerenStorageBucketPath,
+    #[serde(flatten)]
+    pub body: seren::SerenStorageCreateObjectStorageUploadRequest,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenStoragePutObjectBase64Params {
+    #[serde(flatten)]
+    pub path: SerenStorageBucketPath,
+    /// Object key to store
+    pub object_key: String,
+    /// Object bytes, base64-encoded
+    pub content_base64: String,
+    /// Optional content type. Defaults to application/octet-stream.
+    pub content_type: Option<String>,
+    /// Optional metadata JSON object
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenStorageConfirmUploadParams {
+    #[serde(flatten)]
+    pub path: SerenStorageObjectPath,
+    #[serde(flatten)]
+    pub body: seren::SerenStorageConfirmObjectStorageUploadRequest,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenStorageDownloadByKeyParams {
+    #[serde(flatten)]
+    pub path: SerenStorageBucketPath,
+    /// Exact object key to download
+    pub object_key: String,
+}
+
 // Organization OAuth provider operations
 /// Path parameters for org OAuth provider operations
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -7701,7 +7767,259 @@ impl SerenMcpServer {
     }
 
     // ========================================================================
-    // Object Storage Tools
+    // Seren Storage Publisher Tools
+    // ========================================================================
+
+    #[tool(
+        description = "Check the Seren Storage publisher health.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_storage_health(
+        &self,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client.seren_storage_health().await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List buckets available through the Seren Storage publisher for the authenticated organization.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_storage_list_buckets(
+        &self,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client.seren_storage_list_buckets().await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List objects in a Seren Storage bucket, optionally filtered by key prefix.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_storage_list_objects(
+        &self,
+        Parameters(params): Parameters<SerenStorageListObjectsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_storage_list_objects(
+                &params.path.bucket_slug,
+                params.limit,
+                params.offset,
+                params.prefix.as_deref(),
+            )
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Create a presigned upload through the Seren Storage publisher. Upload the bytes to upload_url, then call seren_storage_confirm_upload.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn seren_storage_create_upload(
+        &self,
+        Parameters(params): Parameters<SerenStorageCreateUploadParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_storage_create_upload(&params.path.bucket_slug, &params.body)
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Upload a base64-encoded object through the Seren Storage publisher in one call.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn seren_storage_put_object_base64(
+        &self,
+        Parameters(params): Parameters<SerenStoragePutObjectBase64Params>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        validate_object_storage_key(&params.object_key)?;
+        let metadata = validate_object_storage_metadata(params.metadata)?;
+        let content = BASE64
+            .decode(params.content_base64.as_bytes())
+            .map_err(|error| {
+                McpError::invalid_params(format!("Invalid content_base64: {error}"), None)
+            })?;
+        let byte_length = i64::try_from(content.len()).map_err(|_| {
+            McpError::invalid_params("content_base64 decoded to an oversized object", None)
+        })?;
+        let sha256 = sha256_hex(&content);
+        let content_type = params
+            .content_type
+            .unwrap_or_else(|| "application/octet-stream".to_string());
+
+        let api_client = self.api_client(&extensions)?;
+        let upload = match api_client
+            .seren_storage_create_upload(
+                &params.path.bucket_slug,
+                &seren::SerenStorageCreateObjectStorageUploadRequest {
+                    byte_length,
+                    content_type: Some(content_type),
+                    metadata,
+                    object_key: params.object_key,
+                    sha256: sha256.clone(),
+                },
+            )
+            .await
+        {
+            Ok(response) => response.into_inner().data,
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+
+        let etag = put_presigned_object_storage_object(
+            &upload.upload_url,
+            &upload.upload_headers,
+            content,
+        )
+        .await?;
+
+        let response = match api_client
+            .seren_storage_confirm_upload(
+                &params.path.bucket_slug,
+                &upload.object.id,
+                &seren::SerenStorageConfirmObjectStorageUploadRequest {
+                    byte_length: Some(byte_length),
+                    etag,
+                    sha256: Some(sha256),
+                },
+            )
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Confirm a pending upload through the Seren Storage publisher.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn seren_storage_confirm_upload(
+        &self,
+        Parameters(params): Parameters<SerenStorageConfirmUploadParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_storage_confirm_upload(
+                &params.path.bucket_slug,
+                &params.path.object_id,
+                &params.body,
+            )
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Create a presigned download URL for a Seren Storage object by key.",
+        annotations(read_only_hint = true, open_world_hint = true)
+    )]
+    async fn seren_storage_download_object(
+        &self,
+        Parameters(params): Parameters<SerenStorageDownloadByKeyParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_storage_download_object(&params.path.bucket_slug, &params.object_key)
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Create a presigned download URL for a Seren Storage object by ID.",
+        annotations(read_only_hint = true, open_world_hint = true)
+    )]
+    async fn seren_storage_download_object_by_id(
+        &self,
+        Parameters(params): Parameters<SerenStorageObjectPath>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_storage_download_object_by_id(&params.bucket_slug, &params.object_id)
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Delete a Seren Storage object by ID.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn seren_storage_delete_object(
+        &self,
+        Parameters(params): Parameters<SerenStorageObjectPath>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_storage_delete_object(&params.bucket_slug, &params.object_id)
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    // ========================================================================
+    // Object Storage Administration Tools
     // ========================================================================
 
     #[tool(
@@ -14282,6 +14600,31 @@ mod tests {
 
         let err = validate_object_storage_key("/").expect_err("empty key should be rejected");
         assert!(err.message.contains("object_key must not be empty"));
+    }
+
+    #[test]
+    fn seren_storage_publisher_tools_are_exposed() {
+        let server = server_with_http_client(reqwest::Client::new());
+        let tool_names = server
+            .tool_router
+            .list_all()
+            .into_iter()
+            .map(|tool| tool.name.into_owned())
+            .collect::<std::collections::HashSet<_>>();
+
+        for expected in [
+            "seren_storage_health",
+            "seren_storage_list_buckets",
+            "seren_storage_list_objects",
+            "seren_storage_create_upload",
+            "seren_storage_put_object_base64",
+            "seren_storage_confirm_upload",
+            "seren_storage_download_object",
+            "seren_storage_download_object_by_id",
+            "seren_storage_delete_object",
+        ] {
+            assert!(tool_names.contains(expected), "missing MCP tool {expected}");
+        }
     }
 
     #[tokio::test]

@@ -24,5 +24,6 @@ pub mod replication;
 pub mod roles;
 pub mod sessions;
 pub mod skills;
+pub mod storage;
 pub mod vpc;
 pub mod webhooks;

@@ -435,7 +435,7 @@ seren object-storage objects --bucket employee-files download \
 seren object-storage objects --bucket employee-files delete --object-id <uuid>
 ```
 
-`storage` is also accepted as a short alias for `object-storage`.
+`seren storage` is a separate command that browses and manages objects through the Seren Storage publisher, scoped to the organization of the authenticated API key. `object-storage` remains the Seren Core organization-administration surface shown above (with explicit `--org-id` selection). `storage` is no longer an alias for `object-storage`.
 
 ### OAuth Connections (BYOC)
 
