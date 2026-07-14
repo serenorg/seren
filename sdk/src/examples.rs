@@ -285,8 +285,8 @@ pub const SEREN_PRODUCT_EXAMPLES: &[SerenProductExample] = &[
         description: "Durable private agent recall plus governed read access to organizational knowledge, with separate privacy and authorization boundaries.",
         highlights: &[
             "Bootstrap sessions from relevant private context.",
-            "Remember durable facts and recall them with hybrid retrieval.",
-            "Read curated organizational knowledge without copying private memory into it.",
+            "Remember, revise, connect, and lifecycle-manage durable private context.",
+            "Read governed organizational knowledge through explicit domains and operations.",
         ],
         requests: &[
             SerenDemoRequest {
@@ -311,6 +311,31 @@ pub const SEREN_PRODUCT_EXAMPLES: &[SerenProductExample] = &[
             },
             SerenDemoRequest {
                 method: DemoMethod::Post,
+                path: "/publishers/seren-memory/memories/{id}/append",
+                label: "Append to a memory",
+            },
+            SerenDemoRequest {
+                method: DemoMethod::Get,
+                path: "/publishers/seren-memory/memories/{id}/revisions",
+                label: "List memory revisions",
+            },
+            SerenDemoRequest {
+                method: DemoMethod::Put,
+                path: "/publishers/seren-memory/memories/{id}/status",
+                label: "Set memory lifecycle",
+            },
+            SerenDemoRequest {
+                method: DemoMethod::Post,
+                path: "/publishers/seren-memory/memories/connections",
+                label: "Connect memories",
+            },
+            SerenDemoRequest {
+                method: DemoMethod::Post,
+                path: "/publishers/seren-memory/ingest/document",
+                label: "Ingest a managed document",
+            },
+            SerenDemoRequest {
+                method: DemoMethod::Post,
                 path: "/publishers/seren-memory/learn_from_error",
                 label: "Store a verified error fix",
             },
@@ -318,6 +343,16 @@ pub const SEREN_PRODUCT_EXAMPLES: &[SerenProductExample] = &[
                 method: DemoMethod::Post,
                 path: "/publishers/seren-memory/knowledge/search",
                 label: "Search organizational knowledge",
+            },
+            SerenDemoRequest {
+                method: DemoMethod::Get,
+                path: "/publishers/seren-memory/knowledge/domains",
+                label: "List knowledge domains",
+            },
+            SerenDemoRequest {
+                method: DemoMethod::Get,
+                path: "/publishers/seren-memory/knowledge/operations",
+                label: "List knowledge operations",
             },
             SerenDemoRequest {
                 method: DemoMethod::Post,
@@ -682,6 +717,18 @@ mod tests {
                 .requests
                 .iter()
                 .any(|request| request.path.contains("/knowledge/search"))
+        );
+        assert!(
+            memory
+                .requests
+                .iter()
+                .any(|request| request.path.ends_with("/revisions"))
+        );
+        assert!(
+            memory
+                .requests
+                .iter()
+                .any(|request| request.path.ends_with("/knowledge/domains"))
         );
     }
 

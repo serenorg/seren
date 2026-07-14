@@ -60,6 +60,11 @@ enum Commands {
         #[command(subcommand)]
         action: StorageAction,
     },
+    /// Work with private memory and governed organizational knowledge
+    Memory {
+        #[command(subcommand)]
+        action: MemoryAction,
+    },
     /// Administer organization object storage
     #[command(name = "object-storage")]
     ObjectStorage {
@@ -2600,6 +2605,119 @@ enum StorageBucketAction {
 }
 
 #[derive(Subcommand)]
+enum MemoryAction {
+    /// Check Seren Memory service health
+    Health {
+        /// Include dependency health details
+        #[arg(long)]
+        detailed: bool,
+    },
+    /// Assemble private context for a session
+    Bootstrap {
+        #[arg(long)]
+        project_id: Option<Uuid>,
+        #[arg(long)]
+        org_id: Option<Uuid>,
+        #[arg(long)]
+        token_budget: Option<u64>,
+        #[arg(long)]
+        include_git: Option<bool>,
+        #[arg(long)]
+        include_time: Option<bool>,
+    },
+    /// Recall relevant private memories
+    Recall {
+        /// Natural-language recall query
+        query: String,
+        #[arg(long)]
+        limit: Option<i64>,
+        /// Filter by memory type; may be repeated
+        #[arg(long = "memory-type")]
+        memory_types: Vec<String>,
+        #[arg(long)]
+        min_relevance: Option<f64>,
+        #[arg(long)]
+        search_mode: Option<String>,
+        #[arg(long)]
+        project_id: Option<Uuid>,
+        #[arg(long)]
+        org_id: Option<Uuid>,
+    },
+    /// Store durable private context
+    Remember {
+        /// Memory content
+        content: String,
+        #[arg(long, default_value = "semantic")]
+        memory_type: String,
+        #[arg(long)]
+        importance: Option<i32>,
+        /// active, draft, canonical, or deprecated
+        #[arg(long)]
+        lifecycle_status: Option<String>,
+        /// Optional JSON metadata
+        #[arg(long)]
+        metadata: Option<String>,
+        #[arg(long)]
+        pin: Option<bool>,
+        #[arg(long)]
+        project_id: Option<Uuid>,
+        #[arg(long)]
+        org_id: Option<Uuid>,
+        #[arg(long)]
+        session_id: Option<Uuid>,
+    },
+    /// List private memories without printing their content in table output
+    List {
+        #[arg(long)]
+        memory_type: Option<String>,
+        /// active, draft, canonical, or deprecated
+        #[arg(long)]
+        lifecycle_status: Option<String>,
+        #[arg(long)]
+        is_pinned: Option<bool>,
+        #[arg(long)]
+        is_consolidated: Option<bool>,
+        #[arg(long)]
+        limit: Option<i64>,
+        #[arg(long)]
+        offset: Option<i64>,
+        #[arg(long)]
+        project_id: Option<Uuid>,
+        #[arg(long)]
+        org_id: Option<Uuid>,
+    },
+    /// Get one private memory
+    Get { id: Uuid },
+    /// Soft-delete one private memory
+    Forget { id: Uuid },
+    /// Permanently delete one private memory
+    Delete { id: Uuid },
+    /// Read governed organizational knowledge
+    Knowledge {
+        #[command(subcommand)]
+        action: MemoryKnowledgeAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum MemoryKnowledgeAction {
+    /// List accessible knowledge domains
+    Domains,
+    /// Search governed organizational knowledge
+    Search {
+        query: String,
+        #[arg(long)]
+        domain_id: Option<Uuid>,
+    },
+    /// Open one governed knowledge entity
+    Open {
+        entity_id: String,
+        #[arg(long)]
+        domain_id: Option<Uuid>,
+    },
+}
+
+#[derive(Subcommand)]
 enum ObjectStorageBucketAction {
     /// List buckets
     List,
@@ -4804,6 +4922,116 @@ async fn main() -> anyhow::Result<()> {
                         commands::storage::delete_object_by_key(&bucket, &key, &ctx).await?
                     }
                 }
+            },
+        },
+        Commands::Memory { action } => match action {
+            MemoryAction::Health { detailed } => commands::memory::health(detailed, &ctx).await?,
+            MemoryAction::Bootstrap {
+                project_id,
+                org_id,
+                token_budget,
+                include_git,
+                include_time,
+            } => {
+                commands::memory::bootstrap(
+                    project_id,
+                    org_id,
+                    token_budget,
+                    include_git,
+                    include_time,
+                    &ctx,
+                )
+                .await?
+            }
+            MemoryAction::Recall {
+                query,
+                limit,
+                memory_types,
+                min_relevance,
+                search_mode,
+                project_id,
+                org_id,
+            } => {
+                commands::memory::recall(
+                    commands::memory::RecallOptions {
+                        query,
+                        limit,
+                        memory_types,
+                        min_relevance,
+                        search_mode,
+                        project_id,
+                        org_id,
+                    },
+                    &ctx,
+                )
+                .await?
+            }
+            MemoryAction::Remember {
+                content,
+                memory_type,
+                importance,
+                lifecycle_status,
+                metadata,
+                pin,
+                project_id,
+                org_id,
+                session_id,
+            } => {
+                commands::memory::remember(
+                    commands::memory::RememberOptions {
+                        content,
+                        memory_type,
+                        importance,
+                        lifecycle_status,
+                        metadata,
+                        pin,
+                        project_id,
+                        org_id,
+                        session_id,
+                    },
+                    &ctx,
+                )
+                .await?
+            }
+            MemoryAction::List {
+                memory_type,
+                lifecycle_status,
+                is_pinned,
+                is_consolidated,
+                limit,
+                offset,
+                project_id,
+                org_id,
+            } => {
+                commands::memory::list(
+                    commands::memory::ListOptions {
+                        memory_type,
+                        lifecycle_status,
+                        is_pinned,
+                        is_consolidated,
+                        limit,
+                        offset,
+                        project_id,
+                        org_id,
+                    },
+                    &ctx,
+                )
+                .await?
+            }
+            MemoryAction::Get { id } => commands::memory::get(id, &ctx).await?,
+            MemoryAction::Forget { id } => commands::memory::forget(id, &ctx).await?,
+            MemoryAction::Delete { id } => commands::memory::delete(id, &ctx).await?,
+            MemoryAction::Knowledge { action } => match action {
+                MemoryKnowledgeAction::Domains => {
+                    commands::memory::list_knowledge_domains(&ctx).await?
+                }
+                MemoryKnowledgeAction::Search { query, domain_id } => {
+                    commands::memory::search_knowledge(query, domain_id, &ctx).await?
+                }
+                MemoryKnowledgeAction::Open {
+                    entity_id,
+                    domain_id,
+                } => commands::memory::open_knowledge_entity(entity_id, domain_id, &ctx).await?,
             },
         },
         Commands::ObjectStorage { org_id, action } => match action {
@@ -8462,6 +8690,52 @@ mod tests {
             Commands::Storage {
                 action: StorageAction::Buckets {
                     action: StorageBucketAction::List
+                }
+            }
+        ));
+    }
+
+    #[test]
+    fn seren_memory_publisher_commands_parse() {
+        let recall = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "recall",
+            "release approval process",
+            "--limit",
+            "5",
+            "--memory-type",
+            "semantic",
+        ]);
+        match recall.command {
+            Commands::Memory {
+                action:
+                    MemoryAction::Recall {
+                        query,
+                        limit,
+                        memory_types,
+                        ..
+                    },
+            } => {
+                assert_eq!(query, "release approval process");
+                assert_eq!(limit, Some(5));
+                assert_eq!(memory_types, vec!["semantic"]);
+            }
+            _ => panic!("unexpected Seren Memory command parsed"),
+        }
+
+        let knowledge = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "knowledge",
+            "search",
+            "deployment policy",
+        ]);
+        assert!(matches!(
+            knowledge.command,
+            Commands::Memory {
+                action: MemoryAction::Knowledge {
+                    action: MemoryKnowledgeAction::Search { .. }
                 }
             }
         ));

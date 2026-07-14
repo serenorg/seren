@@ -14,6 +14,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::from_config(&config)?;
     let response = client
         .seren_memory_recall(&SerenMemoryRecallParams {
+            created_after: None,
+            created_before: None,
             query,
             limit: Some(5),
             memory_types: None,

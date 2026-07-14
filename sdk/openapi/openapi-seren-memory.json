@@ -194,6 +194,62 @@
                 }
             }
         },
+        "/ingest/document": {
+            "post": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Ingest a managed rich document",
+                "operationId": "ingest_document",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/IngestDocumentRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Document ingestion result",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_IngestDocumentOutput"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
         "/jobs/consolidate": {
             "post": {
                 "tags": [
@@ -250,6 +306,432 @@
                 ]
             }
         },
+        "/knowledge/domains": {
+            "get": {
+                "tags": [
+                    "Knowledge"
+                ],
+                "summary": "List accessible organizational knowledge domains",
+                "operationId": "list_knowledge_domains",
+                "responses": {
+                    "200": {
+                        "description": "Accessible knowledge domains",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_KnowledgeDomainsResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Knowledge Administration"
+                ],
+                "summary": "Create an organizational knowledge domain",
+                "operationId": "create_knowledge_domain",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateKnowledgeDomainRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Created knowledge domain",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_KnowledgeDomainResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid domain",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Organization owner or administrator required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Domain slug already exists",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "413": {
+                        "description": "Organization knowledge domain limit exceeded",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/knowledge/domains/{domain_id}": {
+            "put": {
+                "tags": [
+                    "Knowledge Administration"
+                ],
+                "summary": "Update an organizational knowledge domain",
+                "operationId": "put_knowledge_domain",
+                "parameters": [
+                    {
+                        "name": "domain_id",
+                        "in": "path",
+                        "description": "Knowledge domain identifier",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateKnowledgeDomainRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Updated knowledge domain",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_KnowledgeDomainResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid domain",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Domain owner permission required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/knowledge/domains/{domain_id}/grants": {
+            "get": {
+                "tags": [
+                    "Knowledge Administration"
+                ],
+                "summary": "List grants for an organizational knowledge domain",
+                "operationId": "list_knowledge_domain_grants",
+                "parameters": [
+                    {
+                        "name": "domain_id",
+                        "in": "path",
+                        "description": "Knowledge domain identifier",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Knowledge domain grants",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_KnowledgeDomainGrantsResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Domain owner permission required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            },
+            "put": {
+                "tags": [
+                    "Knowledge Administration"
+                ],
+                "summary": "Set a grant for an organizational knowledge domain",
+                "operationId": "put_knowledge_domain_grant",
+                "parameters": [
+                    {
+                        "name": "domain_id",
+                        "in": "path",
+                        "description": "Knowledge domain identifier",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/KnowledgeDomainGrantRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Knowledge domain grant",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_KnowledgeDomainGrantResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid grant",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Domain owner permission required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/knowledge/domains/{domain_id}/grants/{principal_type}/{principal_id}": {
+            "delete": {
+                "tags": [
+                    "Knowledge Administration"
+                ],
+                "summary": "Remove a grant from an organizational knowledge domain",
+                "operationId": "delete_knowledge_domain_grant",
+                "parameters": [
+                    {
+                        "name": "domain_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "principal_type",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "principal_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Knowledge domain grant deletion result",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_DeleteKnowledgeDomainGrantResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid principal type",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Domain owner permission required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Domain must retain an owner",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
         "/knowledge/entities/open": {
             "post": {
                 "tags": [
@@ -273,7 +755,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/DataResponse_ReadOutput"
+                                    "$ref": "#/components/schemas/DataResponse_KnowledgeOperationResult"
                                 }
                             }
                         }
@@ -299,7 +781,7 @@
                         }
                     },
                     "404": {
-                        "description": "Knowledge graph is not configured",
+                        "description": "Organizational knowledge is not published",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -310,6 +792,571 @@
                     },
                     "502": {
                         "description": "Knowledge backend unavailable",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/knowledge/model": {
+            "get": {
+                "tags": [
+                    "Knowledge Administration"
+                ],
+                "summary": "Get the desired organizational knowledge model",
+                "operationId": "get_knowledge_model",
+                "parameters": [
+                    {
+                        "name": "domain_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Organization knowledge model",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_KnowledgeModelConfigurationResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Domain editor permission required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Knowledge model is not configured",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            },
+            "put": {
+                "tags": [
+                    "Knowledge Administration"
+                ],
+                "summary": "Set the desired organizational knowledge model",
+                "operationId": "put_knowledge_model",
+                "parameters": [
+                    {
+                        "name": "domain_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/KnowledgeModel"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Queued organization knowledge model",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_KnowledgeModelConfigurationResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid knowledge model",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Domain editor or organization administrator required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/knowledge/operations": {
+            "get": {
+                "tags": [
+                    "Knowledge"
+                ],
+                "summary": "List available organizational knowledge operations",
+                "operationId": "list_knowledge_operations",
+                "parameters": [
+                    {
+                        "name": "domain_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Published organizational knowledge operations",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_KnowledgeOperationsResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Knowledge is not configured",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Knowledge service unavailable",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/knowledge/operations/{operation_name}": {
+            "post": {
+                "tags": [
+                    "Knowledge"
+                ],
+                "summary": "Invoke a published organizational knowledge operation",
+                "operationId": "invoke_knowledge_operation",
+                "parameters": [
+                    {
+                        "name": "operation_name",
+                        "in": "path",
+                        "description": "Published operation name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/InvokeKnowledgeOperationRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Organizational knowledge operation result",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_KnowledgeOperationResult"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid operation or parameters",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Knowledge is not configured",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Knowledge service unavailable",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/knowledge/records": {
+            "get": {
+                "tags": [
+                    "Knowledge Administration"
+                ],
+                "summary": "List canonical organizational knowledge records",
+                "operationId": "list_knowledge_records",
+                "parameters": [
+                    {
+                        "name": "domain_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "integer",
+                                "null"
+                            ],
+                            "format": "int64"
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "integer",
+                                "null"
+                            ],
+                            "format": "int64"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Canonical organization knowledge records",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ListKnowledgeRecordsResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Human organization member required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/knowledge/records/{record_key}": {
+            "put": {
+                "tags": [
+                    "Knowledge Administration"
+                ],
+                "summary": "Create or replace a canonical organizational knowledge record",
+                "operationId": "put_knowledge_record",
+                "parameters": [
+                    {
+                        "name": "record_key",
+                        "in": "path",
+                        "description": "Stable record key",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "domain_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpsertKnowledgeRecordRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Queued canonical knowledge record",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_KnowledgeRecordResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid knowledge record",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Domain editor permission required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Knowledge model is not configured",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "413": {
+                        "description": "Organization knowledge limit exceeded",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Knowledge Administration"
+                ],
+                "summary": "Delete a canonical organizational knowledge record",
+                "operationId": "delete_knowledge_record",
+                "parameters": [
+                    {
+                        "name": "record_key",
+                        "in": "path",
+                        "description": "Stable record key",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "domain_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Knowledge record deletion result",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_DeleteKnowledgeRecordResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Human organization member required",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -349,7 +1396,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/DataResponse_ReadOutput"
+                                    "$ref": "#/components/schemas/DataResponse_KnowledgeOperationResult"
                                 }
                             }
                         }
@@ -375,7 +1422,7 @@
                         }
                     },
                     "404": {
-                        "description": "Knowledge graph is not configured",
+                        "description": "Organizational knowledge is not published",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -542,6 +1589,14 @@
                         }
                     },
                     {
+                        "name": "lifecycle_status",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "$ref": "#/components/schemas/MemoryLifecycle"
+                        }
+                    },
+                    {
                         "name": "project_id",
                         "in": "query",
                         "required": false,
@@ -601,6 +1656,136 @@
                     },
                     "401": {
                         "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/memories/connections": {
+            "post": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Connect two private memories",
+                "operationId": "link_memories",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/MemoryConnectionRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Connection result",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_MemoryConnectionResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Memory not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Disconnect two private memories",
+                "operationId": "unlink_memories",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/MemoryConnectionRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Connection result",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_MemoryConnectionResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Memory not found",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -715,6 +1900,220 @@
                     },
                     "500": {
                         "description": "Unexpected service error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/memories/{id}/append": {
+            "post": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Append to a private memory",
+                "operationId": "append_memory",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Memory ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AppendMemoryRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Updated memory",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_MemoryOutput"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Memory not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Source-managed memory requires re-ingestion",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/memories/{id}/revisions": {
+            "get": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "List a private memory's revisions",
+                "operationId": "list_memory_revisions",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Memory ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Memory revisions newest first",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_Vec_MemoryRevision"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Memory not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/memories/{id}/status": {
+            "put": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Set a private memory lifecycle status",
+                "operationId": "set_memory_status",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Memory ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SetMemoryStatusRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Updated memory",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_Option_MemoryOutput"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1007,6 +2406,17 @@
     },
     "components": {
         "schemas": {
+            "AppendMemoryRequest": {
+                "type": "object",
+                "required": [
+                    "content"
+                ],
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    }
+                }
+            },
             "ConflictAction": {
                 "type": "string",
                 "description": "Action determined by the conflict resolution pipeline.",
@@ -1054,6 +2464,30 @@
                     }
                 }
             },
+            "CreateKnowledgeDomainRequest": {
+                "type": "object",
+                "required": [
+                    "slug",
+                    "name",
+                    "classification",
+                    "visibility"
+                ],
+                "properties": {
+                    "classification": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "slug": {
+                        "type": "string"
+                    },
+                    "visibility": {
+                        "$ref": "#/components/schemas/KnowledgeDomainVisibility"
+                    }
+                },
+                "additionalProperties": false
+            },
             "DataResponse_ConsolidateJobResponse": {
                 "type": "object",
                 "required": [
@@ -1079,6 +2513,44 @@
                             "summaries_created": {
                                 "type": "integer",
                                 "minimum": 0
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_DeleteKnowledgeDomainGrantResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "deleted"
+                        ],
+                        "properties": {
+                            "deleted": {
+                                "type": "boolean"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_DeleteKnowledgeRecordResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "deleted"
+                        ],
+                        "properties": {
+                            "deleted": {
+                                "type": "boolean"
                             }
                         }
                     }
@@ -1189,6 +2661,318 @@
                     }
                 }
             },
+            "DataResponse_IngestDocumentOutput": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "memory_id",
+                            "action",
+                            "embedding_status",
+                            "current_revision"
+                        ],
+                        "properties": {
+                            "action": {
+                                "type": "string"
+                            },
+                            "current_revision": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "embedding_status": {
+                                "type": "string"
+                            },
+                            "memory_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_KnowledgeDomainGrantResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "domain_id",
+                            "principal_type",
+                            "principal_id",
+                            "permission"
+                        ],
+                        "properties": {
+                            "domain_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "permission": {
+                                "$ref": "#/components/schemas/KnowledgeDomainPermission"
+                            },
+                            "principal_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "principal_type": {
+                                "$ref": "#/components/schemas/KnowledgePrincipalType"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_KnowledgeDomainGrantsResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "grants"
+                        ],
+                        "properties": {
+                            "grants": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/KnowledgeDomainGrantResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_KnowledgeDomainResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "id",
+                            "slug",
+                            "name",
+                            "classification",
+                            "visibility",
+                            "is_default"
+                        ],
+                        "properties": {
+                            "classification": {
+                                "type": "string"
+                            },
+                            "id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "is_default": {
+                                "type": "boolean"
+                            },
+                            "name": {
+                                "type": "string"
+                            },
+                            "slug": {
+                                "type": "string"
+                            },
+                            "visibility": {
+                                "$ref": "#/components/schemas/KnowledgeDomainVisibility"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_KnowledgeDomainsResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "domains"
+                        ],
+                        "properties": {
+                            "domains": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/KnowledgeDomainResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_KnowledgeModelConfigurationResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "domain_id",
+                            "model",
+                            "model_hash",
+                            "desired_revision",
+                            "status"
+                        ],
+                        "properties": {
+                            "applied_revision": {
+                                "type": [
+                                    "integer",
+                                    "null"
+                                ],
+                                "format": "int64"
+                            },
+                            "desired_revision": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "domain_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "model": {
+                                "$ref": "#/components/schemas/KnowledgeModel"
+                            },
+                            "model_hash": {
+                                "type": "string"
+                            },
+                            "status": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_KnowledgeOperationResult": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "operation",
+                            "knowledge_revision",
+                            "count",
+                            "items"
+                        ],
+                        "properties": {
+                            "count": {
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "items": {},
+                            "knowledge_revision": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "operation": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_KnowledgeOperationsResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "operations"
+                        ],
+                        "properties": {
+                            "operations": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/KnowledgeOperation"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_KnowledgeRecordResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "record_key",
+                            "payload",
+                            "created_at",
+                            "updated_at"
+                        ],
+                        "properties": {
+                            "created_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "payload": {
+                                "$ref": "#/components/schemas/KnowledgeRecord"
+                            },
+                            "record_key": {
+                                "type": "string"
+                            },
+                            "updated_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_ListKnowledgeRecordsResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "records",
+                            "limit",
+                            "offset"
+                        ],
+                        "properties": {
+                            "limit": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "offset": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "records": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/KnowledgeRecordResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             "DataResponse_ListMemoriesResponse": {
                 "type": "object",
                 "required": [
@@ -1220,6 +3004,159 @@
                     }
                 }
             },
+            "DataResponse_MemoryConnectionResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "connected"
+                        ],
+                        "properties": {
+                            "connected": {
+                                "type": "boolean"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_MemoryOutput": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "id",
+                            "user_id",
+                            "memory_type",
+                            "content",
+                            "metadata",
+                            "relevance_score",
+                            "access_count",
+                            "is_consolidated",
+                            "is_pinned",
+                            "lifecycle_status",
+                            "importance",
+                            "current_revision",
+                            "embedding_status",
+                            "source_kind",
+                            "source_managed",
+                            "created_at",
+                            "updated_at"
+                        ],
+                        "properties": {
+                            "access_count": {
+                                "type": "integer",
+                                "format": "int32"
+                            },
+                            "content": {
+                                "type": "string"
+                            },
+                            "created_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "current_revision": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "embedding_status": {
+                                "type": "string"
+                            },
+                            "id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "importance": {
+                                "type": "integer",
+                                "format": "int32"
+                            },
+                            "is_consolidated": {
+                                "type": "boolean"
+                            },
+                            "is_pinned": {
+                                "type": "boolean"
+                            },
+                            "lifecycle_status": {
+                                "type": "string"
+                            },
+                            "memory_type": {
+                                "type": "string"
+                            },
+                            "metadata": {},
+                            "org_id": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "uuid"
+                            },
+                            "project_id": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "uuid"
+                            },
+                            "relevance_score": {
+                                "type": "number",
+                                "format": "double"
+                            },
+                            "session_id": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "uuid"
+                            },
+                            "source_external_id": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "source_kind": {
+                                "type": "string"
+                            },
+                            "source_managed": {
+                                "type": "boolean"
+                            },
+                            "source_revision": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "source_uri": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "summary": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "updated_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "user_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            }
+                        }
+                    }
+                }
+            },
             "DataResponse_Option_MemoryOutput": {
                 "type": "object",
                 "required": [
@@ -1243,6 +3180,12 @@
                                     "access_count",
                                     "is_consolidated",
                                     "is_pinned",
+                                    "lifecycle_status",
+                                    "importance",
+                                    "current_revision",
+                                    "embedding_status",
+                                    "source_kind",
+                                    "source_managed",
                                     "created_at",
                                     "updated_at"
                                 ],
@@ -1258,15 +3201,29 @@
                                         "type": "string",
                                         "format": "date-time"
                                     },
+                                    "current_revision": {
+                                        "type": "integer",
+                                        "format": "int64"
+                                    },
+                                    "embedding_status": {
+                                        "type": "string"
+                                    },
                                     "id": {
                                         "type": "string",
                                         "format": "uuid"
+                                    },
+                                    "importance": {
+                                        "type": "integer",
+                                        "format": "int32"
                                     },
                                     "is_consolidated": {
                                         "type": "boolean"
                                     },
                                     "is_pinned": {
                                         "type": "boolean"
+                                    },
+                                    "lifecycle_status": {
+                                        "type": "string"
                                     },
                                     "memory_type": {
                                         "type": "string"
@@ -1297,6 +3254,30 @@
                                         ],
                                         "format": "uuid"
                                     },
+                                    "source_external_id": {
+                                        "type": [
+                                            "string",
+                                            "null"
+                                        ]
+                                    },
+                                    "source_kind": {
+                                        "type": "string"
+                                    },
+                                    "source_managed": {
+                                        "type": "boolean"
+                                    },
+                                    "source_revision": {
+                                        "type": [
+                                            "string",
+                                            "null"
+                                        ]
+                                    },
+                                    "source_uri": {
+                                        "type": [
+                                            "string",
+                                            "null"
+                                        ]
+                                    },
                                     "summary": {
                                         "type": [
                                             "string",
@@ -1314,42 +3295,6 @@
                                 }
                             }
                         ]
-                    }
-                }
-            },
-            "DataResponse_ReadOutput": {
-                "type": "object",
-                "required": [
-                    "data"
-                ],
-                "properties": {
-                    "data": {
-                        "type": "object",
-                        "required": [
-                            "query_name",
-                            "target",
-                            "row_count",
-                            "rows"
-                        ],
-                        "properties": {
-                            "columns": {
-                                "type": "array",
-                                "items": {
-                                    "type": "string"
-                                }
-                            },
-                            "query_name": {
-                                "type": "string"
-                            },
-                            "row_count": {
-                                "type": "integer",
-                                "minimum": 0
-                            },
-                            "rows": {},
-                            "target": {
-                                "$ref": "#/components/schemas/ReadTargetOutput"
-                            }
-                        }
                     }
                 }
             },
@@ -1387,7 +3332,8 @@
                     "data": {
                         "type": "object",
                         "required": [
-                            "memories"
+                            "memories",
+                            "signals"
                         ],
                         "properties": {
                             "memories": {
@@ -1395,6 +3341,9 @@
                                 "items": {
                                     "$ref": "#/components/schemas/MemoryOutput"
                                 }
+                            },
+                            "signals": {
+                                "$ref": "#/components/schemas/RecallSignalsResponse"
                             }
                         }
                     }
@@ -1509,6 +3458,86 @@
                     }
                 }
             },
+            "DataResponse_Vec_MemoryRevision": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "memory_id",
+                                "revision",
+                                "change_kind",
+                                "content",
+                                "metadata",
+                                "lifecycle_status",
+                                "changed_by",
+                                "created_at"
+                            ],
+                            "properties": {
+                                "change_kind": {
+                                    "type": "string"
+                                },
+                                "changed_by": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "content": {
+                                    "type": "string"
+                                },
+                                "created_at": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                "lifecycle_status": {
+                                    "$ref": "#/components/schemas/MemoryLifecycle"
+                                },
+                                "memory_id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "metadata": {},
+                                "revision": {
+                                    "type": "integer",
+                                    "format": "int64"
+                                },
+                                "summary": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "DeleteKnowledgeDomainGrantResponse": {
+                "type": "object",
+                "required": [
+                    "deleted"
+                ],
+                "properties": {
+                    "deleted": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "DeleteKnowledgeRecordResponse": {
+                "type": "object",
+                "required": [
+                    "deleted"
+                ],
+                "properties": {
+                    "deleted": {
+                        "type": "boolean"
+                    }
+                }
+            },
             "DeleteMemoryResponse": {
                 "type": "object",
                 "required": [
@@ -1519,6 +3548,15 @@
                         "type": "boolean"
                     }
                 }
+            },
+            "EmbeddingStatus": {
+                "type": "string",
+                "description": "State of semantic indexing for a memory.",
+                "enum": [
+                    "pending",
+                    "ready",
+                    "failed"
+                ]
             },
             "ErrorBody": {
                 "type": "object",
@@ -1626,6 +3664,692 @@
                     }
                 }
             },
+            "IngestDocumentOutput": {
+                "type": "object",
+                "required": [
+                    "memory_id",
+                    "action",
+                    "embedding_status",
+                    "current_revision"
+                ],
+                "properties": {
+                    "action": {
+                        "type": "string"
+                    },
+                    "current_revision": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "embedding_status": {
+                        "type": "string"
+                    },
+                    "memory_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                }
+            },
+            "IngestDocumentRequest": {
+                "type": "object",
+                "required": [
+                    "document",
+                    "memory_type",
+                    "source_kind",
+                    "source_external_id"
+                ],
+                "properties": {
+                    "document": {},
+                    "importance": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int32"
+                    },
+                    "lifecycle_status": {
+                        "oneOf": [
+                            {
+                                "type": "null"
+                            },
+                            {
+                                "$ref": "#/components/schemas/MemoryLifecycle"
+                            }
+                        ]
+                    },
+                    "memory_type": {
+                        "type": "string"
+                    },
+                    "metadata": {},
+                    "org_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "project_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "session_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "source_external_id": {
+                        "type": "string"
+                    },
+                    "source_kind": {
+                        "type": "string"
+                    },
+                    "source_revision": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "source_uri": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                }
+            },
+            "InvokeKnowledgeOperationRequest": {
+                "type": "object",
+                "required": [
+                    "parameters"
+                ],
+                "properties": {
+                    "domain_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "parameters": {}
+                },
+                "additionalProperties": false
+            },
+            "KnowledgeCardinality": {
+                "type": "object",
+                "properties": {
+                    "maximum": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int32",
+                        "minimum": 0
+                    },
+                    "minimum": {
+                        "type": "integer",
+                        "format": "int32",
+                        "minimum": 0
+                    }
+                },
+                "additionalProperties": false
+            },
+            "KnowledgeDomainGrantRequest": {
+                "type": "object",
+                "required": [
+                    "principal_type",
+                    "principal_id",
+                    "permission"
+                ],
+                "properties": {
+                    "permission": {
+                        "$ref": "#/components/schemas/KnowledgeDomainPermission"
+                    },
+                    "principal_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "principal_type": {
+                        "$ref": "#/components/schemas/KnowledgePrincipalType"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "KnowledgeDomainGrantResponse": {
+                "type": "object",
+                "required": [
+                    "domain_id",
+                    "principal_type",
+                    "principal_id",
+                    "permission"
+                ],
+                "properties": {
+                    "domain_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "permission": {
+                        "$ref": "#/components/schemas/KnowledgeDomainPermission"
+                    },
+                    "principal_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "principal_type": {
+                        "$ref": "#/components/schemas/KnowledgePrincipalType"
+                    }
+                }
+            },
+            "KnowledgeDomainGrantsResponse": {
+                "type": "object",
+                "required": [
+                    "grants"
+                ],
+                "properties": {
+                    "grants": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/KnowledgeDomainGrantResponse"
+                        }
+                    }
+                }
+            },
+            "KnowledgeDomainPermission": {
+                "type": "string",
+                "enum": [
+                    "reader",
+                    "editor",
+                    "owner"
+                ]
+            },
+            "KnowledgeDomainResponse": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "slug",
+                    "name",
+                    "classification",
+                    "visibility",
+                    "is_default"
+                ],
+                "properties": {
+                    "classification": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "is_default": {
+                        "type": "boolean"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "slug": {
+                        "type": "string"
+                    },
+                    "visibility": {
+                        "$ref": "#/components/schemas/KnowledgeDomainVisibility"
+                    }
+                }
+            },
+            "KnowledgeDomainVisibility": {
+                "type": "string",
+                "enum": [
+                    "organization",
+                    "restricted"
+                ]
+            },
+            "KnowledgeDomainsResponse": {
+                "type": "object",
+                "required": [
+                    "domains"
+                ],
+                "properties": {
+                    "domains": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/KnowledgeDomainResponse"
+                        }
+                    }
+                }
+            },
+            "KnowledgeEntityType": {
+                "type": "object",
+                "required": [
+                    "name",
+                    "fields"
+                ],
+                "properties": {
+                    "description": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "fields": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/KnowledgeField"
+                        }
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "KnowledgeField": {
+                "type": "object",
+                "required": [
+                    "name",
+                    "type"
+                ],
+                "properties": {
+                    "allowed_values": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "collection": {
+                        "type": "boolean"
+                    },
+                    "identity": {
+                        "type": "boolean"
+                    },
+                    "indexed": {
+                        "type": "boolean"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "required": {
+                        "type": "boolean"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/KnowledgeFieldType"
+                    },
+                    "unique": {
+                        "type": "boolean"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "KnowledgeFieldType": {
+                "type": "string",
+                "enum": [
+                    "text",
+                    "boolean",
+                    "int32",
+                    "int64",
+                    "uint32",
+                    "uint64",
+                    "float32",
+                    "float64",
+                    "date",
+                    "date_time",
+                    "blob"
+                ]
+            },
+            "KnowledgeModel": {
+                "type": "object",
+                "required": [
+                    "entity_types"
+                ],
+                "properties": {
+                    "entity_types": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/KnowledgeEntityType"
+                        }
+                    },
+                    "operations": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/KnowledgeOperation"
+                        }
+                    },
+                    "relationship_types": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/KnowledgeRelationshipType"
+                        }
+                    }
+                },
+                "additionalProperties": false
+            },
+            "KnowledgeModelConfigurationResponse": {
+                "type": "object",
+                "required": [
+                    "domain_id",
+                    "model",
+                    "model_hash",
+                    "desired_revision",
+                    "status"
+                ],
+                "properties": {
+                    "applied_revision": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int64"
+                    },
+                    "desired_revision": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "domain_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "model": {
+                        "$ref": "#/components/schemas/KnowledgeModel"
+                    },
+                    "model_hash": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    }
+                }
+            },
+            "KnowledgeOperation": {
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/KnowledgeOperationKind"
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "name",
+                            "description"
+                        ],
+                        "properties": {
+                            "description": {
+                                "type": "string"
+                            },
+                            "instruction": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "name": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                ]
+            },
+            "KnowledgeOperationKind": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "required": [
+                            "entity_type",
+                            "search_field",
+                            "kind"
+                        ],
+                        "properties": {
+                            "entity_type": {
+                                "type": "string"
+                            },
+                            "kind": {
+                                "type": "string",
+                                "enum": [
+                                    "search"
+                                ]
+                            },
+                            "return_fields": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "search_field": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "entity_type",
+                            "kind"
+                        ],
+                        "properties": {
+                            "entity_type": {
+                                "type": "string"
+                            },
+                            "kind": {
+                                "type": "string",
+                                "enum": [
+                                    "lookup"
+                                ]
+                            },
+                            "return_fields": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "relationship_type",
+                            "kind"
+                        ],
+                        "properties": {
+                            "kind": {
+                                "type": "string",
+                                "enum": [
+                                    "related"
+                                ]
+                            },
+                            "relationship_type": {
+                                "type": "string"
+                            },
+                            "return_fields": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ]
+            },
+            "KnowledgeOperationResult": {
+                "type": "object",
+                "required": [
+                    "operation",
+                    "knowledge_revision",
+                    "count",
+                    "items"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "items": {},
+                    "knowledge_revision": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "operation": {
+                        "type": "string"
+                    }
+                }
+            },
+            "KnowledgeOperationsResponse": {
+                "type": "object",
+                "required": [
+                    "operations"
+                ],
+                "properties": {
+                    "operations": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/KnowledgeOperation"
+                        }
+                    }
+                }
+            },
+            "KnowledgePrincipalType": {
+                "type": "string",
+                "enum": [
+                    "user",
+                    "agent"
+                ]
+            },
+            "KnowledgeRecord": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "required": [
+                            "entity_type",
+                            "id",
+                            "kind"
+                        ],
+                        "properties": {
+                            "entity_type": {
+                                "type": "string"
+                            },
+                            "id": {
+                                "type": "string"
+                            },
+                            "kind": {
+                                "type": "string",
+                                "enum": [
+                                    "entity"
+                                ]
+                            },
+                            "properties": {
+                                "type": "object",
+                                "additionalProperties": {},
+                                "propertyNames": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "relationship_type",
+                            "from",
+                            "to",
+                            "kind"
+                        ],
+                        "properties": {
+                            "from": {
+                                "type": "string"
+                            },
+                            "kind": {
+                                "type": "string",
+                                "enum": [
+                                    "relationship"
+                                ]
+                            },
+                            "properties": {
+                                "type": "object",
+                                "additionalProperties": {},
+                                "propertyNames": {
+                                    "type": "string"
+                                }
+                            },
+                            "relationship_type": {
+                                "type": "string"
+                            },
+                            "to": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                ]
+            },
+            "KnowledgeRecordResponse": {
+                "type": "object",
+                "required": [
+                    "record_key",
+                    "payload",
+                    "created_at",
+                    "updated_at"
+                ],
+                "properties": {
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "payload": {
+                        "$ref": "#/components/schemas/KnowledgeRecord"
+                    },
+                    "record_key": {
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "KnowledgeRelationshipType": {
+                "type": "object",
+                "required": [
+                    "name",
+                    "from_entity_type",
+                    "to_entity_type"
+                ],
+                "properties": {
+                    "cardinality": {
+                        "oneOf": [
+                            {
+                                "type": "null"
+                            },
+                            {
+                                "$ref": "#/components/schemas/KnowledgeCardinality"
+                            }
+                        ]
+                    },
+                    "description": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "fields": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/KnowledgeField"
+                        }
+                    },
+                    "from_entity_type": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "to_entity_type": {
+                        "type": "string"
+                    },
+                    "unique_from": {
+                        "type": "boolean"
+                    },
+                    "unique_pair": {
+                        "type": "boolean"
+                    }
+                },
+                "additionalProperties": false
+            },
             "LearnFromErrorParams": {
                 "type": "object",
                 "required": [
@@ -1661,6 +4385,30 @@
                     "project_id": "123e4567-e89b-12d3-a456-426614174000"
                 }
             },
+            "ListKnowledgeRecordsResponse": {
+                "type": "object",
+                "required": [
+                    "records",
+                    "limit",
+                    "offset"
+                ],
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "records": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/KnowledgeRecordResponse"
+                        }
+                    }
+                }
+            },
             "ListMemoriesResponse": {
                 "type": "object",
                 "required": [
@@ -1684,6 +4432,48 @@
                     }
                 }
             },
+            "MemoryConnectionRequest": {
+                "type": "object",
+                "required": [
+                    "source_id",
+                    "target_id",
+                    "edge_type"
+                ],
+                "properties": {
+                    "edge_type": {
+                        "type": "string"
+                    },
+                    "source_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "target_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                }
+            },
+            "MemoryConnectionResponse": {
+                "type": "object",
+                "required": [
+                    "connected"
+                ],
+                "properties": {
+                    "connected": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "MemoryLifecycle": {
+                "type": "string",
+                "description": "Product lifecycle for a private memory.",
+                "enum": [
+                    "active",
+                    "draft",
+                    "canonical",
+                    "deprecated"
+                ]
+            },
             "MemoryOutput": {
                 "type": "object",
                 "required": [
@@ -1696,6 +4486,12 @@
                     "access_count",
                     "is_consolidated",
                     "is_pinned",
+                    "lifecycle_status",
+                    "importance",
+                    "current_revision",
+                    "embedding_status",
+                    "source_kind",
+                    "source_managed",
                     "created_at",
                     "updated_at"
                 ],
@@ -1711,15 +4507,29 @@
                         "type": "string",
                         "format": "date-time"
                     },
+                    "current_revision": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "embedding_status": {
+                        "type": "string"
+                    },
                     "id": {
                         "type": "string",
                         "format": "uuid"
+                    },
+                    "importance": {
+                        "type": "integer",
+                        "format": "int32"
                     },
                     "is_consolidated": {
                         "type": "boolean"
                     },
                     "is_pinned": {
                         "type": "boolean"
+                    },
+                    "lifecycle_status": {
+                        "type": "string"
                     },
                     "memory_type": {
                         "type": "string"
@@ -1750,6 +4560,30 @@
                         ],
                         "format": "uuid"
                     },
+                    "source_external_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "source_kind": {
+                        "type": "string"
+                    },
+                    "source_managed": {
+                        "type": "boolean"
+                    },
+                    "source_revision": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "source_uri": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
                     "summary": {
                         "type": [
                             "string",
@@ -1766,12 +4600,66 @@
                     }
                 }
             },
+            "MemoryRevision": {
+                "type": "object",
+                "required": [
+                    "memory_id",
+                    "revision",
+                    "change_kind",
+                    "content",
+                    "metadata",
+                    "lifecycle_status",
+                    "changed_by",
+                    "created_at"
+                ],
+                "properties": {
+                    "change_kind": {
+                        "type": "string"
+                    },
+                    "changed_by": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "content": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "lifecycle_status": {
+                        "$ref": "#/components/schemas/MemoryLifecycle"
+                    },
+                    "memory_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "metadata": {},
+                    "revision": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "summary": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                }
+            },
             "OpenKnowledgeEntityRequest": {
                 "type": "object",
                 "required": [
                     "entity_id"
                 ],
                 "properties": {
+                    "domain_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
                     "entity_id": {
                         "type": "string"
                     }
@@ -1823,51 +4711,6 @@
                     "project_id": "123e4567-e89b-12d3-a456-426614174000"
                 }
             },
-            "ReadOutput": {
-                "type": "object",
-                "required": [
-                    "query_name",
-                    "target",
-                    "row_count",
-                    "rows"
-                ],
-                "properties": {
-                    "columns": {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        }
-                    },
-                    "query_name": {
-                        "type": "string"
-                    },
-                    "row_count": {
-                        "type": "integer",
-                        "minimum": 0
-                    },
-                    "rows": {},
-                    "target": {
-                        "$ref": "#/components/schemas/ReadTargetOutput"
-                    }
-                }
-            },
-            "ReadTargetOutput": {
-                "type": "object",
-                "properties": {
-                    "branch": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
-                    },
-                    "snapshot": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
-                    }
-                }
-            },
             "ReadinessResponse": {
                 "type": "object",
                 "required": [
@@ -1891,6 +4734,20 @@
                     "query"
                 ],
                 "properties": {
+                    "created_after": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "created_before": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
                     "limit": {
                         "type": [
                             "integer",
@@ -1947,7 +4804,8 @@
             "RecallResponse": {
                 "type": "object",
                 "required": [
-                    "memories"
+                    "memories",
+                    "signals"
                 ],
                 "properties": {
                     "memories": {
@@ -1955,6 +4813,40 @@
                         "items": {
                             "$ref": "#/components/schemas/MemoryOutput"
                         }
+                    },
+                    "signals": {
+                        "$ref": "#/components/schemas/RecallSignalsResponse"
+                    }
+                }
+            },
+            "RecallSignalsResponse": {
+                "type": "object",
+                "required": [
+                    "vector_hits",
+                    "keyword_hits",
+                    "graph_hits",
+                    "augmenter_hits",
+                    "semantic_available"
+                ],
+                "properties": {
+                    "augmenter_hits": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "graph_hits": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "keyword_hits": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "semantic_available": {
+                        "type": "boolean"
+                    },
+                    "vector_hits": {
+                        "type": "integer",
+                        "minimum": 0
                     }
                 }
             },
@@ -2007,6 +4899,23 @@
                 "properties": {
                     "content": {
                         "type": "string"
+                    },
+                    "importance": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int32"
+                    },
+                    "lifecycle_status": {
+                        "oneOf": [
+                            {
+                                "type": "null"
+                            },
+                            {
+                                "$ref": "#/components/schemas/MemoryLifecycle"
+                            }
+                        ]
                     },
                     "memory_type": {
                         "type": "string"
@@ -2064,6 +4973,13 @@
                     "query"
                 ],
                 "properties": {
+                    "domain_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
                     "query": {
                         "type": "string"
                     }
@@ -2141,6 +5057,17 @@
                     }
                 }
             },
+            "SetMemoryStatusRequest": {
+                "type": "object",
+                "required": [
+                    "lifecycle_status"
+                ],
+                "properties": {
+                    "lifecycle_status": {
+                        "$ref": "#/components/schemas/MemoryLifecycle"
+                    }
+                }
+            },
             "SyncStatus": {
                 "type": "object",
                 "required": [
@@ -2159,6 +5086,38 @@
                         "type": "string"
                     }
                 }
+            },
+            "UpdateKnowledgeDomainRequest": {
+                "type": "object",
+                "required": [
+                    "name",
+                    "classification",
+                    "visibility"
+                ],
+                "properties": {
+                    "classification": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "visibility": {
+                        "$ref": "#/components/schemas/KnowledgeDomainVisibility"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "UpsertKnowledgeRecordRequest": {
+                "type": "object",
+                "required": [
+                    "payload"
+                ],
+                "properties": {
+                    "payload": {
+                        "$ref": "#/components/schemas/KnowledgeRecord"
+                    }
+                },
+                "additionalProperties": false
             }
         },
         "securitySchemes": {
@@ -2182,6 +5141,10 @@
         {
             "name": "Knowledge",
             "description": "Organizational knowledge reads"
+        },
+        {
+            "name": "Knowledge Administration",
+            "description": "Human-managed organizational knowledge source data"
         },
         {
             "name": "MCP",

@@ -348,6 +348,26 @@ pub struct SerenStorageDownloadByKeyParams {
     pub object_key: String,
 }
 
+/// Seren Memory private-memory selector.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct SerenMemoryIdPath {
+    /// Memory ID
+    pub memory_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenMemoryListParams {
+    pub is_consolidated: Option<bool>,
+    pub is_pinned: Option<bool>,
+    /// active, draft, canonical, or deprecated
+    pub lifecycle_status: Option<seren::SerenMemoryMemoryLifecycle>,
+    pub limit: Option<i64>,
+    pub memory_type: Option<String>,
+    pub offset: Option<i64>,
+    pub org_id: Option<Uuid>,
+    pub project_id: Option<Uuid>,
+}
+
 // Organization OAuth provider operations
 /// Path parameters for org OAuth provider operations
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -7767,6 +7787,230 @@ impl SerenMcpServer {
     }
 
     // ========================================================================
+    // Seren Memory Publisher Tools
+    // ========================================================================
+
+    #[tool(
+        description = "Check the Seren Memory publisher health.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_memory_health(
+        &self,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client.seren_memory_health().await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Bootstrap private Seren Memory context for a session.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_memory_session_bootstrap(
+        &self,
+        Parameters(params): Parameters<seren::SerenMemorySessionBootstrapParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client.seren_memory_session_bootstrap(&params).await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Recall relevant private memories. Results may contain private content and should be handled accordingly.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_memory_recall(
+        &self,
+        Parameters(params): Parameters<seren::SerenMemoryRecallParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client.seren_memory_recall(&params).await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Store durable private context in Seren Memory.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn seren_memory_remember(
+        &self,
+        Parameters(params): Parameters<seren::SerenMemoryRememberParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client.seren_memory_remember(&params).await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List the caller's private memories. Each result includes the memory's stored content.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_memory_list_memories(
+        &self,
+        Parameters(params): Parameters<SerenMemoryListParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_memory_list_memories(
+                params.is_consolidated,
+                params.is_pinned,
+                params.lifecycle_status,
+                params.limit,
+                params.memory_type.as_deref(),
+                params.offset,
+                params.org_id.as_ref(),
+                params.project_id.as_ref(),
+            )
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get one private Seren Memory entry by ID.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_memory_get_memory(
+        &self,
+        Parameters(params): Parameters<SerenMemoryIdPath>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client.seren_memory_get_memory(&params.memory_id).await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Soft-delete one private Seren Memory entry.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn seren_memory_forget_memory(
+        &self,
+        Parameters(params): Parameters<SerenMemoryIdPath>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_memory_forget_memory(&seren::SerenMemoryForgetParams {
+                memory_id: params.memory_id,
+            })
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Permanently delete one private Seren Memory entry.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn seren_memory_delete_memory(
+        &self,
+        Parameters(params): Parameters<SerenMemoryIdPath>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_memory_delete_memory(&params.memory_id)
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List governed organizational knowledge domains available through Seren Memory.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_memory_list_knowledge_domains(
+        &self,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client.seren_memory_list_knowledge_domains().await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Search governed organizational knowledge through Seren Memory.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_memory_search_knowledge(
+        &self,
+        Parameters(params): Parameters<seren::SerenMemorySearchKnowledgeRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client.seren_memory_search_knowledge(&params).await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Open one governed organizational knowledge entity through Seren Memory.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_memory_open_knowledge_entity(
+        &self,
+        Parameters(params): Parameters<seren::SerenMemoryOpenKnowledgeEntityRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client.seren_memory_open_knowledge_entity(&params).await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    // ========================================================================
     // Seren Storage Publisher Tools
     // ========================================================================
 
@@ -14622,6 +14866,33 @@ mod tests {
             "seren_storage_download_object",
             "seren_storage_download_object_by_id",
             "seren_storage_delete_object",
+        ] {
+            assert!(tool_names.contains(expected), "missing MCP tool {expected}");
+        }
+    }
+
+    #[test]
+    fn seren_memory_publisher_tools_are_exposed() {
+        let server = server_with_http_client(reqwest::Client::new());
+        let tool_names = server
+            .tool_router
+            .list_all()
+            .into_iter()
+            .map(|tool| tool.name.into_owned())
+            .collect::<std::collections::HashSet<_>>();
+
+        for expected in [
+            "seren_memory_health",
+            "seren_memory_session_bootstrap",
+            "seren_memory_recall",
+            "seren_memory_remember",
+            "seren_memory_list_memories",
+            "seren_memory_get_memory",
+            "seren_memory_forget_memory",
+            "seren_memory_delete_memory",
+            "seren_memory_list_knowledge_domains",
+            "seren_memory_search_knowledge",
+            "seren_memory_open_knowledge_entity",
         ] {
             assert!(tool_names.contains(expected), "missing MCP tool {expected}");
         }
