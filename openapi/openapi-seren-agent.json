@@ -4434,16 +4434,6 @@
               "status": {
                 "$ref": "#/components/schemas/ManagedAgentHealthStatus"
               },
-              "storage": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/ManagedAgentStorageHealth"
-                  }
-                ]
-              },
               "summary": {
                 "$ref": "#/components/schemas/ManagedAgentHealthSummary"
               }
@@ -4477,7 +4467,6 @@
               "generated_at",
               "deployment",
               "runtime",
-              "storage",
               "connectors",
               "schedule",
               "tools",
@@ -4517,9 +4506,6 @@
               },
               "schedule": {
                 "$ref": "#/components/schemas/ManagedAgentScheduleResources"
-              },
-              "storage": {
-                "$ref": "#/components/schemas/ManagedAgentObjectStorageResources"
               },
               "tools": {
                 "$ref": "#/components/schemas/ManagedAgentToolResources"
@@ -4673,7 +4659,6 @@
               "generated_at",
               "status",
               "summary",
-              "storage",
               "deployments",
               "findings"
             ],
@@ -4700,9 +4685,6 @@
               },
               "status": {
                 "$ref": "#/components/schemas/ManagedAgentHealthStatus"
-              },
-              "storage": {
-                "$ref": "#/components/schemas/ManagedAgentStorageHealth"
               },
               "summary": {
                 "$ref": "#/components/schemas/ManagedAgentHealthSummary"
@@ -6234,16 +6216,6 @@
           "status": {
             "$ref": "#/components/schemas/ManagedAgentHealthStatus"
           },
-          "storage": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ManagedAgentStorageHealth"
-              }
-            ]
-          },
           "summary": {
             "$ref": "#/components/schemas/ManagedAgentHealthSummary"
           }
@@ -6303,7 +6275,6 @@
           "generated_at",
           "deployment",
           "runtime",
-          "storage",
           "connectors",
           "schedule",
           "tools",
@@ -6343,9 +6314,6 @@
           },
           "schedule": {
             "$ref": "#/components/schemas/ManagedAgentScheduleResources"
-          },
-          "storage": {
-            "$ref": "#/components/schemas/ManagedAgentObjectStorageResources"
           },
           "tools": {
             "$ref": "#/components/schemas/ManagedAgentToolResources"
@@ -6582,7 +6550,6 @@
           "generated_at",
           "status",
           "summary",
-          "storage",
           "deployments",
           "findings"
         ],
@@ -6609,9 +6576,6 @@
           },
           "status": {
             "$ref": "#/components/schemas/ManagedAgentHealthStatus"
-          },
-          "storage": {
-            "$ref": "#/components/schemas/ManagedAgentStorageHealth"
           },
           "summary": {
             "$ref": "#/components/schemas/ManagedAgentHealthSummary"
@@ -6756,61 +6720,11 @@
           "deep"
         ]
       },
-      "ManagedAgentObjectStorageResources": {
-        "type": "object",
-        "required": [
-          "scope",
-          "configured",
-          "available",
-          "bucket_count",
-          "uploaded_object_count",
-          "pending_upload_count",
-          "delete_failed_count",
-          "uploaded_bytes"
-        ],
-        "properties": {
-          "available": {
-            "type": "boolean"
-          },
-          "bucket_count": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "configured": {
-            "type": "boolean"
-          },
-          "delete_failed_count": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "pending_upload_count": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "scope": {
-            "$ref": "#/components/schemas/ManagedAgentResourceScope"
-          },
-          "uploaded_bytes": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "uploaded_object_count": {
-            "type": "integer",
-            "format": "int64"
-          }
-        }
-      },
       "ManagedAgentPrivateOutputPolicy": {
         "type": "string",
         "enum": [
           "control_plane",
           "private_session_database"
-        ]
-      },
-      "ManagedAgentResourceScope": {
-        "type": "string",
-        "enum": [
-          "organization"
         ]
       },
       "ManagedAgentRevisionChangeKind": {
@@ -7113,90 +7027,6 @@
           },
           "url_secret_key_configured": {
             "type": "boolean"
-          }
-        }
-      },
-      "ManagedAgentStorageBucketHealth": {
-        "type": "object",
-        "required": [
-          "id",
-          "slug",
-          "uploaded_object_count",
-          "uploaded_bytes",
-          "updated_at"
-        ],
-        "properties": {
-          "display_name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "slug": {
-            "type": "string"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "uploaded_bytes": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "uploaded_object_count": {
-            "type": "integer",
-            "format": "int64"
-          }
-        }
-      },
-      "ManagedAgentStorageHealth": {
-        "type": "object",
-        "required": [
-          "configured",
-          "available",
-          "bucket_count",
-          "uploaded_object_count",
-          "pending_upload_count",
-          "delete_failed_count",
-          "uploaded_bytes",
-          "buckets"
-        ],
-        "properties": {
-          "available": {
-            "type": "boolean"
-          },
-          "bucket_count": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "buckets": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ManagedAgentStorageBucketHealth"
-            }
-          },
-          "configured": {
-            "type": "boolean"
-          },
-          "delete_failed_count": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "pending_upload_count": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "uploaded_bytes": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "uploaded_object_count": {
-            "type": "integer",
-            "format": "int64"
           }
         }
       },
