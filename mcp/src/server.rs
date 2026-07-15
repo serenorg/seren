@@ -2385,8 +2385,8 @@ async fn build_replacement_workload(
 ) -> Result<seren::WorkloadSpec, McpError> {
     let detail = api_client
         .seren_agent_get_managed_deployment(&params.deployment_id)
-        .await
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?
+        .into_mcp_result()
+        .await?
         .into_inner()
         .data;
 
@@ -4546,7 +4546,15 @@ fn truncate_for_client(value: &str, max_chars: usize) -> String {
     if chars.next().is_none() {
         return truncated;
     }
-    format!("{truncated}... (truncated)")
+
+    const SUFFIX: &str = "... (truncated)";
+    let suffix_chars = SUFFIX.chars().count();
+    if max_chars <= suffix_chars {
+        return SUFFIX.chars().take(max_chars).collect();
+    }
+
+    let prefix: String = value.chars().take(max_chars - suffix_chars).collect();
+    format!("{prefix}{SUFFIX}")
 }
 
 fn api_error_message(status: reqwest::StatusCode, body: &str, request_id: Option<&str>) -> String {
@@ -4605,13 +4613,26 @@ pub(crate) async fn seren_error_to_mcp_error<T: std::fmt::Debug>(e: seren::Error
         }
         seren::Error::ErrorResponse(resp) => {
             let status = resp.status();
-            McpError::internal_error(format!("API error {status}"), None)
+            let request_id = resp
+                .headers()
+                .get("x-request-id")
+                .and_then(|value| value.to_str().ok());
+            let body = format!("{:?}", resp.as_ref());
+            McpError::internal_error(
+                api_error_message(status, &body, request_id),
+                Some(serde_json::json!({
+                    "kind": "http_error",
+                    "status": status.as_u16(),
+                    "body": truncate_for_client(&body, 1200),
+                    "request_id": request_id,
+                })),
+            )
         }
         seren::Error::InvalidRequest(msg) => {
             McpError::invalid_params(format!("Invalid request: {msg}"), None)
         }
         seren::Error::CommunicationError(e) => {
-            let message = e.to_string();
+            let message = e.without_url().to_string();
             McpError::internal_error(
                 format!("Communication error: {message}"),
                 Some(serde_json::json!({
@@ -4621,15 +4642,47 @@ pub(crate) async fn seren_error_to_mcp_error<T: std::fmt::Debug>(e: seren::Error
             )
         }
         seren::Error::InvalidUpgrade(e) => {
-            McpError::internal_error(format!("Upgrade error: {e}"), None)
+            McpError::internal_error(format!("Upgrade error: {}", e.without_url()), None)
         }
         seren::Error::ResponseBodyError(e) => {
-            McpError::internal_error(format!("Response body error: {e}"), None)
+            McpError::internal_error(format!("Response body error: {}", e.without_url()), None)
         }
         seren::Error::InvalidResponsePayload(_bytes, e) => {
             McpError::internal_error(format!("Invalid response payload: {e}"), None)
         }
         seren::Error::Custom(msg) => McpError::internal_error(format!("Custom error: {msg}"), None),
+    }
+}
+
+/// Preserves structured HTTP response details from generated SDK calls.
+trait SerenApiFutureExt<T, E>:
+    std::future::Future<Output = Result<T, seren::Error<E>>> + Sized
+where
+    E: std::fmt::Debug,
+{
+    async fn into_mcp_result(self) -> Result<T, McpError> {
+        match self.await {
+            Ok(value) => Ok(value),
+            Err(error) => Err(seren_error_to_mcp_error(error).await),
+        }
+    }
+}
+
+impl<F, T, E> SerenApiFutureExt<T, E> for F
+where
+    F: std::future::Future<Output = Result<T, seren::Error<E>>> + Sized,
+    E: std::fmt::Debug,
+{
+}
+
+/// Converts generated SDK results that have already been awaited in parallel.
+async fn seren_result_to_mcp<T, E>(result: Result<T, seren::Error<E>>) -> Result<T, McpError>
+where
+    E: std::fmt::Debug,
+{
+    match result {
+        Ok(value) => Ok(value),
+        Err(error) => Err(seren_error_to_mcp_error(error).await),
     }
 }
 
@@ -4952,8 +5005,8 @@ async fn resolve_publisher_id(
 
     let response = api_client
         .get_store_publisher(publisher)
-        .await
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?
+        .into_mcp_result()
+        .await?
         .into_inner();
     Ok(response.data.id)
 }
@@ -6108,14 +6161,24 @@ impl SerenMcpServer {
         let resp = req
             .send()
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.without_url().to_string(), None))?;
 
         let status = resp.status();
         if !status.is_success() {
+            let request_id = resp
+                .headers()
+                .get("x-request-id")
+                .and_then(|value| value.to_str().ok())
+                .map(ToOwned::to_owned);
             let body = resp.text().await.unwrap_or_default();
             return Err(McpError::internal_error(
-                format!("Seren API request failed: {} - {}", status, body),
-                None,
+                api_error_message(status, &body, request_id.as_deref()),
+                Some(serde_json::json!({
+                    "kind": "http_error",
+                    "status": status.as_u16(),
+                    "body": truncate_for_client(&body, 1200),
+                    "request_id": request_id,
+                })),
             ));
         }
 
@@ -6139,19 +6202,30 @@ impl SerenMcpServer {
             .header(reqwest::header::ACCEPT, accept)
             .send()
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(|e| McpError::internal_error(e.without_url().to_string(), None))?;
 
         let status = resp.status();
         if !status.is_success() {
+            let request_id = resp
+                .headers()
+                .get("x-request-id")
+                .and_then(|value| value.to_str().ok())
+                .map(ToOwned::to_owned);
+            let body = resp.text().await.unwrap_or_default();
             return Err(McpError::internal_error(
-                format!("Seren API text request failed: {}", status),
-                None,
+                api_error_message(status, &body, request_id.as_deref()),
+                Some(serde_json::json!({
+                    "kind": "http_error",
+                    "status": status.as_u16(),
+                    "body": truncate_for_client(&body, 1200),
+                    "request_id": request_id,
+                })),
             ));
         }
 
         resp.text()
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))
+            .map_err(|e| McpError::internal_error(e.without_url().to_string(), None))
     }
 
     async fn resolve_cloud_run_pending_approvals(
@@ -6163,14 +6237,14 @@ impl SerenMcpServer {
         let api_client = self.api_client(extensions)?;
         let run_detail = api_client
             .seren_cloud_run_detail(&run_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .into_mcp_result()
+            .await?;
         let deployment_id = run_detail.into_inner().data.deployment_id;
 
         let approval_state = api_client
             .seren_cloud_run_pending_approvals(&run_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .into_mcp_result()
+            .await?;
         let approval_state = approval_state.into_inner();
         let approval_state_json = serde_json::to_value(&approval_state)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -6198,8 +6272,8 @@ impl SerenMcpServer {
         let body = maybe_body.unwrap_or_default();
         let response_json = api_client
             .seren_cloud_run(&deployment_id, &body)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .into_mcp_result()
+            .await?;
         let response_json = response_json.into_inner();
         let data = serde_json::to_value(&response_json)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -7229,8 +7303,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let projects = api_client
             .seren_db_list_projects()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&projects)?]))
     }
@@ -7247,8 +7321,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let project = api_client
             .seren_db_get_project(&params.project_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&project)?]))
     }
@@ -7273,8 +7347,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_db_create_project(&request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -7297,8 +7371,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         api_client
             .seren_db_delete_project(&params.project_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .into_mcp_result()
+            .await?;
         Ok(CallToolResult::success(vec![Content::text(format!(
             "Project {} deleted successfully",
             params.project_id
@@ -7328,8 +7402,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_db_create_branch(&params.path.project_id, &params.body)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -7352,8 +7426,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         api_client
             .seren_db_delete_branch(&params.project_id, &params.branch_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .into_mcp_result()
+            .await?;
         Ok(CallToolResult::success(vec![Content::text(format!(
             "Branch {} deleted successfully",
             params.branch_id
@@ -7378,15 +7452,9 @@ impl SerenMcpServer {
             api_client.seren_db_get_branch(&params.project_id, &params.branch_id)
         );
 
-        let databases = databases_result
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
-        let project = project_result
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
-        let branch = branch_result
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
+        let databases = seren_result_to_mcp(databases_result).await?.into_inner();
+        let project = seren_result_to_mcp(project_result).await?.into_inner();
+        let branch = seren_result_to_mcp(branch_result).await?.into_inner();
 
         // Build enhanced response with human-readable context
         let response = DatabaseListResponse {
@@ -7418,8 +7486,8 @@ impl SerenMcpServer {
         // Call the dedicated endpoint that returns all databases with context
         let databases = api_client
             .list_all_databases()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
 
         // Map the API response to our response format
@@ -7469,8 +7537,8 @@ impl SerenMcpServer {
                 &params.path.branch_id,
                 &params.body,
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&database)?]))
     }
@@ -7487,8 +7555,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let roles = api_client
             .seren_db_list_roles(&params.project_id, &params.branch_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&roles)?]))
     }
@@ -7512,8 +7580,8 @@ impl SerenMcpServer {
                 params.pooled,
                 params.role.as_deref(),
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
 
         let mut conn_str = response.data.uri;
@@ -7558,8 +7626,8 @@ impl SerenMcpServer {
                 None,
                 None,
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
 
         let conn_str = connection_string_with_database(&conn_response.data.uri, &params.database)?;
@@ -7628,8 +7696,8 @@ impl SerenMcpServer {
                 None,
                 None,
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
 
         let conn_str = connection_string_with_database(&conn_response.data.uri, &params.database)?;
@@ -7689,8 +7757,8 @@ impl SerenMcpServer {
                 None,
                 None,
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
 
         let conn_str = connection_string_with_database(&conn_response.data.uri, &params.database)?;
@@ -7734,8 +7802,8 @@ impl SerenMcpServer {
                 None,
                 None,
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
 
         let conn_str = connection_string_with_database(&conn_response.data.uri, &params.database)?;
@@ -7794,8 +7862,8 @@ impl SerenMcpServer {
                 None,
                 None,
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
 
         let conn_str = connection_string_with_database(&conn_response.data.uri, &params.database)?;
@@ -7821,8 +7889,8 @@ impl SerenMcpServer {
         let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
         let orgs = api_client
             .list_organizations()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&orgs)?]))
     }
@@ -7839,8 +7907,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let branches = api_client
             .seren_db_list_branches(&params.project_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&branches)?]))
     }
@@ -7857,8 +7925,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let branch = api_client
             .seren_db_get_branch(&params.project_id, &params.branch_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&branch)?]))
     }
@@ -7879,8 +7947,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let endpoints = api_client
             .seren_db_list_endpoints(&params.project_id, &params.branch_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&endpoints)?]))
     }
@@ -7907,8 +7975,8 @@ impl SerenMcpServer {
                 &params.path.branch_id,
                 &params.body,
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&endpoint)?]))
     }
@@ -7931,8 +7999,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         api_client
             .seren_db_delete_endpoint(&params.project_id, &params.branch_id, &params.endpoint_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .into_mcp_result()
+            .await?;
         Ok(CallToolResult::success(vec![Content::text(format!(
             "Endpoint {} deleted successfully",
             params.endpoint_id
@@ -7957,8 +8025,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let endpoint = api_client
             .seren_db_start_endpoint(&params.project_id, &params.branch_id, &params.endpoint_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&endpoint)?]))
     }
@@ -7981,8 +8049,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         api_client
             .seren_db_stop_endpoint(&params.project_id, &params.branch_id, &params.endpoint_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .into_mcp_result()
+            .await?;
         Ok(CallToolResult::success(vec![Content::text(format!(
             "Endpoint {} suspended successfully",
             params.endpoint_id
@@ -8007,8 +8075,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_db_restart_endpoint(&params.project_id, &params.endpoint_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .into_mcp_result()
+            .await?;
         let status = response.into_inner();
         Ok(CallToolResult::success(vec![json_content(&status)?]))
     }
@@ -8029,8 +8097,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let api_keys = api_client
             .list_org_api_keys(&params.organization_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&api_keys)?]))
     }
@@ -8055,8 +8123,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .create_org_api_key(&params.path.organization_id, &params.body)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -8079,8 +8147,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         api_client
             .revoke_org_api_key(&params.organization_id, &params.key_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .into_mcp_result()
+            .await?;
         Ok(CallToolResult::success(vec![Content::text(format!(
             "API key {} revoked successfully",
             params.key_id
@@ -9054,8 +9122,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .list_org_oauth_providers(&params.organization_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -9072,8 +9140,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .get_org_oauth_provider(&params.organization_id, &params.provider_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -9097,8 +9165,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .create_org_oauth_provider(&params.path.organization_id, &params.body)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -9121,8 +9189,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .update_org_oauth_provider(&params.organization_id, &params.provider_id, &params.body)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -9145,8 +9213,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         api_client
             .delete_org_oauth_provider(&params.organization_id, &params.provider_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .into_mcp_result()
+            .await?;
         Ok(CallToolResult::success(vec![Content::text(format!(
             "OAuth provider {} deleted successfully",
             params.provider_id
@@ -9169,8 +9237,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .get_private_models_policy(&params.organization_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -9193,8 +9261,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .update_private_models_policy(&params.organization_id, &params.body)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -9210,8 +9278,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .get_private_models()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -9228,8 +9296,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_private_models(params.region.as_deref())
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -9325,8 +9393,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .post_chat_completions(&request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -9351,8 +9419,8 @@ impl SerenMcpServer {
                 params.include_archived,
                 params.q.as_deref(),
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -9637,8 +9705,8 @@ impl SerenMcpServer {
                 Some(offset),
                 params.search.as_deref(),
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
 
         // Use pagination metadata from API response
@@ -9783,8 +9851,8 @@ impl SerenMcpServer {
         };
         let estimate = api_client
             .estimate_query(&params.publisher, &body)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&estimate)?]))
     }
@@ -9801,8 +9869,8 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let balance = api_client
             .get_wallet_balance()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&balance)?]))
     }
@@ -9815,8 +9883,8 @@ impl SerenMcpServer {
         let api_client = self.api_client_with_timeout(&extensions, API_TIMEOUT)?;
         let balance = api_client
             .get_wallet_balance()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&balance)?]))
     }
@@ -9860,8 +9928,8 @@ impl SerenMcpServer {
 
         let deposit = api_client
             .create_deposit(&request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
 
         Ok(CallToolResult::success(vec![json_content(&deposit)?]))
@@ -9882,8 +9950,8 @@ impl SerenMcpServer {
 
         let preview = api_client
             .preview_wallet_transfer(&request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
 
         Ok(CallToolResult::success(vec![json_content(&preview)?]))
@@ -9913,8 +9981,8 @@ impl SerenMcpServer {
 
         let transfer = api_client
             .execute_wallet_transfer(idempotency_key, &request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
 
         Ok(CallToolResult::success(vec![json_content(&transfer)?]))
@@ -9949,8 +10017,8 @@ impl SerenMcpServer {
                 params.limit,
                 params.status.as_deref(),
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
 
         Ok(CallToolResult::success(vec![json_content(&transfers)?]))
@@ -9974,8 +10042,8 @@ impl SerenMcpServer {
 
         let claim = api_client
             .claim_wallet_transfer(&request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
 
         Ok(CallToolResult::success(vec![json_content(&claim)?]))
@@ -9996,8 +10064,8 @@ impl SerenMcpServer {
 
         let recall = api_client
             .recall_wallet_transfer(&params.pending_transfer_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
 
         Ok(CallToolResult::success(vec![json_content(&recall)?]))
@@ -11124,8 +11192,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let supported = api_client
             .get_supported()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&supported)?]))
     }
@@ -11762,8 +11830,8 @@ API endpoint: {endpoint}",
         // Get the organization_id from list_organizations (API key is scoped to org)
         let orgs_response = api_client
             .list_organizations()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
 
         let organization_id = orgs_response
@@ -11934,8 +12002,8 @@ API endpoint: {endpoint}",
 
         let project = api_client
             .seren_db_update_project(&params.project_id, &request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&project)?]))
     }
@@ -11961,8 +12029,8 @@ API endpoint: {endpoint}",
 
         let branch = api_client
             .seren_db_rename_branch(&params.project_id, &params.branch_id, &request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&branch)?]))
     }
@@ -11982,8 +12050,8 @@ API endpoint: {endpoint}",
 
         api_client
             .seren_db_set_default_branch(&params.project_id, &params.branch_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&())?]))
     }
@@ -12005,8 +12073,8 @@ API endpoint: {endpoint}",
 
         let branch = api_client
             .seren_db_reset_branch(&params.project_id, &params.branch_id, &request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&branch)?]))
     }
@@ -12035,8 +12103,8 @@ API endpoint: {endpoint}",
 
         api_client
             .seren_db_set_branch_expiration(&params.project_id, &params.branch_id, &request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&())?]))
     }
@@ -12061,8 +12129,8 @@ API endpoint: {endpoint}",
 
         let role = api_client
             .seren_db_create_role(&params.project_id, &params.branch_id, &request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&role)?]))
     }
@@ -12082,8 +12150,8 @@ API endpoint: {endpoint}",
 
         api_client
             .seren_db_delete_role(&params.project_id, &params.branch_id, &params.role_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .into_mcp_result()
+            .await?;
         Ok(CallToolResult::success(vec![Content::text(
             "Role deleted successfully".to_string(),
         )]))
@@ -12104,8 +12172,8 @@ API endpoint: {endpoint}",
 
         let role = api_client
             .seren_db_reset_role_password(&params.project_id, &params.branch_id, &params.role_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&role)?]))
     }
@@ -12123,8 +12191,8 @@ API endpoint: {endpoint}",
 
         let role = api_client
             .seren_db_reveal_role_password(&params.project_id, &params.branch_id, &params.role_name)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&role)?]))
     }
@@ -12162,8 +12230,8 @@ API endpoint: {endpoint}",
                 &params.endpoint_id,
                 &request,
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&endpoint)?]))
     }
@@ -12185,8 +12253,8 @@ API endpoint: {endpoint}",
                 &params.branch_id,
                 &params.endpoint_id,
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&status)?]))
     }
@@ -12208,8 +12276,8 @@ API endpoint: {endpoint}",
 
         let database = api_client
             .seren_db_get_database(&params.project_id, &params.branch_id, &params.database_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&database)?]))
     }
@@ -12229,8 +12297,8 @@ API endpoint: {endpoint}",
 
         api_client
             .seren_db_delete_database(&params.project_id, &params.branch_id, &params.database_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .into_mcp_result()
+            .await?;
         Ok(CallToolResult::success(vec![Content::text(
             "Database deleted successfully".to_string(),
         )]))
@@ -12253,8 +12321,8 @@ API endpoint: {endpoint}",
 
         let transactions = api_client
             .get_transactions(None, None, None, None, params.limit, params.offset, None)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&transactions)?]))
     }
@@ -12288,8 +12356,8 @@ API endpoint: {endpoint}",
                 None, // sort_by
                 params.verified_only,
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
 
         Ok(CallToolResult::success(vec![json_content(&response)?]))
@@ -12747,8 +12815,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_get_deployment_bundle(&params.deployment_bundle_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -12768,8 +12836,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_capabilities()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -12789,8 +12857,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_list_deployments()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -12810,8 +12878,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_health()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -12864,8 +12932,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_get_managed_deployment(&params.deployment_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -12886,8 +12954,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_get_deployment_health(&params.deployment_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -12908,8 +12976,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_get_deployment_resources(&params.deployment_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -12930,8 +12998,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_list_deployment_tools(&params.deployment_id, params.q.as_deref())
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -12952,8 +13020,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_describe_deployment_tool(&params.deployment_id, &params.tool_name)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -12974,8 +13042,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_list_deployment_tool_groups(&params.deployment_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -12996,8 +13064,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_get_deployment_activity(&params.deployment_id, params.limit, params.offset)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -13018,8 +13086,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_list_managed_deployment_revisions(&params.deployment_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -13042,8 +13110,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_start_managed_deployment(&params.deployment_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -13066,8 +13134,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_stop_managed_deployment(&params.deployment_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -13090,8 +13158,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_delete_managed_deployment(&params.deployment_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -13113,8 +13181,8 @@ API endpoint: {endpoint}",
         let body = build_update_seren_agent_deployment_request(&api_client, &params).await?;
         let response = api_client
             .seren_agent_preview_managed_deployment_update(&params.deployment_id, &body)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -13138,8 +13206,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_preview_managed_deployment_rollback(&params.deployment_id, &body)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -13161,8 +13229,8 @@ API endpoint: {endpoint}",
         let body = build_update_seren_agent_deployment_request(&api_client, &params).await?;
         let response = api_client
             .seren_agent_update_managed_deployment(&params.deployment_id, &body)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -13186,8 +13254,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_agent_rollback_managed_deployment(&params.deployment_id, &body)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -13228,8 +13296,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_list_environments()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -13246,8 +13314,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_get_environment(&params.environment_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -13275,8 +13343,8 @@ API endpoint: {endpoint}",
         };
         let response = api_client
             .seren_cloud_create_environment(&request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -13304,8 +13372,8 @@ API endpoint: {endpoint}",
         };
         let response = api_client
             .seren_cloud_update_environment(&params.environment_id, &request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -13326,8 +13394,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         api_client
             .seren_cloud_delete_environment(&params.environment_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .into_mcp_result()
+            .await?;
         let payload = serde_json::json!({
             "deleted": true,
             "environment_id": params.environment_id,
@@ -13343,8 +13411,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_list_deployments()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_agents_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -13364,8 +13432,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let deployments = api_client
             .seren_cloud_list_deployments()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let recent_runs = api_client
             .seren_cloud_runs(
@@ -13380,8 +13448,8 @@ API endpoint: {endpoint}",
                 None,
                 None,
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let pending_approvals = api_client
             .seren_cloud_pending_approvals(
@@ -13394,8 +13462,8 @@ API endpoint: {endpoint}",
                 None,
                 None,
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
 
         let deployments_value = serde_json::to_value(&deployments)
@@ -13464,8 +13532,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_get_deployment(&params.deployment_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_agent_summary(&response, "Cloud agent")?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -13485,8 +13553,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_get_deployment_spend(&params.deployment_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_deployment_spend_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -13511,8 +13579,8 @@ API endpoint: {endpoint}",
                 Some(params.offset),
                 params.q.as_deref(),
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_audit_entries_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -13532,8 +13600,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_get_audit_entry(&params.entry_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_audit_entry_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -13553,8 +13621,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_verify_audit(params.limit)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_audit_verify_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -13580,8 +13648,8 @@ API endpoint: {endpoint}",
                 Some(params.offset),
                 params.q.as_deref(),
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_audit_entries_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -13601,8 +13669,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         api_client
             .seren_cloud_start(&params.deployment_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .into_mcp_result()
+            .await?;
         Ok(CallToolResult::success(vec![Content::text(format!(
             "Deployment {} started.",
             params.deployment_id
@@ -13621,8 +13689,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         api_client
             .seren_cloud_stop(&params.deployment_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .into_mcp_result()
+            .await?;
         Ok(CallToolResult::success(vec![Content::text(format!(
             "Deployment {} stopped.",
             params.deployment_id
@@ -13648,10 +13716,13 @@ API endpoint: {endpoint}",
             serde_json::from_value(body.unwrap_or_else(|| serde_json::json!({})))
                 .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
         let api_client = self.api_client(&extensions)?;
-        let response_json = api_client
+        let response_json = match api_client
             .seren_cloud_run(&params.deployment_id, &body)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        {
+            Ok(response) => response,
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
         let response_json = response_json.into_inner();
         let data = serde_json::to_value(&response_json)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -13699,8 +13770,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         api_client
             .seren_cloud_delete(&params.deployment_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .into_mcp_result()
+            .await?;
         Ok(CallToolResult::success(vec![Content::text(format!(
             "Deployment {} destroyed successfully.",
             params.deployment_id
@@ -13736,8 +13807,8 @@ API endpoint: {endpoint}",
                     Some(status_str.as_str())
                 },
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_runs_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -13757,8 +13828,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_deployment_run(&params.deployment_id, &params.run_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_run_summary(&response, "Cloud run")?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -13778,8 +13849,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_deployment_run_artifacts(&params.deployment_id, &params.run_id, None, None)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_run_artifacts_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -13799,8 +13870,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_deployment_run_evals(&params.deployment_id, &params.run_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_run_evals_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -13828,8 +13899,8 @@ API endpoint: {endpoint}",
                 Some(params.offset),
                 params.q.as_deref(),
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_run_events_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -13853,8 +13924,8 @@ API endpoint: {endpoint}",
                 params.cursor.as_deref(),
                 Some(params.limit),
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_conversations_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -13889,8 +13960,8 @@ API endpoint: {endpoint}",
                 Some(params.limit),
                 order,
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_conversation_messages_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -13911,14 +13982,14 @@ API endpoint: {endpoint}",
         let response = if let Some(deployment_id) = params.deployment_id {
             api_client
                 .seren_cloud_deployment_run_state(&deployment_id, &params.run_id)
-                .await
-                .map_err(|e| McpError::internal_error(e.to_string(), None))?
+                .into_mcp_result()
+                .await?
                 .into_inner()
         } else {
             api_client
                 .seren_cloud_run_state(&params.run_id)
-                .await
-                .map_err(|e| McpError::internal_error(e.to_string(), None))?
+                .into_mcp_result()
+                .await?
                 .into_inner()
         };
         let summary = cloud_run_state_summary(&response)?;
@@ -13943,8 +14014,8 @@ API endpoint: {endpoint}",
                 Some(params.limit),
                 Some(params.offset),
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_agent_schedules_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -13953,7 +14024,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Create or update an agent-owned future run schedule for a seren-cloud deployment.",
+        description = "Create or update an agent-owned future run schedule for a seren-cloud deployment. This operation currently requires mode=always_on and compute_backend=aws_container; use run_cloud_agent for an immediate verification run of a cron or job deployment.",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn create_cloud_agent_schedule(
@@ -13998,11 +14069,13 @@ API endpoint: {endpoint}",
                 .map(str::to_string),
         };
         let api_client = self.api_client(&extensions)?;
-        let response = api_client
+        let response = match api_client
             .seren_cloud_create_agent_schedule(&params.deployment_id, &body)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
         let summary = cloud_agent_schedule_summary(&response, "Agent schedule")?;
         Ok(CallToolResult::success(text_and_json_content(
             summary, &response,
@@ -14021,8 +14094,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_cancel_agent_schedule(&params.deployment_id, &params.schedule_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_agent_schedule_summary(&response, "Cancelled agent schedule")?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -14042,8 +14115,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_deployment_run_cancel(&params.deployment_id, &params.run_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -14060,8 +14133,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let deployments = api_client
             .seren_cloud_list_deployments()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let deployments_value = serde_json::to_value(&deployments)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -14090,8 +14163,8 @@ API endpoint: {endpoint}",
                     Some(status_str.as_str())
                 },
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let enriched_response = enrich_data_envelope_with_deployment_names(
             &serde_json::to_value(&response)
@@ -14117,8 +14190,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let deployments = api_client
             .seren_cloud_list_deployments()
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let deployments_value = serde_json::to_value(&deployments)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -14140,8 +14213,8 @@ API endpoint: {endpoint}",
                 None,
                 None,
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let enriched_response = enrich_data_envelope_with_deployment_names(
             &serde_json::to_value(&response)
@@ -14175,8 +14248,8 @@ API endpoint: {endpoint}",
                 None,
                 None,
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = pending_cloud_approvals_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -14196,8 +14269,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_run_pending_approvals(&params.run_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = run_pending_approvals_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -14247,8 +14320,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_deployment_run_pending_approvals(&params.deployment_id, &params.run_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = run_pending_approvals_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -14268,8 +14341,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_run_detail(&params.run_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -14286,8 +14359,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_run_compare(&params.baseline_run_id, &params.candidate_run_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
 
         Ok(CallToolResult::success(vec![json_content(&response)?]))
@@ -14309,8 +14382,8 @@ API endpoint: {endpoint}",
                 Some(params.limit),
                 Some(params.offset),
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -14361,8 +14434,8 @@ API endpoint: {endpoint}",
         };
         let response = api_client
             .seren_cloud_create_eval_set(&request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -14379,8 +14452,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_get_eval_set(&params.eval_set_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -14428,8 +14501,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let current = api_client
             .seren_cloud_get_eval_set(&params.eval_set_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner()
             .data;
 
@@ -14475,8 +14548,8 @@ API endpoint: {endpoint}",
         };
         let response = api_client
             .seren_cloud_update_eval_set(&params.eval_set_id, &request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -14493,8 +14566,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_eval_cases(&params.eval_set_id, Some(params.limit), Some(params.offset))
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -14511,8 +14584,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_get_eval_case(&params.eval_set_id, &params.case_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -14542,8 +14615,8 @@ API endpoint: {endpoint}",
         };
         let response = api_client
             .seren_cloud_promote_run_to_eval_case(&params.eval_set_id, &params.run_id, &request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -14573,8 +14646,8 @@ API endpoint: {endpoint}",
         };
         let response = api_client
             .seren_cloud_run_eval_set(&params.eval_set_id, &request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -14591,8 +14664,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_eval_runs(&params.eval_set_id, Some(params.limit), Some(params.offset))
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -14609,8 +14682,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_get_eval_run(&params.eval_set_id, &params.eval_run_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -14632,8 +14705,8 @@ API endpoint: {endpoint}",
                 Some(params.limit),
                 Some(params.offset),
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -14654,8 +14727,8 @@ API endpoint: {endpoint}",
                 &params.eval_run_id,
                 &params.case_id,
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -14672,8 +14745,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_run_artifacts(&params.run_id, None, None)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_run_artifacts_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -14699,8 +14772,8 @@ API endpoint: {endpoint}",
                 Some(params.offset),
                 params.q.as_deref(),
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_audit_entries_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -14720,8 +14793,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_run_evals(&params.run_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_run_evals_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -14748,8 +14821,8 @@ API endpoint: {endpoint}",
                 Some(params.offset),
                 params.q.as_deref(),
             )
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         let summary = cloud_run_events_summary(&response)?;
         Ok(CallToolResult::success(text_and_json_content(
@@ -14769,8 +14842,8 @@ API endpoint: {endpoint}",
         let api_client = self.api_client(&extensions)?;
         let response = api_client
             .seren_cloud_run_cancel(&params.run_id)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .into_mcp_result()
+            .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
@@ -14864,8 +14937,8 @@ API endpoint: {endpoint}",
         };
         api_client
             .seren_cloud_update_config(&params.deployment_id, &request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .into_mcp_result()
+            .await?;
         Ok(CallToolResult::success(vec![Content::text(format!(
             "Deployment settings updated for {}.",
             params.deployment_id
@@ -15366,6 +15439,105 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn seren_error_to_mcp_error_includes_typed_error_body() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("x-request-id", "request-typed-1".parse().unwrap());
+        let response = seren::ResponseValue::new(
+            serde_json::json!({"message": "publisher configuration rejected"}),
+            reqwest::StatusCode::BAD_REQUEST,
+            headers,
+        );
+
+        let error = seren_error_to_mcp_error(seren::Error::ErrorResponse(response)).await;
+
+        assert!(error.message.contains("publisher configuration rejected"));
+        assert!(error.message.contains("request ID: request-typed-1"));
+        assert_eq!(
+            error.data.as_ref().and_then(|data| data.get("status")),
+            Some(&serde_json::json!(400))
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_api_json_bounds_error_body_and_preserves_request_id() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let upstream = MockServer::start().await;
+        let response_body = format!("prefix-{}-suffix", "x".repeat(2000));
+        Mock::given(method("GET"))
+            .respond_with(
+                ResponseTemplate::new(400)
+                    .insert_header("x-request-id", "request-direct-1")
+                    .set_body_string(response_body),
+            )
+            .mount(&upstream)
+            .await;
+        let server = SerenMcpServer::new("test-key", &upstream.uri()).unwrap();
+
+        let error = server
+            .execute_api_json::<()>(
+                &Extensions::new(),
+                reqwest::Method::GET,
+                upstream.uri(),
+                None,
+            )
+            .await
+            .expect_err("error response should fail");
+
+        assert!(error.message.contains("prefix-"));
+        assert!(!error.message.contains("-suffix"));
+        assert!(error.message.contains("request ID: request-direct-1"));
+        assert_eq!(
+            error.data.as_ref().and_then(|data| data.get("status")),
+            Some(&serde_json::json!(400))
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_api_text_bounds_error_body_and_preserves_request_id() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let upstream = MockServer::start().await;
+        let response_body = format!("prefix-{}-suffix", "x".repeat(2000));
+        Mock::given(method("GET"))
+            .respond_with(
+                ResponseTemplate::new(400)
+                    .insert_header("x-request-id", "request-text-1")
+                    .set_body_string(response_body),
+            )
+            .mount(&upstream)
+            .await;
+        let server = SerenMcpServer::new("test-key", &upstream.uri()).unwrap();
+
+        let error = server
+            .execute_api_text(&Extensions::new(), upstream.uri(), "text/markdown")
+            .await
+            .expect_err("error response should fail");
+
+        assert!(error.message.contains("prefix-"));
+        assert!(!error.message.contains("-suffix"));
+        assert!(error.message.contains("request ID: request-text-1"));
+        assert_eq!(
+            error.data.as_ref().and_then(|data| data.get("status")),
+            Some(&serde_json::json!(400))
+        );
+        assert_eq!(
+            error.data.as_ref().and_then(|data| data.get("request_id")),
+            Some(&serde_json::json!("request-text-1"))
+        );
+        assert!(
+            error
+                .data
+                .as_ref()
+                .and_then(|data| data.get("body"))
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|body| body.chars().count() <= 1200)
+        );
+    }
+
+    #[tokio::test]
     async fn seren_error_to_mcp_error_distinguishes_transport_failures() {
         let listener =
             std::net::TcpListener::bind("127.0.0.1:0").expect("temporary listener should bind");
@@ -15384,6 +15556,7 @@ mod tests {
 
         assert!(error.message.contains("Communication error:"));
         assert!(!error.message.contains("API error"));
+        assert!(!error.message.contains("http://"));
         assert_eq!(
             error.data.as_ref().and_then(|data| data.get("kind")),
             Some(&serde_json::json!("transport_error"))
