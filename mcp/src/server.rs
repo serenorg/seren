@@ -2461,7 +2461,7 @@ pub struct DeploySerenAgentParams {
     pub agent_slug: Option<String>,
     /// Display name for the managed agent
     pub name: String,
-    /// Deployment mode: "always_on" or "cron"
+    /// Deployment mode: "always_on", "cron", or "job"
     pub mode: String,
     /// Cron schedule expression (required if mode is "cron")
     #[serde(default)]
@@ -2475,7 +2475,7 @@ pub struct DeploySerenAgentParams {
     /// Freshness window in seconds for the eval gate (required with eval_gate_set_id)
     #[serde(default)]
     pub eval_gate_max_age_seconds: Option<i32>,
-    /// Main instructions for the managed agent
+    /// Main instructions, encoded as a skill instruction in the LLM workload bundle
     pub prompt: String,
     /// Optional model identifier. Omit to use the platform default.
     #[serde(default)]
@@ -2540,6 +2540,137 @@ pub struct DeploySerenAgentParams {
     /// Optional visibility mode ("open" or "opaque")
     #[serde(default)]
     pub visibility: Option<String>,
+}
+
+fn build_deploy_seren_agent_request(
+    params: DeploySerenAgentParams,
+) -> Result<seren::AgentSpec, McpError> {
+    let template = resolve_guided_string_alias(
+        params.template.as_ref(),
+        params.agent_style.as_ref(),
+        "template",
+        "agent_style",
+    )?;
+    let tool_presets = resolve_guided_list_alias(
+        params.tool_presets.as_ref(),
+        params.capabilities.as_ref(),
+        "tool_presets",
+        "capabilities",
+    )?;
+    let approval_policy = resolve_guided_string_alias(
+        params.approval_policy.as_ref(),
+        params.access_mode.as_ref(),
+        "approval_policy",
+        "access_mode",
+    )?;
+    let model_policy = resolve_guided_string_alias(
+        params.model_policy.as_ref(),
+        params.performance_profile.as_ref(),
+        "model_policy",
+        "performance_profile",
+    )?;
+    let template = seren::parse_managed_agent_template(template.as_deref())
+        .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+    let tool_presets = tool_presets
+        .as_ref()
+        .map(|values| seren::parse_managed_agent_tool_presets(values.iter().map(String::as_str)))
+        .transpose()
+        .map_err(|e| McpError::invalid_params(e.to_string(), None))?
+        .flatten();
+    let approval_policy = seren::parse_managed_agent_approval_policy(approval_policy.as_deref())
+        .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+    let model_policy = seren::parse_managed_agent_model_policy(model_policy.as_deref())
+        .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+    let capability_policy = parse_capability_policy(params.capability_policy)?;
+    let mode: seren::CloudDeploymentMode =
+        serde_json::from_value(serde_json::json!(params.mode))
+            .map_err(|e| McpError::invalid_params(format!("Invalid mode: {e}"), None))?;
+    let compute_backend = params
+        .compute_backend
+        .map(|value| serde_json::from_value(serde_json::json!(value)))
+        .transpose()
+        .map_err(|e| McpError::invalid_params(format!("Invalid compute_backend: {e}"), None))?;
+    let eval_gate = match (params.eval_gate_set_id, params.eval_gate_max_age_seconds) {
+        (Some(set_id), Some(max_age_seconds)) => Some(seren::EvalGate {
+            block_on_failure: None,
+            drift_baseline: None,
+            max_age_seconds,
+            schedule: None,
+            set_id,
+        }),
+        (None, None) => None,
+        (Some(_), None) => {
+            return Err(McpError::invalid_params(
+                "eval_gate_max_age_seconds is required with eval_gate_set_id.",
+                None,
+            ));
+        }
+        (None, Some(_)) => {
+            return Err(McpError::invalid_params(
+                "eval_gate_set_id is required with eval_gate_max_age_seconds.",
+                None,
+            ));
+        }
+    };
+    let requirements = params
+        .requirements
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|e| {
+            McpError::invalid_params(format!("Invalid requirements payload: {e}"), None)
+        })?;
+
+    Ok(seren::AgentSpec {
+        agent_identity_id: None,
+        agent_slug: params.agent_slug,
+        alert_policy: None,
+        allowed_remote_agent_origins: params.allowed_remote_agent_origins,
+        approval_policy,
+        credentials: None,
+        cron_schedule: params.cron_schedule,
+        cron_timezone: params.cron_timezone,
+        dashboard_config: params.dashboard_config,
+        eval_gate,
+        guardrails: None,
+        memory_policy: Some(default_employee_memory_policy()?),
+        capability_policy: Some(capability_policy.unwrap_or(default_employee_capability_policy()?)),
+        mode,
+        model_policy,
+        name: Some(params.name),
+        private_output_policy: None,
+        runtime_policy: None,
+        secret_resolution_delegation: None,
+        session_database: None,
+        template,
+        tool_presets,
+        tool_refs: params.tool_refs,
+        visibility: params.visibility,
+        workload: seren::WorkloadSpec {
+            compute_backend,
+            config: params.config,
+            execution: seren::WorkloadExecution::Llm {
+                adapter: None,
+                bundle: bundle_for_prompt(params.prompt),
+                fallback_models: params.fallback_models,
+                llm_connection: None,
+                model_config: params.model_config,
+                model_id: params.model_id,
+                tool_definitions: None,
+            },
+            limits: Some(seren::WorkloadLimits {
+                context_budget_tokens: None,
+                max_iterations: None,
+                max_timeout_seconds: params.max_timeout_seconds,
+                max_tool_calls_per_run: None,
+                max_tool_output_chars: None,
+            }),
+            network_policy: None,
+            publisher_only: None,
+            requirements: Some(requirements.unwrap_or_default()),
+            secrets: params.secrets,
+            side_effect_policy: None,
+        },
+    })
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -13012,137 +13143,7 @@ API endpoint: {endpoint}",
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let template = resolve_guided_string_alias(
-            params.template.as_ref(),
-            params.agent_style.as_ref(),
-            "template",
-            "agent_style",
-        )?;
-        let tool_presets = resolve_guided_list_alias(
-            params.tool_presets.as_ref(),
-            params.capabilities.as_ref(),
-            "tool_presets",
-            "capabilities",
-        )?;
-        let approval_policy = resolve_guided_string_alias(
-            params.approval_policy.as_ref(),
-            params.access_mode.as_ref(),
-            "approval_policy",
-            "access_mode",
-        )?;
-        let model_policy = resolve_guided_string_alias(
-            params.model_policy.as_ref(),
-            params.performance_profile.as_ref(),
-            "model_policy",
-            "performance_profile",
-        )?;
-        let template = seren::parse_managed_agent_template(template.as_deref())
-            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
-        let tool_presets = tool_presets
-            .as_ref()
-            .map(|values| {
-                seren::parse_managed_agent_tool_presets(values.iter().map(String::as_str))
-            })
-            .transpose()
-            .map_err(|e| McpError::invalid_params(e.to_string(), None))?
-            .flatten();
-        let approval_policy =
-            seren::parse_managed_agent_approval_policy(approval_policy.as_deref())
-                .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
-        let model_policy = seren::parse_managed_agent_model_policy(model_policy.as_deref())
-            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
-        let capability_policy = parse_capability_policy(params.capability_policy)?;
-        let mode: seren::CloudDeploymentMode =
-            serde_json::from_value(serde_json::json!(params.mode))
-                .map_err(|e| McpError::invalid_params(format!("Invalid mode: {e}"), None))?;
-        let compute_backend = params
-            .compute_backend
-            .map(|value| serde_json::from_value(serde_json::json!(value)))
-            .transpose()
-            .map_err(|e| McpError::invalid_params(format!("Invalid compute_backend: {e}"), None))?;
-        let eval_gate = match (params.eval_gate_set_id, params.eval_gate_max_age_seconds) {
-            (Some(set_id), Some(max_age_seconds)) => Some(seren::EvalGate {
-                block_on_failure: None,
-                drift_baseline: None,
-                max_age_seconds,
-                schedule: None,
-                set_id,
-            }),
-            (None, None) => None,
-            (Some(_), None) => {
-                return Err(McpError::invalid_params(
-                    "eval_gate_max_age_seconds is required with eval_gate_set_id.",
-                    None,
-                ));
-            }
-            (None, Some(_)) => {
-                return Err(McpError::invalid_params(
-                    "eval_gate_set_id is required with eval_gate_max_age_seconds.",
-                    None,
-                ));
-            }
-        };
-        let requirements = params
-            .requirements
-            .map(serde_json::from_value)
-            .transpose()
-            .map_err(|e| {
-                McpError::invalid_params(format!("Invalid requirements payload: {e}"), None)
-            })?;
-
-        let request = seren::AgentSpec {
-            agent_identity_id: None,
-            agent_slug: params.agent_slug,
-            alert_policy: None,
-            allowed_remote_agent_origins: params.allowed_remote_agent_origins,
-            approval_policy,
-            credentials: None,
-            cron_schedule: params.cron_schedule,
-            cron_timezone: params.cron_timezone,
-            dashboard_config: params.dashboard_config,
-            eval_gate,
-            guardrails: None,
-            memory_policy: Some(default_employee_memory_policy()?),
-            capability_policy: Some(
-                capability_policy.unwrap_or(default_employee_capability_policy()?),
-            ),
-            mode,
-            model_policy,
-            name: Some(params.name),
-            private_output_policy: None,
-            runtime_policy: None,
-            secret_resolution_delegation: None,
-            session_database: None,
-            template,
-            tool_presets,
-            tool_refs: params.tool_refs,
-            visibility: params.visibility,
-            workload: seren::WorkloadSpec {
-                compute_backend,
-                config: params.config,
-                execution: seren::WorkloadExecution::Llm {
-                    adapter: None,
-                    bundle: bundle_for_prompt(params.prompt),
-                    fallback_models: params.fallback_models,
-                    llm_connection: None,
-                    model_config: params.model_config,
-                    model_id: params.model_id,
-                    tool_definitions: None,
-                },
-                limits: Some(seren::WorkloadLimits {
-                    context_budget_tokens: None,
-                    max_iterations: None,
-                    max_timeout_seconds: params.max_timeout_seconds,
-                    max_tool_calls_per_run: None,
-                    max_tool_output_chars: None,
-                }),
-                network_policy: None,
-                publisher_only: None,
-                requirements: Some(requirements.unwrap_or_default()),
-                secrets: params.secrets,
-                side_effect_policy: None,
-            },
-        };
+        let request = build_deploy_seren_agent_request(params)?;
 
         let result = match api_client.seren_agent_deploy(&request).await {
             Ok(result) => result,
