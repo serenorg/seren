@@ -5,8 +5,8 @@ on:
     tags: ["v*.*.*"]
 
 concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -22,13 +22,14 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - name: Validate tag matches workspace version
+      - name: Validate release metadata
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           python3 - <<'PY'
           import os
           import pathlib
+          import re
           import tomllib
 
           tag_name = os.environ["TAG_NAME"]
@@ -41,6 +42,11 @@ jobs:
             raise SystemExit(
                 f"tag version {tag_version} does not match workspace version {workspace_version}"
             )
+
+          changelog = pathlib.Path("CHANGELOG.md").read_text()
+          pattern = re.compile(rf"^## \[{re.escape(tag_version)}\]\s+-\s+.+$", re.MULTILINE)
+          if not pattern.search(changelog):
+            raise SystemExit(f"missing CHANGELOG entry for {tag_version}")
           PY
 
   build:
