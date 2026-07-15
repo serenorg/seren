@@ -807,6 +807,17 @@ fn main() -> anyhow::Result<()> {
         "500u16 => Err(Error::UnexpectedResponse(response))",
     );
 
+    // The replacements above are plain string edits against generated
+    // output; formatting drift in the generator must fail the build rather
+    // than silently reverting these statuses to body-discarding errors.
+    for status in ["400u16", "401u16", "402u16", "403u16", "404u16", "500u16"] {
+        let leftover =
+            format!("{status} => Err(Error::ErrorResponse(ResponseValue::empty(response)))");
+        if formatted.contains(&leftover) {
+            return Err(anyhow::anyhow!("status remap did not apply for {status}"));
+        }
+    }
+
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     fs::create_dir_all(&out_dir)?;
     fs::write(out_dir.join("generated.rs"), formatted)?;

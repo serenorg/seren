@@ -268,9 +268,12 @@ pub async fn disconnect(connection: &str, ctx: &CommandContext) -> Result<()> {
         .revoke_connection_by_id(&connection_id)
         .await
         .map_err(|e| {
-            if let seren::Error::ErrorResponse(ref resp) = e
-                && resp.status() == 404
-            {
+            let not_found = match &e {
+                seren::Error::ErrorResponse(resp) => resp.status() == 404,
+                seren::Error::UnexpectedResponse(resp) => resp.status() == 404,
+                _ => false,
+            };
+            if not_found {
                 return anyhow::anyhow!("No OAuth connection found for '{}'", connection);
             }
             anyhow::anyhow!("Failed to disconnect: {}", e)

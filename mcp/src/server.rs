@@ -5083,7 +5083,8 @@ async fn put_presigned_deployment_bundle(
         return Err(McpError::internal_error(
             format!(
                 "Failed to upload deployment bundle to object storage: HTTP {} {}",
-                status, body
+                status,
+                truncate_for_client(&body, 1200)
             ),
             None,
         ));
@@ -5115,7 +5116,8 @@ async fn put_presigned_object_storage_object(
         return Err(McpError::internal_error(
             format!(
                 "Failed to upload object storage object: HTTP {} {}",
-                status, body
+                status,
+                truncate_for_client(&body, 1200)
             ),
             None,
         ));
@@ -12566,6 +12568,15 @@ API endpoint: {endpoint}",
             }
             Err(seren::Error::UnexpectedResponse(response)) => {
                 let status = response.status();
+                if status == reqwest::StatusCode::NOT_FOUND {
+                    return Err(McpError::internal_error(
+                        format!(
+                            "Publisher '{}' not found or does not have MCP capabilities. Use list_agent_publishers to see available publishers.",
+                            params.publisher
+                        ),
+                        None,
+                    ));
+                }
                 let body_text = response.text().await.unwrap_or_default();
                 return Err(McpError::internal_error(
                     format!(
@@ -12629,6 +12640,15 @@ API endpoint: {endpoint}",
             }
             Err(seren::Error::UnexpectedResponse(response)) => {
                 let status = response.status();
+                if status == reqwest::StatusCode::NOT_FOUND {
+                    return Err(McpError::internal_error(
+                        format!(
+                            "Publisher '{}' not found or does not have MCP capabilities. Use list_agent_publishers to see available publishers.",
+                            params.publisher
+                        ),
+                        None,
+                    ));
+                }
                 let body_text = response.text().await.unwrap_or_default();
                 return Err(McpError::internal_error(
                     format!(
