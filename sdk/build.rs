@@ -778,12 +778,17 @@ fn main() -> anyhow::Result<()> {
     // Convert documented error responses from ErrorResponse (which discards the response) to
     // UnexpectedResponse so callers retain the status, headers, and response body while the
     // status codes remain documented in the OpenAPI spec.
-    // 400: Bad request errors include a JSON body with {error, message} that should be surfaced.
+    // 400/401: Bad request and authentication errors include a useful response body.
     // 402/403: Payment-required and forbidden errors may carry structured body payloads.
+    // 404: Missing resources often include the identifier and deployment state.
     // 500: Internal errors carry diagnostics and a request ID header for support correlation.
     let formatted = formatted.replace(
         "400u16 => Err(Error::ErrorResponse(ResponseValue::empty(response)))",
         "400u16 => Err(Error::UnexpectedResponse(response))",
+    );
+    let formatted = formatted.replace(
+        "401u16 => Err(Error::ErrorResponse(ResponseValue::empty(response)))",
+        "401u16 => Err(Error::UnexpectedResponse(response))",
     );
     let formatted = formatted.replace(
         "402u16 => Err(Error::ErrorResponse(ResponseValue::empty(response)))",
@@ -792,6 +797,10 @@ fn main() -> anyhow::Result<()> {
     let formatted = formatted.replace(
         "403u16 => Err(Error::ErrorResponse(ResponseValue::empty(response)))",
         "403u16 => Err(Error::UnexpectedResponse(response))",
+    );
+    let formatted = formatted.replace(
+        "404u16 => Err(Error::ErrorResponse(ResponseValue::empty(response)))",
+        "404u16 => Err(Error::UnexpectedResponse(response))",
     );
     let formatted = formatted.replace(
         "500u16 => Err(Error::ErrorResponse(ResponseValue::empty(response)))",

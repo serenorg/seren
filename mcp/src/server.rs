@@ -1879,7 +1879,7 @@ pub struct DeployCloudAgentParams {
     /// Optional reusable execution environment UUID (AWS container backend only)
     #[serde(default)]
     pub environment_id: Option<Uuid>,
-    /// Deployment mode: "always_on" or "cron"
+    /// Deployment mode: "always_on", "cron", or "job"
     pub mode: String,
     /// Cron schedule expression (required if mode is "cron")
     #[serde(default)]
@@ -1935,6 +1935,124 @@ pub struct DeployCloudAgentParams {
     /// Optional visibility mode ("open" or "opaque")
     #[serde(default)]
     pub visibility: Option<String>,
+}
+
+fn validate_deploy_cloud_secrets(secrets: Option<&serde_json::Value>) -> Result<(), McpError> {
+    let Some(secrets) = secrets else {
+        return Ok(());
+    };
+    let Some(object) = secrets.as_object() else {
+        return Err(McpError::invalid_params(
+            "secrets must be a JSON object.",
+            None,
+        ));
+    };
+    if let Some(key) = object.keys().find(|key| {
+        key.get(..6)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("SEREN_"))
+    }) {
+        let guidance = if key.eq_ignore_ascii_case("SEREN_API_KEY") {
+            " SEREN_API_KEY is generated and injected automatically for each deployment."
+        } else {
+            " Seren reserves this namespace for deployment-managed runtime values."
+        };
+        return Err(McpError::invalid_params(
+            format!("Secret '{key}' uses the reserved SEREN_ runtime namespace.{guidance}"),
+            None,
+        ));
+    }
+    Ok(())
+}
+
+fn build_deploy_cloud_agent_request(
+    params: DeployCloudAgentParams,
+    deployment_bundle_id: Uuid,
+) -> Result<seren::CreateCloudDeploymentRequest, McpError> {
+    let mode = parse_cloud_enum::<seren::CloudDeploymentMode>("mode", &params.mode)?;
+    let compute_backend = match params.compute_backend.as_deref() {
+        Some("auto") | None => None,
+        Some(value) => Some(parse_cloud_enum::<seren::CloudDeploymentComputeBackend>(
+            "compute_backend",
+            value,
+        )?),
+    };
+    let runtime_kind = match params.runtime_kind.as_deref() {
+        Some("auto") | None => None,
+        Some(value) => Some(parse_cloud_enum::<seren::CloudDeploymentRuntimeKind>(
+            "runtime_kind",
+            value,
+        )?),
+    };
+    let eval_gate = match (params.eval_gate_set_id, params.eval_gate_max_age_seconds) {
+        (Some(set_id), Some(max_age_seconds)) => Some(seren::EvalGate {
+            block_on_failure: None,
+            drift_baseline: None,
+            max_age_seconds,
+            schedule: None,
+            set_id,
+        }),
+        (None, None) => None,
+        (Some(_), None) => {
+            return Err(McpError::invalid_params(
+                "eval_gate_max_age_seconds is required with eval_gate_set_id.",
+                None,
+            ));
+        }
+        (None, Some(_)) => {
+            return Err(McpError::invalid_params(
+                "eval_gate_set_id is required with eval_gate_max_age_seconds.",
+                None,
+            ));
+        }
+    };
+    let requirements = params
+        .requirements
+        .map(serde_json::from_value::<Vec<seren::RequirementSpec>>)
+        .transpose()
+        .map_err(|e| McpError::invalid_params(format!("Invalid requirements: {e}"), None))?;
+    let limits = if params.context_budget_tokens.is_some()
+        || params.max_iterations.is_some()
+        || params.max_timeout_seconds.is_some()
+        || params.max_tool_output_chars.is_some()
+    {
+        Some(seren::WorkloadLimits {
+            context_budget_tokens: params.context_budget_tokens,
+            max_iterations: params.max_iterations,
+            max_timeout_seconds: params.max_timeout_seconds,
+            max_tool_calls_per_run: None,
+            max_tool_output_chars: params.max_tool_output_chars,
+        })
+    } else {
+        None
+    };
+
+    Ok(seren::CreateCloudDeploymentRequest {
+        alert_policy: None,
+        cron_schedule: params.cron_schedule,
+        cron_timezone: params.cron_timezone,
+        dashboard_config: params.dashboard_config,
+        environment_id: params.environment_id,
+        eval_gate,
+        mode,
+        name: Some(params.name),
+        skill_slug: params.skill_slug,
+        visibility: params.visibility,
+        workload: seren::WorkloadSpec {
+            compute_backend,
+            config: params.config,
+            execution: seren::WorkloadExecution::Code {
+                deployment_bundle_id,
+                requirements_txt: params.requirements_txt,
+                runtime_kind,
+            },
+            limits,
+            network_policy: None,
+            publisher_only: None,
+            requirements,
+            secrets: params.secrets,
+            side_effect_policy: None,
+        },
+    })
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -5112,12 +5230,13 @@ async fn register_cloud_deployment_bundle(
         })?,
         source_kind: seren::CloudDeploymentBundleSourceKind::TarGz,
     };
-    let registration = api_client
+    let registration = match api_client
         .seren_cloud_create_deployment_bundle(&request)
         .await
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?
-        .into_inner()
-        .data;
+    {
+        Ok(response) => response.into_inner().data,
+        Err(error) => return Err(seren_error_to_mcp_error(error).await),
+    };
 
     if registration.upload_required {
         let upload_url = registration.upload_url.as_deref().ok_or_else(|| {
@@ -5127,10 +5246,12 @@ async fn register_cloud_deployment_bundle(
             )
         })?;
         put_presigned_deployment_bundle(upload_url, &registration.upload_headers, content).await?;
-        api_client
+        if let Err(error) = api_client
             .seren_cloud_complete_deployment_bundle_upload(&registration.deployment_bundle_id)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        {
+            return Err(seren_error_to_mcp_error(error).await);
+        }
     }
 
     Ok(registration.deployment_bundle_id)
@@ -12542,6 +12663,7 @@ API endpoint: {endpoint}",
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
+        validate_deploy_cloud_secrets(params.secrets.as_ref())?;
         let api_client = self.api_client(&extensions)?;
 
         let deployment_bundle_id = match (
@@ -12574,97 +12696,11 @@ API endpoint: {endpoint}",
             }
         };
 
-        let mode = parse_cloud_enum::<seren::CloudDeploymentMode>("mode", &params.mode)?;
-        let compute_backend = match params.compute_backend.as_deref() {
-            Some("auto") | None => None,
-            Some(value) => Some(parse_cloud_enum::<seren::CloudDeploymentComputeBackend>(
-                "compute_backend",
-                value,
-            )?),
+        let request = build_deploy_cloud_agent_request(params, deployment_bundle_id)?;
+        let response = match api_client.seren_cloud_deploy(&request).await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
         };
-        let runtime_kind = match params.runtime_kind.as_deref() {
-            Some("auto") | None => None,
-            Some(value) => Some(parse_cloud_enum::<seren::CloudDeploymentRuntimeKind>(
-                "runtime_kind",
-                value,
-            )?),
-        };
-        let eval_gate = match (params.eval_gate_set_id, params.eval_gate_max_age_seconds) {
-            (Some(set_id), Some(max_age_seconds)) => Some(seren::EvalGate {
-                block_on_failure: None,
-                drift_baseline: None,
-                max_age_seconds,
-                schedule: None,
-                set_id,
-            }),
-            (None, None) => None,
-            (Some(_), None) => {
-                return Err(McpError::invalid_params(
-                    "eval_gate_max_age_seconds is required with eval_gate_set_id.",
-                    None,
-                ));
-            }
-            (None, Some(_)) => {
-                return Err(McpError::invalid_params(
-                    "eval_gate_set_id is required with eval_gate_max_age_seconds.",
-                    None,
-                ));
-            }
-        };
-        let requirements = params
-            .requirements
-            .map(serde_json::from_value::<Vec<seren::RequirementSpec>>)
-            .transpose()
-            .map_err(|e| McpError::invalid_params(format!("Invalid requirements: {e}"), None))?;
-        let limits = if params.context_budget_tokens.is_some()
-            || params.max_iterations.is_some()
-            || params.max_timeout_seconds.is_some()
-            || params.max_tool_output_chars.is_some()
-        {
-            Some(seren::WorkloadLimits {
-                context_budget_tokens: params.context_budget_tokens,
-                max_iterations: params.max_iterations,
-                max_timeout_seconds: params.max_timeout_seconds,
-                max_tool_calls_per_run: None,
-                max_tool_output_chars: params.max_tool_output_chars,
-            })
-        } else {
-            None
-        };
-
-        let request = seren::CreateCloudDeploymentRequest {
-            alert_policy: None,
-            cron_schedule: params.cron_schedule,
-            cron_timezone: params.cron_timezone,
-            dashboard_config: params.dashboard_config,
-            environment_id: params.environment_id,
-            eval_gate,
-            mode,
-            name: Some(params.name),
-            skill_slug: params.skill_slug,
-            visibility: params.visibility,
-            workload: seren::WorkloadSpec {
-                compute_backend,
-                config: params.config,
-                execution: seren::WorkloadExecution::Code {
-                    deployment_bundle_id,
-                    requirements_txt: params.requirements_txt,
-                    runtime_kind,
-                },
-                limits,
-                network_policy: None,
-                publisher_only: None,
-                requirements,
-                secrets: params.secrets,
-                side_effect_policy: None,
-            },
-        };
-
-        let response = api_client
-            .seren_cloud_deploy(&request)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -15025,6 +15061,125 @@ mod tests {
             passwords_agent: None,
             passwords_hosted_store: None,
         }
+    }
+
+    #[test]
+    fn deploy_agent_uses_nested_agent_spec_contract() {
+        let params: DeploySerenAgentParams = serde_json::from_value(serde_json::json!({
+            "agent_slug": "mcp-publisher-smoke",
+            "name": "MCP Publisher Smoke",
+            "mode": "job",
+            "prompt": "Call only read-only publisher operations and summarize the result.",
+            "model_id": "openai/gpt-4o-mini",
+            "template": "workflow_agent",
+            "approval_policy": "read_only"
+        }))
+        .expect("MCP deploy parameters should decode");
+
+        let request = build_deploy_seren_agent_request(params)
+            .expect("MCP deploy parameters should build an AgentSpec");
+        let payload = serde_json::to_value(request).expect("AgentSpec should serialize");
+
+        assert!(payload.get("prompt").is_none());
+        assert!(payload.get("system_prompt").is_none());
+        assert_eq!(
+            payload.pointer("/workload/execution/type"),
+            Some(&serde_json::json!("llm"))
+        );
+        assert_eq!(
+            payload.pointer("/workload/execution/bundle/instructions/0/content"),
+            Some(&serde_json::json!(
+                "Call only read-only publisher operations and summarize the result."
+            ))
+        );
+        assert_eq!(
+            payload.get("template"),
+            Some(&serde_json::json!("workflow_agent"))
+        );
+        assert_eq!(
+            payload.get("approval_policy"),
+            Some(&serde_json::json!("read_only"))
+        );
+        assert!(payload.pointer("/workload/side_effect_policy").is_none());
+    }
+
+    #[test]
+    fn deploy_cloud_agent_rejects_platform_managed_api_key() {
+        let secrets = serde_json::json!({
+            "SEREN_API_KEY": "must-not-be-reported"
+        });
+
+        let error = validate_deploy_cloud_secrets(Some(&secrets))
+            .expect_err("platform-managed API key must be rejected before upload");
+
+        assert!(error.message.contains("reserved SEREN_ runtime namespace"));
+        assert!(
+            error
+                .message
+                .contains("generated and injected automatically")
+        );
+        assert!(!error.message.contains("must-not-be-reported"));
+    }
+
+    #[test]
+    fn deploy_cloud_agent_builds_python_cron_request() {
+        let deployment_bundle_id = Uuid::new_v4();
+        let params: DeployCloudAgentParams = serde_json::from_value(serde_json::json!({
+            "skill_slug": "3d-recovery-case-origination",
+            "name": "3D Recovery Case Origination",
+            "mode": "cron",
+            "cron_schedule": "0 6 * * 1-5",
+            "cron_timezone": "America/New_York",
+            "runtime_kind": "python",
+            "visibility": "opaque",
+            "deployment_bundle_content_base64": "registered-before-request-build",
+            "requirements_txt": "httpx>=0.27\npytest>=8\n",
+            "config": {
+                "live_mode": false,
+                "offline_fixture": false,
+                "skill": "case-origination",
+                "auth.api_key_env": "SEREN_API_KEY",
+                "serendb.database": "bat_sales_coach",
+                "serendb.project_id": "3dbd443a-86f6-4120-9b56-b8f61a021838",
+                "serendb.branch_id": "5c1bcdc5-875d-4528-90c0-65d86780e4c1",
+                "schedule.cron_expression": "0 6 * * 1-5",
+                "schedule.timezone": "America/New_York"
+            }
+        }))
+        .expect("reported MCP parameters should decode");
+
+        validate_deploy_cloud_secrets(params.secrets.as_ref())
+            .expect("corrected request should not provide platform-managed secrets");
+        let request = build_deploy_cloud_agent_request(params, deployment_bundle_id)
+            .expect("reported Python cron request should build");
+        let payload = serde_json::to_value(request).expect("deploy request should serialize");
+
+        assert_eq!(payload.get("mode"), Some(&serde_json::json!("cron")));
+        assert_eq!(
+            payload.get("cron_schedule"),
+            Some(&serde_json::json!("0 6 * * 1-5"))
+        );
+        assert_eq!(
+            payload.get("cron_timezone"),
+            Some(&serde_json::json!("America/New_York"))
+        );
+        assert_eq!(
+            payload.pointer("/workload/execution/type"),
+            Some(&serde_json::json!("code"))
+        );
+        assert_eq!(
+            payload.pointer("/workload/execution/runtime_kind"),
+            Some(&serde_json::json!("python"))
+        );
+        assert_eq!(
+            payload.pointer("/workload/execution/deployment_bundle_id"),
+            Some(&serde_json::json!(deployment_bundle_id))
+        );
+        assert_eq!(
+            payload.pointer("/workload/config/auth.api_key_env"),
+            Some(&serde_json::json!("SEREN_API_KEY"))
+        );
+        assert!(payload.pointer("/workload/secrets").is_none());
     }
 
     #[test]
