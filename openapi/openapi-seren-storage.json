@@ -74,6 +74,221 @@
                 ]
             }
         },
+        "/buckets/{bucket_slug}/agent-grants": {
+            "get": {
+                "tags": [
+                    "Access"
+                ],
+                "operationId": "list_bucket_agent_grants",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Employee bucket grants retrieved",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_Vec_ObjectStorageBucketAgentGrant"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Organization management permission required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/buckets/{bucket_slug}/agent-grants/{agent_identity_id}": {
+            "put": {
+                "tags": [
+                    "Access"
+                ],
+                "operationId": "put_bucket_agent_grant",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "agent_identity_id",
+                        "in": "path",
+                        "description": "Employee identity ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PutObjectStorageBucketAgentGrantRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Employee bucket grant stored",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageBucketAgentGrant"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Organization management permission required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Access"
+                ],
+                "operationId": "delete_bucket_agent_grant",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "agent_identity_id",
+                        "in": "path",
+                        "description": "Employee identity ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Employee bucket grant revoked"
+                    },
+                    "403": {
+                        "description": "Organization management permission required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/buckets/{bucket_slug}/lifecycle": {
+            "put": {
+                "tags": [
+                    "Objects"
+                ],
+                "operationId": "put_bucket_lifecycle",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PutObjectStorageBucketLifecycleRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Bucket lifecycle updated",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageBucket"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Organization management permission required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
         "/buckets/{bucket_slug}/objects": {
             "get": {
                 "tags": [
@@ -102,16 +317,37 @@
                         }
                     },
                     {
-                        "name": "limit",
+                        "name": "delimiter",
                         "in": "query",
                         "required": false,
                         "schema": {
-                            "type": "integer",
-                            "format": "int64"
+                            "type": [
+                                "string",
+                                "null"
+                            ]
                         }
                     },
                     {
-                        "name": "offset",
+                        "name": "view",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "cursor",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "limit",
                         "in": "query",
                         "required": false,
                         "schema": {
@@ -122,11 +358,11 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Storage objects retrieved",
+                        "description": "Storage objects and directory prefixes retrieved",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/DataResponse_Vec_ObjectStorageObject"
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageObjectPage"
                                 }
                             }
                         }
@@ -171,6 +407,62 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/DataResponse_ObjectStorageDownload"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/buckets/{bucket_slug}/objects/multipart-uploads": {
+            "post": {
+                "tags": [
+                    "Objects"
+                ],
+                "operationId": "create_multipart_upload",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateObjectStorageMultipartUploadRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Multipart upload initiated",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageMultipartUpload"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Object key already exists",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
                                 }
                             }
                         }
@@ -268,7 +560,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Storage object deleted",
+                        "description": "Storage object moved to trash",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -341,6 +633,72 @@
                 ]
             }
         },
+        "/buckets/{bucket_slug}/objects/{object_id}/copy": {
+            "post": {
+                "tags": [
+                    "Objects"
+                ],
+                "operationId": "copy_object",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Source storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "object_id",
+                        "in": "path",
+                        "description": "Source storage object ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CopyObjectStorageObjectRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Storage object copied",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageObject"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Destination key already exists",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
         "/buckets/{bucket_slug}/objects/{object_id}/download": {
             "get": {
                 "tags": [
@@ -375,6 +733,439 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/DataResponse_ObjectStorageDownload"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/buckets/{bucket_slug}/objects/{object_id}/move": {
+            "post": {
+                "tags": [
+                    "Objects"
+                ],
+                "operationId": "move_object",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Source storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "object_id",
+                        "in": "path",
+                        "description": "Source storage object ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/MoveObjectStorageObjectRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Storage object moved",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageObject"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Destination key already exists",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/buckets/{bucket_slug}/objects/{object_id}/multipart-upload": {
+            "delete": {
+                "tags": [
+                    "Objects"
+                ],
+                "operationId": "abort_multipart_upload",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "object_id",
+                        "in": "path",
+                        "description": "Storage object ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Multipart upload aborted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageObject"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/buckets/{bucket_slug}/objects/{object_id}/multipart-upload/complete": {
+            "post": {
+                "tags": [
+                    "Objects"
+                ],
+                "operationId": "complete_multipart_upload",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "object_id",
+                        "in": "path",
+                        "description": "Storage object ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Multipart upload completed",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageObject"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/buckets/{bucket_slug}/objects/{object_id}/multipart-upload/parts/{part_number}": {
+            "post": {
+                "tags": [
+                    "Objects"
+                ],
+                "operationId": "create_multipart_part_upload",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "object_id",
+                        "in": "path",
+                        "description": "Storage object ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "part_number",
+                        "in": "path",
+                        "description": "Multipart part number",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateObjectStorageMultipartPartRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Multipart part upload URL created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageMultipartPartUpload"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/buckets/{bucket_slug}/objects/{object_id}/restore": {
+            "post": {
+                "tags": [
+                    "Objects"
+                ],
+                "operationId": "restore_object",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "object_id",
+                        "in": "path",
+                        "description": "Storage object ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Storage object restored",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageObject"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Object key is already in use",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/buckets/{bucket_slug}/workspace-snapshots": {
+            "get": {
+                "tags": [
+                    "Workspaces"
+                ],
+                "operationId": "list_workspace_snapshots",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "deployment_id",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Workspace snapshots retrieved",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_Vec_ObjectStorageWorkspaceSnapshot"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Workspaces"
+                ],
+                "operationId": "create_workspace_snapshot",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateObjectStorageWorkspaceSnapshotRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Workspace snapshot registered",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageWorkspaceSnapshot"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/buckets/{bucket_slug}/workspace-snapshots/latest": {
+            "get": {
+                "tags": [
+                    "Workspaces"
+                ],
+                "operationId": "latest_workspace_snapshot",
+                "parameters": [
+                    {
+                        "name": "bucket_slug",
+                        "in": "path",
+                        "description": "Storage bucket slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "deployment_id",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Latest workspace snapshot download created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageWorkspaceSnapshotDownload"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Workspace snapshot not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
                                 }
                             }
                         }
@@ -426,6 +1217,31 @@
                     }
                 }
             }
+        },
+        "/usage": {
+            "get": {
+                "tags": [
+                    "Objects"
+                ],
+                "operationId": "usage",
+                "responses": {
+                    "200": {
+                        "description": "Organization storage usage retrieved",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ObjectStorageUsage"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
         }
     },
     "components": {
@@ -433,20 +1249,7 @@
             "ConfirmObjectStorageUploadRequest": {
                 "type": "object",
                 "properties": {
-                    "byte_length": {
-                        "type": [
-                            "integer",
-                            "null"
-                        ],
-                        "format": "int64"
-                    },
                     "etag": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
-                    },
-                    "sha256": {
                         "type": [
                             "string",
                             "null"
@@ -454,17 +1257,47 @@
                     }
                 }
             },
-            "CreateObjectStorageUploadRequest": {
+            "CopyObjectStorageObjectRequest": {
+                "type": "object",
+                "required": [
+                    "destination_bucket_slug",
+                    "destination_object_key"
+                ],
+                "properties": {
+                    "destination_bucket_slug": {
+                        "type": "string"
+                    },
+                    "destination_object_key": {
+                        "type": "string"
+                    },
+                    "metadata": {}
+                }
+            },
+            "CreateObjectStorageMultipartPartRequest": {
+                "type": "object",
+                "required": [
+                    "checksum"
+                ],
+                "properties": {
+                    "checksum": {
+                        "$ref": "#/components/schemas/ObjectStorageChecksum"
+                    }
+                }
+            },
+            "CreateObjectStorageMultipartUploadRequest": {
                 "type": "object",
                 "required": [
                     "object_key",
                     "byte_length",
-                    "sha256"
+                    "checksum"
                 ],
                 "properties": {
                     "byte_length": {
                         "type": "integer",
                         "format": "int64"
+                    },
+                    "checksum": {
+                        "$ref": "#/components/schemas/ObjectStorageChecksum"
                     },
                     "content_type": {
                         "type": "string"
@@ -473,8 +1306,71 @@
                     "object_key": {
                         "type": "string"
                     },
-                    "sha256": {
+                    "part_size": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int64"
+                    }
+                }
+            },
+            "CreateObjectStorageUploadRequest": {
+                "type": "object",
+                "required": [
+                    "object_key",
+                    "byte_length",
+                    "checksum"
+                ],
+                "properties": {
+                    "byte_length": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "checksum": {
+                        "$ref": "#/components/schemas/ObjectStorageChecksum"
+                    },
+                    "content_type": {
                         "type": "string"
+                    },
+                    "metadata": {},
+                    "object_key": {
+                        "type": "string"
+                    }
+                }
+            },
+            "CreateObjectStorageWorkspaceSnapshotRequest": {
+                "type": "object",
+                "required": [
+                    "deployment_id",
+                    "object_id",
+                    "archive_sha256",
+                    "file_count",
+                    "uncompressed_bytes"
+                ],
+                "properties": {
+                    "archive_sha256": {
+                        "type": "string"
+                    },
+                    "deployment_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "file_count": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "object_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "retention_count": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "uncompressed_bytes": {
+                        "type": "integer",
+                        "format": "int64"
                     }
                 }
             },
@@ -494,16 +1390,135 @@
                                 "type": "string"
                             }
                         }
-                    },
-                    "pagination": {
-                        "oneOf": [
-                            {
-                                "type": "null"
+                    }
+                }
+            },
+            "DataResponse_ObjectStorageBucket": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "id",
+                            "organization_id",
+                            "slug",
+                            "metadata",
+                            "trash_retention_days",
+                            "created_at",
+                            "updated_at"
+                        ],
+                        "properties": {
+                            "created_at": {
+                                "type": "string",
+                                "format": "date-time"
                             },
-                            {
-                                "$ref": "#/components/schemas/PaginationMeta"
+                            "created_by_user_id": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "uuid"
+                            },
+                            "display_name": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "expire_after_days": {
+                                "type": [
+                                    "integer",
+                                    "null"
+                                ],
+                                "format": "int32"
+                            },
+                            "id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "metadata": {},
+                            "organization_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "slug": {
+                                "type": "string"
+                            },
+                            "trash_retention_days": {
+                                "type": "integer",
+                                "format": "int32"
+                            },
+                            "updated_at": {
+                                "type": "string",
+                                "format": "date-time"
                             }
-                        ]
+                        }
+                    }
+                }
+            },
+            "DataResponse_ObjectStorageBucketAgentGrant": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "id",
+                            "organization_id",
+                            "bucket_id",
+                            "bucket_slug",
+                            "agent_identity_id",
+                            "permission",
+                            "created_by_user_id",
+                            "updated_by_user_id",
+                            "created_at",
+                            "updated_at"
+                        ],
+                        "properties": {
+                            "agent_identity_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "bucket_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "bucket_slug": {
+                                "type": "string"
+                            },
+                            "created_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "created_by_user_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "organization_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "permission": {
+                                "$ref": "#/components/schemas/ObjectStorageAgentPermission"
+                            },
+                            "updated_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "updated_by_user_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            }
+                        }
                     }
                 }
             },
@@ -542,16 +1557,93 @@
                                 "$ref": "#/components/schemas/ObjectStorageObject"
                             }
                         }
-                    },
-                    "pagination": {
-                        "oneOf": [
-                            {
-                                "type": "null"
+                    }
+                }
+            },
+            "DataResponse_ObjectStorageMultipartPartUpload": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "object_id",
+                            "part_number",
+                            "byte_length",
+                            "checksum",
+                            "upload_url",
+                            "upload_headers",
+                            "upload_expires_at"
+                        ],
+                        "properties": {
+                            "byte_length": {
+                                "type": "integer",
+                                "format": "int64"
                             },
-                            {
-                                "$ref": "#/components/schemas/PaginationMeta"
+                            "checksum": {
+                                "$ref": "#/components/schemas/ObjectStorageChecksum"
+                            },
+                            "object_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "part_number": {
+                                "type": "integer",
+                                "format": "int32"
+                            },
+                            "upload_expires_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "upload_headers": {
+                                "type": "object",
+                                "additionalProperties": {
+                                    "type": "string"
+                                },
+                                "propertyNames": {
+                                    "type": "string"
+                                }
+                            },
+                            "upload_url": {
+                                "type": "string"
                             }
-                        ]
+                        }
+                    }
+                }
+            },
+            "DataResponse_ObjectStorageMultipartUpload": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "object",
+                            "part_size",
+                            "part_count",
+                            "upload_expires_at"
+                        ],
+                        "properties": {
+                            "object": {
+                                "$ref": "#/components/schemas/ObjectStorageObject"
+                            },
+                            "part_count": {
+                                "type": "integer",
+                                "format": "int32"
+                            },
+                            "part_size": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "upload_expires_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            }
+                        }
                     }
                 }
             },
@@ -571,7 +1663,8 @@
                             "object_key",
                             "content_type",
                             "byte_length",
-                            "sha256",
+                            "checksum",
+                            "upload_mode",
                             "status",
                             "uri",
                             "metadata",
@@ -591,6 +1684,9 @@
                                 "type": "integer",
                                 "format": "int64"
                             },
+                            "checksum": {
+                                "$ref": "#/components/schemas/ObjectStorageChecksum"
+                            },
                             "content_type": {
                                 "type": "string"
                             },
@@ -608,6 +1704,13 @@
                                     "null"
                                 ]
                             },
+                            "expires_at": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "date-time"
+                            },
                             "id": {
                                 "type": "string",
                                 "format": "uuid"
@@ -620,15 +1723,46 @@
                                 "type": "string",
                                 "format": "uuid"
                             },
-                            "sha256": {
-                                "type": "string"
+                            "purge_after": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "date-time"
                             },
                             "status": {
-                                "type": "string"
+                                "$ref": "#/components/schemas/ObjectStorageObjectStatus"
+                            },
+                            "trash_reason": {
+                                "oneOf": [
+                                    {
+                                        "type": "null"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/ObjectStorageTrashReason"
+                                    }
+                                ]
+                            },
+                            "trashed_at": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "date-time"
+                            },
+                            "trashed_by_user_id": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "uuid"
                             },
                             "updated_at": {
                                 "type": "string",
                                 "format": "date-time"
+                            },
+                            "upload_mode": {
+                                "$ref": "#/components/schemas/ObjectStorageUploadMode"
                             },
                             "uploaded_at": {
                                 "type": [
@@ -648,16 +1782,41 @@
                                 "type": "string"
                             }
                         }
-                    },
-                    "pagination": {
-                        "oneOf": [
-                            {
-                                "type": "null"
+                    }
+                }
+            },
+            "DataResponse_ObjectStorageObjectPage": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "objects",
+                            "common_prefixes"
+                        ],
+                        "properties": {
+                            "common_prefixes": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
                             },
-                            {
-                                "$ref": "#/components/schemas/PaginationMeta"
+                            "next_cursor": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "objects": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/ObjectStorageObject"
+                                }
                             }
-                        ]
+                        }
                     }
                 }
             },
@@ -696,16 +1855,179 @@
                                 "type": "string"
                             }
                         }
-                    },
-                    "pagination": {
-                        "oneOf": [
-                            {
-                                "type": "null"
+                    }
+                }
+            },
+            "DataResponse_ObjectStorageUsage": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "organization_id",
+                            "quota_bytes",
+                            "object_limit",
+                            "pending_upload_limit",
+                            "reserved_bytes",
+                            "buckets"
+                        ],
+                        "properties": {
+                            "buckets": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/ObjectStorageBucketUsage"
+                                }
                             },
-                            {
-                                "$ref": "#/components/schemas/PaginationMeta"
+                            "object_limit": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "organization_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "pending_upload_limit": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "quota_bytes": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "reserved_bytes": {
+                                "type": "integer",
+                                "format": "int64"
                             }
-                        ]
+                        }
+                    }
+                }
+            },
+            "DataResponse_ObjectStorageWorkspaceSnapshot": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "id",
+                            "organization_id",
+                            "bucket_id",
+                            "bucket_slug",
+                            "deployment_id",
+                            "agent_identity_id",
+                            "object",
+                            "archive_sha256",
+                            "file_count",
+                            "uncompressed_bytes",
+                            "status",
+                            "created_by_user_id",
+                            "created_at",
+                            "updated_at"
+                        ],
+                        "properties": {
+                            "agent_identity_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "archive_sha256": {
+                                "type": "string"
+                            },
+                            "bucket_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "bucket_slug": {
+                                "type": "string"
+                            },
+                            "created_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "created_by_user_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "deployment_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "file_count": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "object": {
+                                "$ref": "#/components/schemas/ObjectStorageObject"
+                            },
+                            "organization_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "retired_at": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "date-time"
+                            },
+                            "status": {
+                                "$ref": "#/components/schemas/ObjectStorageWorkspaceSnapshotStatus"
+                            },
+                            "uncompressed_bytes": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "updated_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_ObjectStorageWorkspaceSnapshotDownload": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "snapshot",
+                            "download_url",
+                            "download_headers",
+                            "download_expires_at"
+                        ],
+                        "properties": {
+                            "download_expires_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "download_headers": {
+                                "type": "object",
+                                "additionalProperties": {
+                                    "type": "string"
+                                },
+                                "propertyNames": {
+                                    "type": "string"
+                                }
+                            },
+                            "download_url": {
+                                "type": "string"
+                            },
+                            "snapshot": {
+                                "$ref": "#/components/schemas/ObjectStorageWorkspaceSnapshot"
+                            }
+                        }
                     }
                 }
             },
@@ -729,16 +2051,6 @@
                                 "type": "string"
                             }
                         }
-                    },
-                    "pagination": {
-                        "oneOf": [
-                            {
-                                "type": "null"
-                            },
-                            {
-                                "$ref": "#/components/schemas/PaginationMeta"
-                            }
-                        ]
                     }
                 }
             },
@@ -757,6 +2069,7 @@
                                 "organization_id",
                                 "slug",
                                 "metadata",
+                                "trash_retention_days",
                                 "created_at",
                                 "updated_at"
                             ],
@@ -778,6 +2091,13 @@
                                         "null"
                                     ]
                                 },
+                                "expire_after_days": {
+                                    "type": [
+                                        "integer",
+                                        "null"
+                                    ],
+                                    "format": "int32"
+                                },
                                 "id": {
                                     "type": "string",
                                     "format": "uuid"
@@ -790,26 +2110,20 @@
                                 "slug": {
                                     "type": "string"
                                 },
+                                "trash_retention_days": {
+                                    "type": "integer",
+                                    "format": "int32"
+                                },
                                 "updated_at": {
                                     "type": "string",
                                     "format": "date-time"
                                 }
                             }
                         }
-                    },
-                    "pagination": {
-                        "oneOf": [
-                            {
-                                "type": "null"
-                            },
-                            {
-                                "$ref": "#/components/schemas/PaginationMeta"
-                            }
-                        ]
                     }
                 }
             },
-            "DataResponse_Vec_ObjectStorageObject": {
+            "DataResponse_Vec_ObjectStorageBucketAgentGrant": {
                 "type": "object",
                 "required": [
                     "data"
@@ -824,30 +2138,23 @@
                                 "organization_id",
                                 "bucket_id",
                                 "bucket_slug",
-                                "object_key",
-                                "content_type",
-                                "byte_length",
-                                "sha256",
-                                "status",
-                                "uri",
-                                "metadata",
+                                "agent_identity_id",
+                                "permission",
                                 "created_by_user_id",
+                                "updated_by_user_id",
                                 "created_at",
                                 "updated_at"
                             ],
                             "properties": {
+                                "agent_identity_id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
                                 "bucket_id": {
                                     "type": "string",
                                     "format": "uuid"
                                 },
                                 "bucket_slug": {
-                                    "type": "string"
-                                },
-                                "byte_length": {
-                                    "type": "integer",
-                                    "format": "int64"
-                                },
-                                "content_type": {
                                     "type": "string"
                                 },
                                 "created_at": {
@@ -858,63 +2165,118 @@
                                     "type": "string",
                                     "format": "uuid"
                                 },
-                                "etag": {
-                                    "type": [
-                                        "string",
-                                        "null"
-                                    ]
-                                },
                                 "id": {
                                     "type": "string",
                                     "format": "uuid"
-                                },
-                                "metadata": {},
-                                "object_key": {
-                                    "type": "string"
                                 },
                                 "organization_id": {
                                     "type": "string",
                                     "format": "uuid"
                                 },
-                                "sha256": {
-                                    "type": "string"
-                                },
-                                "status": {
-                                    "type": "string"
+                                "permission": {
+                                    "$ref": "#/components/schemas/ObjectStorageAgentPermission"
                                 },
                                 "updated_at": {
                                     "type": "string",
                                     "format": "date-time"
                                 },
-                                "uploaded_at": {
+                                "updated_by_user_id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_Vec_ObjectStorageWorkspaceSnapshot": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "id",
+                                "organization_id",
+                                "bucket_id",
+                                "bucket_slug",
+                                "deployment_id",
+                                "agent_identity_id",
+                                "object",
+                                "archive_sha256",
+                                "file_count",
+                                "uncompressed_bytes",
+                                "status",
+                                "created_by_user_id",
+                                "created_at",
+                                "updated_at"
+                            ],
+                            "properties": {
+                                "agent_identity_id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "archive_sha256": {
+                                    "type": "string"
+                                },
+                                "bucket_id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "bucket_slug": {
+                                    "type": "string"
+                                },
+                                "created_at": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                "created_by_user_id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "deployment_id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "file_count": {
+                                    "type": "integer",
+                                    "format": "int64"
+                                },
+                                "id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "object": {
+                                    "$ref": "#/components/schemas/ObjectStorageObject"
+                                },
+                                "organization_id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "retired_at": {
                                     "type": [
                                         "string",
                                         "null"
                                     ],
                                     "format": "date-time"
                                 },
-                                "uploaded_by_user_id": {
-                                    "type": [
-                                        "string",
-                                        "null"
-                                    ],
-                                    "format": "uuid"
+                                "status": {
+                                    "$ref": "#/components/schemas/ObjectStorageWorkspaceSnapshotStatus"
                                 },
-                                "uri": {
-                                    "type": "string"
+                                "uncompressed_bytes": {
+                                    "type": "integer",
+                                    "format": "int64"
+                                },
+                                "updated_at": {
+                                    "type": "string",
+                                    "format": "date-time"
                                 }
                             }
                         }
-                    },
-                    "pagination": {
-                        "oneOf": [
-                            {
-                                "type": "null"
-                            },
-                            {
-                                "$ref": "#/components/schemas/PaginationMeta"
-                            }
-                        ]
                     }
                 }
             },
@@ -944,6 +2306,28 @@
                     }
                 }
             },
+            "MoveObjectStorageObjectRequest": {
+                "type": "object",
+                "required": [
+                    "destination_bucket_slug",
+                    "destination_object_key"
+                ],
+                "properties": {
+                    "destination_bucket_slug": {
+                        "type": "string"
+                    },
+                    "destination_object_key": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ObjectStorageAgentPermission": {
+                "type": "string",
+                "enum": [
+                    "reader",
+                    "writer"
+                ]
+            },
             "ObjectStorageBucket": {
                 "type": "object",
                 "required": [
@@ -951,6 +2335,7 @@
                     "organization_id",
                     "slug",
                     "metadata",
+                    "trash_retention_days",
                     "created_at",
                     "updated_at"
                 ],
@@ -972,6 +2357,13 @@
                             "null"
                         ]
                     },
+                    "expire_after_days": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int32"
+                    },
                     "id": {
                         "type": "string",
                         "format": "uuid"
@@ -984,11 +2376,148 @@
                     "slug": {
                         "type": "string"
                     },
+                    "trash_retention_days": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
                     "updated_at": {
                         "type": "string",
                         "format": "date-time"
                     }
                 }
+            },
+            "ObjectStorageBucketAgentGrant": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "organization_id",
+                    "bucket_id",
+                    "bucket_slug",
+                    "agent_identity_id",
+                    "permission",
+                    "created_by_user_id",
+                    "updated_by_user_id",
+                    "created_at",
+                    "updated_at"
+                ],
+                "properties": {
+                    "agent_identity_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "bucket_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "bucket_slug": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "created_by_user_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "organization_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "permission": {
+                        "$ref": "#/components/schemas/ObjectStorageAgentPermission"
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updated_by_user_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                }
+            },
+            "ObjectStorageBucketUsage": {
+                "type": "object",
+                "required": [
+                    "bucket_id",
+                    "bucket_slug",
+                    "active_objects",
+                    "active_bytes",
+                    "pending_objects",
+                    "pending_bytes",
+                    "trashed_objects",
+                    "trashed_bytes",
+                    "deleting_objects",
+                    "deleting_bytes"
+                ],
+                "properties": {
+                    "active_bytes": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "active_objects": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "bucket_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "bucket_slug": {
+                        "type": "string"
+                    },
+                    "deleting_bytes": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "deleting_objects": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "pending_bytes": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "pending_objects": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "trashed_bytes": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "trashed_objects": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ObjectStorageChecksum": {
+                "type": "object",
+                "required": [
+                    "algorithm",
+                    "value"
+                ],
+                "properties": {
+                    "algorithm": {
+                        "$ref": "#/components/schemas/ObjectStorageChecksumAlgorithm"
+                    },
+                    "value": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ObjectStorageChecksumAlgorithm": {
+                "type": "string",
+                "enum": [
+                    "sha256",
+                    "crc32c"
+                ]
             },
             "ObjectStorageDownload": {
                 "type": "object",
@@ -1020,6 +2549,77 @@
                     }
                 }
             },
+            "ObjectStorageMultipartPartUpload": {
+                "type": "object",
+                "required": [
+                    "object_id",
+                    "part_number",
+                    "byte_length",
+                    "checksum",
+                    "upload_url",
+                    "upload_headers",
+                    "upload_expires_at"
+                ],
+                "properties": {
+                    "byte_length": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "checksum": {
+                        "$ref": "#/components/schemas/ObjectStorageChecksum"
+                    },
+                    "object_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "part_number": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "upload_expires_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "upload_headers": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "propertyNames": {
+                            "type": "string"
+                        }
+                    },
+                    "upload_url": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ObjectStorageMultipartUpload": {
+                "type": "object",
+                "required": [
+                    "object",
+                    "part_size",
+                    "part_count",
+                    "upload_expires_at"
+                ],
+                "properties": {
+                    "object": {
+                        "$ref": "#/components/schemas/ObjectStorageObject"
+                    },
+                    "part_count": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "part_size": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "upload_expires_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
             "ObjectStorageObject": {
                 "type": "object",
                 "required": [
@@ -1030,7 +2630,8 @@
                     "object_key",
                     "content_type",
                     "byte_length",
-                    "sha256",
+                    "checksum",
+                    "upload_mode",
                     "status",
                     "uri",
                     "metadata",
@@ -1050,6 +2651,9 @@
                         "type": "integer",
                         "format": "int64"
                     },
+                    "checksum": {
+                        "$ref": "#/components/schemas/ObjectStorageChecksum"
+                    },
                     "content_type": {
                         "type": "string"
                     },
@@ -1067,6 +2671,13 @@
                             "null"
                         ]
                     },
+                    "expires_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
                     "id": {
                         "type": "string",
                         "format": "uuid"
@@ -1079,15 +2690,46 @@
                         "type": "string",
                         "format": "uuid"
                     },
-                    "sha256": {
-                        "type": "string"
+                    "purge_after": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
                     },
                     "status": {
-                        "type": "string"
+                        "$ref": "#/components/schemas/ObjectStorageObjectStatus"
+                    },
+                    "trash_reason": {
+                        "oneOf": [
+                            {
+                                "type": "null"
+                            },
+                            {
+                                "$ref": "#/components/schemas/ObjectStorageTrashReason"
+                            }
+                        ]
+                    },
+                    "trashed_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "trashed_by_user_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
                     },
                     "updated_at": {
                         "type": "string",
                         "format": "date-time"
+                    },
+                    "upload_mode": {
+                        "$ref": "#/components/schemas/ObjectStorageUploadMode"
                     },
                     "uploaded_at": {
                         "type": [
@@ -1107,6 +2749,52 @@
                         "type": "string"
                     }
                 }
+            },
+            "ObjectStorageObjectPage": {
+                "type": "object",
+                "required": [
+                    "objects",
+                    "common_prefixes"
+                ],
+                "properties": {
+                    "common_prefixes": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "next_cursor": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "objects": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ObjectStorageObject"
+                        }
+                    }
+                }
+            },
+            "ObjectStorageObjectStatus": {
+                "type": "string",
+                "enum": [
+                    "pending",
+                    "uploaded",
+                    "trashed",
+                    "delete_pending",
+                    "delete_failed",
+                    "deleted"
+                ]
+            },
+            "ObjectStorageTrashReason": {
+                "type": "string",
+                "enum": [
+                    "user_deleted",
+                    "expired",
+                    "workspace_retention"
+                ]
             },
             "ObjectStorageUpload": {
                 "type": "object",
@@ -1138,34 +2826,196 @@
                     }
                 }
             },
-            "PaginationMeta": {
+            "ObjectStorageUploadMode": {
+                "type": "string",
+                "enum": [
+                    "single",
+                    "multipart"
+                ]
+            },
+            "ObjectStorageUsage": {
                 "type": "object",
                 "required": [
-                    "total",
-                    "count",
-                    "limit",
-                    "offset",
-                    "has_more"
+                    "organization_id",
+                    "quota_bytes",
+                    "object_limit",
+                    "pending_upload_limit",
+                    "reserved_bytes",
+                    "buckets"
                 ],
                 "properties": {
-                    "count": {
+                    "buckets": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ObjectStorageBucketUsage"
+                        }
+                    },
+                    "object_limit": {
                         "type": "integer",
                         "format": "int64"
                     },
-                    "has_more": {
-                        "type": "boolean"
+                    "organization_id": {
+                        "type": "string",
+                        "format": "uuid"
                     },
-                    "limit": {
+                    "pending_upload_limit": {
                         "type": "integer",
                         "format": "int64"
                     },
-                    "offset": {
+                    "quota_bytes": {
                         "type": "integer",
                         "format": "int64"
                     },
-                    "total": {
+                    "reserved_bytes": {
                         "type": "integer",
                         "format": "int64"
+                    }
+                }
+            },
+            "ObjectStorageWorkspaceSnapshot": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "organization_id",
+                    "bucket_id",
+                    "bucket_slug",
+                    "deployment_id",
+                    "agent_identity_id",
+                    "object",
+                    "archive_sha256",
+                    "file_count",
+                    "uncompressed_bytes",
+                    "status",
+                    "created_by_user_id",
+                    "created_at",
+                    "updated_at"
+                ],
+                "properties": {
+                    "agent_identity_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "archive_sha256": {
+                        "type": "string"
+                    },
+                    "bucket_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "bucket_slug": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "created_by_user_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "deployment_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "file_count": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "object": {
+                        "$ref": "#/components/schemas/ObjectStorageObject"
+                    },
+                    "organization_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "retired_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/ObjectStorageWorkspaceSnapshotStatus"
+                    },
+                    "uncompressed_bytes": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "ObjectStorageWorkspaceSnapshotDownload": {
+                "type": "object",
+                "required": [
+                    "snapshot",
+                    "download_url",
+                    "download_headers",
+                    "download_expires_at"
+                ],
+                "properties": {
+                    "download_expires_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "download_headers": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "propertyNames": {
+                            "type": "string"
+                        }
+                    },
+                    "download_url": {
+                        "type": "string"
+                    },
+                    "snapshot": {
+                        "$ref": "#/components/schemas/ObjectStorageWorkspaceSnapshot"
+                    }
+                }
+            },
+            "ObjectStorageWorkspaceSnapshotStatus": {
+                "type": "string",
+                "enum": [
+                    "active",
+                    "retired"
+                ]
+            },
+            "PutObjectStorageBucketAgentGrantRequest": {
+                "type": "object",
+                "required": [
+                    "permission"
+                ],
+                "properties": {
+                    "permission": {
+                        "$ref": "#/components/schemas/ObjectStorageAgentPermission"
+                    }
+                }
+            },
+            "PutObjectStorageBucketLifecycleRequest": {
+                "type": "object",
+                "required": [
+                    "trash_retention_days"
+                ],
+                "properties": {
+                    "expire_after_days": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int32"
+                    },
+                    "trash_retention_days": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },
@@ -1198,6 +3048,14 @@
         {
             "name": "Objects",
             "description": "Durable object storage operations"
+        },
+        {
+            "name": "Access",
+            "description": "Employee access to organization storage buckets"
+        },
+        {
+            "name": "Workspaces",
+            "description": "Portable employee workspace snapshots"
         },
         {
             "name": "Health",

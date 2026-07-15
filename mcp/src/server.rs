@@ -299,6 +299,50 @@ pub struct SerenStorageObjectPath {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenStorageAgentGrantParams {
+    #[serde(flatten)]
+    pub path: SerenStorageBucketPath,
+    /// Agent identity ID
+    pub agent_identity_id: Uuid,
+    /// Access level to grant: "reader" or "writer"
+    pub permission: seren::SerenStorageObjectStorageAgentPermission,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenStorageAgentGrantSelectorParams {
+    #[serde(flatten)]
+    pub path: SerenStorageBucketPath,
+    /// Agent identity ID
+    pub agent_identity_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenStorageSnapshotListParams {
+    #[serde(flatten)]
+    pub path: SerenStorageBucketPath,
+    /// Deployment ID to list snapshots for
+    pub deployment_id: Uuid,
+    /// Maximum number of snapshots to return
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenStorageSnapshotLatestParams {
+    #[serde(flatten)]
+    pub path: SerenStorageBucketPath,
+    /// Deployment ID to fetch the latest snapshot for
+    pub deployment_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenStorageSnapshotCreateParams {
+    #[serde(flatten)]
+    pub path: SerenStorageBucketPath,
+    #[serde(flatten)]
+    pub body: seren::SerenStorageCreateObjectStorageWorkspaceSnapshotRequest,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct SerenStorageListObjectsParams {
     #[serde(flatten)]
     pub path: SerenStorageBucketPath,
@@ -306,8 +350,8 @@ pub struct SerenStorageListObjectsParams {
     pub prefix: Option<String>,
     /// Maximum number of objects to return
     pub limit: Option<i64>,
-    /// Offset for pagination
-    pub offset: Option<i64>,
+    /// Pagination cursor from a previous response's next_cursor
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -8059,9 +8103,11 @@ impl SerenMcpServer {
         let response = match api_client
             .seren_storage_list_objects(
                 &params.path.bucket_slug,
+                params.cursor.as_deref(),
+                None,
                 params.limit,
-                params.offset,
                 params.prefix.as_deref(),
+                None,
             )
             .await
         {
@@ -8131,10 +8177,13 @@ impl SerenMcpServer {
                 &params.path.bucket_slug,
                 &seren::SerenStorageCreateObjectStorageUploadRequest {
                     byte_length,
+                    checksum: seren::SerenStorageObjectStorageChecksum {
+                        algorithm: seren::SerenStorageObjectStorageChecksumAlgorithm::Sha256,
+                        value: sha256,
+                    },
                     content_type: Some(content_type),
                     metadata,
                     object_key: params.object_key,
-                    sha256: sha256.clone(),
                 },
             )
             .await
@@ -8154,11 +8203,7 @@ impl SerenMcpServer {
             .seren_storage_confirm_upload(
                 &params.path.bucket_slug,
                 &upload.object.id,
-                &seren::SerenStorageConfirmObjectStorageUploadRequest {
-                    byte_length: Some(byte_length),
-                    etag,
-                    sha256: Some(sha256),
-                },
+                &seren::SerenStorageConfirmObjectStorageUploadRequest { etag },
             )
             .await
         {
@@ -8254,6 +8299,160 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let response = match api_client
             .seren_storage_delete_object(&params.bucket_slug, &params.object_id)
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List agent access grants on a Seren Storage bucket.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_storage_list_bucket_agent_grants(
+        &self,
+        Parameters(params): Parameters<SerenStorageBucketPath>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_storage_list_bucket_agent_grants(&params.bucket_slug)
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Grant or update an agent's access to a Seren Storage bucket. Permission is \"reader\" or \"writer\".",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn seren_storage_put_bucket_agent_grant(
+        &self,
+        Parameters(params): Parameters<SerenStorageAgentGrantParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_storage_put_bucket_agent_grant(
+                &params.path.bucket_slug,
+                &params.agent_identity_id,
+                &seren::SerenStoragePutObjectStorageBucketAgentGrantRequest {
+                    permission: params.permission,
+                },
+            )
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Revoke an agent's access to a Seren Storage bucket.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn seren_storage_delete_bucket_agent_grant(
+        &self,
+        Parameters(params): Parameters<SerenStorageAgentGrantSelectorParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        if let Err(error) = api_client
+            .seren_storage_delete_bucket_agent_grant(
+                &params.path.bucket_slug,
+                &params.agent_identity_id,
+            )
+            .await
+        {
+            return Err(seren_error_to_mcp_error(error).await);
+        }
+        Ok(CallToolResult::success(vec![json_content(
+            &serde_json::json!({
+                "revoked": params.agent_identity_id,
+            }),
+        )?]))
+    }
+
+    #[tool(
+        description = "List workspace snapshots for a deployment in a Seren Storage bucket.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_storage_list_workspace_snapshots(
+        &self,
+        Parameters(params): Parameters<SerenStorageSnapshotListParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_storage_list_workspace_snapshots(
+                &params.path.bucket_slug,
+                &params.deployment_id,
+                params.limit,
+            )
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Fetch the latest workspace snapshot for a deployment, including a presigned download URL for the archive.",
+        annotations(read_only_hint = true, open_world_hint = true)
+    )]
+    async fn seren_storage_latest_workspace_snapshot(
+        &self,
+        Parameters(params): Parameters<SerenStorageSnapshotLatestParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_storage_latest_workspace_snapshot(
+                &params.path.bucket_slug,
+                &params.deployment_id,
+            )
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Record a workspace snapshot from an already-uploaded archive object in a Seren Storage bucket.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn seren_storage_create_workspace_snapshot(
+        &self,
+        Parameters(params): Parameters<SerenStorageSnapshotCreateParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_storage_create_workspace_snapshot(&params.path.bucket_slug, &params.body)
             .await
         {
             Ok(response) => response.into_inner(),
@@ -14866,6 +15065,12 @@ mod tests {
             "seren_storage_download_object",
             "seren_storage_download_object_by_id",
             "seren_storage_delete_object",
+            "seren_storage_list_bucket_agent_grants",
+            "seren_storage_put_bucket_agent_grant",
+            "seren_storage_delete_bucket_agent_grant",
+            "seren_storage_list_workspace_snapshots",
+            "seren_storage_latest_workspace_snapshot",
+            "seren_storage_create_workspace_snapshot",
         ] {
             assert!(tool_names.contains(expected), "missing MCP tool {expected}");
         }
