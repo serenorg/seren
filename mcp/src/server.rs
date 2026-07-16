@@ -1440,6 +1440,9 @@ pub struct UpdatePublisherParams {
     /// Whitelist of agent-provided headers allowed to pass through to upstream
     #[serde(default)]
     pub allowed_passthrough_headers: Option<Vec<String>>,
+    /// Default headers included in upstream requests
+    #[serde(default)]
+    pub upstream_headers: Option<HashMap<String, String>>,
     /// Upstream auth mode: "static", "jwt", "oauth2_cc", or "passthrough"
     #[serde(default)]
     pub auth_type: Option<String>,
@@ -11476,6 +11479,7 @@ API endpoint: {endpoint}",
             api_key_header,
             api_key_query_param,
             allowed_passthrough_headers,
+            upstream_headers,
             auth_type,
             oauth2_token_url,
             oauth2_client_id,
@@ -11645,7 +11649,10 @@ API endpoint: {endpoint}",
             jwt_algorithm: None,
             allowed_passthrough_headers,
             request_content_type: None,
-            upstream_headers: None,
+            upstream_headers: upstream_headers
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(|e| McpError::invalid_params(e.to_string(), None))?,
             gateway_fee_percent: None,
             ownership_tracking_enabled: None,
             passthrough_header_rewrite: None,
