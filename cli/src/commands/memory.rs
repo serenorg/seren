@@ -37,6 +37,18 @@ pub struct ListOptions {
     pub org_id: Option<Uuid>,
 }
 
+pub struct ProcessOptions {
+    pub transcript: String,
+    pub project_context: Option<String>,
+    pub project_id: Option<Uuid>,
+    pub org_id: Option<Uuid>,
+    pub session_id: Option<Uuid>,
+    pub retain_source: bool,
+    pub source_external_id: Option<String>,
+    pub source_revision: Option<String>,
+    pub source_uri: Option<String>,
+}
+
 pub async fn health(detailed: bool, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
     let response = if detailed {
@@ -156,6 +168,32 @@ pub async fn remember(options: RememberOptions, ctx: &CommandContext) -> Result<
     Ok(())
 }
 
+pub async fn process(options: ProcessOptions, ctx: &CommandContext) -> Result<()> {
+    if options.retain_source && options.source_external_id.is_none() {
+        anyhow::bail!("--source-external-id is required with --retain-source");
+    }
+    let retain_source = options.retain_source || options.source_external_id.is_some();
+    let response = ctx
+        .client()
+        .await?
+        .seren_memory_process_conversation(&seren::SerenMemoryProcessConversationParams {
+            org_id: options.org_id,
+            project_context: options.project_context,
+            project_id: options.project_id,
+            retain_source: Some(retain_source),
+            session_id: options.session_id,
+            source_external_id: options.source_external_id,
+            source_revision: options.source_revision,
+            source_uri: options.source_uri,
+            transcript: options.transcript,
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("Failed to process Seren Memory conversation: {error}"))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
 pub async fn list(options: ListOptions, ctx: &CommandContext) -> Result<()> {
     let lifecycle_status = options
         .lifecycle_status
@@ -197,6 +235,23 @@ pub async fn list(options: ListOptions, ctx: &CommandContext) -> Result<()> {
     Ok(())
 }
 
+pub async fn export(
+    project_id: Option<Uuid>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let response = ctx
+        .client()
+        .await?
+        .seren_memory_export_memories(limit, offset, project_id.as_ref())
+        .await
+        .map_err(|error| anyhow::anyhow!("Failed to export Seren Memory: {error}"))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
 pub async fn get(id: Uuid, ctx: &CommandContext) -> Result<()> {
     let response = ctx
         .client()
@@ -204,6 +259,22 @@ pub async fn get(id: Uuid, ctx: &CommandContext) -> Result<()> {
         .seren_memory_get_memory(&id)
         .await
         .map_err(|error| anyhow::anyhow!("Failed to get Seren Memory entry: {error}"))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn timeline(
+    id: Uuid,
+    as_of: Option<jiff::Timestamp>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let response = ctx
+        .client()
+        .await?
+        .seren_memory_memory_timeline(&id, as_of.as_ref())
+        .await
+        .map_err(|error| anyhow::anyhow!("Failed to get Seren Memory timeline: {error}"))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())

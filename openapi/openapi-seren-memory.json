@@ -1802,6 +1802,79 @@
                 ]
             }
         },
+        "/memories/export": {
+            "get": {
+                "tags": [
+                    "Memory"
+                ],
+                "operationId": "export_memories",
+                "parameters": [
+                    {
+                        "name": "project_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "integer",
+                                "null"
+                            ],
+                            "format": "int64"
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "integer",
+                                "null"
+                            ],
+                            "format": "int64"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Portable private-memory export page",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_MemoryExportResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
         "/memories/{id}": {
             "get": {
                 "tags": [
@@ -2114,6 +2187,74 @@
                     },
                     "401": {
                         "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/memories/{id}/timeline": {
+            "get": {
+                "tags": [
+                    "Memory"
+                ],
+                "operationId": "memory_timeline",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "as_of",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "format": "date-time"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Temporal memory relationships",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_Vec_MemoryEdge"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Memory not found",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2464,6 +2605,89 @@
                     }
                 }
             },
+            "ConversationSource": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "user_id",
+                    "source_external_id",
+                    "transcript",
+                    "project_context",
+                    "content_sha256",
+                    "created_at",
+                    "updated_at"
+                ],
+                "properties": {
+                    "content_sha256": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "extraction_completed_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "org_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "project_context": {
+                        "type": "string"
+                    },
+                    "project_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "session_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "source_external_id": {
+                        "type": "string"
+                    },
+                    "source_revision": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "source_uri": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "transcript": {
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "user_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                }
+            },
             "CreateKnowledgeDomainRequest": {
                 "type": "object",
                 "required": [
@@ -2585,6 +2809,13 @@
                         "type": "object",
                         "description": "Structured extraction output grouped by memory type.",
                         "properties": {
+                            "conversation_source_id": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "uuid"
+                            },
                             "episodic": {
                                 "type": "array",
                                 "items": {
@@ -2613,6 +2844,13 @@
                                 "type": "array",
                                 "items": {
                                     "$ref": "#/components/schemas/ExtractedMemory"
+                                }
+                            },
+                            "stored_memory_ids": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string",
+                                    "format": "uuid"
                                 }
                             }
                         }
@@ -3018,6 +3256,63 @@
                         "properties": {
                             "connected": {
                                 "type": "boolean"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_MemoryExportResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "schema_version",
+                            "generated_at",
+                            "memories",
+                            "memory_total",
+                            "conversation_sources",
+                            "conversation_source_total"
+                        ],
+                        "properties": {
+                            "conversation_source_total": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "conversation_sources": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/ConversationSource"
+                                }
+                            },
+                            "generated_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "memories": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/MemoryOutput"
+                                }
+                            },
+                            "memory_total": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "next_offset": {
+                                "type": [
+                                    "integer",
+                                    "null"
+                                ],
+                                "format": "int64"
+                            },
+                            "schema_version": {
+                                "type": "integer",
+                                "format": "int32",
+                                "minimum": 0
                             }
                         }
                     }
@@ -3458,6 +3753,72 @@
                     }
                 }
             },
+            "DataResponse_Vec_MemoryEdge": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "description": "Full edge row from the `memory_edges` table.",
+                            "required": [
+                                "id",
+                                "source_id",
+                                "target_id",
+                                "edge_type",
+                                "weight",
+                                "created_by",
+                                "created_at"
+                            ],
+                            "properties": {
+                                "created_at": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                "created_by": {
+                                    "type": "string"
+                                },
+                                "edge_type": {
+                                    "$ref": "#/components/schemas/EdgeType"
+                                },
+                                "id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "source_id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "target_id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "valid_from": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "format": "date-time"
+                                },
+                                "valid_to": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "format": "date-time"
+                                },
+                                "weight": {
+                                    "type": "number",
+                                    "format": "double"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             "DataResponse_Vec_MemoryRevision": {
                 "type": "object",
                 "required": [
@@ -3549,6 +3910,17 @@
                     }
                 }
             },
+            "EdgeType": {
+                "type": "string",
+                "description": "Relationship types between memories in the graph layer.",
+                "enum": [
+                    "relates_to",
+                    "derived_from",
+                    "contradicts",
+                    "supersedes",
+                    "enriched_by"
+                ]
+            },
             "EmbeddingStatus": {
                 "type": "string",
                 "description": "State of semantic indexing for a memory.",
@@ -3591,6 +3963,13 @@
                 "type": "object",
                 "description": "Structured extraction output grouped by memory type.",
                 "properties": {
+                    "conversation_source_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
                     "episodic": {
                         "type": "array",
                         "items": {
@@ -3619,6 +3998,13 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/ExtractedMemory"
+                        }
+                    },
+                    "stored_memory_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
                         }
                     }
                 }
@@ -4450,6 +4836,20 @@
                     "target_id": {
                         "type": "string",
                         "format": "uuid"
+                    },
+                    "valid_from": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "valid_to": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
                     }
                 }
             },
@@ -4461,6 +4861,110 @@
                 "properties": {
                     "connected": {
                         "type": "boolean"
+                    }
+                }
+            },
+            "MemoryEdge": {
+                "type": "object",
+                "description": "Full edge row from the `memory_edges` table.",
+                "required": [
+                    "id",
+                    "source_id",
+                    "target_id",
+                    "edge_type",
+                    "weight",
+                    "created_by",
+                    "created_at"
+                ],
+                "properties": {
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "created_by": {
+                        "type": "string"
+                    },
+                    "edge_type": {
+                        "$ref": "#/components/schemas/EdgeType"
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "source_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "target_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "valid_from": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "valid_to": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "weight": {
+                        "type": "number",
+                        "format": "double"
+                    }
+                }
+            },
+            "MemoryExportResponse": {
+                "type": "object",
+                "required": [
+                    "schema_version",
+                    "generated_at",
+                    "memories",
+                    "memory_total",
+                    "conversation_sources",
+                    "conversation_source_total"
+                ],
+                "properties": {
+                    "conversation_source_total": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "conversation_sources": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ConversationSource"
+                        }
+                    },
+                    "generated_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "memories": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MemoryOutput"
+                        }
+                    },
+                    "memory_total": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "next_offset": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int64"
+                    },
+                    "schema_version": {
+                        "type": "integer",
+                        "format": "int32",
+                        "minimum": 0
                     }
                 }
             },
@@ -4695,12 +5199,36 @@
                         ],
                         "format": "uuid"
                     },
+                    "retain_source": {
+                        "type": [
+                            "boolean",
+                            "null"
+                        ]
+                    },
                     "session_id": {
                         "type": [
                             "string",
                             "null"
                         ],
                         "format": "uuid"
+                    },
+                    "source_external_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "source_revision": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "source_uri": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
                     },
                     "transcript": {
                         "type": "string"

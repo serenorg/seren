@@ -2834,6 +2834,29 @@ enum MemoryAction {
         #[arg(long)]
         session_id: Option<Uuid>,
     },
+    /// Extract memories from a completed conversation turn
+    Process {
+        /// Conversation transcript to extract
+        transcript: String,
+        #[arg(long)]
+        project_context: Option<String>,
+        #[arg(long)]
+        project_id: Option<Uuid>,
+        #[arg(long)]
+        org_id: Option<Uuid>,
+        #[arg(long)]
+        session_id: Option<Uuid>,
+        /// Retain the raw transcript as an exportable source record
+        #[arg(long)]
+        retain_source: bool,
+        /// Stable caller-owned source identity used for idempotent capture
+        #[arg(long)]
+        source_external_id: Option<String>,
+        #[arg(long)]
+        source_revision: Option<String>,
+        #[arg(long)]
+        source_uri: Option<String>,
+    },
     /// List private memories without printing their content in table output
     List {
         #[arg(long)]
@@ -2854,8 +2877,24 @@ enum MemoryAction {
         #[arg(long)]
         org_id: Option<Uuid>,
     },
+    /// Export private memories and retained conversation sources
+    Export {
+        #[arg(long)]
+        project_id: Option<Uuid>,
+        #[arg(long)]
+        limit: Option<i64>,
+        #[arg(long)]
+        offset: Option<i64>,
+    },
     /// Get one private memory
     Get { id: Uuid },
+    /// Inspect dated relationships for one private memory
+    Timeline {
+        id: Uuid,
+        /// Return relationships valid at this RFC 3339 timestamp
+        #[arg(long)]
+        as_of: Option<jiff::Timestamp>,
+    },
     /// Soft-delete one private memory
     Forget { id: Uuid },
     /// Permanently delete one private memory
@@ -5187,6 +5226,33 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
+            MemoryAction::Process {
+                transcript,
+                project_context,
+                project_id,
+                org_id,
+                session_id,
+                retain_source,
+                source_external_id,
+                source_revision,
+                source_uri,
+            } => {
+                commands::memory::process(
+                    commands::memory::ProcessOptions {
+                        transcript,
+                        project_context,
+                        project_id,
+                        org_id,
+                        session_id,
+                        retain_source,
+                        source_external_id,
+                        source_revision,
+                        source_uri,
+                    },
+                    &ctx,
+                )
+                .await?
+            }
             MemoryAction::List {
                 memory_type,
                 lifecycle_status,
@@ -5212,7 +5278,15 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
+            MemoryAction::Export {
+                project_id,
+                limit,
+                offset,
+            } => commands::memory::export(project_id, limit, offset, &ctx).await?,
             MemoryAction::Get { id } => commands::memory::get(id, &ctx).await?,
+            MemoryAction::Timeline { id, as_of } => {
+                commands::memory::timeline(id, as_of, &ctx).await?
+            }
             MemoryAction::Forget { id } => commands::memory::forget(id, &ctx).await?,
             MemoryAction::Delete { id } => commands::memory::delete(id, &ctx).await?,
             MemoryAction::Knowledge { action } => match action {
@@ -8917,6 +8991,41 @@ mod tests {
             }
             _ => panic!("unexpected Seren Memory command parsed"),
         }
+
+        let process = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "process",
+            "User: keep raw context. Assistant: acknowledged.",
+            "--retain-source",
+            "--source-external-id",
+            "cli:test-turn",
+        ]);
+        assert!(matches!(
+            process.command,
+            Commands::Memory {
+                action: MemoryAction::Process {
+                    retain_source: true,
+                    source_external_id: Some(_),
+                    ..
+                }
+            }
+        ));
+
+        let timeline = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "timeline",
+            "123e4567-e89b-12d3-a456-426614174000",
+            "--as-of",
+            "2026-07-20T00:00:00Z",
+        ]);
+        assert!(matches!(
+            timeline.command,
+            Commands::Memory {
+                action: MemoryAction::Timeline { as_of: Some(_), .. }
+            }
+        ));
 
         let knowledge = parse_cli_with_large_stack(vec![
             "seren",
