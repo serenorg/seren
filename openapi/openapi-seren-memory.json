@@ -1807,6 +1807,7 @@
                 "tags": [
                     "Memory"
                 ],
+                "description": "Returns parallel pages from the memory and conversation-source collections. The same limit and offset are applied independently to each collection; continue with next_offset until it is null.",
                 "operationId": "export_memories",
                 "parameters": [
                     {
@@ -1836,6 +1837,7 @@
                     {
                         "name": "offset",
                         "in": "query",
+                        "description": "Shared offset applied independently to memories and conversation sources.",
                         "required": false,
                         "schema": {
                             "type": [
@@ -3307,7 +3309,8 @@
                                     "integer",
                                     "null"
                                 ],
-                                "format": "int64"
+                                "format": "int64",
+                                "description": "Next shared offset while either exported collection has more rows."
                             },
                             "schema_version": {
                                 "type": "integer",
@@ -4959,7 +4962,8 @@
                             "integer",
                             "null"
                         ],
-                        "format": "int64"
+                        "format": "int64",
+                        "description": "Next shared offset while either exported collection has more rows."
                     },
                     "schema_version": {
                         "type": "integer",

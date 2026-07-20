@@ -1476,6 +1476,7 @@
         "type": "string",
         "enum": [
           "env",
+          "reference_env",
           "header",
           "body",
           "proxy_inject"
@@ -2496,6 +2497,10 @@
         "properties": {
           "enabled": {
             "type": "boolean"
+          },
+          "execute_scripts": {
+            "type": "boolean",
+            "description": "Allow the runtime to execute scripts attached to the agent bundle."
           },
           "max_injected_chars": {
             "type": [
@@ -4205,6 +4210,12 @@
                   }
                 ]
               },
+              "external_databases": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedExternalDatabaseAttachment"
+                }
+              },
               "fallback_models": {
                 "type": [
                   "array",
@@ -5912,6 +5923,12 @@
               }
             ]
           },
+          "external_databases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedExternalDatabaseAttachment"
+            }
+          },
           "fallback_models": {
             "type": [
               "array",
@@ -7479,6 +7496,38 @@
           "Failed"
         ]
       },
+      "ManagedExternalDatabaseAccess": {
+        "type": "string",
+        "enum": [
+          "read_only",
+          "read_write"
+        ]
+      },
+      "ManagedExternalDatabaseAttachment": {
+        "type": "object",
+        "required": [
+          "project_id",
+          "branch_id",
+          "database"
+        ],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/ManagedExternalDatabaseAccess"
+          },
+          "branch_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "database": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
       "OrchestrationMode": {
         "type": "string",
         "description": "Cloud deployment orchestration mode.\n\n`Script` (default): container runs user code directly (existing behavior).\n`Llm`: container runs the seren-orchestrator LLM tool-calling loop.",
@@ -8161,11 +8210,18 @@
             ]
           },
           "config": {
-            "description": "Arbitrary operator-supplied configuration passed to the runtime."
+            "description": "Non-secret operator-supplied configuration passed to the workload runtime."
           },
           "execution": {
             "$ref": "#/components/schemas/WorkloadExecution",
             "description": "Execution strategy -- either LLM-orchestrated or artifact-bundle backed."
+          },
+          "external_databases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedExternalDatabaseAttachment"
+            },
+            "description": "Explicit existing SerenDB targets attached to this workload. Skill-declared\norganization and user databases do not require physical target configuration."
           },
           "limits": {
             "$ref": "#/components/schemas/WorkloadLimits",

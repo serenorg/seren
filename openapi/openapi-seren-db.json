@@ -7870,6 +7870,13 @@
           }
         }
       },
+      "ManagedSkillDatabaseScope": {
+        "type": "string",
+        "enum": [
+          "organization",
+          "user"
+        ]
+      },
       "PaginationMeta": {
         "type": "object",
         "description": "Pagination metadata included in responses.",
@@ -8297,8 +8304,7 @@
         "type": "object",
         "description": "JSON body for the query endpoint.",
         "required": [
-          "query",
-          "project_id"
+          "query"
         ],
         "properties": {
           "branch_id": {
@@ -8310,13 +8316,26 @@
             "description": "Branch ID (uses default branch if omitted)"
           },
           "database": {
-            "type": "string",
-            "description": "Target database name (defaults to \"serendb\")"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Explicit target database name for user access or an attached existing database."
+          },
+          "database_identifier": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Database identifier declared by the skill."
           },
           "project_id": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "format": "uuid",
-            "description": "Project ID (required)"
+            "description": "Explicit target project ID for user access or an attached existing database."
           },
           "query": {
             "type": "string",
@@ -8328,8 +8347,27 @@
               "null"
             ],
             "description": "Execute query in a read-only transaction. When omitted, obvious read-only queries\nrun read-only and all other statements run read-write."
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedSkillDatabaseScope",
+                "description": "Whether the managed database is shared by the organization or isolated to the user."
+              }
+            ]
+          },
+          "skill_slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Canonical skill slug that owns a platform-managed skill database."
           }
-        }
+        },
+        "additionalProperties": false
       },
       "QueryResult": {
         "type": "object",

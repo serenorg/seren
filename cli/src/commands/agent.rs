@@ -4419,6 +4419,7 @@ async fn build_replacement_workload_for_managed_agent(
             model_id: Some(model_id),
             tool_definitions,
         },
+        external_databases: detail.external_databases,
         limits: Some(seren::WorkloadLimits {
             context_budget_tokens,
             max_iterations,
