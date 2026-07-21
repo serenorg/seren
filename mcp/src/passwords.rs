@@ -2043,7 +2043,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Grant Seren Passwords vault membership. Local MCP user mode only; call passwords_unlock first",
+        description = "Grant Seren Passwords vault membership. Local mode performs the grant; hosted mode returns a browser handoff for a non-member user identity",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn passwords_membership_grant(
@@ -2053,6 +2053,21 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         crate::server::ensure_writes_allowed(&extensions)?;
         if !self.passwords_local_mode {
+            let client = self.api_client(&extensions)?;
+            let (identity_result, memberships_result) = tokio::join!(
+                client.identity_get(&params.identity_id),
+                client.membership_list(&params.vault_id),
+            );
+            let identity = passwords_gateway_data(identity_result).await?.data;
+            let memberships = passwords_gateway_data(memberships_result).await?.data;
+            let already_member = memberships
+                .iter()
+                .any(|membership| membership.identity_id == params.identity_id);
+            if let Some(reason) =
+                hosted_membership_handoff_unavailable(&identity.kind, already_member)
+            {
+                return Err(McpError::invalid_request(reason, None));
+            }
             let query = [
                 ("identity_id", params.identity_id.to_string()),
                 (
@@ -3381,6 +3396,21 @@ const PASSWORDS_URL_ENV: &str = "SEREN_PASSWORDS_URL";
 const HOSTED_PASSWORDS_SIGNING_HANDOFF_REASON: &str =
     "This action requires the account signing key, which hosted MCP does not hold.";
 const HOSTED_PASSWORDS_BULK_PLAINTEXT_HANDOFF_REASON: &str = "Bulk plaintext import and export must be performed in the browser so hosted MCP does not receive whole-vault plaintext.";
+
+fn hosted_membership_handoff_unavailable(
+    identity_kind: &str,
+    already_member: bool,
+) -> Option<&'static str> {
+    if already_member {
+        return Some(
+            "Identity already has an active membership; changing access levels is not supported",
+        );
+    }
+    if identity_kind != "user" {
+        return Some("Hosted membership handoff supports user identities only");
+    }
+    None
+}
 
 fn hosted_passwords_consent_url(request_id: Uuid) -> Result<String, McpError> {
     let base = hosted_seren_passwords_url()?;
@@ -4817,6 +4847,49 @@ mod tests {
                     url,
                     format!(
                         "https://passwords.example.com/vault/{vault_id}?action=export&exclude_attachments=true"
+                    )
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn hosted_membership_handoff_rejects_ui_unsupported_targets() {
+        assert_eq!(hosted_membership_handoff_unavailable("user", false), None);
+        assert_eq!(
+            hosted_membership_handoff_unavailable("agent", false),
+            Some("Hosted membership handoff supports user identities only")
+        );
+        assert_eq!(
+            hosted_membership_handoff_unavailable("user", true),
+            Some(
+                "Identity already has an active membership; changing access levels is not supported"
+            )
+        );
+    }
+
+    #[test]
+    fn hosted_membership_handoff_url_matches_ui_contract() {
+        temp_env::with_var(
+            PASSWORDS_URL_ENV,
+            Some("https://passwords.example.com"),
+            || {
+                let vault_id = Uuid::nil();
+                let identity_id = Uuid::from_u128(1);
+                let url = hosted_passwords_vault_action_url(
+                    vault_id,
+                    "grant-membership",
+                    &[
+                        ("identity_id", identity_id.to_string()),
+                        ("access_level", "admin".to_string()),
+                    ],
+                )
+                .unwrap();
+
+                assert_eq!(
+                    url,
+                    format!(
+                        "https://passwords.example.com/vault/{vault_id}?action=grant-membership&identity_id={identity_id}&access_level=admin"
                     )
                 );
             },
