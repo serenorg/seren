@@ -2043,7 +2043,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Grant Seren Passwords vault membership. Local mode performs the grant; hosted mode returns a browser handoff for a non-member user identity",
+        description = "Grant Seren Passwords vault membership. Local mode performs the grant; hosted mode returns a browser handoff for a non-member user or agent identity",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
     async fn passwords_membership_grant(
@@ -3406,8 +3406,8 @@ fn hosted_membership_handoff_unavailable(
             "Identity already has an active membership; changing access levels is not supported",
         );
     }
-    if identity_kind != "user" {
-        return Some("Hosted membership handoff supports user identities only");
+    if identity_kind != "user" && identity_kind != "agent" {
+        return Some("Hosted membership handoff supports user and agent identities only");
     }
     None
 }
@@ -4856,12 +4856,19 @@ mod tests {
     #[test]
     fn hosted_membership_handoff_rejects_ui_unsupported_targets() {
         assert_eq!(hosted_membership_handoff_unavailable("user", false), None);
+        assert_eq!(hosted_membership_handoff_unavailable("agent", false), None);
         assert_eq!(
-            hosted_membership_handoff_unavailable("agent", false),
-            Some("Hosted membership handoff supports user identities only")
+            hosted_membership_handoff_unavailable("service", false),
+            Some("Hosted membership handoff supports user and agent identities only")
         );
         assert_eq!(
             hosted_membership_handoff_unavailable("user", true),
+            Some(
+                "Identity already has an active membership; changing access levels is not supported"
+            )
+        );
+        assert_eq!(
+            hosted_membership_handoff_unavailable("agent", true),
             Some(
                 "Identity already has an active membership; changing access levels is not supported"
             )
