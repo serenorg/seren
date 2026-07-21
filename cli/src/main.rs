@@ -663,6 +663,9 @@ enum PasswordInvitationAction {
     Redeem {
         /// Invitation token
         token: String,
+        /// Recipient email address. Required for cross-organization invitations.
+        #[arg(long)]
+        email: Option<String>,
     },
     /// Complete a redeemed invitation by granting the redeemer vault access
     Complete {
@@ -6089,8 +6092,8 @@ async fn main() -> anyhow::Result<()> {
                 PasswordInvitationAction::List { vault_id } => {
                     commands::passwords::invitation_list(vault_id, &ctx).await?
                 }
-                PasswordInvitationAction::Redeem { token } => {
-                    commands::passwords::invitation_redeem(token, &ctx).await?
+                PasswordInvitationAction::Redeem { token, email } => {
+                    commands::passwords::invitation_redeem(token, email, &ctx).await?
                 }
                 PasswordInvitationAction::Complete {
                     vault_id,
@@ -8327,6 +8330,29 @@ mod tests {
                         assert_eq!(email, "ops@example.com");
                         assert_eq!(access, PasswordAccessArg::Write);
                         assert_eq!(expires_in_hours, Some(24));
+                    }
+                    _ => panic!("unexpected passwords invitation action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "invitations",
+            "redeem",
+            "invitation-token",
+            "--email",
+            "recipient@example.com",
+        ]);
+        match cli.command {
+            Commands::Passwords { action, .. } => match action {
+                PasswordsAction::Invitations { action } => match action {
+                    PasswordInvitationAction::Redeem { token, email } => {
+                        assert_eq!(token, "invitation-token");
+                        assert_eq!(email.as_deref(), Some("recipient@example.com"));
                     }
                     _ => panic!("unexpected passwords invitation action parsed"),
                 },

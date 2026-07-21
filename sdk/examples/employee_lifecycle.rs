@@ -241,6 +241,7 @@ fn load_employee(slug: &str) -> Result<EmployeeBlueprint, Box<dyn std::error::Er
                 model_id: None,
                 tool_definitions: None,
             },
+            external_databases: Vec::new(),
             limits: Some(manifest.limits),
             network_policy: None,
             publisher_only: Some(true),

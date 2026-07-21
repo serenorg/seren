@@ -80,3 +80,28 @@ impl Client {
 pub mod prelude {
     pub use crate::{Client, ClientConfig, Error, ResponseValue};
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn bundled_passwords_spec_documents_invitation_email_contract() {
+        let spec: serde_json::Value =
+            serde_json::from_str(include_str!("../openapi/openapi-seren-passwords.json"))
+                .expect("parse bundled seren-passwords OpenAPI document");
+        let request = &spec["components"]["schemas"]["CreateInvitationRequest"];
+
+        assert_eq!(request["properties"]["invitee_email"]["type"], "string");
+        assert!(
+            request["required"]
+                .as_array()
+                .is_some_and(|required| required.iter().any(|field| field == "invitee_email")),
+            "CreateInvitationRequest.invitee_email must remain required",
+        );
+        assert!(
+            spec["paths"]["/vaults/{vault_id}/invitations"]["post"]["responses"]
+                .get("422")
+                .is_some(),
+            "invitation_create must document JSON extractor failures",
+        );
+    }
+}

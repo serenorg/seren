@@ -40,9 +40,9 @@ use seren_secrets_crypto::protocol::item::{
     unwrap_item_content_key, wrap_item_content_key,
 };
 use seren_secrets_crypto::protocol::vault::{
-    decrypt_vault_description, decrypt_vault_name, encrypt_vault_description,
-    encrypt_vault_invitation_email, encrypt_vault_name, generate_vault_key, unwrap_vault_key,
-    wrap_vault_key_for_identity,
+    decrypt_vault_description, decrypt_vault_invitation_email, decrypt_vault_name,
+    encrypt_vault_description, encrypt_vault_invitation_email, encrypt_vault_name,
+    generate_vault_key, unwrap_vault_key, wrap_vault_key_for_identity,
 };
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -694,6 +694,8 @@ pub struct PasswordsInvitationsListParams {
 pub struct PasswordsInvitationRedeemParams {
     /// Invitation token.
     pub token: String,
+    /// Recipient email address. Required for cross-organization invitations.
+    pub email: Option<String>,
 }
 
 /// Parameters for completing a redeemed invitation. Local user-mode only.
@@ -2164,6 +2166,7 @@ impl SerenMcpServer {
                         access_level: params.access_level.into(),
                         expires_in_hours: params.expires_in_hours,
                         invitation_id,
+                        invitee_email: email.clone(),
                         invitee_email_ciphertext: BASE64.encode(email_ciphertext),
                     },
                 )
@@ -2221,11 +2224,25 @@ impl SerenMcpServer {
                 None,
             ));
         }
+        let recipient_email = params
+            .email
+            .map(|email| email.trim().to_ascii_lowercase())
+            .filter(|email| !email.is_empty());
+        if recipient_email
+            .as_deref()
+            .is_some_and(|email| !email.contains('@'))
+        {
+            return Err(McpError::invalid_params(
+                "email must be a valid email address",
+                None,
+            ));
+        }
         let client = self.api_client(&extensions)?;
         let invitation = passwords_gateway_data(
             client
                 .invitation_redeem(&seren::RedeemRequest {
                     invitation_token: token,
+                    recipient_email,
                 })
                 .await,
         )
@@ -3841,6 +3858,102 @@ async fn build_rotation_complete_request(
         ));
     }
 
+    let listed_invitations =
+        passwords_gateway_data(client.invitation_list_for_vault(&vault_id).await)
+            .await?
+            .data;
+    let mut recipient_emails = HashMap::new();
+    let mut invitations = Vec::with_capacity(listed_invitations.len());
+    for invitation in listed_invitations {
+        let email = decrypt_vault_invitation_email(
+            &old_vault_key,
+            vault_id.as_bytes(),
+            invitation.invitation_id.as_bytes(),
+            &decode_passwords_b64_field(
+                "invitee_email_ciphertext",
+                &invitation.invitee_email_ciphertext,
+            )?,
+        )
+        .map_err(|_| {
+            McpError::invalid_request("Could not decrypt invitation email for rotation", None)
+        })?;
+        if let Some(recipient_identity_id) = invitation
+            .recipient_identity_id
+            .or(invitation.redeemed_by_identity)
+        {
+            recipient_emails
+                .entry(recipient_identity_id)
+                .or_insert_with(|| email.clone());
+        }
+        invitations.push(seren::RotationInvitationDto {
+            invitation_id: invitation.invitation_id,
+            invitee_email_ciphertext: BASE64.encode(encrypt_vault_invitation_email(
+                &new_vault_key,
+                vault_id.as_bytes(),
+                invitation.invitation_id.as_bytes(),
+                &email,
+            )),
+        });
+    }
+
+    let active_foreign_memberships = sync
+        .foreign_memberships
+        .iter()
+        .filter(|membership| membership.vault_id == vault_id && membership.revoked_at.is_none());
+    let mut foreign_memberships = Vec::new();
+    for membership in active_foreign_memberships {
+        let email = recipient_emails
+            .get(&membership.recipient_identity_id)
+            .ok_or_else(|| {
+                McpError::invalid_request(
+                    "Foreign recipient email is not available for rotation",
+                    None,
+                )
+            })?;
+        let verified = passwords_gateway_data(
+            client
+                .share_recipient_lookup(&seren::ShareRecipientLookupRequest {
+                    email: email.clone(),
+                })
+                .await,
+        )
+        .await?
+        .data;
+        let verified_public_key = verified.recipient_kem_public_key.as_deref();
+        if !verified.available
+            || verified.recipient_organization_id != Some(membership.recipient_organization_id)
+            || verified.recipient_user_id != Some(membership.recipient_user_id)
+            || verified.recipient_identity_id != Some(membership.recipient_identity_id)
+            || verified_public_key != Some(membership.recipient_kem_public_key.as_str())
+        {
+            return Err(McpError::invalid_request(
+                "Foreign recipient public key no longer matches the verified email",
+                None,
+            ));
+        }
+        let recipient_public = decode_kem_public_key_field(
+            "recipient_kem_public_key",
+            verified_public_key.ok_or_else(|| {
+                McpError::invalid_request("Foreign recipient public key is not available", None)
+            })?,
+        )?;
+        let wrapped = wrap_vault_key_for_identity(&new_vault_key, &recipient_public);
+        foreign_memberships.push(seren::RotationForeignMembershipDto {
+            access_level: membership.access_level,
+            granted_signature: membership_grant_signature(
+                signing_private,
+                vault_id,
+                membership.recipient_identity_id,
+                membership.access_level,
+                &wrapped,
+            ),
+            recipient_identity_id: membership.recipient_identity_id,
+            recipient_organization_id: membership.recipient_organization_id,
+            recipient_user_id: membership.recipient_user_id,
+            wrapped_vault_key: BASE64.encode(wrapped),
+        });
+    }
+
     let mut items = Vec::new();
     let mut attachments = Vec::new();
     for state in [
@@ -3952,6 +4065,8 @@ async fn build_rotation_complete_request(
 
     Ok(seren::RotationCompleteRequest {
         attachments,
+        foreign_memberships,
+        invitations,
         items,
         memberships,
         rotation_token,
