@@ -413,6 +413,7 @@ pub async fn create_publisher(
     database_config_json: Option<&str>,
     auth_type: Option<&str>,
     allowed_passthrough_headers: Vec<String>,
+    passthrough_header_rewrite_json: Option<&str>,
     oauth2_token_url: Option<&str>,
     oauth2_client_id: Option<&str>,
     oauth2_client_secret: Option<&str>,
@@ -473,6 +474,28 @@ pub async fn create_publisher(
         "allowed_passthrough_headers",
     )
     .map_err(|e| anyhow::anyhow!(e))?;
+    let passthrough_header_rewrite = match passthrough_header_rewrite_json {
+        None => None,
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "passthrough_header_rewrite_json must not be empty"
+                ));
+            }
+            let parsed: serde_json::Value = serde_json::from_str(trimmed)
+                .map_err(|e| anyhow::anyhow!("Invalid passthrough_header_rewrite_json: {}", e))?;
+            let object = parsed.as_object().ok_or_else(|| {
+                anyhow::anyhow!("passthrough_header_rewrite_json must decode to a JSON object")
+            })?;
+            if object.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "passthrough_header_rewrite_json must decode to a non-empty JSON object"
+                ));
+            }
+            Some(parsed)
+        }
+    };
 
     // MongoDB Atlas Data API publishers require api_url + upstream_api_key.
     if publisher_category_enum == seren::PublisherCategory::Database
@@ -572,7 +595,7 @@ pub async fn create_publisher(
         markup_multiplier: None,
         minimum_balance: None,
         ownership_tracking_enabled: None,
-        passthrough_header_rewrite: None,
+        passthrough_header_rewrite,
         price_per_call: None,
         price_per_delete: None,
         price_per_execution: None,

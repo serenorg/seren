@@ -1171,6 +1171,10 @@ pub struct CreatePublisherParams {
     /// - Allow forwarding request-scoped correlation IDs
     #[serde(default)]
     pub allowed_passthrough_headers: Option<Vec<String>>,
+    /// Map of client header names to upstream header names for passthrough auth.
+    /// Use this to map a non-reserved client header to Authorization upstream.
+    #[serde(default)]
+    pub passthrough_header_rewrite: Option<HashMap<String, String>>,
     /// Structured endpoint definitions for LLM discoverability and access control
     /// Each endpoint can specify method, path, description, and protection status
     #[serde(default)]
@@ -1341,6 +1345,10 @@ pub struct UpdatePublisherParams {
     /// Whitelist of agent-provided headers allowed to pass through to upstream
     #[serde(default)]
     pub allowed_passthrough_headers: Option<Vec<String>>,
+    /// Map of client header names to upstream header names for passthrough auth.
+    /// Use this to map a non-reserved client header to Authorization upstream.
+    #[serde(default)]
+    pub passthrough_header_rewrite: Option<HashMap<String, String>>,
     /// Default headers included in upstream requests
     #[serde(default)]
     pub upstream_headers: Option<HashMap<String, String>>,
@@ -10774,6 +10782,7 @@ API endpoint: {endpoint}",
             request_content_type,
             upstream_headers,
             allowed_passthrough_headers,
+            passthrough_header_rewrite,
             endpoints,
             undocumented_endpoint_policy,
             token_exchange_url,
@@ -10994,7 +11003,10 @@ API endpoint: {endpoint}",
             markup_multiplier: None,
             minimum_balance: None,
             ownership_tracking_enabled: None,
-            passthrough_header_rewrite: None,
+            passthrough_header_rewrite: passthrough_header_rewrite
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(|e| McpError::invalid_params(e.to_string(), None))?,
             price_per_call,
             price_per_delete,
             price_per_execution,
@@ -11082,6 +11094,7 @@ API endpoint: {endpoint}",
             api_key_header,
             api_key_query_param,
             allowed_passthrough_headers,
+            passthrough_header_rewrite,
             upstream_headers,
             auth_type,
             oauth2_token_url,
@@ -11258,7 +11271,10 @@ API endpoint: {endpoint}",
                 .map_err(|e| McpError::invalid_params(e.to_string(), None))?,
             gateway_fee_percent: None,
             ownership_tracking_enabled: None,
-            passthrough_header_rewrite: None,
+            passthrough_header_rewrite: passthrough_header_rewrite
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(|e| McpError::invalid_params(e.to_string(), None))?,
             resource_id_response_path: None,
             resource_id_url_pattern: None,
             upstream_cost_response_path,

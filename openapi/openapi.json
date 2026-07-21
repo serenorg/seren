@@ -11217,7 +11217,7 @@
               "string",
               "null"
             ],
-            "description": "Upstream auth mode (\"static\", \"jwt\", or \"oauth2_cc\") (default: static)"
+            "description": "Upstream auth mode (\"static\", \"jwt\", \"oauth2_cc\", or \"passthrough\") (default: static)"
           },
           "base_price_per_1000_rows": {
             "type": [
@@ -15621,6 +15621,7 @@
               "publisher_category",
               "billing_model",
               "gateway_fee_percent",
+              "auth_type",
               "allowed_passthrough_headers",
               "passthrough_header_rewrite",
               "request_content_type",
@@ -15690,6 +15691,10 @@
                   "null"
                 ],
                 "description": "External API URL (for integration_type = api)"
+              },
+              "auth_type": {
+                "type": "string",
+                "description": "Upstream authentication mode."
               },
               "billing_model": {
                 "type": "string"
@@ -18561,6 +18566,7 @@
                 "publisher_category",
                 "billing_model",
                 "gateway_fee_percent",
+                "auth_type",
                 "allowed_passthrough_headers",
                 "passthrough_header_rewrite",
                 "request_content_type",
@@ -18630,6 +18636,10 @@
                     "null"
                   ],
                   "description": "External API URL (for integration_type = api)"
+                },
+                "auth_type": {
+                  "type": "string",
+                  "description": "Upstream authentication mode."
                 },
                 "billing_model": {
                   "type": "string"
@@ -23008,6 +23018,7 @@
                 "publisher_category",
                 "billing_model",
                 "gateway_fee_percent",
+                "auth_type",
                 "allowed_passthrough_headers",
                 "passthrough_header_rewrite",
                 "request_content_type",
@@ -23077,6 +23088,10 @@
                     "null"
                   ],
                   "description": "External API URL (for integration_type = api)"
+                },
+                "auth_type": {
+                  "type": "string",
+                  "description": "Upstream authentication mode."
                 },
                 "billing_model": {
                   "type": "string"
@@ -24616,6 +24631,7 @@
           "publisher_category",
           "billing_model",
           "gateway_fee_percent",
+          "auth_type",
           "allowed_passthrough_headers",
           "passthrough_header_rewrite",
           "request_content_type",
@@ -24685,6 +24701,10 @@
               "null"
             ],
             "description": "External API URL (for integration_type = api)"
+          },
+          "auth_type": {
+            "type": "string",
+            "description": "Upstream authentication mode."
           },
           "billing_model": {
             "type": "string"
@@ -26789,7 +26809,7 @@
               "string",
               "null"
             ],
-            "description": "Upstream auth mode (\"static\" or \"jwt\")"
+            "description": "Upstream auth mode (\"static\", \"jwt\", \"oauth2_cc\", or \"passthrough\")"
           },
           "base_price_per_1000_rows": {
             "type": [

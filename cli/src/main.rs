@@ -1098,6 +1098,10 @@ enum AgentAction {
         /// Only relevant for auth_type="passthrough".
         #[arg(long = "allowed-passthrough-header", value_delimiter = ',')]
         allowed_passthrough_headers: Vec<String>,
+        /// JSON object mapping client header names to upstream header names.
+        /// Example: '{"X-Passthrough-Authorization":"Authorization"}'
+        #[arg(long)]
+        passthrough_header_rewrite_json: Option<String>,
         /// OAuth2 token endpoint URL for Client Credentials flow (required when auth_type=oauth2_cc)
         #[arg(long)]
         oauth2_token_url: Option<String>,
@@ -6446,6 +6450,7 @@ async fn main() -> anyhow::Result<()> {
                 database_config_json,
                 auth_type,
                 allowed_passthrough_headers,
+                passthrough_header_rewrite_json,
                 oauth2_token_url,
                 oauth2_client_id,
                 oauth2_client_secret,
@@ -6476,6 +6481,7 @@ async fn main() -> anyhow::Result<()> {
                     database_config_json.as_deref(),
                     auth_type.as_deref(),
                     allowed_passthrough_headers,
+                    passthrough_header_rewrite_json.as_deref(),
                     oauth2_token_url.as_deref(),
                     oauth2_client_id.as_deref(),
                     oauth2_client_secret.as_deref(),
