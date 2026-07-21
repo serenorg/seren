@@ -190,6 +190,14 @@ pub struct MembershipGrantOptions {
 }
 
 #[derive(Clone)]
+pub struct MembershipAccessUpdateOptions {
+    pub master_password: Option<Zeroizing<String>>,
+    pub vault_id: Uuid,
+    pub identity_id: Uuid,
+    pub access_level: seren::AccessLevel,
+}
+
+#[derive(Clone)]
 pub struct InvitationCreateOptions {
     pub master_password: Option<Zeroizing<String>>,
     pub vault_id: Uuid,
@@ -3582,6 +3590,73 @@ pub async fn membership_revoke(
             format!("Revoked identity {identity_id} from vault {vault_id}")
                 .green()
                 .bold()
+        ),
+    }
+
+    Ok(())
+}
+
+pub async fn membership_update_access(
+    options: MembershipAccessUpdateOptions,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let (passwords_base_url, bearer, key_source) = build_vault_key_source(
+        PasswordsOptions {
+            master_password: options.master_password,
+        },
+        ctx,
+    )
+    .await?;
+    let signing_private = account_signing_private_from_key_source(&key_source)?;
+    let vault_client = VaultClient::new(VaultClientConfig {
+        base_url: passwords_base_url,
+        bearer_token: bearer,
+        key_source,
+    })
+    .context("could not build vault client")?;
+    let vault = select_vault(&vault_client, Some(options.vault_id)).await?;
+    let client = passwords_api_client(ctx).await?;
+    let identity = passwords_gateway_data(
+        client.identity_get(&options.identity_id).await,
+        "failed to load password identity",
+    )?
+    .data;
+    let recipient_public = decode_kem_public_key_field("kem_public_key", &identity.kem_public_key)?;
+    let wrapped = wrap_vault_key_for_identity(&vault.key, &recipient_public);
+    let granted_signature = membership_grant_signature(
+        &signing_private,
+        vault.vault_id,
+        options.identity_id,
+        options.access_level,
+        &wrapped,
+    );
+    let result = passwords_gateway_data(
+        client
+            .membership_update_access(
+                &vault.vault_id,
+                &options.identity_id,
+                &seren::MembershipGrantRequest {
+                    access_level: options.access_level,
+                    granted_signature,
+                    identity_id: options.identity_id,
+                    wrapped_vault_key: BASE64.encode(wrapped),
+                },
+            )
+            .await,
+        "failed to update password vault membership access",
+    )?
+    .data;
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&result)?,
+        OutputFormat::Table => println!(
+            "{}",
+            format!(
+                "Changed identity {} to {} access in vault {}",
+                options.identity_id, options.access_level, vault.vault_id
+            )
+            .green()
+            .bold()
         ),
     }
 

@@ -578,7 +578,7 @@ pub struct PasswordsVaultImportParams {
 }
 
 /// Password vault access level.
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PasswordsAccessLevel {
     Read,
@@ -658,7 +658,7 @@ pub struct PasswordsMembershipRevokeParams {
     pub identity_id: Uuid,
 }
 
-/// Parameters for granting vault membership. Local user-mode only.
+/// Parameters for granting vault membership.
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct PasswordsMembershipGrantParams {
     /// Vault ID (UUID).
@@ -666,6 +666,17 @@ pub struct PasswordsMembershipGrantParams {
     /// Identity ID to grant.
     pub identity_id: Uuid,
     /// Access level to grant.
+    pub access_level: PasswordsAccessLevel,
+}
+
+/// Parameters for changing an active vault membership's access level.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct PasswordsMembershipUpdateParams {
+    /// Vault ID (UUID).
+    pub vault_id: Uuid,
+    /// Identity ID whose access level to change.
+    pub identity_id: Uuid,
+    /// New access level.
     pub access_level: PasswordsAccessLevel,
 }
 
@@ -2146,6 +2157,94 @@ impl SerenMcpServer {
     }
 
     #[tool(
+        description = "Change an active Seren Passwords vault membership's access level atomically. Local mode performs the update; hosted mode returns a targeted browser handoff",
+        annotations(read_only_hint = false, open_world_hint = false)
+    )]
+    async fn passwords_membership_update_access(
+        &self,
+        Parameters(params): Parameters<PasswordsMembershipUpdateParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        crate::server::ensure_writes_allowed(&extensions)?;
+        if !self.passwords_local_mode {
+            let client = self.api_client(&extensions)?;
+            let (identity_result, memberships_result) = tokio::join!(
+                client.identity_get(&params.identity_id),
+                client.membership_list(&params.vault_id),
+            );
+            let identity = passwords_gateway_data(identity_result).await?.data;
+            let memberships = passwords_gateway_data(memberships_result).await?.data;
+            let current_access = memberships
+                .iter()
+                .find(|membership| membership.identity_id == params.identity_id)
+                .map(|membership| membership.access_level);
+            let requested_access = seren::AccessLevel::from(params.access_level);
+            if let Some(reason) = hosted_membership_update_handoff_unavailable(
+                &identity.kind,
+                current_access,
+                requested_access,
+            ) {
+                return Err(McpError::invalid_request(reason, None));
+            }
+            let query = [
+                ("identity_id", params.identity_id.to_string()),
+                (
+                    "access_level",
+                    passwords_access_level_param(&params.access_level).to_string(),
+                ),
+            ];
+            return hosted_passwords_ui_action_result(
+                "change-membership-access",
+                HOSTED_PASSWORDS_SIGNING_HANDOFF_REASON,
+                hosted_passwords_vault_action_url(
+                    params.vault_id,
+                    "change-membership-access",
+                    &query,
+                )?,
+            );
+        }
+
+        let (bearer, _, signing_private) = self.passwords_user_signing_auth(&extensions).await?;
+        let vault_client = self.passwords_vault_client(&extensions).await?;
+        let vault = select_vault(&vault_client, Some(params.vault_id)).await?;
+        let client = self.api_client_for_bearer(&bearer, &extensions)?;
+        let identity = passwords_gateway_data(client.identity_get(&params.identity_id).await)
+            .await?
+            .data;
+        let recipient_public =
+            decode_kem_public_key_field("kem_public_key", &identity.kem_public_key)?;
+        let access_level = seren::AccessLevel::from(params.access_level);
+        let wrapped = wrap_vault_key_for_identity(&vault.key, &recipient_public);
+        let granted_signature = membership_grant_signature(
+            &signing_private,
+            vault.vault_id,
+            params.identity_id,
+            access_level,
+            &wrapped,
+        );
+        let result = passwords_gateway_data(
+            client
+                .membership_update_access(
+                    &vault.vault_id,
+                    &params.identity_id,
+                    &seren::MembershipGrantRequest {
+                        access_level,
+                        granted_signature,
+                        identity_id: params.identity_id,
+                        wrapped_vault_key: BASE64.encode(wrapped),
+                    },
+                )
+                .await,
+        )
+        .await?
+        .data;
+
+        Ok(CallToolResult::success(vec![crate::server::json_content(
+            &result,
+        )?]))
+    }
+
+    #[tool(
         description = "Create a Seren Passwords vault invitation token. Requires admin membership",
         annotations(read_only_hint = false, open_world_hint = false)
     )]
@@ -3403,13 +3502,30 @@ fn hosted_membership_handoff_unavailable(
 ) -> Option<&'static str> {
     if already_member {
         return Some(
-            "Identity already has an active membership; changing access levels is not supported",
+            "Identity already has an active membership; use passwords_membership_update_access",
         );
     }
     if identity_kind != "user" && identity_kind != "agent" {
         return Some("Hosted membership handoff supports user and agent identities only");
     }
     None
+}
+
+fn hosted_membership_update_handoff_unavailable(
+    identity_kind: &str,
+    current_access: Option<seren::AccessLevel>,
+    requested_access: seren::AccessLevel,
+) -> Option<&'static str> {
+    if identity_kind != "user" && identity_kind != "agent" {
+        return Some("Hosted membership handoff supports user and agent identities only");
+    }
+    match current_access {
+        None => Some("Identity does not have an active membership in this vault"),
+        Some(access) if access == requested_access => {
+            Some("Identity already has the requested access level")
+        }
+        Some(_) => None,
+    }
 }
 
 fn hosted_passwords_consent_url(request_id: Uuid) -> Result<String, McpError> {
@@ -4864,14 +4980,46 @@ mod tests {
         assert_eq!(
             hosted_membership_handoff_unavailable("user", true),
             Some(
-                "Identity already has an active membership; changing access levels is not supported"
+                "Identity already has an active membership; use passwords_membership_update_access"
             )
         );
         assert_eq!(
             hosted_membership_handoff_unavailable("agent", true),
             Some(
-                "Identity already has an active membership; changing access levels is not supported"
+                "Identity already has an active membership; use passwords_membership_update_access"
             )
+        );
+    }
+
+    #[test]
+    fn hosted_membership_update_handoff_requires_a_real_access_change() {
+        assert_eq!(
+            hosted_membership_update_handoff_unavailable(
+                "user",
+                Some(seren::AccessLevel::Read),
+                seren::AccessLevel::Write,
+            ),
+            None
+        );
+        assert_eq!(
+            hosted_membership_update_handoff_unavailable(
+                "agent",
+                Some(seren::AccessLevel::Admin),
+                seren::AccessLevel::Admin,
+            ),
+            Some("Identity already has the requested access level")
+        );
+        assert_eq!(
+            hosted_membership_update_handoff_unavailable("user", None, seren::AccessLevel::Read,),
+            Some("Identity does not have an active membership in this vault")
+        );
+        assert_eq!(
+            hosted_membership_update_handoff_unavailable(
+                "service",
+                Some(seren::AccessLevel::Read),
+                seren::AccessLevel::Write,
+            ),
+            Some("Hosted membership handoff supports user and agent identities only")
         );
     }
 
@@ -4897,6 +5045,34 @@ mod tests {
                     url,
                     format!(
                         "https://passwords.example.com/vault/{vault_id}?action=grant-membership&identity_id={identity_id}&access_level=admin"
+                    )
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn hosted_membership_update_url_matches_ui_contract() {
+        temp_env::with_var(
+            PASSWORDS_URL_ENV,
+            Some("https://passwords.example.com"),
+            || {
+                let vault_id = Uuid::nil();
+                let identity_id = Uuid::from_u128(1);
+                let url = hosted_passwords_vault_action_url(
+                    vault_id,
+                    "change-membership-access",
+                    &[
+                        ("identity_id", identity_id.to_string()),
+                        ("access_level", "write".to_string()),
+                    ],
+                )
+                .unwrap();
+
+                assert_eq!(
+                    url,
+                    format!(
+                        "https://passwords.example.com/vault/{vault_id}?action=change-membership-access&identity_id={identity_id}&access_level=write"
                     )
                 );
             },

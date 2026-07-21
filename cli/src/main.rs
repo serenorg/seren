@@ -628,6 +628,16 @@ enum PasswordMembershipAction {
         #[arg(long, value_enum, default_value_t = PasswordAccessArg::Write)]
         access: PasswordAccessArg,
     },
+    /// Change an active membership's access level atomically. Requires admin membership.
+    Update {
+        /// Vault id
+        vault_id: Uuid,
+        /// Identity id whose access level to change
+        identity_id: Uuid,
+        /// New access level
+        #[arg(long, value_enum)]
+        access: PasswordAccessArg,
+    },
     /// Revoke an identity's vault membership. Requires admin membership.
     Revoke {
         /// Vault id
@@ -6065,6 +6075,26 @@ async fn main() -> anyhow::Result<()> {
                     vault_id,
                     identity_id,
                 } => commands::passwords::membership_revoke(vault_id, identity_id, &ctx).await?,
+                PasswordMembershipAction::Update {
+                    vault_id,
+                    identity_id,
+                    access,
+                } => {
+                    let options = commands::passwords::PasswordsOptions::from_input(
+                        master_password_stdin,
+                        master_password_file.as_deref(),
+                    )?;
+                    commands::passwords::membership_update_access(
+                        commands::passwords::MembershipAccessUpdateOptions {
+                            master_password: options.master_password,
+                            vault_id,
+                            identity_id,
+                            access_level: access.into(),
+                        },
+                        &ctx,
+                    )
+                    .await?
+                }
             },
             PasswordsAction::Invitations { action } => match action {
                 PasswordInvitationAction::Create {
@@ -8135,6 +8165,35 @@ mod tests {
                     } => {
                         assert_eq!(parsed_vault, vault_id);
                         assert_eq!(parsed_identity, identity_id);
+                    }
+                    _ => panic!("unexpected passwords membership action parsed"),
+                },
+                _ => panic!("unexpected passwords action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let cli = parse_cli_with_large_stack(vec![
+            "seren",
+            "passwords",
+            "memberships",
+            "update",
+            "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222",
+            "--access",
+            "write",
+        ]);
+        match cli.command {
+            Commands::Passwords { action, .. } => match action {
+                PasswordsAction::Memberships { action } => match action {
+                    PasswordMembershipAction::Update {
+                        vault_id: parsed_vault,
+                        identity_id: parsed_identity,
+                        access,
+                    } => {
+                        assert_eq!(parsed_vault, vault_id);
+                        assert_eq!(parsed_identity, identity_id);
+                        assert_eq!(access, PasswordAccessArg::Write);
                     }
                     _ => panic!("unexpected passwords membership action parsed"),
                 },
