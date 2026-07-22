@@ -1049,16 +1049,16 @@ enum AgentAction {
         /// Database type: "serendb", "neon", "supabase", or "mongodb" (for database category)
         #[arg(long)]
         database_type: Option<String>,
-        /// Integration type: "api" or "mcp" (for integration category)
+        /// Primary integration interface: "api" or "mcp"
         #[arg(long)]
         integration_type: Option<String>,
         /// Publisher description
         #[arg(long)]
         description: Option<String>,
-        /// API URL for API-type publishers (also used for MongoDB Atlas Data API publishers)
+        /// API URL enabling REST proxying (also used for MongoDB Atlas Data API publishers)
         #[arg(long)]
         api_url: Option<String>,
-        /// MCP server endpoint URL for MCP-type publishers
+        /// MCP server endpoint URL enabling native MCP proxying
         #[arg(long)]
         mcp_endpoint: Option<String>,
         /// Project ID for SerenDB publishers

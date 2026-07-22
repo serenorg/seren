@@ -1083,7 +1083,7 @@ pub struct CreatePublisherParams {
     /// Database type: serendb, neon, supabase, or mongodb (for database category)
     #[serde(default)]
     pub database_type: Option<String>,
-    /// Integration type: api or mcp (for integration category)
+    /// Primary integration interface: api or mcp
     #[serde(default)]
     pub integration_type: Option<String>,
     /// Publisher description
@@ -1092,10 +1092,10 @@ pub struct CreatePublisherParams {
     /// Human-readable use case descriptions (e.g., ["Scrape dynamic JavaScript websites"])
     #[serde(default)]
     pub use_cases: Option<Vec<String>>,
-    /// External API URL (required for integration_type: api)
+    /// External API URL. When present, enables REST proxying.
     #[serde(default)]
     pub api_url: Option<String>,
-    /// MCP server endpoint URL (required for integration_type: mcp)
+    /// MCP server endpoint URL. When present, enables native MCP proxying.
     #[serde(default)]
     pub mcp_endpoint: Option<String>,
     /// SerenDB project ID (required for database_type: serendb)
@@ -1276,10 +1276,10 @@ pub struct UpdatePublisherParams {
     /// Whether the publisher is active
     #[serde(default)]
     pub is_active: Option<bool>,
-    /// External API URL (for integration_type: api)
+    /// External API URL. When present, enables REST proxying.
     #[serde(default)]
     pub api_url: Option<String>,
-    /// MCP server endpoint URL (for integration_type: mcp)
+    /// MCP server endpoint URL. When present, enables native MCP proxying.
     #[serde(default)]
     pub mcp_endpoint: Option<String>,
     /// SerenDB project ID (for database_type: serendb)
