@@ -2346,6 +2346,11 @@ pub async fn agent_provision(
     let base_url = ctx.api_base();
     let passwords_base_url = passwords_api_base_url(&base_url);
     let bearer = get_bearer_token(ctx.api_key.clone()).await?;
+    if bearer.starts_with("seren_") {
+        bail!(
+            "agent provisioning requires a signed-in user session; run 'seren auth login' with browser sign-in because an API key cannot mint another key"
+        );
+    }
 
     let key_source =
         fetch_master_password_key_source(&passwords_base_url, &bearer, master_password)

@@ -5291,6 +5291,18 @@ fn request_auth_context_from_extensions(
     parts.extensions.get::<crate::SerenRequestAuthContext>()
 }
 
+fn ensure_api_key_management_user_session(extensions: &Extensions) -> Result<(), McpError> {
+    if request_auth_context_from_extensions(extensions)
+        .is_some_and(|auth| matches!(&auth.credential, crate::SerenRequestCredential::UserSession))
+    {
+        return Ok(());
+    }
+    Err(McpError::invalid_request(
+        "API key management requires a signed-in user session; API keys cannot manage API keys",
+        None,
+    ))
+}
+
 pub(crate) fn hosted_passwords_credential_subject_from_extensions(
     extensions: &Extensions,
 ) -> Result<crate::oauth::store::HostedPasswordsCredentialSubject, McpError> {
@@ -8221,7 +8233,7 @@ impl SerenMcpServer {
     // ========================================================================
 
     #[tool(
-        description = "List all API keys for an organization",
+        description = "List all API keys for an organization. Requires a signed-in user session; API keys cannot manage API keys.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_api_keys(
@@ -8229,6 +8241,7 @@ impl SerenMcpServer {
         Parameters(params): Parameters<ListApiKeysParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_api_key_management_user_session(&extensions)?;
         let api_client = self.api_client(&extensions)?;
         let api_keys = api_client
             .list_org_api_keys(&params.organization_id)
@@ -8239,7 +8252,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Create a new API key for an organization",
+        description = "Create a new API key for an organization. Requires a signed-in user session; API keys cannot manage API keys.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -8253,6 +8266,7 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
+        ensure_api_key_management_user_session(&extensions)?;
         validate_resource_name(&params.body.name, "API key name")?;
 
         let api_client = self.api_client(&extensions)?;
@@ -8265,7 +8279,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Revoke an API key",
+        description = "Revoke an API key. Requires a signed-in user session; API keys cannot manage API keys.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -8278,6 +8292,7 @@ impl SerenMcpServer {
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
+        ensure_api_key_management_user_session(&extensions)?;
 
         let api_client = self.api_client(&extensions)?;
         api_client
@@ -17634,6 +17649,25 @@ mod tests {
         });
 
         assert!(hosted_passwords_credential_subject_from_extensions(&extensions).is_err());
+    }
+
+    #[test]
+    fn api_key_management_requires_user_session_credential() {
+        let user_session = extensions_with_auth_context(crate::SerenRequestAuthContext {
+            user_id: Uuid::new_v4(),
+            email: None,
+            credential: crate::SerenRequestCredential::UserSession,
+        });
+        assert!(ensure_api_key_management_user_session(&user_session).is_ok());
+
+        let user_api_key = extensions_with_auth_context(crate::SerenRequestAuthContext {
+            user_id: Uuid::new_v4(),
+            email: None,
+            credential: crate::SerenRequestCredential::UserApiKey {
+                api_key_id: Some(Uuid::new_v4()),
+            },
+        });
+        assert!(ensure_api_key_management_user_session(&user_api_key).is_err());
     }
 
     #[test]
