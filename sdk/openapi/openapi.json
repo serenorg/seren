@@ -14623,6 +14623,7 @@
             "required": [
               "organization_id",
               "mode",
+              "data_handling_attestation",
               "updated_at"
             ],
             "properties": {
@@ -14640,6 +14641,10 @@
               },
               "allow_seren_private_agent": {
                 "type": "boolean"
+              },
+              "data_handling_attestation": {
+                "$ref": "#/components/schemas/PrivateModelsDataHandlingAttestation",
+                "description": "Machine-readable training and retention declaration for organization private-model inference. Clients requiring confidentiality must deny access unless the status and terms are affirmative."
               },
               "deployment_id": {
                 "type": [
@@ -22921,6 +22926,7 @@
         "required": [
           "organization_id",
           "mode",
+          "data_handling_attestation",
           "updated_at"
         ],
         "properties": {
@@ -22938,6 +22944,10 @@
           },
           "allow_seren_private_agent": {
             "type": "boolean"
+          },
+          "data_handling_attestation": {
+            "$ref": "#/components/schemas/PrivateModelsDataHandlingAttestation",
+            "description": "Machine-readable training and retention declaration for organization private-model inference. Clients requiring confidentiality must deny access unless the status and terms are affirmative."
           },
           "deployment_id": {
             "type": [
@@ -24319,6 +24329,127 @@
             ]
           }
         }
+      },
+      "PrivateModelsDataHandlingAttestation": {
+        "type": "object",
+        "description": "Machine-readable private-model data-handling declaration.",
+        "required": [
+          "status",
+          "scope",
+          "training_use",
+          "prompt_retention",
+          "output_retention",
+          "derived_data_retention"
+        ],
+        "properties": {
+          "attested_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Time the affirmative declaration was recorded. Absent when status is `unknown`."
+          },
+          "attested_by_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "User who recorded the declaration, when that user still exists."
+          },
+          "basis": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PrivateModelsDataHandlingAttestationBasis",
+                "description": "Authority that recorded the declaration. Absent when status is `unknown`."
+              }
+            ]
+          },
+          "derived_data_retention": {
+            "$ref": "#/components/schemas/PrivateModelsDataRetention",
+            "description": "Retention treatment for content-derived logs, caches, embeddings, fine-tuning artifacts, and similar records."
+          },
+          "output_retention": {
+            "$ref": "#/components/schemas/PrivateModelsDataRetention",
+            "description": "Retention treatment for generated inference outputs."
+          },
+          "prompt_retention": {
+            "$ref": "#/components/schemas/PrivateModelsDataRetention",
+            "description": "Retention treatment for prompts submitted to inference."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/PrivateModelsDataHandlingScope",
+            "description": "Operations to which this declaration applies."
+          },
+          "status": {
+            "$ref": "#/components/schemas/PrivateModelsDataHandlingAttestationStatus",
+            "description": "`unknown` provides no confidentiality guarantee. `no_training_no_retention` is the affirmative declaration defined by the remaining fields."
+          },
+          "terms": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PrivateModelsDataHandlingTerms",
+                "description": "Definition of the affirmative declaration. Absent when status is `unknown`."
+              }
+            ]
+          },
+          "training_use": {
+            "$ref": "#/components/schemas/PrivateModelsTrainingUse",
+            "description": "Whether covered data may be used for training or model improvement."
+          }
+        }
+      },
+      "PrivateModelsDataHandlingAttestationBasis": {
+        "type": "string",
+        "description": "Authority that recorded the data-handling declaration.",
+        "enum": [
+          "policy_administrator"
+        ]
+      },
+      "PrivateModelsDataHandlingAttestationStatus": {
+        "type": "string",
+        "description": "Organization declaration for private-model inference data handling.",
+        "enum": [
+          "unknown",
+          "no_training_no_retention"
+        ]
+      },
+      "PrivateModelsDataHandlingScope": {
+        "type": "string",
+        "description": "Operations covered by the data-handling declaration.",
+        "enum": [
+          "organization_private_model_inference"
+        ]
+      },
+      "PrivateModelsDataHandlingTerms": {
+        "type": "string",
+        "description": "Terms represented by an affirmative declaration.",
+        "enum": [
+          "no_training_no_retention"
+        ]
+      },
+      "PrivateModelsDataRetention": {
+        "type": "string",
+        "description": "Retention treatment for a covered data category.",
+        "enum": [
+          "unknown",
+          "none_after_response"
+        ]
+      },
+      "PrivateModelsTrainingUse": {
+        "type": "string",
+        "description": "Permitted training use for covered data.",
+        "enum": [
+          "unknown",
+          "prohibited"
+        ]
       },
       "ProvidersResponse": {
         "type": "object",
@@ -26535,6 +26666,17 @@
           },
           "clear_session_database": {
             "type": "boolean"
+          },
+          "data_handling_attestation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PrivateModelsDataHandlingAttestationStatus",
+                "description": "Authorized policy administrator declaration for private-model inference data handling. Omit or set `null` to preserve the current declaration; set `unknown` to withdraw it."
+              }
+            ]
           },
           "deployment_id": {
             "type": [

@@ -196,6 +196,60 @@ fn print_private_models_policy_response(
                 ),
                 ("Model ID", option_to_string(policy.model_id.as_ref())),
                 (
+                    "Data Handling Attestation",
+                    policy.data_handling_attestation.status.to_string(),
+                ),
+                (
+                    "Attestation Scope",
+                    policy.data_handling_attestation.scope.to_string(),
+                ),
+                (
+                    "Training Use",
+                    policy.data_handling_attestation.training_use.to_string(),
+                ),
+                (
+                    "Prompt Retention",
+                    policy
+                        .data_handling_attestation
+                        .prompt_retention
+                        .to_string(),
+                ),
+                (
+                    "Output Retention",
+                    policy
+                        .data_handling_attestation
+                        .output_retention
+                        .to_string(),
+                ),
+                (
+                    "Derived Data Retention",
+                    policy
+                        .data_handling_attestation
+                        .derived_data_retention
+                        .to_string(),
+                ),
+                (
+                    "Attestation Terms",
+                    option_to_string(policy.data_handling_attestation.terms.as_ref()),
+                ),
+                (
+                    "Attestation Basis",
+                    option_to_string(policy.data_handling_attestation.basis.as_ref()),
+                ),
+                (
+                    "Attested At",
+                    option_to_string(policy.data_handling_attestation.attested_at.as_ref()),
+                ),
+                (
+                    "Attested By",
+                    option_to_string(
+                        policy
+                            .data_handling_attestation
+                            .attested_by_user_id
+                            .as_ref(),
+                    ),
+                ),
+                (
                     "Disable Seren Models",
                     option_to_string(policy.disable_seren_models.as_ref()),
                 ),

@@ -9164,7 +9164,7 @@ impl SerenMcpServer {
     // ========================================================================
 
     #[tool(
-        description = "Get the private-model policy for an organization, including mode, allowed local/cloud agents, selected deployment, model IDs, provider restrictions, and private output/session database settings.",
+        description = "Get the private-model policy for an organization, including its typed data-handling attestation. Treat an absent or `unknown` attestation as lacking an affirmative no-training/no-retention guarantee.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn get_private_models_policy(
@@ -9182,7 +9182,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Update the private-model policy for an organization. Provide mode plus any optional policy fields you need to change, such as deployment_id, model_id, ordered_model_ids, fallback_models, allowed agent flags, provider restrictions, private_output_policy, or session_database.",
+        description = "Update the private-model policy for an organization, including routing, provider restrictions, allowed agents, output/session storage, and its data-handling attestation. Set `data_handling_attestation` to `no_training_no_retention` to record the policy administrator's affirmative declaration, set it to `unknown` to withdraw that declaration, or omit it or set it to `null` to preserve the current value.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
