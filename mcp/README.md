@@ -12,7 +12,7 @@ Seren MCP is the agent-facing control plane for Seren. Once connected, an assist
 | Seren Cloud operations | Get organization-wide cloud overview, list deployments, inspect runs and conversations, stream activity, approve or reject pending actions, manage schedules, and inspect artifacts/eval sets |
 | Seren Passwords | Let agents list vaults and retrieve approved secrets through encrypted vault access, hosted browser consent, scoped agent identities, read approvals, audit logs, and local unlock modes |
 | Skills, models, and services | Fetch publisher and Seren API skill docs so the assistant learns an integration before calling it, create and publish organization custom skills, apply private-model policy and model routing, and reach the notes, memory, and browser-automation services Desktop agents build on |
-| Publisher integrations | Discover Seren publishers, list MCP tools/resources exposed by a publisher, estimate cost, and call SQL/API/MCP publishers through one interface |
+| Publisher integrations | Discover Seren publishers, inspect and select user OAuth account identities, list MCP tools/resources exposed by a publisher, estimate cost, and call SQL/API/MCP publishers through one interface |
 | Backend context | List projects, branches, databases, roles, endpoints, connection strings, and organization resources so the assistant understands the current environment |
 | Database work | Create projects and branches, run SQL, inspect schema differences, manage databases/roles, and prepare connection strings for application code |
 | Object storage | Create buckets, list objects, upload base64 payloads, create presigned uploads, download objects, delete by object ID or key, and manage supporting file metadata for Seren agents, employees, and applications |
@@ -193,6 +193,17 @@ Once configured, you can ask Claude to:
 - "Run this SQL query on the analytics database: SELECT * FROM users LIMIT 10."
 - "Create an object storage bucket for customer exports, upload this generated CSV, and delete the old export by key."
 - "Find a publisher that can answer this task, estimate the cost, and call it if the prepaid balance is enough."
+
+### Publisher OAuth Account Selection
+
+Publishers with `requires_user_oauth` use connections authorized by the current user. Assistants can inspect the provider account email or user ID instead of guessing which identity a publisher call will use.
+
+1. Call `list_user_oauth_connections` to inspect connection IDs, provider identities, validity, and defaults.
+2. If no connection exists, call `list_user_oauth_providers`, then `start_user_oauth_connection` with an allowed redirect URI and ask the user to open the returned consent URL.
+3. Pass `connection_id` to `call_publisher`, `list_mcp_tools`, or `list_mcp_resources` when a workflow requires an exact account. Use `set_default_user_oauth_connection` when selector-less calls should use that account by default.
+4. For a managed deployment, set `oauth_connection_id` on each publisher `tool_ref` that must remain bound to an exact account. The runtime rejects a different per-call connection ID.
+
+OAuth consent remains a human action. These tools expose connection metadata and selection controls but never return provider tokens.
 
 ### Seren Passwords Tools
 

@@ -986,6 +986,11 @@ enum OAuthAction {
         /// Provider slug (e.g., "attio", "neon")
         provider_slug: String,
     },
+    /// Select the default connection for a provider
+    Default {
+        /// Connection ID to use for selector-less publisher calls
+        connection_id: Uuid,
+    },
     /// Disconnect an OAuth connection
     Disconnect {
         /// Connection ID, or provider slug if only one matching connection exists
@@ -7025,6 +7030,9 @@ async fn main() -> anyhow::Result<()> {
             OAuthAction::Connections => commands::oauth::list_connections(&ctx).await?,
             OAuthAction::Connect { provider_slug } => {
                 commands::oauth::connect(&provider_slug, &ctx).await?
+            }
+            OAuthAction::Default { connection_id } => {
+                commands::oauth::set_default(connection_id, &ctx).await?
             }
             OAuthAction::Disconnect { connection } => {
                 commands::oauth::disconnect(&connection, &ctx).await?

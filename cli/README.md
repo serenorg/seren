@@ -443,7 +443,8 @@ seren object-storage objects --bucket employee-files delete --object-id <uuid>
 seren oauth providers                         # list available OAuth providers
 seren oauth connections                       # list your connections
 seren oauth connect <provider-slug>           # connect to a provider
-seren oauth disconnect <provider-slug>        # disconnect
+seren oauth default <connection-id>           # select the default account for its provider
+seren oauth disconnect <connection-id>        # disconnect an exact account
 
 # Organization OAuth provider management
 seren orgs oauth --org-id <id> list

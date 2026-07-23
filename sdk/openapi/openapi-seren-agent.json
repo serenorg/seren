@@ -3123,6 +3123,14 @@
                   "publisher"
                 ]
               },
+              "oauth_connection_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "OAuth connection fixed to this publisher for the deployment."
+              },
               "operation_id": {
                 "type": "string"
               },

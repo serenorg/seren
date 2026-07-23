@@ -100,6 +100,10 @@ pub async fn list_connections(ctx: &CommandContext) -> Result<()> {
         );
         println!("    Connection ID: {}", conn.id);
         println!("    Status: {}", status);
+        println!(
+            "    Default: {}",
+            if conn.is_default { "yes" } else { "no" }
+        );
         if let Some(email) = &conn.provider_email {
             println!("    Email: {}", email);
         }
@@ -116,6 +120,28 @@ pub async fn list_connections(ctx: &CommandContext) -> Result<()> {
         println!();
     }
 
+    Ok(())
+}
+
+/// Select the default OAuth connection for its provider
+pub async fn set_default(connection_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = client
+        .set_default_connection(&connection_id)
+        .await
+        .context("Failed to set default OAuth connection")?
+        .into_inner();
+    let connection = response.connection;
+    let identity = connection
+        .provider_email
+        .as_deref()
+        .or(connection.provider_user_id.as_deref())
+        .unwrap_or("unknown account");
+
+    println!(
+        "Default {} connection: {} ({})",
+        connection.provider_name, identity, connection.id
+    );
     Ok(())
 }
 

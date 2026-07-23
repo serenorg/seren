@@ -908,6 +908,9 @@ pub struct CallPublisherParams {
     pub resource_uri: Option<String>,
 
     // === Common parameters ===
+    /// OAuth connection to use for this publisher call. Use list_user_oauth_connections to inspect available account identities.
+    #[serde(default)]
+    pub connection_id: Option<Uuid>,
     /// Response format: "json" (default) or "text"
     #[serde(default)]
     pub response_format: Option<String>,
@@ -921,6 +924,20 @@ pub struct CallPublisherParams {
     /// Used for payment proxy mode where the client signs payments locally.
     #[serde(default, rename = "_x402_payment")]
     pub x402_payment: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SetDefaultUserOAuthConnectionParams {
+    /// OAuth connection to use for selector-less publisher calls for its provider
+    pub connection_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct StartUserOAuthConnectionParams {
+    /// OAuth provider slug from list_user_oauth_providers
+    pub provider_slug: String,
+    /// Allowed URI where Seren redirects after the user completes consent
+    pub redirect_uri: String,
 }
 
 /// Parameters for getting x402 on-chain deposit requirements
@@ -1552,6 +1569,9 @@ pub struct InvokeAgentTemplateParams {
 pub struct ListMcpToolsParams {
     /// Publisher slug (URL-friendly identifier) of the MCP publisher
     pub publisher: String,
+    /// OAuth connection to use when discovering this publisher
+    #[serde(default)]
+    pub connection_id: Option<Uuid>,
 }
 
 /// Parameters for listing resources available on an MCP publisher
@@ -1559,6 +1579,9 @@ pub struct ListMcpToolsParams {
 pub struct ListMcpResourcesParams {
     /// Publisher slug (URL-friendly identifier) of the MCP publisher
     pub publisher: String,
+    /// OAuth connection to use when discovering this publisher
+    #[serde(default)]
+    pub connection_id: Option<Uuid>,
 }
 
 /// Parameters for retrieving generated skill.md guidance for a publisher
@@ -5353,6 +5376,56 @@ fn decode_call_publisher_body_base64(value: Option<&str>) -> Result<Option<Vec<u
         .map_err(|e| McpError::invalid_params(format!("Invalid body_base64: {}", e), None))
 }
 
+fn publisher_headers_with_oauth_connection(
+    headers: Option<&HashMap<String, String>>,
+    connection_id: Option<Uuid>,
+) -> Result<Option<HashMap<String, String>>, McpError> {
+    let Some(connection_id) = connection_id else {
+        return Ok(headers.cloned());
+    };
+
+    let mut headers = headers.cloned().unwrap_or_default();
+    if let Some((_, existing)) = headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("x-seren-oauth-connection-id"))
+    {
+        let existing = Uuid::parse_str(existing.trim()).map_err(|_| {
+            McpError::invalid_params(
+                "headers.X-Seren-OAuth-Connection-Id must be a UUID".to_string(),
+                None,
+            )
+        })?;
+        if existing != connection_id {
+            return Err(McpError::invalid_params(
+                "connection_id conflicts with headers.X-Seren-OAuth-Connection-Id".to_string(),
+                None,
+            ));
+        }
+        return Ok(Some(headers));
+    }
+
+    headers.insert(
+        "X-Seren-OAuth-Connection-Id".to_string(),
+        connection_id.to_string(),
+    );
+    Ok(Some(headers))
+}
+
+/// MCP tool and resource calls forward only the reserved OAuth selector
+/// header, not arbitrary caller headers. Managed runtimes deliver the
+/// deployment-bound connection through this header, so it must survive
+/// the tool-form and resource-form paths.
+fn oauth_connection_selector_headers(
+    headers: Option<&HashMap<String, String>>,
+) -> Option<HashMap<String, String>> {
+    headers.and_then(|headers| {
+        headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("x-seren-oauth-connection-id"))
+            .map(|(name, value)| HashMap::from([(name.clone(), value.clone())]))
+    })
+}
+
 fn extract_agent_metadata_from_extensions(extensions: &Extensions) -> AgentMetadata {
     let parts = match extensions.get::<axum::http::request::Parts>() {
         Some(p) => p,
@@ -7225,6 +7298,133 @@ impl SerenMcpServer {
             .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&projects)?]))
+    }
+
+    #[tool(
+        description = "List the authenticated user's OAuth connections and account identities. Returns provider identity fields, validity, and whether each connection is the default. Use a returned connection ID with call_publisher.connection_id or a publisher tool_ref oauth_connection_id.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_user_oauth_connections(
+        &self,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let connections = api_client
+            .list_connections()
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&connections)?]))
+    }
+
+    #[tool(
+        description = "List OAuth providers the authenticated user can connect. Provider consent remains a human action.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_user_oauth_providers(
+        &self,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let providers = api_client
+            .list_providers()
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&providers)?]))
+    }
+
+    #[tool(
+        description = "Start a user OAuth connection and return the provider consent URL for the user to open. This does not grant consent or expose tokens. redirect_uri must be allowed by the Seren deployment.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn start_user_oauth_connection(
+        &self,
+        Parameters(params): Parameters<StartUserOAuthConnectionParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let provider_slug = params.provider_slug.trim();
+        if provider_slug.is_empty() || params.redirect_uri.trim().is_empty() {
+            return Err(McpError::invalid_params(
+                "provider_slug and redirect_uri are required".to_string(),
+                None,
+            ));
+        }
+        let token = self.bearer_token(&extensions)?;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|error| McpError::internal_error(error.to_string(), None))?;
+        let url = format!(
+            "{}/oauth/{}/authorize?redirect_uri={}",
+            self.api_base_url.trim_end_matches('/'),
+            urlencoding::encode(provider_slug),
+            urlencoding::encode(params.redirect_uri.trim())
+        );
+        let response = client
+            .get(url)
+            .bearer_auth(&*token)
+            .send()
+            .await
+            .map_err(|error| McpError::internal_error(error.without_url().to_string(), None))?;
+        if !response.status().is_redirection() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(McpError::invalid_request(
+                format!(
+                    "Failed to start OAuth connection ({}): {}",
+                    status,
+                    truncate_for_client(&body, 1200)
+                ),
+                None,
+            ));
+        }
+        let authorization_url = response
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|value| value.to_str().ok())
+            .ok_or_else(|| {
+                McpError::internal_error(
+                    "OAuth authorization response did not include a consent URL".to_string(),
+                    None,
+                )
+            })?;
+        Ok(CallToolResult::success(vec![json_content(
+            &serde_json::json!({
+                "provider_slug": provider_slug,
+                "authorization_url": authorization_url,
+                "redirect_uri": params.redirect_uri.trim(),
+                "requires_human_consent": true,
+            }),
+        )?]))
+    }
+
+    #[tool(
+        description = "Set an OAuth connection as the default for selector-less publisher calls for its provider. This selects an existing human-authorized connection; it does not initiate OAuth consent.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn set_default_user_oauth_connection(
+        &self,
+        Parameters(params): Parameters<SetDefaultUserOAuthConnectionParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let connection = api_client
+            .set_default_connection(&params.connection_id)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&connection)?]))
     }
 
     #[tool(
@@ -9850,6 +10050,14 @@ Examples:
             PublisherOperation::Api
         };
 
+        if matches!(operation, PublisherOperation::Database) && params.connection_id.is_some() {
+            return Err(McpError::invalid_params(
+                "call_publisher: 'connection_id' is only valid for API and MCP publishers"
+                    .to_string(),
+                None,
+            ));
+        }
+
         match operation {
             PublisherOperation::Database => {
                 self.call_publisher_database(&params, &extensions, &agent_metadata, return_text)
@@ -10074,6 +10282,8 @@ Examples:
                 ));
             }
         };
+        let headers =
+            publisher_headers_with_oauth_connection(params.headers.as_ref(), params.connection_id)?;
 
         // Payment proxy mode
         if let Some(ref x402_payment) = params.x402_payment {
@@ -10084,7 +10294,7 @@ Examples:
                         &publisher_path,
                         body,
                         raw_body_ref,
-                        params.headers.as_ref(),
+                        headers.as_ref(),
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -10099,7 +10309,7 @@ Examples:
                         &publisher_path,
                         body,
                         raw_body_ref,
-                        params.headers.as_ref(),
+                        headers.as_ref(),
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -10127,7 +10337,7 @@ Examples:
                     &publisher_path,
                     body,
                     raw_body_ref,
-                    params.headers.as_ref(),
+                    headers.as_ref(),
                     params.request_id,
                     None,
                 )
@@ -10186,7 +10396,7 @@ Examples:
                                 query_string: None,
                                 body,
                                 raw_body: raw_body_ref,
-                                headers: params.headers.as_ref(),
+                                headers: headers.as_ref(),
                                 agent_metadata,
                                 return_text,
                             },
@@ -10240,6 +10450,11 @@ Examples:
 
         let body = serde_json::Value::Object(params.tool_args.clone().unwrap_or_default());
         let publisher_path = format!("/publishers/{}/_mcp/tools/{}", params.publisher, tool_path);
+        let selector_headers = oauth_connection_selector_headers(params.headers.as_ref());
+        let headers = publisher_headers_with_oauth_connection(
+            selector_headers.as_ref(),
+            params.connection_id,
+        )?;
 
         // Payment proxy mode
         if let Some(ref x402_payment) = params.x402_payment {
@@ -10250,7 +10465,7 @@ Examples:
                         &publisher_path,
                         Some(&body),
                         None,
-                        None,
+                        headers.as_ref(),
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -10265,7 +10480,7 @@ Examples:
                         &publisher_path,
                         Some(&body),
                         None,
-                        None,
+                        headers.as_ref(),
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -10293,7 +10508,7 @@ Examples:
                     &publisher_path,
                     Some(&body),
                     None,
-                    None,
+                    headers.as_ref(),
                     params.request_id,
                     None,
                 )
@@ -10366,7 +10581,7 @@ Examples:
                                         query_string: None,
                                         body: Some(&body),
                                         raw_body: None,
-                                        headers: None,
+                                        headers: headers.as_ref(),
                                         agent_metadata,
                                         return_text,
                                     },
@@ -10413,6 +10628,11 @@ Examples:
         let publisher_path = format!("/publishers/{}/_mcp/resources", params.publisher);
         let query_string = format!("uri={}", encoded_uri);
         let method = reqwest::Method::GET;
+        let selector_headers = oauth_connection_selector_headers(params.headers.as_ref());
+        let headers = publisher_headers_with_oauth_connection(
+            selector_headers.as_ref(),
+            params.connection_id,
+        )?;
 
         // Payment proxy mode
         if let Some(ref x402_payment) = params.x402_payment {
@@ -10423,7 +10643,7 @@ Examples:
                         &publisher_path,
                         None,
                         None,
-                        None,
+                        headers.as_ref(),
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -10438,7 +10658,7 @@ Examples:
                         &publisher_path,
                         None,
                         None,
-                        None,
+                        headers.as_ref(),
                         params.request_id,
                         x402_payment,
                         agent_metadata,
@@ -10466,7 +10686,7 @@ Examples:
                     &publisher_path,
                     None,
                     None,
-                    None,
+                    headers.as_ref(),
                     params.request_id,
                     Some(&query_string),
                 )
@@ -10539,7 +10759,7 @@ Examples:
                                         query_string: Some(&query_string),
                                         body: None,
                                         raw_body: None,
-                                        headers: None,
+                                        headers: headers.as_ref(),
                                         agent_metadata,
                                         return_text,
                                     },
@@ -10630,6 +10850,27 @@ Examples:
                     ));
                 }
                 if status == reqwest::StatusCode::CONFLICT {
+                    let body_text = response.text().await.unwrap_or_default();
+                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&body_text)
+                        && payload.get("error").and_then(serde_json::Value::as_str)
+                            == Some("MultipleConnectionsAmbiguous")
+                    {
+                        let provider = payload
+                            .get("provider_slug")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("this provider");
+                        return Err(McpError::invalid_request(
+                            format!(
+                                "Multiple OAuth connections are available for {provider}. Call list_user_oauth_connections, then pass connection_id or set a default connection."
+                            ),
+                            Some(serde_json::json!({
+                                "kind": "oauth_connection_selection_required",
+                                "publisher": ctx.publisher,
+                                "provider_slug": payload.get("provider_slug"),
+                                "connections": payload.get("connections"),
+                            })),
+                        ));
+                    }
                     return Err(McpError::invalid_request(
                         "Duplicate request_id. Provide a new UUID and retry.".to_string(),
                         None,
@@ -10749,7 +10990,7 @@ API endpoint: {endpoint}",
                     && status == reqwest::StatusCode::CONFLICT
                 {
                     return Err(McpError::invalid_request(
-                        "Duplicate request_id. Provide a new UUID and retry.".to_string(),
+                        "Publisher request conflicted with existing state. If request_id was reused, provide a new UUID; if the publisher uses OAuth, pass connection_id or set a default connection; otherwise inspect the publisher state before retrying.".to_string(),
                         None,
                     ));
                 }
@@ -12310,7 +12551,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "List tools available on an MCP publisher. MCP publishers expose tools, resources, and prompts that can be invoked. Use this to discover what capabilities an MCP publisher provides.",
+        description = "List tools available on an MCP publisher. MCP publishers expose tools, resources, and prompts that can be invoked. For a user-OAuth publisher, use list_user_oauth_connections and pass connection_id to select an account.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_mcp_tools(
@@ -12323,7 +12564,7 @@ API endpoint: {endpoint}",
             .proxy_to_publisher_get(
                 &params.publisher,
                 "_mcp/tools",
-                None,
+                params.connection_id.as_ref(),
                 None,
                 Vec::<u8>::new(),
             )
@@ -12382,7 +12623,7 @@ API endpoint: {endpoint}",
         Ok(CallToolResult::success(vec![json_content(&result_json)?]))
     }
     #[tool(
-        description = "List resources available on an MCP publisher. MCP publishers can expose resources (like files, data sources) that can be read. Use this to discover what resources an MCP publisher provides.",
+        description = "List resources available on an MCP publisher. MCP publishers can expose resources such as files and data sources. For a user-OAuth publisher, use list_user_oauth_connections and pass connection_id to select an account.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_mcp_resources(
@@ -12395,7 +12636,7 @@ API endpoint: {endpoint}",
             .proxy_to_publisher_get(
                 &params.publisher,
                 "_mcp/resources",
-                None,
+                params.connection_id.as_ref(),
                 None,
                 Vec::<u8>::new(),
             )
@@ -14821,7 +15062,7 @@ impl ServerHandler for SerenMcpServer {
 When Seren MCP is connected, follow these priorities:
 1. BEFORE using general web search or saying a task is unsupported → Call suggest_for_task() to see whether a Seren publisher or agent template is a better fit
 2. For native Seren infrastructure management → Prefer the first-class project, branch, database, endpoint, organization, and role tools
-3. For publisher workflows → Discover capabilities with list_agent_publishers(), get_agent_publisher(), list_mcp_tools(), and list_mcp_resources() before calling call_publisher()
+3. For publisher workflows → Discover capabilities with list_agent_publishers(), get_agent_publisher(), list_mcp_tools(), and list_mcp_resources() before calling call_publisher(); when a publisher requires user OAuth, inspect account identities with list_user_oauth_connections() and pass connection_id when an explicit identity is required
 4. For managed prompt-based agents → Use deploy_seren_agent() and the get/list/preview/update/rollback seren-agent tools instead of raw cloud bundle deploys
 5. For seren-cloud operations → Start with get_cloud_overview(), list_cloud_agents(), and list_pending_cloud_approvals() before drilling into one deployment or run
 6. For costs and payments → Use get_wallet_status() or get_prepaid_balance(); use local wallet/x402 tools only when the client is configured for local signing"#
@@ -15013,6 +15254,117 @@ mod tests {
 
         let err = validate_object_storage_key("/").expect_err("empty key should be rejected");
         assert!(err.message.contains("object_key must not be empty"));
+    }
+
+    #[test]
+    fn user_oauth_connection_tools_are_exposed() {
+        let server = server_with_http_client(reqwest::Client::new());
+        let tool_names = server
+            .tool_router
+            .list_all()
+            .into_iter()
+            .map(|tool| tool.name.into_owned())
+            .collect::<std::collections::HashSet<_>>();
+
+        for expected in [
+            "list_user_oauth_connections",
+            "list_user_oauth_providers",
+            "start_user_oauth_connection",
+            "set_default_user_oauth_connection",
+        ] {
+            assert!(tool_names.contains(expected), "missing MCP tool {expected}");
+        }
+    }
+
+    #[test]
+    fn publisher_oauth_connection_rejects_conflicting_header() {
+        let connection_id = Uuid::from_u128(1);
+        let mut headers = HashMap::new();
+        headers.insert(
+            "x-seren-oauth-connection-id".to_string(),
+            Uuid::from_u128(2).to_string(),
+        );
+
+        let error = publisher_headers_with_oauth_connection(Some(&headers), Some(connection_id))
+            .expect_err("conflicting connection selectors must be rejected");
+
+        assert!(error.message.contains("conflicts"));
+    }
+
+    #[test]
+    fn oauth_selector_headers_forward_only_the_reserved_header() {
+        let mut headers = HashMap::new();
+        headers.insert("Content-Type".to_string(), "application/json".to_string());
+        headers.insert(
+            "x-seren-oauth-connection-id".to_string(),
+            Uuid::from_u128(1).to_string(),
+        );
+
+        let selector = oauth_connection_selector_headers(Some(&headers))
+            .expect("reserved selector header should be preserved");
+
+        assert_eq!(selector.len(), 1);
+        assert_eq!(
+            selector.get("x-seren-oauth-connection-id"),
+            Some(&Uuid::from_u128(1).to_string())
+        );
+        assert!(oauth_connection_selector_headers(None).is_none());
+    }
+
+    #[tokio::test]
+    async fn call_publisher_mcp_tool_forwards_header_selector() {
+        use wiremock::matchers::{header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/publishers/gmail/_mcp/tools/send_message"))
+            .and(header(
+                "X-Seren-OAuth-Connection-Id",
+                "00000000-0000-0000-0000-000000000001",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ok": true,
+            })))
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let mut headers = HashMap::new();
+        headers.insert(
+            "X-Seren-OAuth-Connection-Id".to_string(),
+            Uuid::from_u128(1).to_string(),
+        );
+        let params = CallPublisherParams {
+            publisher: "gmail".to_string(),
+            query: None,
+            database: None,
+            method: None,
+            path: None,
+            headers: Some(headers),
+            body: None,
+            body_base64: None,
+            tool: Some("send_message".to_string()),
+            tool_args: Some(serde_json::Map::new()),
+            resource_uri: None,
+            connection_id: None,
+            response_format: None,
+            request_id: None,
+            confirm: false,
+            x402_payment: None,
+        };
+
+        let result = server
+            .call_publisher_mcp_tool(
+                &params,
+                &extensions_with_headers(&[]),
+                &AgentMetadata::default(),
+                false,
+            )
+            .await
+            .expect("the header-borne OAuth selector must reach the MCP tool path");
+
+        assert!(!result.is_error.unwrap_or(false));
     }
 
     #[test]
@@ -15966,6 +16318,7 @@ mod tests {
             tool: Some("passwords_vaults_list".to_string()),
             tool_args: None,
             resource_uri: None,
+            connection_id: None,
             response_format: None,
             request_id: None,
             confirm: false,
@@ -16012,6 +16365,7 @@ mod tests {
             tool: Some("passwords_vaults_list".to_string()),
             tool_args: None,
             resource_uri: None,
+            connection_id: None,
             response_format: None,
             request_id: None,
             confirm: false,
@@ -16053,6 +16407,7 @@ mod tests {
             tool: Some("passwords_vaults_list".to_string()),
             tool_args: Some(tool_args),
             resource_uri: None,
+            connection_id: None,
             response_format: None,
             request_id: None,
             confirm: false,
@@ -16090,6 +16445,7 @@ mod tests {
             tool: Some("passwords_item_get".to_string()),
             tool_args: Some(serde_json::Map::new()),
             resource_uri: None,
+            connection_id: None,
             response_format: None,
             request_id: None,
             confirm: false,
@@ -16571,6 +16927,10 @@ mod tests {
             .and(path("/publishers/deepgram-serenai/v1/listen"))
             .and(header("Authorization", "Bearer test-key"))
             .and(header("Content-Type", "audio/mp3"))
+            .and(header(
+                "X-Seren-OAuth-Connection-Id",
+                "00000000-0000-0000-0000-000000000001",
+            ))
             .and(body_string_contains("hello"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "ok": true,
@@ -16593,6 +16953,7 @@ mod tests {
             tool: None,
             tool_args: None,
             resource_uri: None,
+            connection_id: Some(Uuid::from_u128(1)),
             response_format: None,
             request_id: None,
             confirm: false,
@@ -16608,6 +16969,177 @@ mod tests {
             )
             .await
             .unwrap();
+
+        assert!(!result.is_error.unwrap_or(false));
+    }
+
+    #[tokio::test]
+    async fn call_publisher_api_reports_oauth_connection_selection() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/publishers/gmail/messages"))
+            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "error": "MultipleConnectionsAmbiguous",
+                "message": "select a connection",
+                "provider_slug": "google",
+                "connections": [{
+                    "id": "00000000-0000-0000-0000-000000000001",
+                    "provider_email": "agent@example.com"
+                }]
+            })))
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let params = CallPublisherParams {
+            publisher: "gmail".to_string(),
+            query: None,
+            database: None,
+            method: Some("GET".to_string()),
+            path: Some("/messages".to_string()),
+            headers: None,
+            body: None,
+            body_base64: None,
+            tool: None,
+            tool_args: None,
+            resource_uri: None,
+            connection_id: None,
+            response_format: None,
+            request_id: None,
+            confirm: false,
+            x402_payment: None,
+        };
+
+        let error = server
+            .call_publisher_api(
+                &params,
+                &extensions_with_headers(&[]),
+                &AgentMetadata::default(),
+                false,
+            )
+            .await
+            .expect_err("ambiguous OAuth identity must require selection");
+
+        assert!(error.message.contains("list_user_oauth_connections"));
+        assert!(!error.message.contains("Duplicate request_id"));
+        assert_eq!(
+            error
+                .data
+                .as_ref()
+                .and_then(|data| data.get("provider_slug")),
+            Some(&serde_json::json!("google"))
+        );
+    }
+
+    #[tokio::test]
+    async fn bodyless_conflict_does_not_claim_duplicate_request_id() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/conflict"))
+            .respond_with(ResponseTemplate::new(409))
+            .mount(&proxy)
+            .await;
+
+        let response = reqwest::Client::new()
+            .get(format!("{}/conflict", proxy.uri()))
+            .send()
+            .await
+            .expect("mock conflict response should be returned");
+        let response: seren::ResponseValue<()> = seren::ResponseValue::empty(response);
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let method = reqwest::Method::GET;
+        let agent_metadata = AgentMetadata::default();
+
+        let error = server
+            .handle_call_publisher_error::<serde_json::Value>(
+                seren::Error::ErrorResponse(response),
+                CallPublisherErrorContext {
+                    publisher: "gmail",
+                    publisher_type: "api",
+                    confirm: false,
+                    request_id: None,
+                    method: &method,
+                    publisher_path: "publishers/gmail/messages",
+                    query_string: None,
+                    body: None,
+                    raw_body: None,
+                    headers: None,
+                    agent_metadata: &agent_metadata,
+                    return_text: false,
+                },
+            )
+            .await
+            .expect_err("bodyless conflicts must remain generic");
+
+        assert!(error.message.contains("conflicted with existing state"));
+        assert!(error.message.contains("pass connection_id"));
+        assert!(!error.message.contains("Duplicate request_id"));
+    }
+
+    #[tokio::test]
+    async fn list_mcp_tools_forwards_oauth_connection_selector() {
+        use wiremock::matchers::{method, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let connection_id = Uuid::from_u128(1);
+        Mock::given(method("GET"))
+            .and(query_param("connection_id", connection_id.to_string()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "tools": []
+            })))
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let result = server
+            .list_mcp_tools(
+                Parameters(ListMcpToolsParams {
+                    publisher: "gmail".to_string(),
+                    connection_id: Some(connection_id),
+                }),
+                Extensions::default(),
+            )
+            .await
+            .expect("MCP discovery should forward the OAuth selector");
+
+        assert!(!result.is_error.unwrap_or(false));
+    }
+
+    #[tokio::test]
+    async fn start_user_oauth_connection_returns_consent_redirect() {
+        use wiremock::matchers::{method, path, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let redirect_uri = "https://console.example.com/oauth/complete";
+        Mock::given(method("GET"))
+            .and(path("/oauth/google/authorize"))
+            .and(query_param("redirect_uri", redirect_uri))
+            .respond_with(
+                ResponseTemplate::new(302)
+                    .insert_header("Location", "https://accounts.example.com/consent"),
+            )
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let result = server
+            .start_user_oauth_connection(
+                Parameters(StartUserOAuthConnectionParams {
+                    provider_slug: "google".to_string(),
+                    redirect_uri: redirect_uri.to_string(),
+                }),
+                Extensions::default(),
+            )
+            .await
+            .expect("OAuth setup should return the provider consent redirect");
 
         assert!(!result.is_error.unwrap_or(false));
     }
@@ -16726,6 +17258,7 @@ mod tests {
             tool: None,
             tool_args: None,
             resource_uri: None,
+            connection_id: None,
             response_format: None,
             request_id: None,
             confirm: false,
