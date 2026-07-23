@@ -886,7 +886,9 @@ pub struct CallPublisherParams {
     /// Relative path to append to the publisher base URL
     #[serde(default)]
     pub path: Option<String>,
-    /// Request headers (will not override publisher headers)
+    /// Request headers (will not override publisher headers).
+    /// For passthrough auth, use the publisher's configured source header, such as
+    /// X-Passthrough-Authorization, rather than the Seren Authorization header.
     #[serde(default)]
     pub headers: Option<HashMap<String, String>>,
     /// JSON body to send (for API or database publishers)
@@ -5380,6 +5382,21 @@ fn publisher_headers_with_oauth_connection(
     headers: Option<&HashMap<String, String>>,
     connection_id: Option<Uuid>,
 ) -> Result<Option<HashMap<String, String>>, McpError> {
+    if let Some(headers) = headers
+        && headers
+            .keys()
+            .any(|name| name.eq_ignore_ascii_case("authorization"))
+    {
+        return Err(McpError::invalid_params(
+            concat!(
+                "headers.Authorization is reserved for Seren gateway authentication; ",
+                "supply the upstream credential through the publisher's configured passthrough ",
+                "source header, such as X-Passthrough-Authorization",
+            )
+            .to_string(),
+            None,
+        ));
+    }
     let Some(connection_id) = connection_id else {
         return Ok(headers.cloned());
     };
@@ -9997,6 +10014,7 @@ impl SerenMcpServer {
 Examples:
 - Database: call_publisher(publisher: \"my-db\", query: \"SELECT * FROM users\")
 - API: call_publisher(publisher: \"firecrawl\", method: \"POST\", path: \"/scrape\", body: {url: \"...\"})
+- API passthrough auth: call_publisher(publisher: \"my-api\", method: \"GET\", headers: {\"X-Passthrough-Authorization\": \"Bearer ...\"})
 - MCP tool: call_publisher(publisher: \"my-mcp\", tool: \"search\", tool_args: {query: \"...\"})
 - Seren Passwords helper: call_publisher(publisher: \"seren-passwords\", tool: \"passwords_vaults_list\")
 - MCP resource: call_publisher(publisher: \"my-mcp\", resource_uri: \"file:///data.json\")",
@@ -15274,6 +15292,20 @@ mod tests {
         ] {
             assert!(tool_names.contains(expected), "missing MCP tool {expected}");
         }
+    }
+
+    #[test]
+    fn publisher_headers_reject_reserved_authorization_header() {
+        let mut headers = HashMap::new();
+        headers.insert(
+            "Authorization".to_string(),
+            "Bearer upstream-secret".to_string(),
+        );
+
+        let error = publisher_headers_with_oauth_connection(Some(&headers), None)
+            .expect_err("caller Authorization must be rejected with guidance");
+
+        assert!(error.message.contains("X-Passthrough-Authorization"));
     }
 
     #[test]

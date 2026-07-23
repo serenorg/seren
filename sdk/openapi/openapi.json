@@ -11210,14 +11210,14 @@
               "string",
               "null"
             ],
-            "description": "External API URL (required for integration_type = api)"
+            "description": "External API URL. When present, enables REST proxying."
           },
           "auth_type": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Upstream auth mode (\"static\", \"jwt\", or \"oauth2_cc\") (default: static)"
+            "description": "Upstream auth mode (\"static\", \"jwt\", \"oauth2_cc\", or \"passthrough\") (default: static)"
           },
           "base_price_per_1000_rows": {
             "type": [
@@ -11335,7 +11335,7 @@
               },
               {
                 "$ref": "#/components/schemas/IntegrationType",
-                "description": "Integration type when publisher_category = integration"
+                "description": "Primary integration interface when publisher_category = integration"
               }
             ]
           },
@@ -11392,7 +11392,7 @@
               "string",
               "null"
             ],
-            "description": "MCP server endpoint URL (required for integration_type = mcp)"
+            "description": "MCP server endpoint URL. When present, enables native MCP proxying."
           },
           "minimum_balance": {
             "type": [
@@ -11446,7 +11446,7 @@
             "description": "Enable resource ownership tracking (legacy gateway parity)"
           },
           "passthrough_header_rewrite": {
-            "description": "Map of client-side header name to upstream header name for passthrough auth."
+            "description": "Map of allowed client-side header names to upstream names. Authorization is target-only."
           },
           "price_per_call": {
             "type": [
@@ -15621,6 +15621,7 @@
               "publisher_category",
               "billing_model",
               "gateway_fee_percent",
+              "auth_type",
               "allowed_passthrough_headers",
               "passthrough_header_rewrite",
               "request_content_type",
@@ -15689,7 +15690,11 @@
                   "string",
                   "null"
                 ],
-                "description": "External API URL (for integration_type = api)"
+                "description": "External API URL. When present, enables REST proxying."
+              },
+              "auth_type": {
+                "type": "string",
+                "description": "Upstream authentication mode."
               },
               "billing_model": {
                 "type": "string"
@@ -15788,7 +15793,7 @@
                   },
                   {
                     "$ref": "#/components/schemas/IntegrationType",
-                    "description": "Integration type when publisher_category = integration"
+                    "description": "Primary integration interface when publisher_category = integration"
                   }
                 ]
               },
@@ -15823,7 +15828,7 @@
                   "string",
                   "null"
                 ],
-                "description": "MCP server endpoint URL (for integration_type = mcp)"
+                "description": "MCP server endpoint URL. When present, enables native MCP proxying."
               },
               "name": {
                 "type": "string"
@@ -15840,7 +15845,7 @@
                 "type": "boolean"
               },
               "passthrough_header_rewrite": {
-                "description": "Map of client-side header name to upstream header name for passthrough auth."
+                "description": "Map of allowed client-side header names to upstream names. Authorization is target-only."
               },
               "pricing": {
                 "type": [
@@ -18561,6 +18566,7 @@
                 "publisher_category",
                 "billing_model",
                 "gateway_fee_percent",
+                "auth_type",
                 "allowed_passthrough_headers",
                 "passthrough_header_rewrite",
                 "request_content_type",
@@ -18629,7 +18635,11 @@
                     "string",
                     "null"
                   ],
-                  "description": "External API URL (for integration_type = api)"
+                  "description": "External API URL. When present, enables REST proxying."
+                },
+                "auth_type": {
+                  "type": "string",
+                  "description": "Upstream authentication mode."
                 },
                 "billing_model": {
                   "type": "string"
@@ -18728,7 +18738,7 @@
                     },
                     {
                       "$ref": "#/components/schemas/IntegrationType",
-                      "description": "Integration type when publisher_category = integration"
+                      "description": "Primary integration interface when publisher_category = integration"
                     }
                   ]
                 },
@@ -18763,7 +18773,7 @@
                     "string",
                     "null"
                   ],
-                  "description": "MCP server endpoint URL (for integration_type = mcp)"
+                  "description": "MCP server endpoint URL. When present, enables native MCP proxying."
                 },
                 "name": {
                   "type": "string"
@@ -18780,7 +18790,7 @@
                   "type": "boolean"
                 },
                 "passthrough_header_rewrite": {
-                  "description": "Map of client-side header name to upstream header name for passthrough auth."
+                  "description": "Map of allowed client-side header names to upstream names. Authorization is target-only."
                 },
                 "pricing": {
                   "type": [
@@ -21278,7 +21288,7 @@
       },
       "IntegrationType": {
         "type": "string",
-        "description": "Integration type - specific integration when publisher_category = Integration",
+        "description": "Primary interface for an integration publisher.\n\nREST and native MCP interfaces are enabled independently by `api_url` and `mcp_endpoint`, so an integration publisher may expose both.",
         "enum": [
           "api",
           "mcp"
@@ -23008,6 +23018,7 @@
                 "publisher_category",
                 "billing_model",
                 "gateway_fee_percent",
+                "auth_type",
                 "allowed_passthrough_headers",
                 "passthrough_header_rewrite",
                 "request_content_type",
@@ -23076,7 +23087,11 @@
                     "string",
                     "null"
                   ],
-                  "description": "External API URL (for integration_type = api)"
+                  "description": "External API URL. When present, enables REST proxying."
+                },
+                "auth_type": {
+                  "type": "string",
+                  "description": "Upstream authentication mode."
                 },
                 "billing_model": {
                   "type": "string"
@@ -23175,7 +23190,7 @@
                     },
                     {
                       "$ref": "#/components/schemas/IntegrationType",
-                      "description": "Integration type when publisher_category = integration"
+                      "description": "Primary integration interface when publisher_category = integration"
                     }
                   ]
                 },
@@ -23210,7 +23225,7 @@
                     "string",
                     "null"
                   ],
-                  "description": "MCP server endpoint URL (for integration_type = mcp)"
+                  "description": "MCP server endpoint URL. When present, enables native MCP proxying."
                 },
                 "name": {
                   "type": "string"
@@ -23227,7 +23242,7 @@
                   "type": "boolean"
                 },
                 "passthrough_header_rewrite": {
-                  "description": "Map of client-side header name to upstream header name for passthrough auth."
+                  "description": "Map of allowed client-side header names to upstream names. Authorization is target-only."
                 },
                 "pricing": {
                   "type": [
@@ -24616,6 +24631,7 @@
           "publisher_category",
           "billing_model",
           "gateway_fee_percent",
+          "auth_type",
           "allowed_passthrough_headers",
           "passthrough_header_rewrite",
           "request_content_type",
@@ -24684,7 +24700,11 @@
               "string",
               "null"
             ],
-            "description": "External API URL (for integration_type = api)"
+            "description": "External API URL. When present, enables REST proxying."
+          },
+          "auth_type": {
+            "type": "string",
+            "description": "Upstream authentication mode."
           },
           "billing_model": {
             "type": "string"
@@ -24783,7 +24803,7 @@
               },
               {
                 "$ref": "#/components/schemas/IntegrationType",
-                "description": "Integration type when publisher_category = integration"
+                "description": "Primary integration interface when publisher_category = integration"
               }
             ]
           },
@@ -24818,7 +24838,7 @@
               "string",
               "null"
             ],
-            "description": "MCP server endpoint URL (for integration_type = mcp)"
+            "description": "MCP server endpoint URL. When present, enables native MCP proxying."
           },
           "name": {
             "type": "string"
@@ -24835,7 +24855,7 @@
             "type": "boolean"
           },
           "passthrough_header_rewrite": {
-            "description": "Map of client-side header name to upstream header name for passthrough auth."
+            "description": "Map of allowed client-side header names to upstream names. Authorization is target-only."
           },
           "pricing": {
             "type": [
@@ -26782,14 +26802,14 @@
               "string",
               "null"
             ],
-            "description": "External API URL (for integration_type = api)"
+            "description": "External API URL. When present, enables REST proxying."
           },
           "auth_type": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Upstream auth mode (\"static\" or \"jwt\")"
+            "description": "Upstream auth mode (\"static\", \"jwt\", \"oauth2_cc\", or \"passthrough\")"
           },
           "base_price_per_1000_rows": {
             "type": [
@@ -26913,7 +26933,7 @@
               },
               {
                 "$ref": "#/components/schemas/IntegrationType",
-                "description": "Integration type when publisher_category = integration"
+                "description": "Primary integration interface when publisher_category = integration"
               }
             ]
           },
@@ -26976,7 +26996,7 @@
               "string",
               "null"
             ],
-            "description": "MCP server endpoint URL (for integration_type = mcp)"
+            "description": "MCP server endpoint URL. When present, enables native MCP proxying."
           },
           "minimum_balance": {
             "type": [
@@ -27037,7 +27057,7 @@
             "description": "Enable resource ownership tracking (legacy gateway parity)"
           },
           "passthrough_header_rewrite": {
-            "description": "Map of client-side header name to upstream header name for passthrough auth."
+            "description": "Map of allowed client-side header names to upstream names. Authorization is target-only."
           },
           "price_per_call": {
             "type": [
