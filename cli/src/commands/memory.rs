@@ -280,6 +280,56 @@ pub async fn timeline(
     Ok(())
 }
 
+pub async fn link(
+    source_id: Uuid,
+    target_id: Uuid,
+    edge_type: String,
+    valid_from: Option<jiff::Timestamp>,
+    valid_to: Option<jiff::Timestamp>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let response = ctx
+        .client()
+        .await?
+        .seren_memory_link_memories(&seren::SerenMemoryMemoryConnectionRequest {
+            edge_type,
+            source_id,
+            target_id,
+            valid_from,
+            valid_to,
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("Failed to connect Seren Memory entries: {error}"))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn unlink(
+    source_id: Uuid,
+    target_id: Uuid,
+    edge_type: String,
+    valid_from: Option<jiff::Timestamp>,
+    valid_to: Option<jiff::Timestamp>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let response = ctx
+        .client()
+        .await?
+        .seren_memory_unlink_memories(&seren::SerenMemoryMemoryConnectionRequest {
+            edge_type,
+            source_id,
+            target_id,
+            valid_from,
+            valid_to,
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("Failed to disconnect Seren Memory entries: {error}"))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
 pub async fn forget(id: Uuid, ctx: &CommandContext) -> Result<()> {
     let response = ctx
         .client()

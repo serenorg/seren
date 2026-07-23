@@ -313,6 +313,60 @@ pub struct SerenMemoryListParams {
     pub project_id: Option<Uuid>,
 }
 
+/// Seren Memory export selector.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenMemoryExportParams {
+    /// Maximum number of memories to return
+    pub limit: Option<i64>,
+    /// Pagination offset
+    pub offset: Option<i64>,
+    /// Restrict the export to a single project
+    pub project_id: Option<Uuid>,
+}
+
+/// Seren Memory relationship-timeline selector.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenMemoryTimelineParams {
+    /// Memory ID
+    pub memory_id: Uuid,
+    /// Return relationships valid at this RFC 3339 timestamp
+    pub as_of: Option<String>,
+}
+
+/// Seren Memory connection (edge) between two private memories.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenMemoryConnectionParams {
+    /// Relationship type for the edge (for example "relates_to")
+    pub edge_type: String,
+    /// Source memory ID
+    pub source_id: Uuid,
+    /// Target memory ID
+    pub target_id: Uuid,
+    /// Optional RFC 3339 timestamp the edge becomes valid
+    pub valid_from: Option<String>,
+    /// Optional RFC 3339 timestamp the edge stops being valid
+    pub valid_to: Option<String>,
+}
+
+impl SerenMemoryConnectionParams {
+    fn into_request(self) -> Result<seren::SerenMemoryMemoryConnectionRequest, McpError> {
+        let SerenMemoryConnectionParams {
+            edge_type,
+            source_id,
+            target_id,
+            valid_from,
+            valid_to,
+        } = self;
+        Ok(seren::SerenMemoryMemoryConnectionRequest {
+            edge_type,
+            source_id,
+            target_id,
+            valid_from: parse_optional_timestamp(valid_from.as_deref(), "valid_from")?,
+            valid_to: parse_optional_timestamp(valid_to.as_deref(), "valid_to")?,
+        })
+    }
+}
+
 // Organization OAuth provider operations
 /// Path parameters for org OAuth provider operations
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -8243,6 +8297,115 @@ impl SerenMcpServer {
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
+    #[tool(
+        description = "Extract durable memories from a completed conversation turn and store them in Seren Memory.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn seren_memory_process_conversation(
+        &self,
+        Parameters(params): Parameters<seren::SerenMemoryProcessConversationParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client.seren_memory_process_conversation(&params).await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Export the caller's private memories and retained conversation sources from Seren Memory. Results may contain private content and should be handled accordingly.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_memory_export_memories(
+        &self,
+        Parameters(params): Parameters<SerenMemoryExportParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_memory_export_memories(params.limit, params.offset, params.project_id.as_ref())
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Inspect the dated relationship timeline for one private Seren Memory entry.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_memory_memory_timeline(
+        &self,
+        Parameters(params): Parameters<SerenMemoryTimelineParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let as_of = parse_optional_timestamp(params.as_of.as_deref(), "as_of")?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_memory_memory_timeline(&params.memory_id, as_of.as_ref())
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Connect two private Seren Memory entries with a typed relationship edge.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn seren_memory_link_memories(
+        &self,
+        Parameters(params): Parameters<SerenMemoryConnectionParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let request = params.into_request()?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client.seren_memory_link_memories(&request).await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Remove a typed relationship edge between two private Seren Memory entries.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn seren_memory_unlink_memories(
+        &self,
+        Parameters(params): Parameters<SerenMemoryConnectionParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let request = params.into_request()?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client.seren_memory_unlink_memories(&request).await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
     // ========================================================================
     // Seren Storage Publisher Tools
     // ========================================================================
@@ -14905,9 +15068,56 @@ mod tests {
             "seren_memory_list_knowledge_domains",
             "seren_memory_search_knowledge",
             "seren_memory_open_knowledge_entity",
+            "seren_memory_process_conversation",
+            "seren_memory_export_memories",
+            "seren_memory_memory_timeline",
+            "seren_memory_link_memories",
+            "seren_memory_unlink_memories",
         ] {
             assert!(tool_names.contains(expected), "missing MCP tool {expected}");
         }
+    }
+
+    #[test]
+    fn seren_memory_connection_params_convert_timestamps() {
+        let source_id = Uuid::from_u128(1);
+        let target_id = Uuid::from_u128(2);
+        let request = SerenMemoryConnectionParams {
+            edge_type: "relates_to".to_string(),
+            source_id,
+            target_id,
+            valid_from: Some("2026-07-23T12:00:00Z".to_string()),
+            valid_to: Some("2026-07-24T12:00:00Z".to_string()),
+        }
+        .into_request()
+        .expect("valid connection parameters should convert");
+
+        assert_eq!(request.edge_type, "relates_to");
+        assert_eq!(request.source_id, source_id);
+        assert_eq!(request.target_id, target_id);
+        assert_eq!(
+            request.valid_from.map(|timestamp| timestamp.to_string()),
+            Some("2026-07-23T12:00:00Z".to_string())
+        );
+        assert_eq!(
+            request.valid_to.map(|timestamp| timestamp.to_string()),
+            Some("2026-07-24T12:00:00Z".to_string())
+        );
+    }
+
+    #[test]
+    fn seren_memory_connection_params_reject_invalid_timestamps() {
+        let error = SerenMemoryConnectionParams {
+            edge_type: "relates_to".to_string(),
+            source_id: Uuid::from_u128(1),
+            target_id: Uuid::from_u128(2),
+            valid_from: Some("not-a-timestamp".to_string()),
+            valid_to: None,
+        }
+        .into_request()
+        .expect_err("invalid connection timestamp should be rejected");
+
+        assert!(error.message.contains("valid_from"));
     }
 
     #[tokio::test]

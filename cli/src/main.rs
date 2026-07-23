@@ -2893,6 +2893,47 @@ enum MemoryAction {
         #[command(subcommand)]
         action: MemoryKnowledgeAction,
     },
+    /// Manage typed relationship edges between private memories
+    Connections {
+        #[command(subcommand)]
+        action: MemoryConnectionAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum MemoryConnectionAction {
+    /// Connect two private memories with a typed relationship edge
+    Link {
+        /// Source memory ID
+        source_id: Uuid,
+        /// Target memory ID
+        target_id: Uuid,
+        /// Relationship type for the edge (for example "relates_to")
+        #[arg(long, default_value = "relates_to")]
+        edge_type: String,
+        /// RFC 3339 timestamp the edge becomes valid
+        #[arg(long)]
+        valid_from: Option<jiff::Timestamp>,
+        /// RFC 3339 timestamp the edge stops being valid
+        #[arg(long)]
+        valid_to: Option<jiff::Timestamp>,
+    },
+    /// Remove a typed relationship edge between two private memories
+    Unlink {
+        /// Source memory ID
+        source_id: Uuid,
+        /// Target memory ID
+        target_id: Uuid,
+        /// Relationship type identifying the edge to remove
+        #[arg(long)]
+        edge_type: String,
+        /// RFC 3339 validity start identifying the edge to remove
+        #[arg(long)]
+        valid_from: Option<jiff::Timestamp>,
+        /// RFC 3339 validity end identifying the edge to remove
+        #[arg(long)]
+        valid_to: Option<jiff::Timestamp>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -5188,6 +5229,32 @@ async fn main() -> anyhow::Result<()> {
                     entity_id,
                     domain_id,
                 } => commands::memory::open_knowledge_entity(entity_id, domain_id, &ctx).await?,
+            },
+            MemoryAction::Connections { action } => match action {
+                MemoryConnectionAction::Link {
+                    source_id,
+                    target_id,
+                    edge_type,
+                    valid_from,
+                    valid_to,
+                } => {
+                    commands::memory::link(
+                        source_id, target_id, edge_type, valid_from, valid_to, &ctx,
+                    )
+                    .await?
+                }
+                MemoryConnectionAction::Unlink {
+                    source_id,
+                    target_id,
+                    edge_type,
+                    valid_from,
+                    valid_to,
+                } => {
+                    commands::memory::unlink(
+                        source_id, target_id, edge_type, valid_from, valid_to, &ctx,
+                    )
+                    .await?
+                }
             },
         },
         Commands::Projects { action } => match action {
