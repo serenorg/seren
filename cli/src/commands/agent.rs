@@ -2099,6 +2099,7 @@ pub struct ManagedAgentUpdateOptions<'a> {
 const ORCHESTRATION_CONFIG_FIELDS: &[&str] = &[
     "context_budget_tokens",
     "dashboard_config",
+    "external_databases",
     "fallback_models",
     "max_iterations",
     "max_timeout_seconds",
@@ -2114,6 +2115,7 @@ const MANAGED_AGENT_CONFIG_FIELDS: &[&str] = &[
     "bundle",
     "context_budget_tokens",
     "dashboard_config",
+    "external_databases",
     "fallback_models",
     "max_iterations",
     "max_timeout_seconds",
@@ -2367,6 +2369,7 @@ const WORKLOAD_LEVEL_FIELDS: &[&str] = &[
     "deployment_bundle_id",
     "compute_backend",
     "config",
+    "external_databases",
     "fallback_models",
     "model_config",
     "model_id",
@@ -4331,6 +4334,21 @@ fn body_touches_workload(body: &serde_json::Map<String, serde_json::Value>) -> b
     })
 }
 
+/// Resolve external-database attachments for a managed-agent workload replacement.
+///
+/// Omitting `external_databases` preserves the deployment's current attachments;
+/// an explicit list replaces them, and an explicit empty list clears them.
+fn resolve_updated_external_databases(
+    body: &serde_json::Map<String, serde_json::Value>,
+    current: Vec<seren::ManagedExternalDatabaseAttachment>,
+) -> Result<Vec<seren::ManagedExternalDatabaseAttachment>> {
+    match body.get("external_databases").cloned() {
+        Some(value) => serde_json::from_value(value)
+            .map_err(|e| anyhow::anyhow!("Invalid external_databases payload: {}", e)),
+        None => Ok(current),
+    }
+}
+
 async fn build_replacement_workload_for_managed_agent(
     client: &seren::Client,
     deployment_id: &Uuid,
@@ -4403,6 +4421,7 @@ async fn build_replacement_workload_for_managed_agent(
             .map_err(|e| anyhow::anyhow!("Invalid requirements payload: {}", e))?,
         None => detail.requirements,
     };
+    let external_databases = resolve_updated_external_databases(body, detail.external_databases)?;
 
     let max_timeout_seconds = body
         .get("max_timeout_seconds")
@@ -4442,7 +4461,7 @@ async fn build_replacement_workload_for_managed_agent(
             model_id: Some(model_id),
             tool_definitions,
         },
-        external_databases: detail.external_databases,
+        external_databases,
         limits: Some(seren::WorkloadLimits {
             context_budget_tokens,
             max_iterations,
@@ -9539,17 +9558,81 @@ mod tests {
     }
 
     #[test]
+    fn resolve_updated_external_databases_preserves_clears_and_replaces() {
+        let current: Vec<seren::ManagedExternalDatabaseAttachment> =
+            serde_json::from_value(serde_json::json!([{
+                "project_id": "24dc59b5-52f8-4a95-bff3-d0b8bab84423",
+                "branch_id": "4be7f967-fd9c-4587-bb7d-b45ee4eb2c8f",
+                "database": "chief_lending_officer_borrower_sourcing",
+                "access": "read_only"
+            }]))
+            .unwrap();
+
+        // An absent key preserves the current attachments.
+        let preserved =
+            resolve_updated_external_databases(&serde_json::Map::new(), current.clone()).unwrap();
+        assert_eq!(
+            serde_json::to_value(&preserved).unwrap(),
+            serde_json::to_value(&current).unwrap(),
+        );
+
+        // An explicit empty list clears the attachments.
+        let cleared_body =
+            serde_json::Map::from_iter([("external_databases".to_string(), serde_json::json!([]))]);
+        assert!(
+            resolve_updated_external_databases(&cleared_body, current.clone())
+                .unwrap()
+                .is_empty()
+        );
+
+        // An explicit list replaces the attachments.
+        let replace_body = serde_json::Map::from_iter([(
+            "external_databases".to_string(),
+            serde_json::json!([{
+                "project_id": "3dbd443a-86f6-4120-9b56-b8f61a021838",
+                "branch_id": "5c1bcdc5-875d-4528-90c0-65d86780e4c1",
+                "database": "bat_sales_coach",
+                "access": "read_write"
+            }]),
+        )]);
+        let replaced = resolve_updated_external_databases(&replace_body, current.clone()).unwrap();
+        assert_eq!(replaced.len(), 1);
+        assert_eq!(replaced[0].database, "bat_sales_coach");
+
+        // A malformed payload is a clear error, not a silent preserve.
+        let invalid_body = serde_json::Map::from_iter([(
+            "external_databases".to_string(),
+            serde_json::json!("not-an-array"),
+        )]);
+        assert!(resolve_updated_external_databases(&invalid_body, current).is_err());
+    }
+
+    #[test]
     fn reshape_managed_prompt_uses_bundle_execution() {
         let body = serde_json::Map::from_iter([
             ("name".to_string(), serde_json::json!("Research Agent")),
             ("mode".to_string(), serde_json::json!("always_on")),
             ("prompt".to_string(), serde_json::json!("watch the price")),
+            (
+                "external_databases".to_string(),
+                serde_json::json!([{
+                    "project_id": "24dc59b5-52f8-4a95-bff3-d0b8bab84423",
+                    "branch_id": "4be7f967-fd9c-4587-bb7d-b45ee4eb2c8f",
+                    "database": "chief_lending_officer_borrower_sourcing",
+                    "access": "read_only"
+                }]),
+            ),
         ]);
 
         let reshaped = reshape_body_for_sdk(body, false);
         let request: seren::AgentSpec =
             serde_json::from_value(serde_json::Value::Object(reshaped)).unwrap();
 
+        assert_eq!(request.workload.external_databases.len(), 1);
+        assert_eq!(
+            request.workload.external_databases[0].database,
+            "chief_lending_officer_borrower_sourcing"
+        );
         match request.workload.execution {
             seren::WorkloadExecution::Llm { bundle, .. } => {
                 assert_eq!(bundle.instructions.len(), 1);

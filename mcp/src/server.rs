@@ -1920,6 +1920,9 @@ pub struct DeployCloudAgentParams {
     /// Optional deployment requirements validated at deploy time
     #[serde(default)]
     pub requirements: Option<serde_json::Value>,
+    /// Existing SerenDB databases to attach to this deployment. Managed skill databases are declared in the skill manifest instead.
+    #[serde(default)]
+    pub external_databases: Vec<seren::ManagedExternalDatabaseAttachment>,
     /// Optional dashboard rendering config
     #[serde(default)]
     pub dashboard_config: Option<serde_json::Value>,
@@ -2036,7 +2039,7 @@ fn build_deploy_cloud_agent_request(
                 requirements_txt: params.requirements_txt,
                 runtime_kind,
             },
-            external_databases: Vec::new(),
+            external_databases: params.external_databases,
             limits,
             network_policy: None,
             publisher_only: None,
@@ -2179,6 +2182,9 @@ pub struct UpdateSerenAgentDeploymentParams {
     /// Updated optional deployment requirements validated at deploy time
     #[serde(default)]
     pub requirements: Option<serde_json::Value>,
+    /// Replacement list of existing SerenDB database attachments. Omit to preserve the current list; use an empty list to clear it.
+    #[serde(default)]
+    pub external_databases: Option<Vec<seren::ManagedExternalDatabaseAttachment>>,
     /// Updated optional dashboard rendering config
     #[serde(default)]
     pub dashboard_config: Option<serde_json::Value>,
@@ -2366,6 +2372,18 @@ fn update_requires_workload_replacement(params: &UpdateSerenAgentDeploymentParam
         || params.fallback_models.is_some()
         || params.max_timeout_seconds.is_some()
         || params.requirements.is_some()
+        || params.external_databases.is_some()
+}
+
+/// Resolve the external-database attachments for a workload replacement.
+///
+/// Omitting the field (`None`) preserves the deployment's current attachments;
+/// an explicit list replaces them, and an explicit empty list clears them.
+fn resolve_updated_external_databases(
+    requested: Option<Vec<seren::ManagedExternalDatabaseAttachment>>,
+    current: Vec<seren::ManagedExternalDatabaseAttachment>,
+) -> Vec<seren::ManagedExternalDatabaseAttachment> {
+    requested.unwrap_or(current)
 }
 
 async fn build_replacement_workload(
@@ -2406,7 +2424,10 @@ async fn build_replacement_workload(
             model_id: Some(params.model_id.clone().unwrap_or(detail.model_id)),
             tool_definitions: None,
         },
-        external_databases: detail.external_databases,
+        external_databases: resolve_updated_external_databases(
+            params.external_databases.clone(),
+            detail.external_databases,
+        ),
         limits: Some(seren::WorkloadLimits {
             context_budget_tokens: detail.context_budget_tokens,
             max_iterations: detail.max_iterations,
@@ -2642,6 +2663,9 @@ pub struct DeploySerenAgentParams {
     /// Optional deployment requirements validated at deploy time
     #[serde(default)]
     pub requirements: Option<serde_json::Value>,
+    /// Existing SerenDB databases to attach to this deployment. Managed skill databases are declared in the skill manifest instead.
+    #[serde(default)]
+    pub external_databases: Vec<seren::ManagedExternalDatabaseAttachment>,
     /// Optional dashboard rendering config
     #[serde(default)]
     pub dashboard_config: Option<serde_json::Value>,
@@ -2768,7 +2792,7 @@ fn build_deploy_seren_agent_request(
                 model_id: params.model_id,
                 tool_definitions: None,
             },
-            external_databases: Vec::new(),
+            external_databases: params.external_databases,
             limits: Some(seren::WorkloadLimits {
                 context_budget_tokens: None,
                 max_iterations: None,
@@ -15160,7 +15184,13 @@ mod tests {
             "prompt": "Call only read-only publisher operations and summarize the result.",
             "model_id": "openai/gpt-4o-mini",
             "template": "workflow_agent",
-            "approval_policy": "read_only"
+            "approval_policy": "read_only",
+            "external_databases": [{
+                "project_id": "24dc59b5-52f8-4a95-bff3-d0b8bab84423",
+                "branch_id": "4be7f967-fd9c-4587-bb7d-b45ee4eb2c8f",
+                "database": "chief_lending_officer_borrower_sourcing",
+                "access": "read_only"
+            }]
         }))
         .expect("MCP deploy parameters should decode");
 
@@ -15187,6 +15217,12 @@ mod tests {
         assert_eq!(
             payload.get("approval_policy"),
             Some(&serde_json::json!("read_only"))
+        );
+        assert_eq!(
+            payload.pointer("/workload/external_databases/0/database"),
+            Some(&serde_json::json!(
+                "chief_lending_officer_borrower_sourcing"
+            ))
         );
         assert!(payload.pointer("/workload/side_effect_policy").is_none());
     }
@@ -15222,6 +15258,12 @@ mod tests {
             "visibility": "opaque",
             "deployment_bundle_content_base64": "registered-before-request-build",
             "requirements_txt": "httpx>=0.27\npytest>=8\n",
+            "external_databases": [{
+                "project_id": "3dbd443a-86f6-4120-9b56-b8f61a021838",
+                "branch_id": "5c1bcdc5-875d-4528-90c0-65d86780e4c1",
+                "database": "bat_sales_coach",
+                "access": "read_write"
+            }],
             "config": {
                 "live_mode": false,
                 "offline_fixture": false,
@@ -15266,6 +15308,10 @@ mod tests {
         assert_eq!(
             payload.pointer("/workload/config/auth.api_key_env"),
             Some(&serde_json::json!("SEREN_API_KEY"))
+        );
+        assert_eq!(
+            payload.pointer("/workload/external_databases/0/access"),
+            Some(&serde_json::json!("read_write"))
         );
         assert!(payload.pointer("/workload/secrets").is_none());
     }
@@ -17892,6 +17938,7 @@ mod tests {
             fallback_models: None,
             max_timeout_seconds: None,
             requirements: None,
+            external_databases: None,
             dashboard_config: None,
             capability_policy: None,
             clear_capability_policy: false,
@@ -17938,11 +17985,61 @@ mod tests {
             fallback_models: None,
             max_timeout_seconds: None,
             requirements: None,
+            external_databases: None,
             dashboard_config: None,
             capability_policy: None,
             clear_capability_policy: false,
             visibility: None,
         }
+    }
+
+    #[test]
+    fn update_agent_external_databases_require_workload_replacement() {
+        let mut params = base_update_agent_params();
+        assert!(!update_requires_workload_replacement(&params));
+
+        params.external_databases = Some(Vec::new());
+        assert!(update_requires_workload_replacement(&params));
+    }
+
+    #[test]
+    fn resolve_updated_external_databases_preserves_clears_and_replaces() {
+        let current: Vec<seren::ManagedExternalDatabaseAttachment> =
+            serde_json::from_value(serde_json::json!([{
+                "project_id": "24dc59b5-52f8-4a95-bff3-d0b8bab84423",
+                "branch_id": "4be7f967-fd9c-4587-bb7d-b45ee4eb2c8f",
+                "database": "chief_lending_officer_borrower_sourcing",
+                "access": "read_only"
+            }]))
+            .unwrap();
+        let replacement: Vec<seren::ManagedExternalDatabaseAttachment> =
+            serde_json::from_value(serde_json::json!([{
+                "project_id": "3dbd443a-86f6-4120-9b56-b8f61a021838",
+                "branch_id": "5c1bcdc5-875d-4528-90c0-65d86780e4c1",
+                "database": "bat_sales_coach",
+                "access": "read_write"
+            }]))
+            .unwrap();
+
+        let as_json = |value: &[seren::ManagedExternalDatabaseAttachment]| {
+            serde_json::to_value(value).unwrap()
+        };
+
+        // Omitting the field preserves the current attachments.
+        assert_eq!(
+            as_json(&resolve_updated_external_databases(None, current.clone())),
+            as_json(&current),
+        );
+        // An explicit empty list clears the attachments.
+        assert!(resolve_updated_external_databases(Some(Vec::new()), current.clone()).is_empty());
+        // An explicit list replaces the attachments.
+        assert_eq!(
+            as_json(&resolve_updated_external_databases(
+                Some(replacement.clone()),
+                current.clone(),
+            )),
+            as_json(&replacement),
+        );
     }
 
     #[tokio::test]

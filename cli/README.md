@@ -392,6 +392,25 @@ Advanced managed-agent deploys can also use `--agent-config <path>` to supply ra
 - `timeout_override_seconds`
 - `max_output_bytes`
 
+To attach an existing SerenDB database, add `external_databases` to the skill's `orchestration.json` for `agent deploy`, or to the JSON supplied through `--agent-config` for managed-agent deploys and updates. Omit `access` for read-only access, or request `read_write` when the deployment's approval policy permits mutations.
+
+```json
+{
+  "external_databases": [
+    {
+      "project_id": "<project-id>",
+      "branch_id": "<branch-id>",
+      "database": "existing_database",
+      "access": "read_only"
+    }
+  ]
+}
+```
+
+Managed skill storage is separate: declare it in the skill manifest under `storage.databases` instead of attaching a physical project, branch, and database.
+
+Changing database attachments on an existing code-bundle deployment requires redeploying it. Prompt-based managed employees can replace or clear attachments through the managed-agent update command.
+
 ### Cloud Activity
 
 ```bash
