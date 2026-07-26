@@ -3614,28 +3614,38 @@ pub(crate) fn json_content<T: Serialize>(data: &T) -> Result<Content, McpError> 
     Ok(Content::text(text))
 }
 
-fn settled_charge_meta(headers: &reqwest::header::HeaderMap) -> Option<Meta> {
-    let micros = headers
-        .get("x-seren-charged-cost-micros")?
-        .to_str()
-        .ok()?
-        .parse::<u64>()
-        .ok()?;
-    let asset = headers
-        .get("x-seren-charged-cost-asset")?
-        .to_str()
-        .ok()?
-        .trim();
-    if asset.is_empty() {
-        return None;
+fn settlement_meta(headers: &reqwest::header::HeaderMap) -> Option<Meta> {
+    let mut meta = serde_json::Map::new();
+
+    if let (Some(micros), Some(asset)) = (
+        headers
+            .get("x-seren-charged-cost-micros")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok()),
+        headers
+            .get("x-seren-charged-cost-asset")
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+    ) {
+        meta.insert(
+            "seren/settledCharge".to_string(),
+            serde_json::json!({ "micros": micros, "asset": asset }),
+        );
     }
 
-    let mut meta = serde_json::Map::new();
-    meta.insert(
-        "seren/settledCharge".to_string(),
-        serde_json::json!({ "micros": micros, "asset": asset }),
-    );
-    Some(Meta(meta))
+    if let Some(receipt_id) = headers
+        .get("x-seren-settlement-receipt")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| Uuid::parse_str(value.trim()).ok())
+    {
+        meta.insert(
+            "seren/settlementReceipt".to_string(),
+            serde_json::json!({ "receiptId": receipt_id }),
+        );
+    }
+
+    (!meta.is_empty()).then_some(Meta(meta))
 }
 
 fn call_result_with_response_meta(
@@ -3643,7 +3653,7 @@ fn call_result_with_response_meta(
     headers: &reqwest::header::HeaderMap,
 ) -> CallToolResult {
     let mut result = CallToolResult::success(content);
-    result.meta = settled_charge_meta(headers);
+    result.meta = settlement_meta(headers);
     result
 }
 
@@ -15239,6 +15249,7 @@ mod tests {
 
     #[test]
     fn settled_charge_headers_become_protocol_metadata() {
+        let receipt_id = Uuid::new_v4();
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             "x-seren-charged-cost-micros",
@@ -15248,8 +15259,12 @@ mod tests {
             "x-seren-charged-cost-asset",
             reqwest::header::HeaderValue::from_static("USDC"),
         );
+        headers.insert(
+            "x-seren-settlement-receipt",
+            reqwest::header::HeaderValue::from_str(&receipt_id.to_string()).unwrap(),
+        );
 
-        let meta = settled_charge_meta(&headers).unwrap();
+        let meta = settlement_meta(&headers).unwrap();
         assert_eq!(
             meta.0.get("seren/settledCharge"),
             Some(&serde_json::json!({
@@ -15257,6 +15272,27 @@ mod tests {
                 "asset": "USDC"
             }))
         );
+        assert_eq!(
+            meta.0.get("seren/settlementReceipt"),
+            Some(&serde_json::json!({ "receiptId": receipt_id }))
+        );
+    }
+
+    #[test]
+    fn pending_settlement_receipt_does_not_require_charge_headers() {
+        let receipt_id = Uuid::new_v4();
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            "x-seren-settlement-receipt",
+            reqwest::header::HeaderValue::from_str(&receipt_id.to_string()).unwrap(),
+        );
+
+        let meta = settlement_meta(&headers).unwrap();
+        assert_eq!(
+            meta.0.get("seren/settlementReceipt"),
+            Some(&serde_json::json!({ "receiptId": receipt_id }))
+        );
+        assert!(!meta.0.contains_key("seren/settledCharge"));
     }
 
     #[test]

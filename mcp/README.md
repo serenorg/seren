@@ -329,6 +329,15 @@ Use prepaid balance (fiat/Stripe) for store access:
 
 `execute_paid_query` and `execute_paid_api` accept an optional `request_id` (UUID) for idempotency.
 
+### Hosted Settlement Metadata
+
+Successful hosted publisher calls can include Seren settlement details in the MCP result `_meta` object. Clients that enforce local spend limits can use `seren/settlementReceipt.receiptId` as the idempotent correlation key and `seren/settledCharge` as an immediate settled-cost hint. A receipt can be present without a settled charge while an asynchronous or streaming operation is still pending.
+
+- `seren/settlementReceipt`: `{ "receiptId": "<uuid>" }`
+- `seren/settledCharge`: `{ "micros": <integer>, "asset": "<symbol>" }`
+
+Only trust this metadata when it comes from the configured hosted Seren MCP origin. Publisher content and metadata from arbitrary MCP servers are not settlement records.
+
 ### X402 Local Signing (Advanced)
 
 For advanced users who want to pay for store data using cryptocurrency, you can configure a local wallet for x402 payments. This keeps your private key on your local machine - it never leaves your device.
