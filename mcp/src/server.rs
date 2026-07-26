@@ -23,7 +23,7 @@ use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::{router::tool::ToolRouter, tool::ToolCallContext, wrapper::Parameters},
     model::{
-        CallToolRequestParams, CallToolResult, Content, Extensions, ListToolsResult,
+        CallToolRequestParams, CallToolResult, Content, Extensions, ListToolsResult, Meta,
         PaginatedRequestParams, ServerCapabilities, ServerInfo,
     },
     service::{RequestContext, RoleServer},
@@ -3612,6 +3612,39 @@ pub(crate) fn json_content<T: Serialize>(data: &T) -> Result<Content, McpError> 
     let text = serde_json::to_string_pretty(data)
         .map_err(|e| McpError::internal_error(e.to_string(), None))?;
     Ok(Content::text(text))
+}
+
+fn settled_charge_meta(headers: &reqwest::header::HeaderMap) -> Option<Meta> {
+    let micros = headers
+        .get("x-seren-charged-cost-micros")?
+        .to_str()
+        .ok()?
+        .parse::<u64>()
+        .ok()?;
+    let asset = headers
+        .get("x-seren-charged-cost-asset")?
+        .to_str()
+        .ok()?
+        .trim();
+    if asset.is_empty() {
+        return None;
+    }
+
+    let mut meta = serde_json::Map::new();
+    meta.insert(
+        "seren/settledCharge".to_string(),
+        serde_json::json!({ "micros": micros, "asset": asset }),
+    );
+    Some(Meta(meta))
+}
+
+fn call_result_with_response_meta(
+    content: Vec<Content>,
+    headers: &reqwest::header::HeaderMap,
+) -> CallToolResult {
+    let mut result = CallToolResult::success(content);
+    result.meta = settled_charge_meta(headers);
+    result
 }
 
 fn text_and_json_content<T: Serialize>(text: String, data: &T) -> Result<Vec<Content>, McpError> {
@@ -10220,11 +10253,15 @@ Examples:
 
                 match query_response {
                     Ok(resp) if resp.status().is_success() => {
+                        let response_headers = resp.headers().clone();
                         let text = resp
                             .text()
                             .await
                             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-                        return Ok(CallToolResult::success(vec![Content::text(text)]));
+                        return Ok(call_result_with_response_meta(
+                            vec![Content::text(text)],
+                            &response_headers,
+                        ));
                     }
                     Ok(resp) => Err(seren::Error::UnexpectedResponse(resp)),
                     Err(e) => Err(e),
@@ -10241,9 +10278,13 @@ Examples:
                             .await
                         {
                             Ok(response) => {
+                                let response_headers = response.headers().clone();
                                 let result = serde_json::to_value(response.into_inner())
                                     .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-                                return Ok(CallToolResult::success(vec![json_content(&result)?]));
+                                return Ok(call_result_with_response_meta(
+                                    vec![json_content(&result)?],
+                                    &response_headers,
+                                ));
                             }
                             Err(e) => Err(e),
                         }
@@ -10402,6 +10443,7 @@ Examples:
 
             let api_result: Result<(), seren::Error<()>> = match api_response {
                 Ok(resp) if resp.status().is_success() => {
+                    let response_headers = resp.headers().clone();
                     if return_text {
                         // Collect streaming response as text
                         use futures::StreamExt;
@@ -10420,13 +10462,19 @@ Examples:
                             }
                         }
                         let text = String::from_utf8_lossy(&collected).to_string();
-                        return Ok(CallToolResult::success(vec![Content::text(text)]));
+                        return Ok(call_result_with_response_meta(
+                            vec![Content::text(text)],
+                            &response_headers,
+                        ));
                     } else {
                         let result: serde_json::Value = resp
                             .json()
                             .await
                             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-                        return Ok(CallToolResult::success(vec![json_content(&result)?]));
+                        return Ok(call_result_with_response_meta(
+                            vec![json_content(&result)?],
+                            &response_headers,
+                        ));
                     }
                 }
                 Ok(resp) => Err(seren::Error::UnexpectedResponse(resp)),
@@ -10573,18 +10621,25 @@ Examples:
 
             let tool_result: Result<(), seren::Error<()>> = match tool_response {
                 Ok(resp) if resp.status().is_success() => {
+                    let response_headers = resp.headers().clone();
                     if return_text {
                         let text = resp
                             .text()
                             .await
                             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-                        return Ok(CallToolResult::success(vec![Content::text(text)]));
+                        return Ok(call_result_with_response_meta(
+                            vec![Content::text(text)],
+                            &response_headers,
+                        ));
                     } else {
                         let result: serde_json::Value = resp
                             .json()
                             .await
                             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-                        return Ok(CallToolResult::success(vec![json_content(&result)?]));
+                        return Ok(call_result_with_response_meta(
+                            vec![json_content(&result)?],
+                            &response_headers,
+                        ));
                     }
                 }
                 Ok(resp) => Err(seren::Error::UnexpectedResponse(resp)),
@@ -10751,18 +10806,25 @@ Examples:
 
             let resource_result: Result<(), seren::Error<()>> = match resource_response {
                 Ok(resp) if resp.status().is_success() => {
+                    let response_headers = resp.headers().clone();
                     if return_text {
                         let text = resp
                             .text()
                             .await
                             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-                        return Ok(CallToolResult::success(vec![Content::text(text)]));
+                        return Ok(call_result_with_response_meta(
+                            vec![Content::text(text)],
+                            &response_headers,
+                        ));
                     } else {
                         let result: serde_json::Value = resp
                             .json()
                             .await
                             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-                        return Ok(CallToolResult::success(vec![json_content(&result)?]));
+                        return Ok(call_result_with_response_meta(
+                            vec![json_content(&result)?],
+                            &response_headers,
+                        ));
                     }
                 }
                 Ok(resp) => Err(seren::Error::UnexpectedResponse(resp)),
@@ -15173,6 +15235,28 @@ mod tests {
             passwords_agent: None,
             passwords_hosted_store: None,
         }
+    }
+
+    #[test]
+    fn settled_charge_headers_become_protocol_metadata() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            "x-seren-charged-cost-micros",
+            reqwest::header::HeaderValue::from_static("1250000"),
+        );
+        headers.insert(
+            "x-seren-charged-cost-asset",
+            reqwest::header::HeaderValue::from_static("USDC"),
+        );
+
+        let meta = settled_charge_meta(&headers).unwrap();
+        assert_eq!(
+            meta.0.get("seren/settledCharge"),
+            Some(&serde_json::json!({
+                "micros": 1_250_000,
+                "asset": "USDC"
+            }))
+        );
     }
 
     #[test]
