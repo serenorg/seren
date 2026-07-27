@@ -2,6 +2,72 @@
 
 Changes to Seren are documented in this file.
 
+## [0.9.0] - 2026-07-27
+
+Self-contained Rust SDK packaging, broader Seren Storage and Seren Memory publisher workflows, and expanded managed employee operations.
+
+### Added
+
+- The Rust SDK package is named `seren-sdk` with the library name `seren`. It bundles synchronized OpenAPI inputs so it builds outside the workspace, supports environment-based client configuration, and exposes static Seren product examples.
+- Runnable SDK examples: `quickstart`, `product_catalog`, `memory`, and `employee_lifecycle`, with `employee_lifecycle` previewing a bundle offline before testing and deploying it. Self-contained employee bundles cover the Chief Financial Officer, Launch Operations Coordinator, Research Analyst, and Site Reliability Engineer.
+- Seren Storage publisher support across the SDK, CLI, and MCP for bucket and object operations (upload, download, list, delete), agent bucket grants, and deployment workspace snapshots. The generated SDK client covers the full Seren Storage API, including multipart transfers, lifecycle and restore operations, and usage reporting.
+- Seren Memory publisher support across the SDK, CLI, and MCP for health, session context assembly, recall, durable storage, listing and retrieval, conversation-turn extraction, soft and permanent deletion, retained source export, dated relationship timelines, memory connections, and governed knowledge discovery. The generated SDK client covers the rest of the Seren Memory API, including document and error ingestion, memory revision and status operations, and knowledge-domain, grant, model, operation, and record administration.
+- Seren Memory source erasure across the generated SDK, CLI, and MCP server. Callers can permanently delete retained sources and their derived memories by stable external source ID, source URI, or both, with optional project narrowing.
+- Managed employee tools for cloud operations, deployment health, resources, activity, declared tool references, capability and realtime policies, and graph-memory defaults.
+- Durable employee conversations across the CLI and MCP: `seren agent cloud conversation list|messages` pages conversations and their messages for a deployment, with optional run records for run-backed messages.
+- Agent-owned future run schedules across the CLI and MCP: `seren agent cloud schedule list|create|cancel` creates one-shot (timestamp or delay) and cron schedules keyed by a caller-supplied idempotency key, optionally continuing a durable conversation. Scheduling currently requires an `always_on` deployment on the `aws_container` compute backend.
+- `seren agent cloud run state` and the matching MCP tool return the current live state for a run, with optional deployment scoping.
+- Employee tool catalog inspection across the CLI and MCP: list the tools visible to a managed deployment, describe a single tool, and list resolved tool groups.
+- Generated `skill.md` guidance is retrievable for a publisher and for the core Seren API, through both the CLI and MCP.
+- Managed deployments can attach existing SerenDB databases through skill manifests and managed-agent configuration, with read-only access by default and policy-gated read-write access.
+- SerenDB connection strings can target a specific database through a new optional database-name override.
+- `seren psql` opens an interactive psql session against a branch, resolving the connection string from CLI context with endpoint, database, role, pooling, and SSL-mode overrides.
+- Private-model organization policies expose typed data-handling attestations across the generated SDK, CLI, and MCP server, including training-use and retention declarations.
+- Publisher passthrough auth supports header rewrites: a JSON map of client header names to upstream header names (for example `X-Passthrough-Authorization` to `Authorization`), configurable on publisher create and update in the CLI and MCP.
+- User OAuth account identities are visible and selectable through the MCP server. Assistants can list providers and connections, start a human consent flow, select a provider default, pass an explicit connection to publisher calls and MCP discovery, and pin `oauth_connection_id` on managed-agent publisher tool references. The CLI now displays default connections and provides `seren oauth default <connection-id>`.
+- Hosted publisher calls forward settlement receipt and settled-charge metadata through MCP results so clients can correlate charges and apply local spend controls.
+- Approval-gated Research Analyst publishing and Site Reliability Engineer coordination actions in the bundled employee examples.
+
+### Changed
+
+- Seren Passwords supports atomic vault membership access-level changes across the SDK, CLI, and MCP. Local mode applies the update directly; hosted mode returns a targeted browser handoff for user and agent identities, and rejects handoffs whose target has no active membership or whose access level is unchanged.
+- **Breaking:** The `api` crate is renamed to `seren-sdk`; the Rust library name remains `seren`, so `use seren::...` code is unchanged. Update Git and path dependencies to reference the new package name. For this release, use `seren = { package = "seren-sdk", git = "https://github.com/serenorg/seren.git", tag = "v0.9.0" }`.
+- **Breaking:** Generated SerenDB `seren_db_get_connection_string` callers must provide the new optional database-name argument, using `None` to retain the previous behavior.
+- The bundled Seren Memory OpenAPI document uses the gateway-relative publisher path.
+- Managed deployment clients use the current nested workload contracts and expose richer operation summaries, projection data, health, resources, and activity.
+- Hosted Passwords grants bind to API-key credentials, reuse compatible pending grants, keep sessions warm through consent, and support reauthentication and reconsent without discarding retryable state.
+- MCP managed-agent, publisher, and text-response API calls preserve bounded upstream status, response excerpts, headers, and request IDs instead of returning opaque failures.
+- Tagged releases validate workspace and changelog metadata, isolate concurrent tag runs, use locked Cargo commands, and support safe reruns.
+
+### Removed
+
+- **Breaking:** Organization object storage moved from the Seren Core API to the Seren Storage publisher. The legacy core routes, generated SDK methods, `seren object-storage` command, and matching MCP tools are removed; use the `seren_storage_` SDK and MCP methods and `seren storage` CLI commands.
+- **Breaking:** The seren-cloud run-stream close endpoints are gone from the API, so the generated `seren_cloud_run_stream_close` and `seren_cloud_deployment_run_stream_close` SDK methods, the `seren agent cloud run stream-close` command, and the corresponding MCP tools are removed. Close a run stream by ending the SSE connection, and reattach with `seren agent cloud run stream --last-event-id`.
+
+### Fixed
+
+- Seren Passwords uses canonical membership grants, validates local master-password length, routes local helper operations correctly, and restores hosted gateway transport authentication.
+- Generated Passwords clients include the required invitation email contract and the current redemption and vault-rotation fields used by the CLI and MCP server.
+- MCP publisher access handles streamable-HTTP handshakes, normalized tool schemas, upstream reauthentication, and transient session restore failures reliably.
+- Managed cloud deployment requests use the current nested API shape and surface upload, deployment, and validation failures with actionable diagnostics.
+- OAuth disconnect resolves connections by connection ID and treats already-removed upstream connections as a successful local cleanup.
+- MCP publisher conflicts caused by multiple OAuth accounts now return connection-selection guidance and bounded identity metadata instead of being misreported as duplicate request IDs.
+
+### Security
+
+- Hosted Seren Passwords gateway URLs require HTTPS except for loopback development endpoints.
+- Passwords membership and invitation flows verify canonical recipient identities while keeping plaintext invitee email transient.
+- Upstream API error details are length-bounded before being returned through MCP, while request IDs remain available for support correlation.
+- Managed-agent OAuth bindings are validated against the deployment user's active connection and the publisher's provider, and both native and Cloudflare runtimes reject per-call attempts to override the bound identity.
+- API-key management and agent provisioning require a signed-in user session; API keys cannot list, create, revoke, or mint other API keys.
+- MCP publisher calls reject the Seren `Authorization` header as an upstream credential and require the publisher's configured passthrough source header.
+
+### Documentation
+
+- Root, CLI, and MCP READMEs refreshed to describe Seren Employees, Seren Storage, and Seren Memory workflows. The root and SDK READMEs document using the `seren-sdk` package from the tagged Git release.
+- SDK README and examples document environment-based configuration and the runnable quickstart, catalog, memory, and employee-lifecycle programs.
+- Bundled OpenAPI specs synced and expanded to cover Seren Storage, Seren Memory, notes, skills, and the latest Seren Agent and seren-cloud schemas used by generated SDK clients.
+
 ## [0.8.0] - 2026-06-05
 
 Seren Passwords CLI, MCP, and SDK integration release.

@@ -101,7 +101,7 @@ See [cli/README.md](./cli/README.md) for the command reference and common workfl
 
 ```toml
 [dependencies]
-seren = { package = "seren-sdk", git = "https://github.com/serenorg/seren.git", tag = "v0.8.0" }
+seren = { package = "seren-sdk", git = "https://github.com/serenorg/seren.git", tag = "v0.9.0" }
 ```
 
 ```rust
@@ -125,7 +125,7 @@ The `seren` crate is generated from the [Seren OpenAPI spec](./openapi/), and ty
 
 | Package | Description | How to use |
 |---------|-------------|------------|
-| [sdk](./sdk/) | Rust SDK generated from the Seren OpenAPI spec | Add from crates.io or as a Git or path dependency |
+| [sdk](./sdk/) | Rust SDK generated from the Seren OpenAPI spec | Add as a Git or path dependency |
 | [cli](./cli/) | Command-line interface, binary `seren` | Install from source, Git, or GitHub Releases |
 | [mcp](./mcp/) | MCP server for AI assistants | Use the hosted endpoint or run `seren mcp start` |
 
@@ -152,7 +152,7 @@ Pre-built `seren` binaries are published on GitHub Releases for each tagged vers
 
 Each release ships `seren` for macOS, Linux, and Windows. The MCP server is included in the same binary.
 
-Release tags also publish the `seren-sdk` package to crates.io with the Rust library name `seren`. The release workflow requires `CARGO_REGISTRY_TOKEN`, and the tag version must match `[workspace.package].version`.
+The Rust SDK is not yet published to crates.io. Use the tagged Git dependency shown above or a path dependency.
 
 ## Development
 

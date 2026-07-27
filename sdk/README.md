@@ -6,7 +6,7 @@ Rust SDK for the [Seren](https://serendb.com) API. The client is generated from 
 
 ```toml
 [dependencies]
-seren = { package = "seren-sdk", version = "0.8" }
+seren = { package = "seren-sdk", git = "https://github.com/serenorg/seren.git", tag = "v0.9.0" }
 ```
 
 ## Quick Start
@@ -102,7 +102,7 @@ The product catalog covers Seren Employees powered by Seren Agent, Seren Cloud, 
 
 The client is auto-generated from the OpenAPI specs at build time. Methods are available directly on the `Client` struct, including generated calls for Seren DB projects, Seren Agent deployments, and Seren Storage buckets. Seren Storage publisher methods use the `seren_storage_` prefix.
 
-The crate bundles a synchronized copy of its OpenAPI inputs so crates.io builds do not depend on the workspace layout. After changing a root spec, run `./sdk/scripts/sync-openapi.sh`; CI and the release workflow reject stale packaged inputs.
+The crate bundles a synchronized copy of its OpenAPI inputs so builds do not depend on the root OpenAPI directory. After changing a root spec, run `./sdk/scripts/sync-openapi.sh`; CI and the release workflow reject stale packaged inputs.
 
 Return values are wrapped in `ResponseValue<T>`. Call `.into_inner()` to get the response body.
 
