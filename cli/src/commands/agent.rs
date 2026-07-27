@@ -2131,6 +2131,7 @@ const MANAGED_AGENT_CONFIG_FIELDS: &[&str] = &[
     "model_policy",
     "allowed_remote_agent_origins",
     "requirements",
+    "runtime_policy",
     "visibility",
 ];
 
@@ -9179,6 +9180,28 @@ fn parse_json_file(path: &str) -> Result<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merge_managed_agent_config_accepts_runtime_policy() {
+        let mut body = serde_json::Map::new();
+        let runtime_policy = serde_json::json!({
+            "network": {
+                "default": "deny",
+                "egress_rules": [{
+                    "host": "example.com",
+                    "port": 443,
+                    "protocol": "tcp",
+                    "enforcement": "enforce"
+                }]
+            }
+        });
+        let agent_config =
+            serde_json::Map::from_iter([("runtime_policy".to_string(), runtime_policy.clone())]);
+
+        merge_managed_agent_config(&mut body, agent_config).unwrap();
+
+        assert_eq!(body.get("runtime_policy"), Some(&runtime_policy));
+    }
 
     #[test]
     fn build_deployment_name_map_prefers_name_then_skill_slug() {

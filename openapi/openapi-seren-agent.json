@@ -2323,9 +2323,6 @@
       "AgentRuntimePolicy": {
         "type": "object",
         "description": "Typed runtime policy that a managed agent declares as part of its `AgentSpec`.\n\nThe control plane validates this object on create/update; the runtime\ncontroller renders it into Kubernetes objects (security context, resource\nlimits, NetworkPolicy). Today the controller renders a subset; fields it\ndoes not yet honor remain part of the declared contract so revisions and\nrollbacks stay consistent.",
-        "required": [
-          "version"
-        ],
         "properties": {
           "filesystem": {
             "oneOf": [
@@ -2377,12 +2374,6 @@
                 "description": "Optional sandbox runtime class (for example `gvisor` or `kata`).\nWhen omitted, the platform default applies."
               }
             ]
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Policy schema version. Must be `1` until a breaking field set is added.",
-            "minimum": 0
           }
         },
         "additionalProperties": false

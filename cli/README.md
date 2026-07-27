@@ -399,7 +399,7 @@ seren -o json agent cloud runs list --limit 20
 seren -o json agent cloud approvals list --limit 20
 ```
 
-Advanced managed-agent deploys can also use `--agent-config <path>` to supply raw `tool_definitions`. Each tool definition may include:
+Advanced managed-agent deploys can also use `--agent-config <path>` to supply fields such as `tool_definitions`, `capability_policy`, and `runtime_policy`. Browser-enabled employees use `capability_policy.browser` to select the managed browser profile and `runtime_policy.network` to declare the hostnames the browser may reach. Each tool definition may include:
 
 - `timeout_override_seconds`
 - `max_output_bytes`
