@@ -49,6 +49,13 @@ pub struct ProcessOptions {
     pub source_uri: Option<String>,
 }
 
+pub struct DeleteBySourceOptions {
+    pub source_external_id: Option<String>,
+    pub source_uri: Option<String>,
+    pub project_id: Option<Uuid>,
+    pub org_id: Option<Uuid>,
+}
+
 pub async fn health(detailed: bool, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
     let response = if detailed {
@@ -349,6 +356,37 @@ pub async fn delete(id: Uuid, ctx: &CommandContext) -> Result<()> {
         .seren_memory_delete_memory(&id)
         .await
         .map_err(|error| anyhow::anyhow!("Failed to delete Seren Memory entry: {error}"))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn delete_by_source(options: DeleteBySourceOptions, ctx: &CommandContext) -> Result<()> {
+    let has_external_id = options
+        .source_external_id
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty());
+    let has_source_uri = options
+        .source_uri
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty());
+    if !has_external_id && !has_source_uri {
+        anyhow::bail!("At least one of --source-external-id or --source-uri is required");
+    }
+
+    let response = ctx
+        .client()
+        .await?
+        .seren_memory_delete_memories_by_source(&seren::SerenMemoryDeleteMemoriesBySourceParams {
+            org_id: options.org_id,
+            project_id: options.project_id,
+            source_external_id: options.source_external_id,
+            source_uri: options.source_uri,
+        })
+        .await
+        .map_err(|error| {
+            anyhow::anyhow!("Failed to delete Seren Memory sources and derived memories: {error}")
+        })?
         .into_inner();
     output::print_json(&response)?;
     Ok(())

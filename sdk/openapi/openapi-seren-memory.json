@@ -14,8 +14,8 @@
     },
     "servers": [
         {
-            "url": "https://api.serendb.com/publishers/seren-memory",
-            "description": "Seren Memory production API"
+            "url": "/publishers/seren-memory",
+            "description": "Hosted at the Seren gateway publisher path"
         }
     ],
     "paths": {
@@ -1672,6 +1672,62 @@
                 ]
             }
         },
+        "/memories/by-source": {
+            "delete": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Permanently delete retained sources and derived memories",
+                "operationId": "delete_memories_by_source",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeleteMemoriesBySourceParams"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Source deletion result",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_DeleteBySourceOutcome"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
         "/memories/connections": {
             "post": {
                 "tags": [
@@ -2739,6 +2795,34 @@
                             "summaries_created": {
                                 "type": "integer",
                                 "minimum": 0
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_DeleteBySourceOutcome": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "description": "Audit result of erasing retained conversation sources by source identity.",
+                        "required": [
+                            "sources_deleted",
+                            "memories_deleted"
+                        ],
+                        "properties": {
+                            "memories_deleted": {
+                                "type": "integer",
+                                "format": "int64",
+                                "description": "Derived memory rows permanently removed across the matched sources."
+                            },
+                            "sources_deleted": {
+                                "type": "integer",
+                                "format": "int64",
+                                "description": "Retained transcript rows (`memory_conversation_sources`) permanently removed."
                             }
                         }
                     }
@@ -3880,6 +3964,26 @@
                     }
                 }
             },
+            "DeleteBySourceOutcome": {
+                "type": "object",
+                "description": "Audit result of erasing retained conversation sources by source identity.",
+                "required": [
+                    "sources_deleted",
+                    "memories_deleted"
+                ],
+                "properties": {
+                    "memories_deleted": {
+                        "type": "integer",
+                        "format": "int64",
+                        "description": "Derived memory rows permanently removed across the matched sources."
+                    },
+                    "sources_deleted": {
+                        "type": "integer",
+                        "format": "int64",
+                        "description": "Retained transcript rows (`memory_conversation_sources`) permanently removed."
+                    }
+                }
+            },
             "DeleteKnowledgeDomainGrantResponse": {
                 "type": "object",
                 "required": [
@@ -3899,6 +4003,41 @@
                 "properties": {
                     "deleted": {
                         "type": "boolean"
+                    }
+                }
+            },
+            "DeleteMemoriesBySourceParams": {
+                "type": "object",
+                "properties": {
+                    "org_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid",
+                        "description": "Accepted for parity; the authenticated organization is always authoritative."
+                    },
+                    "project_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid",
+                        "description": "Optional narrowing to a single project."
+                    },
+                    "source_external_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "Stable per-source identity (e.g. a desktop message URI). Matches one source."
+                    },
+                    "source_uri": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "Source URI. Matches every source sharing it (e.g. a whole conversation)."
                     }
                 }
             },

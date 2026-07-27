@@ -253,6 +253,18 @@ seren passwords audit verify
 
 Use `--password-stdin`, `--key-stdin`, and `--body-stdin` for secret material so values do not end up in shell history. Use `seren passwords export` and `seren passwords import` only for explicit plaintext backup or migration workflows.
 
+### Seren Memory
+
+Seren Memory stores private context and retained conversation sources. Source deletion is permanent and removes both matching retained sources and their derived memories. Provide at least one source identity, and use `--project-id` when the identity should be narrowed to one project.
+
+```bash
+seren memory recall "release approval process"
+seren memory process "User: retain this source." --retain-source --source-external-id conversation:release-review
+seren memory export --project-id <project-id>
+seren memory delete-by-source --source-external-id conversation:release-review
+seren memory delete-by-source --source-uri conversation://release-review --project-id <project-id>
+```
+
 ### Environment Files
 
 ```bash

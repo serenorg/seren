@@ -226,6 +226,10 @@ Built-in helper tools:
 
 Local MCP mode also exposes vault administration and migration tools, including vault create/archive/rotate, item create/update/delete/restore, encrypted attachments, approvals, memberships, invitations, shares, audit verification, import/export, and agent identity provisioning.
 
+### Seren Memory Tools
+
+Seren Memory tools let assistants recall and store private context, retain conversation sources, export stored context, inspect timelines, and manage memory relationships. `seren_memory_delete_memories_by_source` permanently removes retained sources and every memory derived from them. It requires `source_external_id`, `source_uri`, or both; `project_id` can narrow the deletion. The tool is marked destructive and is blocked by MCP read-only mode.
+
 ### Managed Agent Tools
 
 The MCP server also exposes first-class tools for managed `seren-agent` deployments. Use these when you want prompt-defined cloud agents without uploading a code bundle. Seren Employees is the product name for managed `seren-agent` deployments that run on Seren Cloud with a stable role, instructions, tools, approvals, and lifecycle.

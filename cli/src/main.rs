@@ -2893,6 +2893,23 @@ enum MemoryAction {
     Forget { id: Uuid },
     /// Permanently delete one private memory
     Delete { id: Uuid },
+    /// Permanently delete retained sources and their derived memories
+    ///
+    /// Requires --source-external-id, --source-uri, or both.
+    DeleteBySource {
+        /// Stable source identity that matches one retained source
+        #[arg(long, required_unless_present = "source_uri")]
+        source_external_id: Option<String>,
+        /// Source URI that may match multiple retained sources
+        #[arg(long, required_unless_present = "source_external_id")]
+        source_uri: Option<String>,
+        /// Narrow deletion to one project
+        #[arg(long)]
+        project_id: Option<Uuid>,
+        /// Organization ID; must match the authenticated organization
+        #[arg(long)]
+        org_id: Option<Uuid>,
+    },
     /// Read governed organizational knowledge
     Knowledge {
         #[command(subcommand)]
@@ -5223,6 +5240,23 @@ async fn main() -> anyhow::Result<()> {
             }
             MemoryAction::Forget { id } => commands::memory::forget(id, &ctx).await?,
             MemoryAction::Delete { id } => commands::memory::delete(id, &ctx).await?,
+            MemoryAction::DeleteBySource {
+                source_external_id,
+                source_uri,
+                project_id,
+                org_id,
+            } => {
+                commands::memory::delete_by_source(
+                    commands::memory::DeleteBySourceOptions {
+                        source_external_id,
+                        source_uri,
+                        project_id,
+                        org_id,
+                    },
+                    &ctx,
+                )
+                .await?
+            }
             MemoryAction::Knowledge { action } => match action {
                 MemoryKnowledgeAction::Domains => {
                     commands::memory::list_knowledge_domains(&ctx).await?
@@ -8897,6 +8931,42 @@ mod tests {
                 action: MemoryAction::Timeline { as_of: Some(_), .. }
             }
         ));
+
+        let delete_by_source = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "delete-by-source",
+            "--source-uri",
+            "conversation://release-review",
+            "--project-id",
+            "123e4567-e89b-12d3-a456-426614174000",
+        ]);
+        assert!(matches!(
+            delete_by_source.command,
+            Commands::Memory {
+                action: MemoryAction::DeleteBySource {
+                    source_uri: Some(_),
+                    project_id: Some(_),
+                    ..
+                }
+            }
+        ));
+
+        let missing_source = try_parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "delete-by-source",
+            "--project-id",
+            "123e4567-e89b-12d3-a456-426614174000",
+        ]);
+        let missing_source_error = match missing_source {
+            Ok(_) => panic!("source deletion without a source identity must fail"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            missing_source_error.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
 
         let knowledge = parse_cli_with_large_stack(vec![
             "seren",

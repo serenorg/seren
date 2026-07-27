@@ -8547,6 +8547,46 @@ impl SerenMcpServer {
     }
 
     #[tool(
+        description = "Permanently delete retained Seren Memory sources and every derived memory matching the source identity. At least one of source_external_id or source_uri is required.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn seren_memory_delete_memories_by_source(
+        &self,
+        Parameters(params): Parameters<seren::SerenMemoryDeleteMemoriesBySourceParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let has_external_id = params
+            .source_external_id
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty());
+        let has_source_uri = params
+            .source_uri
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty());
+        if !has_external_id && !has_source_uri {
+            return Err(McpError::invalid_params(
+                "At least one of source_external_id or source_uri is required",
+                None,
+            ));
+        }
+
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_memory_delete_memories_by_source(&params)
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
         description = "List governed organizational knowledge domains available through Seren Memory.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
@@ -15630,6 +15670,7 @@ mod tests {
             "seren_memory_get_memory",
             "seren_memory_forget_memory",
             "seren_memory_delete_memory",
+            "seren_memory_delete_memories_by_source",
             "seren_memory_list_knowledge_domains",
             "seren_memory_search_knowledge",
             "seren_memory_open_knowledge_entity",
@@ -15641,6 +15682,61 @@ mod tests {
         ] {
             assert!(tool_names.contains(expected), "missing MCP tool {expected}");
         }
+    }
+
+    #[tokio::test]
+    async fn seren_memory_source_delete_requires_source_identity() {
+        let server = server_with_http_client(reqwest::Client::new());
+        let error = server
+            .seren_memory_delete_memories_by_source(
+                Parameters(seren::SerenMemoryDeleteMemoriesBySourceParams::default()),
+                Extensions::default(),
+            )
+            .await
+            .expect_err("source deletion without an identity must fail");
+
+        assert!(
+            error
+                .message
+                .contains("source_external_id or source_uri is required")
+        );
+    }
+
+    #[tokio::test]
+    async fn seren_memory_source_delete_calls_publisher_endpoint() {
+        use wiremock::matchers::{body_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path("/publishers/seren-memory/memories/by-source"))
+            .and(body_json(serde_json::json!({
+                "source_uri": "conversation://release-review"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "memories_deleted": 3,
+                    "sources_deleted": 1
+                }
+            })))
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let result = server
+            .seren_memory_delete_memories_by_source(
+                Parameters(seren::SerenMemoryDeleteMemoriesBySourceParams {
+                    org_id: None,
+                    project_id: None,
+                    source_external_id: None,
+                    source_uri: Some("conversation://release-review".to_string()),
+                }),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect("source deletion should call the publisher endpoint");
+
+        assert!(!result.is_error.unwrap_or(false));
     }
 
     #[test]
