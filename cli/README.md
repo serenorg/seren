@@ -16,7 +16,7 @@ The `seren` binary is the operational interface for SerenDB and the surrounding 
 | Agent automation | Use stable command groups, `-o json`, and saved context so coding agents can inspect state, make changes, and verify results without scraping the dashboard |
 | SerenDB projects | Create projects, list branches, manage databases and roles, fetch direct or pooled connection strings, configure endpoints, and initialize `.env` files |
 | Branching and recovery | Create development branches, restore a branch from a timestamp, compare schemas, set branch expiration, protect production branches, and reset or delete branches |
-| Object storage | Create buckets, upload/download objects, attach metadata, and manage supporting files for Seren agents, employees, and applications |
+| Object storage | Browse Seren Storage buckets, upload/download objects, manage agent grants and workspace snapshots, and support files for Seren agents, employees, and applications |
 | Publishers and payments | Discover publishers, call paid SQL/API/MCP integrations, estimate cost, manage prepaid balance, and prepare x402 payment flows |
 
 ## CLI vs MCP
@@ -451,22 +451,23 @@ seren agent cloud run reject <run-id>
 ### Object Storage
 
 ```bash
-seren object-storage buckets list
-seren object-storage buckets create \
-  --slug employee-files --display-name "Employee files" \
-  --metadata '{"team":"ops"}'
-seren object-storage buckets delete --bucket employee-files
+seren storage health
+seren storage buckets list
 
-seren object-storage objects --bucket employee-files list
-seren object-storage objects --bucket employee-files list --prefix reports/ --limit 50
-seren object-storage objects --bucket employee-files upload \
+seren storage objects --bucket employee-files list
+seren storage objects --bucket employee-files list --prefix reports/ --limit 50
+seren storage objects --bucket employee-files upload \
   --key reports/q1.txt --path ./q1.txt --content-type text/plain
-seren object-storage objects --bucket employee-files download \
+seren storage objects --bucket employee-files download \
   --key reports/q1.txt --output ./q1-copy.txt
-seren object-storage objects --bucket employee-files delete --object-id <uuid>
+seren storage objects --bucket employee-files delete --object-id <uuid>
+
+seren storage grants --bucket employee-files list
+seren storage grants --bucket employee-files set \
+  --agent <agent-identity-id> --permission reader
 ```
 
-`seren storage` is a separate command that browses and manages objects through the Seren Storage publisher, scoped to the organization of the authenticated API key. `object-storage` remains the Seren Core organization-administration surface shown above (with explicit `--org-id` selection). `storage` is no longer an alias for `object-storage`.
+`seren storage` uses the Seren Storage publisher and is scoped to the organization of the authenticated API key. The legacy Seren Core `seren object-storage` surface has been removed.
 
 ### OAuth Connections (BYOC)
 

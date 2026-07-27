@@ -15,7 +15,7 @@ Seren is useful when an application or agent needs durable backend capabilities 
 | Developer automation | Use machine-readable JSON output, reusable context, generated Rust SDK types, and MCP tools for agent-driven workflows |
 | Branchable Postgres | Create SerenDB projects, branches, databases, roles, endpoints, connection strings, IP allow lists, VPC assignments, branch protection, logical replication, and audit logs |
 | Branching workflows | Create development branches, restore from a point in time, compare schema changes, set expirations, and reset or promote branch state |
-| Object storage | Create buckets, upload and download objects, attach metadata, and manage supporting files for Seren agents, employees, and applications |
+| Object storage | Browse Seren Storage buckets, upload and download objects, attach metadata, and manage supporting files for Seren agents, employees, and applications |
 | Publishers and payments | Discover publishers, call paid database/API/MCP integrations, estimate cost, manage prepaid balance, and use x402 local signing when configured |
 
 ## How Agents Connect

@@ -1,6 +1,6 @@
 # seren
 
-Rust SDK for the [Seren](https://serendb.com) API. The client is generated from the Seren OpenAPI specs via [progenitor](https://github.com/oxidecomputer/progenitor) and covers Seren Agent, Seren Passwords, Seren Memory, Seren DB, Seren Storage, the legacy core object-storage API, payments, and other platform APIs.
+Rust SDK for the [Seren](https://serendb.com) API. The client is generated from the Seren OpenAPI specs via [progenitor](https://github.com/oxidecomputer/progenitor) and covers Seren Agent, Seren Passwords, Seren Memory, Seren DB, Seren Storage, payments, and other platform APIs.
 
 ## Installation
 
@@ -96,11 +96,11 @@ for example in get_seren_product_examples() {
 }
 ```
 
-The product catalog covers Seren Employees powered by Seren Agent, Seren Cloud, Seren Passwords, Seren Skills, Seren Notes, Seren Memory, Seren Models, Seren Private Models, Seren DB, Seren Storage, the legacy Seren Object Storage routes, and Seren Publishers. Catalog metadata does not make network calls on its own.
+The product catalog covers Seren Employees powered by Seren Agent, Seren Cloud, Seren Passwords, Seren Skills, Seren Notes, Seren Memory, Seren Models, Seren Private Models, Seren DB, Seren Storage, and Seren Publishers. Catalog metadata does not make network calls on its own.
 
 ## API
 
-The client is auto-generated from the OpenAPI specs at build time. Methods are available directly on the `Client` struct, including generated calls for Seren DB projects, Seren Agent deployments, Seren Storage buckets, and the legacy core object-storage routes. Publisher storage methods use the `seren_storage_` prefix so both storage contracts remain unambiguous.
+The client is auto-generated from the OpenAPI specs at build time. Methods are available directly on the `Client` struct, including generated calls for Seren DB projects, Seren Agent deployments, and Seren Storage buckets. Seren Storage publisher methods use the `seren_storage_` prefix.
 
 The crate bundles a synchronized copy of its OpenAPI inputs so crates.io builds do not depend on the workspace layout. After changing a root spec, run `./sdk/scripts/sync-openapi.sh`; CI and the release workflow reject stale packaged inputs.
 

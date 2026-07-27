@@ -503,43 +503,6 @@ pub const SEREN_PRODUCT_EXAMPLES: &[SerenProductExample] = &[
         ],
     },
     SerenProductExample {
-        slug: "object_storage",
-        title: "Seren Object Storage",
-        description: "Bucket and object APIs for agent artifacts, generated files, and application uploads.",
-        highlights: &[
-            "List organization buckets.",
-            "Create metadata-rich uploads.",
-            "Issue short-lived download URLs by object key.",
-        ],
-        requests: &[
-            SerenDemoRequest {
-                method: DemoMethod::Get,
-                path: "/organizations/{organization_id}/object-storage/buckets",
-                label: "List buckets",
-            },
-            SerenDemoRequest {
-                method: DemoMethod::Post,
-                path: "/organizations/{organization_id}/object-storage/buckets/{bucket_slug}/objects/uploads",
-                label: "Create upload",
-            },
-            SerenDemoRequest {
-                method: DemoMethod::Get,
-                path: "/organizations/{organization_id}/object-storage/buckets/{bucket_slug}/objects",
-                label: "List objects",
-            },
-            SerenDemoRequest {
-                method: DemoMethod::Get,
-                path: "/organizations/{organization_id}/object-storage/buckets/{bucket_slug}/objects/by-key/download",
-                label: "Create download URL",
-            },
-            SerenDemoRequest {
-                method: DemoMethod::Post,
-                path: "/organizations/{organization_id}/object-storage/buckets/{bucket_slug}/objects/{object_id}/confirm-upload",
-                label: "Confirm upload",
-            },
-        ],
-    },
-    SerenProductExample {
         slug: "publishers_payments",
         title: "Seren Publishers",
         description: "Publisher discovery, cost estimates, wallet balance, and payment flows for paid database, API, agent, and MCP integrations.",
@@ -628,7 +591,6 @@ mod tests {
                 "private_models",
                 "database",
                 "storage",
-                "object_storage",
                 "publishers_payments"
             ]
         );
