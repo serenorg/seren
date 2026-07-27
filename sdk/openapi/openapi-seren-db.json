@@ -651,6 +651,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "database",
+            "in": "query",
+            "description": "Optional database name override",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
