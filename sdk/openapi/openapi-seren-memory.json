@@ -6032,6 +6032,13 @@
                         ],
                         "format": "uuid"
                     },
+                    "reviewed_only": {
+                        "type": [
+                            "boolean",
+                            "null"
+                        ],
+                        "description": "Restrict automatic context assembly to explicitly reviewed memories."
+                    },
                     "token_budget": {
                         "type": [
                             "integer",

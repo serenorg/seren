@@ -104,6 +104,7 @@ pub async fn bootstrap(
     token_budget: Option<u64>,
     include_git: Option<bool>,
     include_time: Option<bool>,
+    reviewed_only: bool,
     ctx: &CommandContext,
 ) -> Result<()> {
     let response = ctx
@@ -114,6 +115,7 @@ pub async fn bootstrap(
             include_time,
             org_id,
             project_id,
+            reviewed_only: Some(reviewed_only),
             token_budget,
         })
         .await

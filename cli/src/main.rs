@@ -2776,6 +2776,26 @@ enum StorageObjectAction {
     },
 }
 
+#[derive(Subcommand)]
+enum MemoryHookAction {
+    /// Return bounded private-memory context for session start (fails open)
+    SessionStart {
+        /// Agent platform invoking the hook
+        #[arg(long, default_value = "claude")]
+        platform: String,
+    },
+    /// Capture the completed turn from a finished agent response (fails open)
+    Stop {
+        /// Agent platform invoking the hook
+        #[arg(long, default_value = "claude")]
+        platform: String,
+    },
+    /// Deliver every queued turn that is due for retry
+    Flush,
+    /// Report queued, in-flight, and needs-attention capture counts
+    Status,
+}
+
 /// Arguments for capturing a completed agent turn from a lifecycle hook.
 #[derive(clap::Args)]
 struct MemoryCaptureArgs {
@@ -2847,6 +2867,9 @@ enum MemoryAction {
         include_git: Option<bool>,
         #[arg(long)]
         include_time: Option<bool>,
+        /// Restrict session context to explicitly reviewed memories
+        #[arg(long)]
+        reviewed_only: bool,
     },
     /// Recall relevant private memories
     Recall {
@@ -2914,6 +2937,11 @@ enum MemoryAction {
     },
     /// Capture a completed agent turn idempotently from a lifecycle hook
     Capture(Box<MemoryCaptureArgs>),
+    /// Agent lifecycle hook bridge for automatic capture and context injection
+    Hook {
+        #[command(subcommand)]
+        action: MemoryHookAction,
+    },
     /// List private memories without printing their content in table output
     List {
         #[arg(long)]
@@ -5179,6 +5207,7 @@ async fn main() -> anyhow::Result<()> {
                 token_budget,
                 include_git,
                 include_time,
+                reviewed_only,
             } => {
                 commands::memory::bootstrap(
                     project_id,
@@ -5186,6 +5215,7 @@ async fn main() -> anyhow::Result<()> {
                     token_budget,
                     include_git,
                     include_time,
+                    reviewed_only,
                     &ctx,
                 )
                 .await?
@@ -5294,6 +5324,16 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
+            MemoryAction::Hook { action } => match action {
+                MemoryHookAction::SessionStart { platform } => {
+                    commands::memory_hooks::session_start(platform, &ctx).await?
+                }
+                MemoryHookAction::Stop { platform } => {
+                    commands::memory_hooks::stop(platform, &ctx).await?
+                }
+                MemoryHookAction::Flush => commands::memory_hooks::flush(&ctx).await?,
+                MemoryHookAction::Status => commands::memory_hooks::status().await?,
+            },
             MemoryAction::List {
                 memory_type,
                 lifecycle_status,
@@ -9008,6 +9048,18 @@ mod tests {
 
     #[test]
     fn seren_memory_publisher_commands_parse() {
+        let bootstrap =
+            parse_cli_with_large_stack(vec!["seren", "memory", "bootstrap", "--reviewed-only"]);
+        assert!(matches!(
+            bootstrap.command,
+            Commands::Memory {
+                action: MemoryAction::Bootstrap {
+                    reviewed_only: true,
+                    ..
+                }
+            }
+        ));
+
         let recall = parse_cli_with_large_stack(vec![
             "seren",
             "memory",
@@ -9118,6 +9170,33 @@ mod tests {
             Commands::Memory {
                 action: MemoryAction::Knowledge {
                     action: MemoryKnowledgeAction::Search { .. }
+                }
+            }
+        ));
+
+        let hook = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "hook",
+            "stop",
+            "--platform",
+            "claude",
+        ]);
+        assert!(matches!(
+            hook.command,
+            Commands::Memory {
+                action: MemoryAction::Hook {
+                    action: MemoryHookAction::Stop { platform }
+                }
+            } if platform == "claude"
+        ));
+
+        let hook_status = parse_cli_with_large_stack(vec!["seren", "memory", "hook", "status"]);
+        assert!(matches!(
+            hook_status.command,
+            Commands::Memory {
+                action: MemoryAction::Hook {
+                    action: MemoryHookAction::Status
                 }
             }
         ));

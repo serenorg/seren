@@ -11,6 +11,7 @@ pub mod endpoints;
 pub mod env;
 pub mod ip_allow_list;
 pub mod memory;
+pub mod memory_hooks;
 pub mod oauth;
 pub mod object_storage;
 pub mod operations;
