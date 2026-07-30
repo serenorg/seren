@@ -2776,6 +2776,57 @@ enum StorageObjectAction {
     },
 }
 
+/// Arguments for capturing a completed agent turn from a lifecycle hook.
+#[derive(clap::Args)]
+struct MemoryCaptureArgs {
+    /// Completed turn transcript
+    transcript: String,
+    /// Agent platform such as claude or codex
+    #[arg(long)]
+    agent_platform: String,
+    /// Stable source identity in the reserved hook: namespace
+    #[arg(long)]
+    source_external_id: String,
+    #[arg(long)]
+    project_context: Option<String>,
+    #[arg(long)]
+    project_id: Option<Uuid>,
+    #[arg(long)]
+    org_id: Option<Uuid>,
+    #[arg(long)]
+    session_id: Option<Uuid>,
+    /// Also retain the raw transcript payload alongside the source envelope
+    #[arg(long)]
+    retain_source: bool,
+    #[arg(long)]
+    source_revision: Option<String>,
+    #[arg(long)]
+    source_uri: Option<String>,
+    /// Native agent session identifier
+    #[arg(long)]
+    external_session_id: Option<String>,
+    /// Parent or resumed native session identifier
+    #[arg(long)]
+    external_parent_session_id: Option<String>,
+    /// Native agent turn identifier
+    #[arg(long)]
+    external_turn_id: Option<String>,
+    /// Canonical cross-agent workspace identity
+    #[arg(long)]
+    workspace_key: Option<String>,
+    #[arg(long)]
+    workspace_uri: Option<String>,
+    /// Bounded JSON metadata for agent, repository, branch, and files
+    #[arg(long)]
+    source_metadata: Option<String>,
+    /// Source event time as an RFC 3339 timestamp
+    #[arg(long)]
+    observed_at: Option<jiff::Timestamp>,
+    /// Capture-policy version applied before submission
+    #[arg(long)]
+    policy_version: Option<String>,
+}
+
 #[derive(Subcommand)]
 enum MemoryAction {
     /// Check Seren Memory service health
@@ -2861,6 +2912,8 @@ enum MemoryAction {
         #[arg(long)]
         source_uri: Option<String>,
     },
+    /// Capture a completed agent turn idempotently from a lifecycle hook
+    Capture(Box<MemoryCaptureArgs>),
     /// List private memories without printing their content in table output
     List {
         #[arg(long)]
@@ -5209,6 +5262,33 @@ async fn main() -> anyhow::Result<()> {
                         source_external_id,
                         source_revision,
                         source_uri,
+                    },
+                    &ctx,
+                )
+                .await?
+            }
+            MemoryAction::Capture(args) => {
+                let args = *args;
+                commands::memory::capture(
+                    commands::memory::CaptureOptions {
+                        transcript: args.transcript,
+                        project_context: args.project_context,
+                        project_id: args.project_id,
+                        org_id: args.org_id,
+                        session_id: args.session_id,
+                        retain_source: args.retain_source,
+                        source_external_id: args.source_external_id,
+                        source_revision: args.source_revision,
+                        source_uri: args.source_uri,
+                        agent_platform: args.agent_platform,
+                        external_session_id: args.external_session_id,
+                        external_parent_session_id: args.external_parent_session_id,
+                        external_turn_id: args.external_turn_id,
+                        workspace_key: args.workspace_key,
+                        workspace_uri: args.workspace_uri,
+                        source_metadata: args.source_metadata,
+                        observed_at: args.observed_at,
+                        policy_version: args.policy_version,
                     },
                     &ctx,
                 )

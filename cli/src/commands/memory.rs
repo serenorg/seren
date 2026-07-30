@@ -56,6 +56,27 @@ pub struct DeleteBySourceOptions {
     pub org_id: Option<Uuid>,
 }
 
+pub struct CaptureOptions {
+    pub transcript: String,
+    pub project_context: Option<String>,
+    pub project_id: Option<Uuid>,
+    pub org_id: Option<Uuid>,
+    pub session_id: Option<Uuid>,
+    pub retain_source: bool,
+    pub source_external_id: String,
+    pub source_revision: Option<String>,
+    pub source_uri: Option<String>,
+    pub agent_platform: String,
+    pub external_session_id: Option<String>,
+    pub external_parent_session_id: Option<String>,
+    pub external_turn_id: Option<String>,
+    pub workspace_key: Option<String>,
+    pub workspace_uri: Option<String>,
+    pub source_metadata: Option<String>,
+    pub observed_at: Option<jiff::Timestamp>,
+    pub policy_version: Option<String>,
+}
+
 pub async fn health(detailed: bool, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
     let response = if detailed {
@@ -196,6 +217,43 @@ pub async fn process(options: ProcessOptions, ctx: &CommandContext) -> Result<()
         })
         .await
         .map_err(|error| anyhow::anyhow!("Failed to process Seren Memory conversation: {error}"))?
+        .into_inner();
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn capture(options: CaptureOptions, ctx: &CommandContext) -> Result<()> {
+    let source_metadata = options
+        .source_metadata
+        .as_deref()
+        .map(serde_json::from_str::<serde_json::Value>)
+        .transpose()
+        .map_err(|error| anyhow::anyhow!("--source-metadata must be valid JSON: {error}"))?;
+    let response = ctx
+        .client()
+        .await?
+        .seren_memory_capture_agent_turn(&seren::SerenMemoryCaptureAgentTurnParams {
+            agent_platform: options.agent_platform,
+            external_parent_session_id: options.external_parent_session_id,
+            external_session_id: options.external_session_id,
+            external_turn_id: options.external_turn_id,
+            observed_at: options.observed_at,
+            org_id: options.org_id,
+            policy_version: options.policy_version,
+            project_context: options.project_context,
+            project_id: options.project_id,
+            retain_source: Some(options.retain_source),
+            session_id: options.session_id,
+            source_external_id: options.source_external_id,
+            source_metadata,
+            source_revision: options.source_revision,
+            source_uri: options.source_uri,
+            transcript: options.transcript,
+            workspace_key: options.workspace_key,
+            workspace_uri: options.workspace_uri,
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("Failed to capture Seren Memory agent turn: {error}"))?
         .into_inner();
     output::print_json(&response)?;
     Ok(())

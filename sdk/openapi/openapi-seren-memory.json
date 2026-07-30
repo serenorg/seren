@@ -96,6 +96,63 @@
                 ]
             }
         },
+        "/capture_agent_turn": {
+            "post": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Capture a completed agent turn from a lifecycle hook",
+                "description": "Dedicated ingestion operation for automatic agent capture. Requires a stable source_external_id in the reserved hook: namespace, always stores a metadata source envelope for idempotent retries, and stores the raw payload only when retain_source is true.",
+                "operationId": "capture_agent_turn",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CaptureAgentTurnParams"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Extracted memory candidates",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ExtractionResult"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
         "/forget": {
             "post": {
                 "tags": [
@@ -2135,6 +2192,75 @@
                 ]
             }
         },
+        "/memories/{id}/review": {
+            "put": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Set a private memory review status",
+                "description": "Explicit review transition. No ingestion channel grants reviewed trust automatically, and this operation is intentionally not exposed as an MCP tool.",
+                "operationId": "set_memory_review",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Memory ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SetMemoryReviewRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Review transition result",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_SetMemoryReviewResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Memory not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
         "/memories/{id}/revisions": {
             "get": {
                 "tags": [
@@ -2616,6 +2742,120 @@
                     }
                 }
             },
+            "CaptureAgentTurnParams": {
+                "type": "object",
+                "description": "Request body for the dedicated agent-capture operation. Requires a stable\nhook-namespace source identity so lifecycle retries stay idempotent.",
+                "required": [
+                    "transcript",
+                    "source_external_id",
+                    "agent_platform"
+                ],
+                "properties": {
+                    "agent_platform": {
+                        "type": "string"
+                    },
+                    "external_parent_session_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "external_session_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "external_turn_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "observed_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "org_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "policy_version": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "project_context": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "project_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "retain_source": {
+                        "type": [
+                            "boolean",
+                            "null"
+                        ]
+                    },
+                    "session_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "source_external_id": {
+                        "type": "string"
+                    },
+                    "source_metadata": {},
+                    "source_revision": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "source_uri": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "transcript": {
+                        "type": "string"
+                    },
+                    "workspace_key": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "workspace_uri": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                },
+                "example": {
+                    "transcript": "User: keep releases reversible\n\nAssistant: I will add rollback steps.",
+                    "agent_platform": "claude",
+                    "source_external_id": "hook:agent-turn:claude:conv-1:turn-4"
+                }
+            },
             "ConflictAction": {
                 "type": "string",
                 "description": "Action determined by the conflict resolution pipeline.",
@@ -2665,23 +2905,52 @@
             },
             "ConversationSource": {
                 "type": "object",
+                "description": "Metadata envelope for a captured conversation. Raw content lives in an\noptional payload record; `content_retained` reports whether it exists.",
                 "required": [
                     "id",
                     "user_id",
+                    "source_origin",
                     "source_external_id",
-                    "transcript",
-                    "project_context",
+                    "source_metadata",
                     "content_sha256",
+                    "content_retained",
                     "created_at",
                     "updated_at"
                 ],
                 "properties": {
+                    "agent_platform": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "content_retained": {
+                        "type": "boolean"
+                    },
                     "content_sha256": {
                         "type": "string"
                     },
                     "created_at": {
                         "type": "string",
                         "format": "date-time"
+                    },
+                    "external_parent_session_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "external_session_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "external_turn_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
                     },
                     "extraction_completed_at": {
                         "type": [
@@ -2694,6 +2963,13 @@
                         "type": "string",
                         "format": "uuid"
                     },
+                    "observed_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
                     "org_id": {
                         "type": [
                             "string",
@@ -2701,8 +2977,17 @@
                         ],
                         "format": "uuid"
                     },
+                    "policy_version": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
                     "project_context": {
-                        "type": "string"
+                        "type": [
+                            "string",
+                            "null"
+                        ]
                     },
                     "project_id": {
                         "type": [
@@ -2721,6 +3006,10 @@
                     "source_external_id": {
                         "type": "string"
                     },
+                    "source_metadata": {},
+                    "source_origin": {
+                        "$ref": "#/components/schemas/SourceOrigin"
+                    },
                     "source_revision": {
                         "type": [
                             "string",
@@ -2734,7 +3023,10 @@
                         ]
                     },
                     "transcript": {
-                        "type": "string"
+                        "type": [
+                            "string",
+                            "null"
+                        ]
                     },
                     "updated_at": {
                         "type": "string",
@@ -2743,6 +3035,18 @@
                     "user_id": {
                         "type": "string",
                         "format": "uuid"
+                    },
+                    "workspace_key": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "workspace_uri": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
                     }
                 }
             },
@@ -3429,6 +3733,7 @@
                             "embedding_status",
                             "source_kind",
                             "source_managed",
+                            "review_status",
                             "created_at",
                             "updated_at"
                         ],
@@ -3489,6 +3794,9 @@
                             "relevance_score": {
                                 "type": "number",
                                 "format": "double"
+                            },
+                            "review_status": {
+                                "type": "string"
                             },
                             "session_id": {
                                 "type": [
@@ -3568,6 +3876,7 @@
                                     "embedding_status",
                                     "source_kind",
                                     "source_managed",
+                                    "review_status",
                                     "created_at",
                                     "updated_at"
                                 ],
@@ -3628,6 +3937,9 @@
                                     "relevance_score": {
                                         "type": "number",
                                         "format": "double"
+                                    },
+                                    "review_status": {
+                                        "type": "string"
                                     },
                                     "session_id": {
                                         "type": [
@@ -3808,6 +4120,25 @@
                             "total_memories": {
                                 "type": "integer",
                                 "minimum": 0
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_SetMemoryReviewResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "updated"
+                        ],
+                        "properties": {
+                            "updated": {
+                                "type": "boolean"
                             }
                         }
                     }
@@ -5139,6 +5470,7 @@
                     "embedding_status",
                     "source_kind",
                     "source_managed",
+                    "review_status",
                     "created_at",
                     "updated_at"
                 ],
@@ -5200,6 +5532,9 @@
                         "type": "number",
                         "format": "double"
                     },
+                    "review_status": {
+                        "type": "string"
+                    },
                     "session_id": {
                         "type": [
                             "string",
@@ -5246,6 +5581,14 @@
                         "format": "uuid"
                     }
                 }
+            },
+            "MemoryReview": {
+                "type": "string",
+                "description": "Review state for a memory. No ingestion channel grants reviewed trust;\npromotion is a separate authorized transition.",
+                "enum": [
+                    "unreviewed",
+                    "reviewed"
+                ]
             },
             "MemoryRevision": {
                 "type": "object",
@@ -5728,6 +6071,28 @@
                     }
                 }
             },
+            "SetMemoryReviewRequest": {
+                "type": "object",
+                "required": [
+                    "review_status"
+                ],
+                "properties": {
+                    "review_status": {
+                        "$ref": "#/components/schemas/MemoryReview"
+                    }
+                }
+            },
+            "SetMemoryReviewResponse": {
+                "type": "object",
+                "required": [
+                    "updated"
+                ],
+                "properties": {
+                    "updated": {
+                        "type": "boolean"
+                    }
+                }
+            },
             "SetMemoryStatusRequest": {
                 "type": "object",
                 "required": [
@@ -5738,6 +6103,17 @@
                         "$ref": "#/components/schemas/MemoryLifecycle"
                     }
                 }
+            },
+            "SourceOrigin": {
+                "type": "string",
+                "description": "Server-assigned ingestion channel for a retained conversation source.\nDescribes how the content arrived, not whether it is trusted.",
+                "enum": [
+                    "agent_hook",
+                    "legacy",
+                    "mcp",
+                    "manual",
+                    "migration"
+                ]
             },
             "SyncStatus": {
                 "type": "object",
