@@ -664,6 +664,100 @@
         ]
       }
     },
+    "/deployments/{id}/managed/runtime-policy-reconciliation": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Apply an eligible runtime-policy reconciliation as a normal managed\ndeployment revision.",
+        "operationId": "seren_agent_apply_runtime_policy_reconciliation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Runtime-policy reconciliation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentRuntimePolicyReconciliationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Deployment is not eligible"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Deployment not found"
+          },
+          "409": {
+            "description": "Stored timeout conflicts with the declared policy"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/managed/runtime-policy-reconciliation/preview": {
+      "post": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Preview safe reconciliation for a deployment created before canonical\nruntime-policy deadline metadata.",
+        "operationId": "seren_agent_preview_runtime_policy_reconciliation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Runtime-policy reconciliation preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentRuntimePolicyReconciliationPreview"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Deployment not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/resources": {
       "get": {
         "tags": [
@@ -2741,7 +2835,7 @@
       },
       "AgentSpecUpdate": {
         "type": "object",
-        "description": "Partial update request for an existing managed `seren-agent` deployment.\n\nMirrors the agent-level fields of `AgentSpec` as `Option<...>` for partial\nupdate. The `workload` field replaces the entire `WorkloadSpec` when\npresent; partial-workload patching is intentionally out of scope.",
+        "description": "Partial update request for an existing managed `seren-agent` deployment.\n\nMirrors the agent-level fields of `AgentSpec` as `Option<...>` for partial\nupdate. `workload_limits` patches only run limits while preserving the\nauthoritative server-side workload, including encrypted secrets. The\n`workload` field remains a full replacement for callers changing other\nworkload fields.",
         "properties": {
           "agent_identity_id": {
             "type": [
@@ -3008,6 +3102,17 @@
               {
                 "$ref": "#/components/schemas/WorkloadSpec",
                 "description": "Replaces the entire workload when present. Use the managed files endpoint\nfor targeted bundle file changes."
+              }
+            ]
+          },
+          "workload_limits": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorkloadLimitsPatch",
+                "description": "Partially update workload limits without replacing or round-tripping\nthe full workload. Cannot be combined with `workload`."
               }
             ]
           }
@@ -4698,6 +4803,131 @@
               },
               "summary": {
                 "$ref": "#/components/schemas/ManagedAgentHealthSummary"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentRuntimePolicyReconciliationPreview": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Preview for safely reconciling a deployment created before runtime-policy\ndeadline resolution became canonical.",
+            "required": [
+              "deployment_id",
+              "status",
+              "reason",
+              "apply_authorized",
+              "required_api_key_scope"
+            ],
+            "properties": {
+              "apply_authorized": {
+                "type": "boolean"
+              },
+              "current_effective_runtime_seconds": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
+              "declared_runtime_seconds": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "proposed_effective_runtime_seconds": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
+              "reason": {
+                "type": "string"
+              },
+              "required_api_key_scope": {
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/components/schemas/ManagedAgentRuntimePolicyReconciliationStatus"
+              },
+              "update_preview": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentDeploymentUpdatePreview"
+                  }
+                ]
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentRuntimePolicyReconciliationResult": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "applied",
+              "preview"
+            ],
+            "properties": {
+              "applied": {
+                "type": "boolean"
+              },
+              "preview": {
+                "$ref": "#/components/schemas/ManagedAgentRuntimePolicyReconciliationPreview"
+              },
+              "revision_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
               }
             }
           },
@@ -6853,6 +7083,100 @@
           "seren_agent"
         ]
       },
+      "ManagedAgentRuntimePolicyReconciliationPreview": {
+        "type": "object",
+        "description": "Preview for safely reconciling a deployment created before runtime-policy\ndeadline resolution became canonical.",
+        "required": [
+          "deployment_id",
+          "status",
+          "reason",
+          "apply_authorized",
+          "required_api_key_scope"
+        ],
+        "properties": {
+          "apply_authorized": {
+            "type": "boolean"
+          },
+          "current_effective_runtime_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "declared_runtime_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "proposed_effective_runtime_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string"
+          },
+          "required_api_key_scope": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ManagedAgentRuntimePolicyReconciliationStatus"
+          },
+          "update_preview": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentDeploymentUpdatePreview"
+              }
+            ]
+          }
+        }
+      },
+      "ManagedAgentRuntimePolicyReconciliationResult": {
+        "type": "object",
+        "required": [
+          "applied",
+          "preview"
+        ],
+        "properties": {
+          "applied": {
+            "type": "boolean"
+          },
+          "preview": {
+            "$ref": "#/components/schemas/ManagedAgentRuntimePolicyReconciliationPreview"
+          },
+          "revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "ManagedAgentRuntimePolicyReconciliationStatus": {
+        "type": "string",
+        "enum": [
+          "eligible",
+          "already_reconciled",
+          "not_applicable",
+          "conflict"
+        ]
+      },
       "ManagedAgentRuntimeResources": {
         "type": "object",
         "required": [
@@ -6864,6 +7188,8 @@
           "filesystem_policy_configured",
           "network_policy_configured",
           "process_policy_configured",
+          "effective_cpu_request_millicores",
+          "effective_memory_request_mib",
           "deployment_network_policy_configured",
           "alert_policy_configured"
         ],
@@ -6874,11 +7200,46 @@
           "compute_backend": {
             "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
           },
+          "configured_runtime_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Declared runtime bound from `runtime_policy.resources`, when present.",
+            "minimum": 0
+          },
           "deployment_network_policy_configured": {
             "type": "boolean"
           },
+          "effective_cpu_request_millicores": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "effective_memory_request_mib": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "effective_runtime_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Canonical executor runtime bound after defaults and policy resolution.",
+            "minimum": 0
+          },
           "filesystem_policy_configured": {
             "type": "boolean"
+          },
+          "infrastructure_deadline_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Kubernetes Job deadline, including startup grace.",
+            "minimum": 0
           },
           "llm_connection": {
             "oneOf": [
@@ -6898,6 +7259,21 @@
           },
           "network_policy_configured": {
             "type": "boolean"
+          },
+          "observed_cpu_request_millicores": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Reserved for controller-observed values once the controller reports them."
+          },
+          "observed_memory_request_mib": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
           },
           "private_output_policy": {
             "$ref": "#/components/schemas/ManagedAgentPrivateOutputPolicy"
@@ -6943,6 +7319,22 @@
                 "$ref": "#/components/schemas/ManagedAgentSessionDatabaseResource"
               }
             ]
+          },
+          "startup_grace_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Infrastructure-only allowance for pod/bootstrap initialization.",
+            "minimum": 0
+          },
+          "timeout_scope": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Boundary covered by `effective_runtime_seconds`."
           }
         }
       },
@@ -8185,6 +8577,68 @@
             ],
             "format": "int32",
             "description": "Maximum number of characters kept from any single tool output.",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "WorkloadLimitsPatch": {
+        "type": "object",
+        "description": "Partial update for workload run limits.\n\nEach value field preserves the current value when omitted. Its matching\n`clear_*` flag explicitly removes the current limit and cannot be combined\nwith a replacement value.",
+        "properties": {
+          "clear_context_budget_tokens": {
+            "type": "boolean"
+          },
+          "clear_max_iterations": {
+            "type": "boolean"
+          },
+          "clear_max_timeout_seconds": {
+            "type": "boolean"
+          },
+          "clear_max_tool_calls_per_run": {
+            "type": "boolean"
+          },
+          "clear_max_tool_output_chars": {
+            "type": "boolean"
+          },
+          "context_budget_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_iterations": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_timeout_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_tool_calls_per_run": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_tool_output_chars": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
             "minimum": 0
           }
         },

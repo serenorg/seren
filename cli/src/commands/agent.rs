@@ -4799,6 +4799,52 @@ pub async fn managed_agent_rollback(
     Ok(())
 }
 
+/// Preview runtime-policy reconciliation for a managed seren-agent deployment.
+pub async fn managed_agent_runtime_policy_reconciliation_preview(
+    deployment_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_agent_preview_runtime_policy_reconciliation(&deployment_id)
+        .await
+    {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to preview managed agent runtime-policy reconciliation",
+                err,
+            )
+            .await);
+        }
+    };
+    output::print_json(&response.into_inner())?;
+    Ok(())
+}
+
+/// Apply runtime-policy reconciliation for a managed seren-agent deployment.
+pub async fn managed_agent_runtime_policy_reconciliation(
+    deployment_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_agent_apply_runtime_policy_reconciliation(&deployment_id)
+        .await
+    {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to apply managed agent runtime-policy reconciliation",
+                err,
+            )
+            .await);
+        }
+    };
+    output::print_json(&response.into_inner())?;
+    Ok(())
+}
+
 /// List reusable cloud deployment environments.
 pub async fn cloud_environment_list(ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;

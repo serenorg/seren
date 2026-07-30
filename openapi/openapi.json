@@ -10999,7 +10999,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Optional publisher capability scopes. Omit for a legacy unrestricted user key. Supported values are `publisher:*`, `publisher:<slug>`, and `publisher:<slug>:operation:<operation_id>`."
+            "description": "Optional least-privilege scopes. Omit for an unrestricted user API key.\nPublisher scopes and `managed-deployment:<operation>` control-plane\nscopes grant separate capabilities and may be combined."
           }
         }
       },
@@ -16836,6 +16836,16 @@
                     ],
                     "format": "uuid",
                     "description": "Present when /auth/me is authenticated by an API key."
+                  },
+                  "api_key_scopes": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Normalized least-privilege scopes for a restricted API key. Omitted for\nsigned user sessions and unrestricted user API keys."
                   },
                   "api_key_type": {
                     "oneOf": [
@@ -24520,7 +24530,8 @@
         "type": "string",
         "description": "Authority that recorded the data-handling declaration.",
         "enum": [
-          "policy_administrator"
+          "policy_administrator",
+          "provider_configuration"
         ]
       },
       "PrivateModelsDataHandlingAttestationStatus": {
@@ -28002,6 +28013,16 @@
                 ],
                 "format": "uuid",
                 "description": "Present when /auth/me is authenticated by an API key."
+              },
+              "api_key_scopes": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "description": "Normalized least-privilege scopes for a restricted API key. Omitted for\nsigned user sessions and unrestricted user API keys."
               },
               "api_key_type": {
                 "oneOf": [

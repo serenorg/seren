@@ -2318,10 +2318,29 @@ async fn build_update_seren_agent_deployment_request(
             ));
         }
     };
-    let workload = if update_requires_workload_replacement(params) {
+    let workload_replacement = update_requires_workload_replacement(params);
+    let workload = if workload_replacement {
         Some(build_replacement_workload(api_client, params).await?)
     } else {
         None
+    };
+    let workload_limits = if workload_replacement {
+        None
+    } else {
+        params
+            .max_timeout_seconds
+            .map(|max_timeout_seconds| seren::WorkloadLimitsPatch {
+                clear_context_budget_tokens: None,
+                clear_max_iterations: None,
+                clear_max_timeout_seconds: None,
+                clear_max_tool_calls_per_run: None,
+                clear_max_tool_output_chars: None,
+                context_budget_tokens: None,
+                max_iterations: None,
+                max_timeout_seconds: Some(max_timeout_seconds),
+                max_tool_calls_per_run: None,
+                max_tool_output_chars: None,
+            })
     };
 
     Ok(seren::AgentSpecUpdate {
@@ -2360,6 +2379,7 @@ async fn build_update_seren_agent_deployment_request(
         tool_refs: params.tool_refs.clone(),
         visibility: params.visibility.clone(),
         workload,
+        workload_limits,
     })
 }
 
@@ -2370,7 +2390,6 @@ fn update_requires_workload_replacement(params: &UpdateSerenAgentDeploymentParam
         || params.secrets.is_some()
         || params.model_config.is_some()
         || params.fallback_models.is_some()
-        || params.max_timeout_seconds.is_some()
         || params.requirements.is_some()
         || params.external_databases.is_some()
 }
@@ -5169,6 +5188,67 @@ pub(crate) fn ensure_writes_allowed(extensions: &Extensions) -> Result<(), McpEr
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ManagedDeploymentMutation {
+    Create,
+    Update,
+    Start,
+    Stop,
+    Delete,
+}
+
+impl ManagedDeploymentMutation {
+    fn required_scope(self) -> &'static str {
+        match self {
+            Self::Create => "managed-deployment:create",
+            Self::Update => "managed-deployment:update",
+            Self::Start => "managed-deployment:start",
+            Self::Stop => "managed-deployment:stop",
+            Self::Delete => "managed-deployment:delete",
+        }
+    }
+}
+
+fn ensure_managed_deployment_mutation_allowed(
+    extensions: &Extensions,
+    mutation: ManagedDeploymentMutation,
+) -> Result<(), McpError> {
+    ensure_writes_allowed(extensions)?;
+    let Some(auth) = request_auth_context_from_extensions(extensions) else {
+        // Direct/local MCP configurations do not carry hosted credential
+        // metadata. Core remains the authorization boundary for those calls.
+        return Ok(());
+    };
+    match &auth.credential {
+        crate::SerenRequestCredential::UserSession => Ok(()),
+        crate::SerenRequestCredential::UserApiKey {
+            api_key_scopes: None,
+            ..
+        } => Ok(()),
+        crate::SerenRequestCredential::UserApiKey {
+            api_key_scopes: Some(scopes),
+            ..
+        } if scopes.iter().any(|scope| {
+            scope == "managed-deployment:*" || scope.eq_ignore_ascii_case(mutation.required_scope())
+        }) =>
+        {
+            Ok(())
+        }
+        crate::SerenRequestCredential::UserApiKey { .. } => Err(McpError::invalid_request(
+            format!(
+                "This API key cannot perform the managed deployment mutation. Add the '{}' scope while retaining any required publisher scopes.",
+                mutation.required_scope()
+            ),
+            None,
+        )),
+        crate::SerenRequestCredential::AgentApiKey { .. }
+        | crate::SerenRequestCredential::ApiKey { .. } => Err(McpError::invalid_request(
+            "Managed deployment mutations require a user session or user API key with explicit management capability.",
+            None,
+        )),
+    }
+}
+
 fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
@@ -5383,8 +5463,11 @@ pub(crate) fn hosted_passwords_credential_subject_from_extensions(
         }
         crate::SerenRequestCredential::UserApiKey {
             api_key_id: Some(api_key_id),
+            ..
         } => Ok(crate::oauth::store::HostedPasswordsCredentialSubject::UserApiKey(*api_key_id)),
-        crate::SerenRequestCredential::UserApiKey { api_key_id: None }
+        crate::SerenRequestCredential::UserApiKey {
+            api_key_id: None, ..
+        }
         | crate::SerenRequestCredential::ApiKey { .. } => Err(McpError::invalid_request(
             "Hosted password access requires API key metadata from Seren Core",
             None,
@@ -13229,7 +13312,7 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<GetSerenAgentDeploymentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        ensure_writes_allowed(&extensions)?;
+        ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Start)?;
 
         let api_client = self.api_client(&extensions)?;
         let response = api_client
@@ -13253,7 +13336,7 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<GetSerenAgentDeploymentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        ensure_writes_allowed(&extensions)?;
+        ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Stop)?;
 
         let api_client = self.api_client(&extensions)?;
         let response = api_client
@@ -13277,7 +13360,7 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<GetSerenAgentDeploymentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
-        ensure_writes_allowed(&extensions)?;
+        ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Delete)?;
 
         let api_client = self.api_client(&extensions)?;
         let response = api_client
@@ -13305,6 +13388,51 @@ API endpoint: {endpoint}",
         let body = build_update_seren_agent_deployment_request(&api_client, &params).await?;
         let response = api_client
             .seren_agent_preview_managed_deployment_update(&params.deployment_id, &body)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Preview reconciliation of runtime-policy deadline metadata for a managed seren-agent deployment created before deadline resolution became canonical. Eligible deployments can be reconciled without replacing their workload or secrets; conflicting stored values require an operator decision.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn preview_seren_agent_runtime_policy_reconciliation(
+        &self,
+        Parameters(params): Parameters<GetSerenAgentDeploymentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_preview_runtime_policy_reconciliation(&params.deployment_id)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Apply an eligible runtime-policy deadline reconciliation through the normal managed deployment revision path. Preview first; deployments with conflicting stored values are not changed.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn apply_seren_agent_runtime_policy_reconciliation(
+        &self,
+        Parameters(params): Parameters<GetSerenAgentDeploymentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Update)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_apply_runtime_policy_reconciliation(&params.deployment_id)
             .into_mcp_result()
             .await?
             .into_inner();
@@ -13349,6 +13477,7 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<UpdateSerenAgentDeploymentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Update)?;
         let api_client = self.api_client(&extensions)?;
         let body = build_update_seren_agent_deployment_request(&api_client, &params).await?;
         let response = api_client
@@ -13372,6 +13501,7 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<RollbackSerenAgentDeploymentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Update)?;
         let body = seren::RollbackSerenAgentDeploymentRequest {
             revision_id: params.revision_id,
         };
@@ -13397,6 +13527,7 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<DeploySerenAgentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Create)?;
         let api_client = self.api_client(&extensions)?;
         let request = build_deploy_seren_agent_request(params)?;
 
@@ -15287,6 +15418,122 @@ mod tests {
         }
     }
 
+    fn managed_agent_detail_fixture(deployment_id: Uuid) -> serde_json::Value {
+        serde_json::json!({
+            "data": {
+                "deployment_id": deployment_id,
+                "name": "Runtime Policy Canary",
+                "agent_slug": "runtime-policy-canary",
+                "mode": "job",
+                "compute_backend": "aws_container",
+                "runtime_kind": "python",
+                "status": "running",
+                "bundle": {},
+                "model_id": "openai/gpt-5",
+                "model_config": {},
+                "template": "research_monitor",
+                "tool_presets": [],
+                "allowed_publisher_operations": [],
+                "resolved_tools": [],
+                "approval_policy": "read_only",
+                "model_policy": "balanced",
+                "runtime_adapter": "seren_agent",
+                "private_output_policy": "private_session_database",
+                "secret_keys": ["SEREN_AGENT_SESSION_DATABASE_URL"],
+                "requirements": [],
+                "visibility": "opaque",
+                "routing_reason": "Explicit model policy",
+                "max_timeout_seconds": 900,
+                "runtime_policy": {
+                    "resources": {
+                        "cpu_request": "500m",
+                        "memory_request": "1Gi",
+                        "max_runtime_seconds": 900
+                    }
+                }
+            }
+        })
+    }
+
+    fn managed_agent_resources_fixture(deployment_id: Uuid) -> serde_json::Value {
+        serde_json::json!({
+            "data": {
+                "organization_id": Uuid::from_u128(2),
+                "deployment_id": deployment_id,
+                "generated_at": "2026-07-30T12:00:00Z",
+                "deployment": {
+                    "name": "Runtime Policy Canary",
+                    "agent_slug": "runtime-policy-canary",
+                    "status": "running",
+                    "mode": "job",
+                    "visibility": "opaque",
+                    "template": "research_monitor",
+                    "approval_policy": "read_only",
+                    "model_policy": "balanced"
+                },
+                "runtime": {
+                    "compute_backend": "aws_container",
+                    "runtime_kind": "python",
+                    "runtime_adapter": "seren_agent",
+                    "private_output_policy": "private_session_database",
+                    "runtime_policy_configured": true,
+                    "filesystem_policy_configured": false,
+                    "network_policy_configured": false,
+                    "process_policy_configured": false,
+                    "configured_runtime_seconds": 900,
+                    "effective_runtime_seconds": 900,
+                    "startup_grace_seconds": 120,
+                    "infrastructure_deadline_seconds": 1020,
+                    "timeout_scope": "agent_execution",
+                    "runtime_resources": {
+                        "cpu_request": "500m",
+                        "memory_request": "1Gi",
+                        "max_runtime_seconds": 900
+                    },
+                    "effective_cpu_request_millicores": 500,
+                    "effective_memory_request_mib": 1024,
+                    "observed_cpu_request_millicores": 500,
+                    "observed_memory_request_mib": 1024,
+                    "deployment_network_policy_configured": false,
+                    "alert_policy_configured": false
+                },
+                "connectors": [],
+                "schedule": {
+                    "mode": "job",
+                    "eval_gate_configured": false,
+                    "eval_gate_schedule_configured": false
+                },
+                "tools": {
+                    "tool_presets": [],
+                    "resolved_tools": [],
+                    "allowed_publisher_operations": [],
+                    "allowed_remote_agent_origins": [],
+                    "tool_ref_count": 0,
+                    "credential_count": 0,
+                    "guardrail_count": 0
+                },
+                "memory": {
+                    "policy_configured": false,
+                    "semantic_memory_enabled": false,
+                    "graph_memory_enabled": false,
+                    "knowledge_enabled": false,
+                    "compaction_configured": false
+                },
+                "capabilities": {
+                    "policy_configured": false,
+                    "skills_enabled": false,
+                    "browser_enabled": false,
+                    "audio_enabled": false,
+                    "realtime_sessions_enabled": false,
+                    "code_execution_enabled": false,
+                    "workflows_enabled": false,
+                    "eval_harness_enabled": false,
+                    "tool_error_recovery_enabled": false
+                }
+            }
+        })
+    }
+
     #[test]
     fn settled_charge_headers_become_protocol_metadata() {
         let receipt_id = Uuid::new_v4();
@@ -16914,6 +17161,13 @@ mod tests {
             let extensions = extensions_with_headers(&[("x-read-only", "true")]);
             assert!(is_read_only(&extensions));
             assert!(ensure_writes_allowed(&extensions).is_err());
+            assert!(
+                ensure_managed_deployment_mutation_allowed(
+                    &extensions,
+                    ManagedDeploymentMutation::Update
+                )
+                .is_err()
+            );
 
             let extensions = extensions_with_headers(&[("x-read-only", "0")]);
             assert!(!is_read_only(&extensions));
@@ -16927,7 +17181,109 @@ mod tests {
             let extensions = extensions_with_headers(&[]);
             assert!(is_read_only(&extensions));
             assert!(ensure_writes_allowed(&extensions).is_err());
+            assert!(
+                ensure_managed_deployment_mutation_allowed(
+                    &extensions,
+                    ManagedDeploymentMutation::Create
+                )
+                .is_err()
+            );
         });
+    }
+
+    #[test]
+    fn managed_mutation_scope_preflight_is_operation_specific() {
+        let update = extensions_with_auth_context(crate::SerenRequestAuthContext {
+            user_id: Uuid::new_v4(),
+            email: None,
+            credential: crate::SerenRequestCredential::UserApiKey {
+                api_key_id: Some(Uuid::new_v4()),
+                api_key_scopes: Some(vec![
+                    "publisher:seren-agent".to_string(),
+                    "managed-deployment:update".to_string(),
+                ]),
+            },
+        });
+        assert!(
+            ensure_managed_deployment_mutation_allowed(&update, ManagedDeploymentMutation::Update)
+                .is_ok()
+        );
+        let error =
+            ensure_managed_deployment_mutation_allowed(&update, ManagedDeploymentMutation::Delete)
+                .expect_err("update scope must not grant delete");
+        assert!(error.message.contains("managed-deployment:delete"));
+
+        let publisher_only = extensions_with_auth_context(crate::SerenRequestAuthContext {
+            user_id: Uuid::new_v4(),
+            email: None,
+            credential: crate::SerenRequestCredential::UserApiKey {
+                api_key_id: Some(Uuid::new_v4()),
+                api_key_scopes: Some(vec!["publisher:seren-agent".to_string()]),
+            },
+        });
+        assert!(
+            ensure_managed_deployment_mutation_allowed(
+                &publisher_only,
+                ManagedDeploymentMutation::Update
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn managed_mutation_tool_inventory_uses_the_central_guard() {
+        let source = include_str!("server.rs");
+        let mut discovered = Vec::new();
+        for tool_block in source.split("\n    #[tool(").skip(1) {
+            let Some(signature_offset) = tool_block.find("\n    async fn ") else {
+                continue;
+            };
+            let annotation = &tool_block[..signature_offset];
+            let signature_and_body = &tool_block[signature_offset + 1..];
+            let Some(name) = signature_and_body
+                .strip_prefix("    async fn ")
+                .and_then(|value| value.split('(').next())
+            else {
+                continue;
+            };
+            if !name.contains("seren_agent") || !annotation.contains("read_only_hint = false") {
+                continue;
+            }
+            discovered.push((name, signature_and_body));
+        }
+
+        let discovered_names = discovered
+            .iter()
+            .map(|(name, _)| *name)
+            .collect::<std::collections::HashSet<_>>();
+        for expected in [
+            "test_seren_agent_draft_run",
+            "start_seren_agent_deployment",
+            "stop_seren_agent_deployment",
+            "delete_seren_agent_deployment",
+            "update_seren_agent_deployment",
+            "rollback_seren_agent_deployment",
+            "apply_seren_agent_runtime_policy_reconciliation",
+            "deploy_seren_agent",
+        ] {
+            assert!(
+                discovered_names.contains(expected),
+                "write-capable seren-agent tool {expected} is no longer discoverable from its annotation"
+            );
+        }
+        for (tool, body) in discovered {
+            if tool == "test_seren_agent_draft_run" {
+                assert!(
+                    body.contains("ensure_writes_allowed"),
+                    "draft runs consume resources and must honor the general MCP write barrier"
+                );
+                continue;
+            }
+            assert!(
+                body.contains("ensure_managed_deployment_mutation_allowed"),
+                "{tool} must invoke the central managed mutation guard"
+            );
+        }
     }
 
     #[tokio::test]
@@ -17875,6 +18231,7 @@ mod tests {
             email: None,
             credential: crate::SerenRequestCredential::UserApiKey {
                 api_key_id: Some(api_key_id),
+                api_key_scopes: None,
             },
         });
 
@@ -17907,7 +18264,10 @@ mod tests {
         let extensions = extensions_with_auth_context(crate::SerenRequestAuthContext {
             user_id: Uuid::new_v4(),
             email: None,
-            credential: crate::SerenRequestCredential::UserApiKey { api_key_id: None },
+            credential: crate::SerenRequestCredential::UserApiKey {
+                api_key_id: None,
+                api_key_scopes: None,
+            },
         });
 
         assert!(hosted_passwords_credential_subject_from_extensions(&extensions).is_err());
@@ -17927,6 +18287,7 @@ mod tests {
             email: None,
             credential: crate::SerenRequestCredential::UserApiKey {
                 api_key_id: Some(Uuid::new_v4()),
+                api_key_scopes: None,
             },
         });
         assert!(ensure_api_key_management_user_session(&user_api_key).is_err());
@@ -18209,6 +18570,153 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn versionless_managed_detail_decodes_and_reaches_the_mcp_wrapper() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let deployment_id = Uuid::from_u128(10);
+        let fixture = managed_agent_detail_fixture(deployment_id);
+        let decoded: seren::DataResponseManagedAgentDeploymentDetail =
+            serde_json::from_value(fixture.clone()).expect("versionless managed detail");
+        let decoded_json = serde_json::to_value(decoded).expect("managed detail re-encodes");
+        assert!(
+            decoded_json
+                .pointer("/data/runtime_policy/version")
+                .is_none()
+        );
+        assert_eq!(
+            decoded_json.pointer("/data/runtime_policy/resources/max_runtime_seconds"),
+            Some(&serde_json::json!(900))
+        );
+
+        let proxy = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(fixture))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let result = server
+            .get_seren_agent_deployment(
+                Parameters(GetSerenAgentDeploymentParams { deployment_id }),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect("managed detail should reach the first-class MCP wrapper");
+        assert!(!result.is_error.unwrap_or(false));
+    }
+
+    #[tokio::test]
+    async fn managed_resource_deadline_and_requests_reach_the_mcp_wrapper() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let deployment_id = Uuid::from_u128(11);
+        let fixture = managed_agent_resources_fixture(deployment_id);
+        let decoded: seren::DataResponseManagedAgentDeploymentResources =
+            serde_json::from_value(fixture.clone()).expect("managed resources");
+        let decoded_json = serde_json::to_value(decoded).expect("managed resources re-encode");
+        assert_eq!(
+            decoded_json.pointer("/data/runtime/infrastructure_deadline_seconds"),
+            Some(&serde_json::json!(1020))
+        );
+        assert_eq!(
+            decoded_json.pointer("/data/runtime/effective_cpu_request_millicores"),
+            Some(&serde_json::json!(500))
+        );
+        assert_eq!(
+            decoded_json.pointer("/data/runtime/effective_memory_request_mib"),
+            Some(&serde_json::json!(1024))
+        );
+
+        let proxy = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/resources"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(fixture))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let result = server
+            .get_seren_agent_deployment_resources(
+                Parameters(GetSerenAgentDeploymentParams { deployment_id }),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect("managed resources should reach the first-class MCP wrapper");
+        assert!(!result.is_error.unwrap_or(false));
+    }
+
+    #[tokio::test]
+    async fn timeout_preview_sends_only_the_server_side_limits_patch() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let deployment_id = Uuid::from_u128(12);
+        let mut current = managed_agent_detail_fixture(deployment_id)["data"].clone();
+        current["max_timeout_seconds"] = serde_json::json!(300);
+        let mut proposed = current.clone();
+        proposed["max_timeout_seconds"] = serde_json::json!(900);
+        let response = serde_json::json!({
+            "data": {
+                "deployment_id": deployment_id,
+                "current": current,
+                "proposed": proposed,
+                "changed_fields": [{
+                    "field": "max_timeout_seconds",
+                    "label": "Maximum runtime",
+                    "current_value": 300,
+                    "proposed_value": 900
+                }]
+            }
+        });
+
+        let proxy = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed/preview"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let mut params = base_update_agent_params();
+        params.deployment_id = deployment_id;
+        params.max_timeout_seconds = Some(900);
+        let result = server
+            .preview_seren_agent_deployment_update(Parameters(params), extensions_with_headers(&[]))
+            .await
+            .expect("limits-only preview should reach Core");
+        assert!(!result.is_error.unwrap_or(false));
+
+        let requests = proxy
+            .received_requests()
+            .await
+            .expect("recorded preview request");
+        assert_eq!(requests.len(), 1);
+        let request_body: serde_json::Value =
+            serde_json::from_slice(&requests[0].body).expect("preview request JSON");
+        assert_eq!(
+            request_body.pointer("/workload_limits/max_timeout_seconds"),
+            Some(&serde_json::json!(900))
+        );
+        assert!(
+            request_body
+                .get("workload")
+                .is_none_or(serde_json::Value::is_null)
+        );
+    }
+
     #[test]
     fn update_agent_external_databases_require_workload_replacement() {
         let mut params = base_update_agent_params();
@@ -18216,6 +18724,30 @@ mod tests {
 
         params.external_databases = Some(Vec::new());
         assert!(update_requires_workload_replacement(&params));
+    }
+
+    #[tokio::test]
+    async fn update_agent_timeout_uses_the_server_side_limits_patch() {
+        let api_client =
+            seren::Client::new_with_client("https://api.serendb.com", reqwest::Client::new());
+        let mut params = base_update_agent_params();
+        params.max_timeout_seconds = Some(900);
+
+        assert!(
+            !update_requires_workload_replacement(&params),
+            "a limits-only update must not read and replace the redacted workload"
+        );
+        let request = build_update_seren_agent_deployment_request(&api_client, &params)
+            .await
+            .expect("limits-only request");
+
+        assert!(request.workload.is_none());
+        assert_eq!(
+            request
+                .workload_limits
+                .and_then(|limits| limits.max_timeout_seconds),
+            Some(900)
+        );
     }
 
     #[test]

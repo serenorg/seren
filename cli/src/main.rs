@@ -1525,6 +1525,16 @@ enum AgentAction {
         /// Revision ID (UUID)
         revision_id: Uuid,
     },
+    /// Preview runtime-policy reconciliation for a managed seren-agent deployment
+    ManagedRuntimePolicyReconciliationPreview {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+    /// Apply runtime-policy reconciliation for a managed seren-agent deployment
+    ManagedRuntimePolicyReconciliation {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
     /// Preview an update to an existing managed seren-agent deployment
     ManagedPreview {
         /// Deployment ID (UUID)
@@ -6922,6 +6932,17 @@ async fn main() -> anyhow::Result<()> {
                 deployment_id,
                 revision_id,
             } => commands::agent::managed_agent_rollback(deployment_id, revision_id, &ctx).await?,
+            AgentAction::ManagedRuntimePolicyReconciliationPreview { deployment_id } => {
+                commands::agent::managed_agent_runtime_policy_reconciliation_preview(
+                    deployment_id,
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::ManagedRuntimePolicyReconciliation { deployment_id } => {
+                commands::agent::managed_agent_runtime_policy_reconciliation(deployment_id, &ctx)
+                    .await?
+            }
             AgentAction::ManagedPreview {
                 deployment_id,
                 name,
@@ -7652,6 +7673,43 @@ mod tests {
                 },
                 _ => panic!("unexpected command parsed"),
             }
+        }
+    }
+
+    #[test]
+    fn managed_runtime_policy_reconciliation_commands_accept_deployment_id() {
+        let deployment_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+
+        let preview = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-runtime-policy-reconciliation-preview",
+            "11111111-1111-1111-1111-111111111111",
+        ]);
+        match preview.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedRuntimePolicyReconciliationPreview {
+                    deployment_id: parsed_id,
+                } => assert_eq!(parsed_id, deployment_id),
+                _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
+        }
+
+        let apply = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-runtime-policy-reconciliation",
+            "11111111-1111-1111-1111-111111111111",
+        ]);
+        match apply.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedRuntimePolicyReconciliation {
+                    deployment_id: parsed_id,
+                } => assert_eq!(parsed_id, deployment_id),
+                _ => panic!("unexpected agent action parsed"),
+            },
+            _ => panic!("unexpected command parsed"),
         }
     }
 

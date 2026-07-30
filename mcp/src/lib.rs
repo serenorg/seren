@@ -323,6 +323,7 @@ pub(crate) enum SerenRequestCredential {
     UserSession,
     UserApiKey {
         api_key_id: Option<Uuid>,
+        api_key_scopes: Option<Vec<String>>,
     },
     AgentApiKey {
         api_key_id: Option<Uuid>,
@@ -338,6 +339,7 @@ impl SerenRequestCredential {
         match user_info.api_key_type.as_ref() {
             Some(seren::ApiKeyType::User) => Self::UserApiKey {
                 api_key_id: user_info.api_key_id,
+                api_key_scopes: user_info.api_key_scopes.clone(),
             },
             Some(seren::ApiKeyType::Agent) => Self::AgentApiKey {
                 api_key_id: user_info.api_key_id,
@@ -1913,6 +1915,37 @@ mod tests {
     use tower::ServiceExt;
     use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[test]
+    fn auth_me_scopes_become_managed_mutation_capabilities() {
+        let api_key_id = Uuid::from_u128(20);
+        let user_info: seren::DataResponseUserMeData = serde_json::from_value(serde_json::json!({
+            "id": Uuid::from_u128(21),
+            "email": "operator@seren.ai",
+            "name": "Operator",
+            "status": "active",
+            "created_at": "2026-07-30T12:00:00Z",
+            "default_organization_id": Uuid::from_u128(22),
+            "api_key_id": api_key_id,
+            "api_key_type": "user",
+            "api_key_scopes": [
+                "publisher:seren-agent",
+                "managed-deployment:update"
+            ]
+        }))
+        .expect("scoped /auth/me response");
+
+        assert_eq!(
+            SerenRequestCredential::from_user_me(&user_info),
+            SerenRequestCredential::UserApiKey {
+                api_key_id: Some(api_key_id),
+                api_key_scopes: Some(vec![
+                    "publisher:seren-agent".to_string(),
+                    "managed-deployment:update".to_string(),
+                ]),
+            }
+        );
+    }
 
     #[test]
     fn extract_bearer_token_is_case_insensitive_and_trims() {
