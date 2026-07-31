@@ -6,12 +6,30 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-const HOOK_EVENTS: [(&str, &str); 2] = [
-    (
-        "SessionStart",
-        "seren memory hook session-start --platform claude",
-    ),
-    ("Stop", "seren memory hook stop --platform claude"),
+#[derive(Clone, Copy)]
+struct HookDefinition {
+    event: &'static str,
+    command: &'static str,
+    asynchronous: bool,
+}
+
+const HOOK_EVENTS: [&str; 2] = ["SessionStart", "Stop"];
+const HOOK_DEFINITIONS: [HookDefinition; 3] = [
+    HookDefinition {
+        event: "SessionStart",
+        command: "seren memory hook session-start --platform claude",
+        asynchronous: false,
+    },
+    HookDefinition {
+        event: "SessionStart",
+        command: "seren memory hook drain --platform claude",
+        asynchronous: true,
+    },
+    HookDefinition {
+        event: "Stop",
+        command: "seren memory hook stop --platform claude",
+        asynchronous: false,
+    },
 ];
 
 fn claude_settings_path() -> Result<PathBuf> {
@@ -24,15 +42,40 @@ fn claude_settings_path() -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(".claude").join("settings.json"))
 }
 
-fn entry_contains_command(entry: &serde_json::Value, expected: &str) -> bool {
-    entry
-        .get("hooks")
-        .and_then(|hooks| hooks.as_array())
-        .is_some_and(|hooks| {
-            hooks.iter().any(|hook| {
-                hook.get("command").and_then(|command| command.as_str()) == Some(expected)
-            })
-        })
+fn hook_matches_definition(hook: &serde_json::Value, definition: &HookDefinition) -> bool {
+    hook.get("type").and_then(|value| value.as_str()) == Some("command")
+        && hook.get("command").and_then(|value| value.as_str()) == Some(definition.command)
+        && if definition.asynchronous {
+            hook.get("async").and_then(|value| value.as_bool()) == Some(true)
+                && hook.get("timeout").and_then(|value| value.as_u64()) == Some(10)
+        } else {
+            hook.get("async").and_then(|value| value.as_bool()) != Some(true)
+        }
+}
+
+fn configure_hook(hook: &mut serde_json::Value, definition: &HookDefinition) -> bool {
+    let hook = hook.as_object_mut().expect("validated hook command");
+    let mut changed = false;
+    if hook.get("type").and_then(|value| value.as_str()) != Some("command") {
+        hook.insert(
+            "type".to_string(),
+            serde_json::Value::String("command".to_string()),
+        );
+        changed = true;
+    }
+    if definition.asynchronous {
+        if hook.get("async").and_then(|value| value.as_bool()) != Some(true) {
+            hook.insert("async".to_string(), serde_json::Value::Bool(true));
+            changed = true;
+        }
+        if hook.get("timeout").and_then(|value| value.as_u64()) != Some(10) {
+            hook.insert("timeout".to_string(), serde_json::json!(10));
+            changed = true;
+        }
+    } else if hook.remove("async").is_some() {
+        changed = true;
+    }
+    changed
 }
 
 fn validate_settings(settings: &serde_json::Value) -> Result<()> {
@@ -51,7 +94,7 @@ fn validate_settings(settings: &serde_json::Value) -> Result<()> {
     let hooks = hooks
         .as_object()
         .context("agent settings hooks section is not a JSON object")?;
-    for (event, _) in HOOK_EVENTS {
+    for event in HOOK_EVENTS {
         let Some(entries) = hooks.get(event) else {
             continue;
         };
@@ -126,19 +169,47 @@ fn installed_events(settings: &serde_json::Value) -> Result<Vec<&'static str>> {
     validate_settings(settings)?;
     Ok(HOOK_EVENTS
         .iter()
-        .filter(|(event, command)| {
-            settings
-                .get("hooks")
-                .and_then(|hooks| hooks.get(*event))
-                .and_then(|entries| entries.as_array())
-                .is_some_and(|entries| {
-                    entries
-                        .iter()
-                        .any(|entry| entry_contains_command(entry, command))
-                })
+        .filter(|event| {
+            HOOK_DEFINITIONS
+                .iter()
+                .filter(|definition| definition.event == **event)
+                .any(|definition| hook_is_installed(settings, definition))
         })
-        .map(|(event, _)| *event)
+        .copied()
         .collect())
+}
+
+fn hook_is_installed(settings: &serde_json::Value, definition: &HookDefinition) -> bool {
+    settings
+        .get("hooks")
+        .and_then(|hooks| hooks.get(definition.event))
+        .and_then(|entries| entries.as_array())
+        .is_some_and(|entries| {
+            entries.iter().any(|entry| {
+                entry
+                    .get("hooks")
+                    .and_then(|hooks| hooks.as_array())
+                    .is_some_and(|hooks| {
+                        hooks
+                            .iter()
+                            .any(|hook| hook_matches_definition(hook, definition))
+                    })
+            })
+        })
+}
+
+fn all_hooks_installed(settings: &serde_json::Value) -> bool {
+    HOOK_DEFINITIONS
+        .iter()
+        .all(|definition| hook_is_installed(settings, definition))
+}
+
+fn missing_hook_commands(settings: &serde_json::Value) -> Vec<&'static str> {
+    HOOK_DEFINITIONS
+        .iter()
+        .filter(|definition| !hook_is_installed(settings, definition))
+        .map(|definition| definition.command)
+        .collect()
 }
 
 /// Add the Seren hook entries, leaving every unrelated entry untouched.
@@ -146,16 +217,32 @@ fn installed_events(settings: &serde_json::Value) -> Result<Vec<&'static str>> {
 fn install_into(settings: &mut serde_json::Value) -> Result<bool> {
     validate_settings(settings)?;
     let mut changed = false;
-    for (event, command) in HOOK_EVENTS {
-        let entries = event_entries(settings, event)?;
-        if entries
-            .iter()
-            .any(|entry| entry_contains_command(entry, command))
+    for definition in HOOK_DEFINITIONS {
+        let entries = event_entries(settings, definition.event)?;
+        let mut found = false;
+        for hook in entries
+            .iter_mut()
+            .flat_map(|entry| entry["hooks"].as_array_mut().expect("validated hook entry"))
+            .filter(|hook| {
+                hook.get("command").and_then(|command| command.as_str()) == Some(definition.command)
+            })
         {
+            found = true;
+            changed |= configure_hook(hook, &definition);
+        }
+        if found {
             continue;
         }
+        let mut hook = serde_json::json!({
+            "type": "command",
+            "command": definition.command,
+        });
+        if definition.asynchronous {
+            hook["async"] = serde_json::Value::Bool(true);
+            hook["timeout"] = serde_json::json!(10);
+        }
         entries.push(serde_json::json!({
-            "hooks": [{"type": "command", "command": command}]
+            "hooks": [hook]
         }));
         changed = true;
     }
@@ -169,8 +256,11 @@ fn uninstall_from(settings: &mut serde_json::Value) -> Result<bool> {
     let Some(hooks) = settings.get_mut("hooks").and_then(|h| h.as_object_mut()) else {
         return Ok(false);
     };
-    for (event, command) in HOOK_EVENTS {
-        let Some(entries) = hooks.get_mut(event).and_then(|e| e.as_array_mut()) else {
+    for definition in HOOK_DEFINITIONS {
+        let Some(entries) = hooks
+            .get_mut(definition.event)
+            .and_then(|e| e.as_array_mut())
+        else {
             continue;
         };
         entries.retain_mut(|entry| {
@@ -180,7 +270,7 @@ fn uninstall_from(settings: &mut serde_json::Value) -> Result<bool> {
                 .expect("validated hook entry");
             let before = commands.len();
             commands.retain(|hook| {
-                hook.get("command").and_then(|command| command.as_str()) != Some(command)
+                hook.get("command").and_then(|command| command.as_str()) != Some(definition.command)
             });
             let removed_owned_command = commands.len() != before;
             changed |= removed_owned_command;
@@ -396,13 +486,16 @@ pub async fn status(claude: bool) -> Result<()> {
     let (settings, _) = load_settings(&path)?;
     let installed = installed_events(&settings)?;
     let hooks_enabled = hooks_enabled(&settings);
+    let fully_installed = hooks_enabled && all_hooks_installed(&settings);
+    let missing_commands = missing_hook_commands(&settings);
     println!(
         "{}",
         serde_json::json!({
             "settings_path": path.display().to_string(),
             "installed_events": installed,
+            "missing_commands": missing_commands,
             "hooks_enabled": hooks_enabled,
-            "fully_installed": hooks_enabled && installed.len() == HOOK_EVENTS.len(),
+            "fully_installed": fully_installed,
         })
     );
     Ok(())
@@ -430,9 +523,75 @@ mod tests {
             installed_events(&settings).unwrap(),
             vec!["SessionStart", "Stop"]
         );
+        assert!(all_hooks_installed(&settings));
+        let session_start = settings["hooks"]["SessionStart"].as_array().unwrap();
+        assert_eq!(session_start.len(), 2);
+        let drain = session_start
+            .iter()
+            .flat_map(|entry| entry["hooks"].as_array().unwrap())
+            .find(|hook| hook["command"] == "seren memory hook drain --platform claude")
+            .unwrap();
+        assert_eq!(drain["async"], true);
+        assert_eq!(drain["timeout"], 10);
         let stop = settings["hooks"]["Stop"].as_array().unwrap();
         assert_eq!(stop.len(), 2, "unrelated Stop hook is preserved");
         assert_eq!(settings["model"], "opus");
+    }
+
+    #[test]
+    fn install_upgrades_existing_hooks_with_async_session_drain() {
+        let mut settings = serde_json::json!({
+            "hooks": {
+                "SessionStart": [{
+                    "hooks": [{
+                        "type": "command",
+                        "command": "seren memory hook session-start --platform claude"
+                    }]
+                }],
+                "Stop": [{
+                    "hooks": [{
+                        "type": "command",
+                        "command": "seren memory hook stop --platform claude"
+                    }]
+                }]
+            }
+        });
+        assert_eq!(
+            installed_events(&settings).unwrap(),
+            vec!["SessionStart", "Stop"]
+        );
+        assert!(!all_hooks_installed(&settings));
+        assert_eq!(
+            missing_hook_commands(&settings),
+            vec!["seren memory hook drain --platform claude"]
+        );
+        assert!(install_into(&mut settings).unwrap());
+        assert!(all_hooks_installed(&settings));
+        assert!(!install_into(&mut settings).unwrap());
+    }
+
+    #[test]
+    fn install_repairs_a_synchronous_drain_hook() {
+        let mut settings = serde_json::json!({
+            "hooks": {
+                "SessionStart": [{
+                    "hooks": [{
+                        "type": "command",
+                        "command": "seren memory hook drain --platform claude",
+                        "async": false,
+                        "timeout": 1
+                    }]
+                }]
+            }
+        });
+        assert!(!all_hooks_installed(&settings));
+        assert!(install_into(&mut settings).unwrap());
+        let drain = settings["hooks"]["SessionStart"][0]["hooks"][0]
+            .as_object()
+            .unwrap();
+        assert_eq!(drain["async"], true);
+        assert_eq!(drain["timeout"], 10);
+        assert!(all_hooks_installed(&settings));
     }
 
     #[test]

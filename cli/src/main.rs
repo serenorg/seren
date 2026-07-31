@@ -2806,6 +2806,12 @@ enum MemoryHookAction {
         #[arg(long, default_value = "claude")]
         platform: String,
     },
+    /// Opportunistically deliver queued turns without printing hook output
+    Drain {
+        /// Agent platform invoking the hook
+        #[arg(long, default_value = "claude")]
+        platform: String,
+    },
     /// Capture the completed turn from a finished agent response (fails open)
     Stop {
         /// Agent platform invoking the hook
@@ -5365,6 +5371,9 @@ async fn main() -> anyhow::Result<()> {
             MemoryAction::Hook { action } => match action {
                 MemoryHookAction::SessionStart { platform } => {
                     commands::memory_hooks::session_start(platform, &ctx).await?
+                }
+                MemoryHookAction::Drain { platform } => {
+                    commands::memory_hooks::drain(platform, &ctx).await?
                 }
                 MemoryHookAction::Stop { platform } => {
                     commands::memory_hooks::stop(platform, &ctx).await?
@@ -9225,6 +9234,23 @@ mod tests {
             Commands::Memory {
                 action: MemoryAction::Hook {
                     action: MemoryHookAction::Stop { platform }
+                }
+            } if platform == "claude"
+        ));
+
+        let drain = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "hook",
+            "drain",
+            "--platform",
+            "claude",
+        ]);
+        assert!(matches!(
+            drain.command,
+            Commands::Memory {
+                action: MemoryAction::Hook {
+                    action: MemoryHookAction::Drain { platform }
                 }
             } if platform == "claude"
         ));

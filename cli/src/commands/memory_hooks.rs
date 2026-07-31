@@ -22,6 +22,7 @@ const MAX_OUTBOX_TURN_BYTES: u64 = 1_048_576;
 const MAX_ERROR_CHARS: usize = 1_000;
 const SESSION_CONTEXT_TOKEN_BUDGET: u64 = 2_000;
 const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(4);
+const OPPORTUNISTIC_DRAIN_BUDGET: Duration = Duration::from_secs(3);
 const STOP_DELIVERY_BUDGET: Duration = Duration::from_secs(8);
 const FLUSH_DELIVERY_BUDGET: Duration = Duration::from_secs(60);
 const DELIVERY_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -1466,23 +1467,39 @@ pub async fn session_start(platform: String, ctx: &CommandContext) -> Result<()>
         .cwd
         .map(PathBuf::from)
         .or_else(|| std::env::current_dir().ok());
-    let context_text = match bootstrap_context(ctx, cwd.as_deref()).await {
-        Ok(text) => text,
+    match bootstrap_context(ctx, cwd.as_deref()).await {
+        Ok(context_text) if !context_text.is_empty() => {
+            let output = serde_json::json!({
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": context_text,
+                }
+            });
+            println!("{output}");
+        }
+        Ok(_) => {}
         Err(error) => {
             eprintln!("seren memory hook: bootstrap unavailable: {error:#}");
-            return Ok(());
         }
-    };
-    if context_text.is_empty() {
+    }
+    Ok(())
+}
+
+/// Asynchronous session-start companion hook: opportunistically drain turns
+/// from earlier outages without delaying context injection or agent startup.
+pub async fn drain(platform: String, ctx: &CommandContext) -> Result<()> {
+    if !platform_supported(&platform) {
+        eprintln!("seren memory hook: platform {platform} is not supported yet");
         return Ok(());
     }
-    let output = serde_json::json!({
-        "hookSpecificOutput": {
-            "hookEventName": "SessionStart",
-            "additionalContext": context_text,
+    match default_outbox_dir() {
+        Ok(outbox_dir) => {
+            deliver_due(ctx, &outbox_dir, OPPORTUNISTIC_DRAIN_BUDGET, false).await;
         }
-    });
-    println!("{output}");
+        Err(error) => {
+            eprintln!("seren memory hook: could not open the outbox for draining: {error:#}");
+        }
+    }
     Ok(())
 }
 
