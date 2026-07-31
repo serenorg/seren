@@ -2776,6 +2776,117 @@ enum StorageObjectAction {
     },
 }
 
+#[cfg(feature = "claude-mem")]
+#[derive(Subcommand)]
+enum MemoryMigrateAction {
+    /// claude-mem migration operations
+    ClaudeMem {
+        #[command(subcommand)]
+        action: ClaudeMemMigrateAction,
+    },
+}
+
+#[cfg(feature = "claude-mem")]
+#[derive(Subcommand)]
+enum ClaudeMemMigrateAction {
+    /// Content-free inventory of a claude-mem database
+    Inspect {
+        /// Path to claude-mem.db (opened read-only)
+        #[arg(long)]
+        database: std::path::PathBuf,
+        /// Destination organization; defaults to the active CLI organization
+        #[arg(long)]
+        organization_id: Option<Uuid>,
+    },
+    /// Create a reviewable migration plan without contacting Seren Memory
+    Plan {
+        /// Path to claude-mem.db (opened read-only)
+        #[arg(long)]
+        database: std::path::PathBuf,
+        /// Path for the reviewable JSON migration plan
+        #[arg(long)]
+        output: std::path::PathBuf,
+        /// Stable identity for this claude-mem installation
+        #[arg(long)]
+        source_instance: Option<String>,
+        /// Destination organization; defaults to the active CLI organization
+        #[arg(long)]
+        organization_id: Option<Uuid>,
+        /// Organization capture-policy version applied to imported records
+        #[arg(long)]
+        policy_version: Option<String>,
+        /// Decision for legacy projects that are not live absolute paths
+        #[arg(
+            long,
+            value_parser = ["review", "isolated", "skip"],
+            default_value = "review"
+        )]
+        missing_workspaces: String,
+        /// Mark the generated plan accepted when every workspace is resolved
+        #[arg(long)]
+        accept: bool,
+    },
+    /// Accept an edited plan and recompute its integrity hash
+    Accept {
+        /// Path to the reviewed JSON migration plan
+        #[arg(long)]
+        plan: std::path::PathBuf,
+    },
+    /// Run the migration transform locally, writing records to a directory
+    Rehearse {
+        /// Path to claude-mem.db (opened read-only)
+        #[arg(long)]
+        database: std::path::PathBuf,
+        /// Directory that receives the local JSONL rehearsal output
+        #[arg(long)]
+        output: std::path::PathBuf,
+        /// Stable identity for this claude-mem installation
+        #[arg(long)]
+        source_instance: Option<String>,
+        /// Stop after this many records
+        #[arg(long)]
+        limit: Option<u64>,
+    },
+    /// Import one consistent snapshot using an accepted plan
+    Run {
+        /// Path to an accepted JSON migration plan
+        #[arg(long)]
+        plan: std::path::PathBuf,
+        /// Mark this run as the stopped final catch-up
+        #[arg(long)]
+        final_catch_up: bool,
+        /// Confirm claude-mem hooks and workers have been stopped
+        #[arg(long, requires = "final_catch_up")]
+        source_stopped: bool,
+    },
+    /// Show remote lifecycle state and local resumability
+    Status {
+        /// Durable migration ID
+        migration_id: Uuid,
+    },
+    /// Resume an interrupted run from its original fixed snapshot
+    Resume {
+        /// Durable migration ID
+        migration_id: Uuid,
+    },
+    /// Verify counts and sampled content hashes without printing content
+    Verify {
+        /// Durable migration ID
+        migration_id: Uuid,
+    },
+    /// Roll back records attributed to one run or its entire series
+    Rollback {
+        /// Durable migration ID used as the run or series seed
+        migration_id: Uuid,
+        /// Roll back every migration in the selected run's series
+        #[arg(long)]
+        series: bool,
+        /// Confirm permanent deletion of migration-attributed records
+        #[arg(long)]
+        yes: bool,
+    },
+}
+
 #[derive(Subcommand)]
 enum MemoryAgentAction {
     /// Register the Seren Memory hooks in the agent configuration
@@ -2974,6 +3085,12 @@ enum MemoryAction {
     Agent {
         #[command(subcommand)]
         action: MemoryAgentAction,
+    },
+    #[cfg(feature = "claude-mem")]
+    /// Inspect or locally rehearse a claude-mem migration without service calls
+    Migrate {
+        #[command(subcommand)]
+        action: MemoryMigrateAction,
     },
     /// List private memories without printing their content in table output
     List {
@@ -5357,6 +5474,72 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
+            #[cfg(feature = "claude-mem")]
+            MemoryAction::Migrate { action } => match action {
+                MemoryMigrateAction::ClaudeMem { action } => match action {
+                    ClaudeMemMigrateAction::Inspect {
+                        database,
+                        organization_id,
+                    } => commands::memory_migrate::inspect(database, organization_id, &ctx).await?,
+                    ClaudeMemMigrateAction::Plan {
+                        database,
+                        output,
+                        source_instance,
+                        organization_id,
+                        policy_version,
+                        missing_workspaces,
+                        accept,
+                    } => {
+                        commands::memory_migrate::create_plan(
+                            database,
+                            output,
+                            source_instance,
+                            organization_id,
+                            policy_version,
+                            missing_workspaces,
+                            accept,
+                            &ctx,
+                        )
+                        .await?
+                    }
+                    ClaudeMemMigrateAction::Accept { plan } => {
+                        commands::memory_migrate::accept_plan(plan).await?
+                    }
+                    ClaudeMemMigrateAction::Rehearse {
+                        database,
+                        output,
+                        source_instance,
+                        limit,
+                    } => {
+                        commands::memory_migrate::rehearse(database, output, source_instance, limit)
+                            .await?
+                    }
+                    ClaudeMemMigrateAction::Run {
+                        plan,
+                        final_catch_up,
+                        source_stopped,
+                    } => {
+                        commands::memory_migrate::run(plan, final_catch_up, source_stopped, &ctx)
+                            .await?
+                    }
+                    ClaudeMemMigrateAction::Status { migration_id } => {
+                        commands::memory_migrate::status(migration_id, &ctx).await?
+                    }
+                    ClaudeMemMigrateAction::Resume { migration_id } => {
+                        commands::memory_migrate::resume(migration_id, &ctx).await?
+                    }
+                    ClaudeMemMigrateAction::Verify { migration_id } => {
+                        commands::memory_migrate::verify(migration_id, &ctx).await?
+                    }
+                    ClaudeMemMigrateAction::Rollback {
+                        migration_id,
+                        series,
+                        yes,
+                    } => {
+                        commands::memory_migrate::rollback(migration_id, series, yes, &ctx).await?
+                    }
+                },
+            },
             MemoryAction::Agent { action } => match action {
                 MemoryAgentAction::Install { claude } => {
                     commands::memory_agent::install(claude).await?
@@ -9275,6 +9458,79 @@ mod tests {
                 }
             }
         ));
+
+        #[cfg(feature = "claude-mem")]
+        let migration_plan = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "migrate",
+            "claude-mem",
+            "plan",
+            "--database",
+            "claude-mem.db",
+            "--output",
+            "migration.json",
+            "--missing-workspaces",
+            "isolated",
+            "--accept",
+        ]);
+        #[cfg(feature = "claude-mem")]
+        assert!(matches!(
+            migration_plan.command,
+            Commands::Memory {
+                action: MemoryAction::Migrate {
+                    action: MemoryMigrateAction::ClaudeMem {
+                        action: ClaudeMemMigrateAction::Plan {
+                            accept: true,
+                            ref missing_workspaces,
+                            ..
+                        }
+                    }
+                }
+            } if missing_workspaces == "isolated"
+        ));
+
+        #[cfg(feature = "claude-mem")]
+        let migration_run = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "migrate",
+            "claude-mem",
+            "run",
+            "--plan",
+            "migration.json",
+            "--final-catch-up",
+            "--source-stopped",
+        ]);
+        #[cfg(feature = "claude-mem")]
+        assert!(matches!(
+            migration_run.command,
+            Commands::Memory {
+                action: MemoryAction::Migrate {
+                    action: MemoryMigrateAction::ClaudeMem {
+                        action: ClaudeMemMigrateAction::Run {
+                            final_catch_up: true,
+                            source_stopped: true,
+                            ..
+                        }
+                    }
+                }
+            }
+        ));
+
+        #[cfg(feature = "claude-mem")]
+        let invalid_final_confirmation = try_parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "migrate",
+            "claude-mem",
+            "run",
+            "--plan",
+            "migration.json",
+            "--source-stopped",
+        ]);
+        #[cfg(feature = "claude-mem")]
+        assert!(invalid_final_confirmation.is_err());
     }
 
     #[test]

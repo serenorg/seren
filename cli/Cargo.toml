@@ -19,6 +19,7 @@ path = "src/main.rs"
 [features]
 default = []
 telemetry = ["seren-mcp/telemetry"]
+claude-mem = ["dep:rusqlite"]
 
 [dependencies]
 seren = { package = "seren-sdk", path = "../sdk" }
@@ -52,6 +53,7 @@ flate2 = "1.1"
 tar = "0.4"
 chacha20poly1305 = "0.11"
 rand = { workspace = true }
+rusqlite = { version = "0.32", features = ["backup", "bundled"], optional = true }
 
 [dev-dependencies]
 tempfile = "3"

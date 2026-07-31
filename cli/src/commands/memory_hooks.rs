@@ -308,7 +308,7 @@ fn redact_key_value_line(line: &str) -> String {
 /// Remove secret-shaped content before anything leaves the machine. This is a
 /// pattern filter, not a guarantee: paraphrased or novel secret formats are
 /// documented as out of scope.
-fn redact_secrets(text: &str) -> String {
+pub(crate) fn redact_secrets(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut in_pem_block = false;
     for line in text.lines() {
