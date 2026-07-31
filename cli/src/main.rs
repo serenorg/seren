@@ -2777,6 +2777,28 @@ enum StorageObjectAction {
 }
 
 #[derive(Subcommand)]
+enum MemoryAgentAction {
+    /// Register the Seren Memory hooks in the agent configuration
+    Install {
+        /// Target the Claude Code hook configuration
+        #[arg(long)]
+        claude: bool,
+    },
+    /// Remove only the Seren-owned hooks from the agent configuration
+    Uninstall {
+        /// Target the Claude Code hook configuration
+        #[arg(long)]
+        claude: bool,
+    },
+    /// Report which Seren Memory hooks are installed
+    Status {
+        /// Target the Claude Code hook configuration
+        #[arg(long)]
+        claude: bool,
+    },
+}
+
+#[derive(Subcommand)]
 enum MemoryHookAction {
     /// Return bounded private-memory context for session start (fails open)
     SessionStart {
@@ -2941,6 +2963,11 @@ enum MemoryAction {
     Hook {
         #[command(subcommand)]
         action: MemoryHookAction,
+    },
+    /// Install or remove the automatic capture hooks for an agent platform
+    Agent {
+        #[command(subcommand)]
+        action: MemoryAgentAction,
     },
     /// List private memories without printing their content in table output
     List {
@@ -5324,6 +5351,17 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
+            MemoryAction::Agent { action } => match action {
+                MemoryAgentAction::Install { claude } => {
+                    commands::memory_agent::install(claude).await?
+                }
+                MemoryAgentAction::Uninstall { claude } => {
+                    commands::memory_agent::uninstall(claude).await?
+                }
+                MemoryAgentAction::Status { claude } => {
+                    commands::memory_agent::status(claude).await?
+                }
+            },
             MemoryAction::Hook { action } => match action {
                 MemoryHookAction::SessionStart { platform } => {
                     commands::memory_hooks::session_start(platform, &ctx).await?
@@ -9197,6 +9235,17 @@ mod tests {
             Commands::Memory {
                 action: MemoryAction::Hook {
                     action: MemoryHookAction::Status
+                }
+            }
+        ));
+
+        let agent_status =
+            parse_cli_with_large_stack(vec!["seren", "memory", "agent", "status", "--claude"]);
+        assert!(matches!(
+            agent_status.command,
+            Commands::Memory {
+                action: MemoryAction::Agent {
+                    action: MemoryAgentAction::Status { claude: true }
                 }
             }
         ));
