@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use zeroize::Zeroize;
 
 use crate::command_context::CommandContext;
 
@@ -486,8 +487,6 @@ fn resolve_workspace(state_dir: &Path, cwd: &Path) -> WorkspaceIdentity {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct OutboxTurn {
-    #[serde(default = "outbox_schema_version")]
-    schema_version: u32,
     #[serde(default)]
     profile: String,
     #[serde(default)]
@@ -512,10 +511,242 @@ struct OutboxTurn {
     next_attempt_at: Option<jiff::Timestamp>,
     #[serde(default)]
     last_error: Option<String>,
+    #[serde(default)]
+    content_omitted: bool,
 }
 
-fn outbox_schema_version() -> u32 {
-    1
+// ---------------------------------------------------------------------------
+// Encryption at rest
+// ---------------------------------------------------------------------------
+
+const OUTBOX_KEY_ENV: &str = "SEREN_MEMORY_HOOKS_KEY";
+const OUTBOX_KEY_FILE: &str = "memory_hooks.key";
+
+static OUTBOX_KEY: std::sync::OnceLock<Option<chacha20poly1305::Key>> = std::sync::OnceLock::new();
+
+fn decode_outbox_key(mut encoded: String) -> Option<chacha20poly1305::Key> {
+    use base64::Engine;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(encoded.trim())
+        .ok();
+    encoded.zeroize();
+    let mut bytes = decoded?;
+    let key = chacha20poly1305::Key::try_from(bytes.as_slice()).ok();
+    bytes.zeroize();
+    key
+}
+
+fn is_outbox_record_path(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    (name.ends_with(".json") && name != "workspaces.json")
+        || name.contains(".sending-")
+        || name.contains(".reclaiming-")
+        || name.contains(".needs_attention-")
+        || name.contains(".tmp-")
+}
+
+fn outbox_contains_sealed_content(outbox_dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(outbox_dir) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        if !is_outbox_record_path(&entry.path()) {
+            return false;
+        }
+        let Ok(metadata) = entry.metadata() else {
+            return false;
+        };
+        if metadata.len() > MAX_OUTBOX_TURN_BYTES {
+            return true;
+        }
+        std::fs::read_to_string(entry.path())
+            .ok()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+            .is_some_and(|value| {
+                value
+                    .get("ciphertext")
+                    .is_some_and(serde_json::Value::is_string)
+            })
+    })
+}
+
+fn read_outbox_key_file(path: &Path) -> Option<chacha20poly1305::Key> {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(decode_outbox_key)
+}
+
+fn file_backed_outbox_key(outbox_dir: &Path, key_path: &Path) -> Option<chacha20poly1305::Key> {
+    let lock_path = key_path.parent()?.join(".memory_hooks_key.lock");
+    with_private_lock(&lock_path, || {
+        if key_path.exists() {
+            return Ok(read_outbox_key_file(key_path));
+        }
+
+        // Never replace a missing key while content sealed by the prior key
+        // remains recoverable on disk.
+        if outbox_contains_sealed_content(outbox_dir) {
+            return Ok(None);
+        }
+
+        use rand::RngExt;
+        let mut bytes: [u8; 32] = rand::rng().random();
+        let key = chacha20poly1305::Key::try_from(bytes.as_slice()).ok();
+        let mut encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        bytes.zeroize();
+        let created = write_private_file_if_absent(key_path, encoded.as_bytes());
+        encoded.zeroize();
+
+        match created {
+            Ok(true) => Ok(key),
+            Ok(false) => Ok(read_outbox_key_file(key_path)),
+            Err(_) => Ok(None),
+        }
+    })
+    .ok()
+    .flatten()
+}
+
+/// Resolve the installation key that seals queued transcript content: the
+/// environment override first, then a private installation key file, creating
+/// a random key on first use. `None` means no secure key source is available
+/// and the bridge must degrade to metadata-only capture.
+fn outbox_key(outbox_dir: &Path) -> Option<&'static chacha20poly1305::Key> {
+    OUTBOX_KEY
+        .get_or_init(|| {
+            if let Ok(encoded) = std::env::var(OUTBOX_KEY_ENV) {
+                return decode_outbox_key(encoded);
+            }
+            let key_path = crate::config::config_root().ok()?.join(OUTBOX_KEY_FILE);
+            file_backed_outbox_key(outbox_dir, &key_path)
+        })
+        .as_ref()
+}
+
+#[cfg(test)]
+fn install_test_outbox_key() {
+    let _ = OUTBOX_KEY.get_or_init(|| chacha20poly1305::Key::try_from([7u8; 32].as_slice()).ok());
+}
+
+/// On-disk record envelope. Mutable delivery state stays readable without the
+/// key; transcript content lives only in the sealed ciphertext.
+#[derive(Debug, Serialize, Deserialize)]
+struct SealedRecord {
+    #[serde(default)]
+    content_omitted: bool,
+    #[serde(default)]
+    attempts: u32,
+    #[serde(default)]
+    next_attempt_at: Option<jiff::Timestamp>,
+    #[serde(default)]
+    last_error: Option<String>,
+    observed_at: jiff::Timestamp,
+    #[serde(default)]
+    nonce: Option<String>,
+    #[serde(default)]
+    ciphertext: Option<String>,
+}
+
+#[derive(Debug)]
+struct SealedContentUnavailable;
+
+impl std::fmt::Display for SealedContentUnavailable {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("sealed outbox content cannot be opened with the available key")
+    }
+}
+
+impl std::error::Error for SealedContentUnavailable {}
+
+fn is_sealed_content_unavailable(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<SealedContentUnavailable>().is_some()
+}
+
+fn encode_turn(outbox_dir: &Path, turn: &OutboxTurn) -> Result<Vec<u8>> {
+    use base64::Engine;
+    use chacha20poly1305::aead::Aead;
+    use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
+    use rand::RngExt;
+    let mut record = SealedRecord {
+        content_omitted: turn.content_omitted,
+        attempts: turn.attempts,
+        next_attempt_at: turn.next_attempt_at,
+        last_error: if turn.content_omitted {
+            turn.last_error.clone()
+        } else {
+            None
+        },
+        observed_at: turn.observed_at,
+        nonce: None,
+        ciphertext: None,
+    };
+    if !turn.content_omitted {
+        let key = outbox_key(outbox_dir).ok_or(SealedContentUnavailable)?;
+        let cipher = ChaCha20Poly1305::new(key);
+        let nonce_bytes: [u8; 12] = rand::rng().random();
+        let nonce = Nonce::try_from(nonce_bytes.as_slice())
+            .map_err(|error| anyhow::anyhow!("could not build an outbox nonce: {error}"))?;
+        let sealed = cipher
+            .encrypt(&nonce, serde_json::to_vec(turn)?.as_slice())
+            .map_err(|error| anyhow::anyhow!("could not seal an outbox record: {error}"))?;
+        let engine = base64::engine::general_purpose::STANDARD;
+        record.nonce = Some(engine.encode(nonce));
+        record.ciphertext = Some(engine.encode(sealed));
+    }
+    Ok(serde_json::to_vec_pretty(&record)?)
+}
+
+fn decode_turn(outbox_dir: &Path, raw: &str) -> Result<OutboxTurn> {
+    use base64::Engine;
+    use chacha20poly1305::aead::Aead;
+    use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
+    let record: SealedRecord = serde_json::from_str(raw)?;
+    let mut turn = match (&record.nonce, &record.ciphertext) {
+        (Some(nonce), Some(ciphertext)) => {
+            let key = outbox_key(outbox_dir).ok_or(SealedContentUnavailable)?;
+            let engine = base64::engine::general_purpose::STANDARD;
+            let nonce_bytes = engine.decode(nonce)?;
+            let sealed = engine.decode(ciphertext)?;
+            let cipher = ChaCha20Poly1305::new(key);
+            let nonce = Nonce::try_from(nonce_bytes.as_slice())
+                .map_err(|error| anyhow::anyhow!("invalid outbox nonce: {error}"))?;
+            let opened = cipher
+                .decrypt(&nonce, sealed.as_slice())
+                .map_err(|_| SealedContentUnavailable)?;
+            serde_json::from_slice::<OutboxTurn>(&opened)?
+        }
+        _ if record.content_omitted => OutboxTurn {
+            profile: String::new(),
+            api_base_url: String::new(),
+            organization_id: None,
+            credential_identity: None,
+            source_external_id: String::new(),
+            agent_platform: String::new(),
+            external_session_id: None,
+            external_turn_id: None,
+            transcript: String::new(),
+            project_context: String::new(),
+            workspace_key: None,
+            workspace_uri: None,
+            source_uri: None,
+            observed_at: record.observed_at,
+            attempts: record.attempts,
+            next_attempt_at: record.next_attempt_at,
+            last_error: record.last_error.clone(),
+            content_omitted: true,
+        },
+        _ => anyhow::bail!("sealed outbox record was missing its ciphertext"),
+    };
+    turn.attempts = record.attempts;
+    turn.next_attempt_at = record.next_attempt_at;
+    if record.last_error.is_some() || record.content_omitted {
+        turn.last_error = record.last_error;
+    }
+    turn.observed_at = record.observed_at;
+    turn.content_omitted = record.content_omitted;
+    Ok(turn)
 }
 
 fn read_turn(path: &Path) -> Result<OutboxTurn> {
@@ -526,14 +757,10 @@ fn read_turn(path: &Path) -> Result<OutboxTurn> {
         );
     }
     let raw = std::fs::read_to_string(path)?;
-    let turn: OutboxTurn = serde_json::from_str(&raw)?;
-    if turn.schema_version != outbox_schema_version() {
-        anyhow::bail!(
-            "unsupported memory hook outbox schema version {}",
-            turn.schema_version
-        );
-    }
-    Ok(turn)
+    let outbox_dir = path
+        .parent()
+        .context("outbox record did not have a parent directory")?;
+    decode_turn(outbox_dir, &raw)
 }
 
 fn create_private_dir(path: &Path) -> Result<()> {
@@ -629,8 +856,7 @@ fn write_private_file_if_absent(path: &Path, contents: &[u8]) -> Result<bool> {
     }
 }
 
-fn with_outbox_lock<T>(outbox_dir: &Path, operation: impl FnOnce() -> Result<T>) -> Result<T> {
-    let lock_path = outbox_dir.join(".outbox.lock");
+fn with_private_lock<T>(lock_path: &Path, operation: impl FnOnce() -> Result<T>) -> Result<T> {
     let mut options = std::fs::OpenOptions::new();
     options.create(true).read(true).write(true);
     #[cfg(unix)]
@@ -654,6 +880,10 @@ fn with_outbox_lock<T>(outbox_dir: &Path, operation: impl FnOnce() -> Result<T>)
         (Ok(_), Err(error)) => Err(error.into()),
         (Ok(value), Ok(())) => Ok(value),
     }
+}
+
+fn with_outbox_lock<T>(outbox_dir: &Path, operation: impl FnOnce() -> Result<T>) -> Result<T> {
+    with_private_lock(&outbox_dir.join(".outbox.lock"), operation)
 }
 
 fn turn_file_stem(turn: &OutboxTurn) -> String {
@@ -702,13 +932,13 @@ fn outbox_content_bytes(outbox_dir: &Path) -> u64 {
 }
 
 fn write_turn_if_absent(outbox_dir: &Path, turn: &OutboxTurn) -> Result<bool> {
-    let serialized = serde_json::to_vec_pretty(turn)?;
+    let serialized = encode_turn(outbox_dir, turn)?;
     write_private_file_if_absent(&queued_turn_path(outbox_dir, turn), &serialized)
 }
 
 fn enqueue_turn(outbox_dir: &Path, turn: &OutboxTurn) -> Result<()> {
     with_outbox_lock(outbox_dir, || {
-        let serialized = serde_json::to_vec_pretty(turn)?;
+        let serialized = encode_turn(outbox_dir, turn)?;
         let queued_path = queued_turn_path(outbox_dir, turn);
         let existing_bytes = queued_path
             .metadata()
@@ -814,6 +1044,33 @@ fn requeue_turn(
     Ok(())
 }
 
+fn queued_path_for_claim(outbox_dir: &Path, claimed: &Path) -> Result<PathBuf> {
+    let name = claimed
+        .file_name()
+        .and_then(|name| name.to_str())
+        .context("outbox claim name was not valid UTF-8")?;
+    let stem = name
+        .split_once(".sending-")
+        .map(|(stem, _)| stem)
+        .or_else(|| name.strip_suffix(".sending"))
+        .context("outbox claim name did not identify its queued record")?;
+    Ok(outbox_dir.join(format!("{stem}.json")))
+}
+
+fn restore_claim(outbox_dir: &Path, claimed: &Path) -> Result<()> {
+    let queued = queued_path_for_claim(outbox_dir, claimed)?;
+    match std::fs::hard_link(claimed, &queued) {
+        Ok(()) => std::fs::remove_file(claimed)?,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            // A replay queued a newer copy while the prior delivery was
+            // claimed. The deterministic queued record takes precedence.
+            std::fs::remove_file(claimed)?;
+        }
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
 /// Reclaim deliveries whose owning process died mid-send. A unique rename
 /// first gives one process ownership of an expired claim.
 fn reclaim_stale_claims(outbox_dir: &Path) -> Result<usize> {
@@ -844,11 +1101,20 @@ fn reclaim_stale_claims_until(
         }
         let turn = match read_turn(&owned) {
             Ok(turn) => turn,
+            Err(error) if is_sealed_content_unavailable(&error) => {
+                restore_claim(outbox_dir, &owned)?;
+                continue;
+            }
             Err(_) => {
                 quarantine_record(&owned)?;
                 continue;
             }
         };
+        if turn.content_omitted {
+            restore_claim(outbox_dir, &owned)?;
+            reclaimed += 1;
+            continue;
+        }
         requeue_turn(outbox_dir, &owned, turn, "delivery interrupted")?;
         reclaimed += 1;
     }
@@ -884,11 +1150,17 @@ fn due_turn_paths_until(
         }
         let turn = match read_turn(&path) {
             Ok(turn) => turn,
+            Err(error) if is_sealed_content_unavailable(&error) => {
+                continue;
+            }
             Err(_) => {
                 quarantine_record(&path)?;
                 continue;
             }
         };
+        if turn.content_omitted {
+            continue;
+        }
         if !include_needs_attention && turn.attempts >= NEEDS_ATTENTION_ATTEMPTS {
             continue;
         }
@@ -917,6 +1189,9 @@ fn claim_turn(path: &Path) -> Result<Option<(PathBuf, OutboxTurn)>> {
     }
     let turn = match read_turn(&claimed) {
         Ok(turn) => turn,
+        Err(error) if is_sealed_content_unavailable(&error) => {
+            return Err(error);
+        }
         Err(error) => {
             quarantine_record(&claimed)?;
             return Err(error);
@@ -932,8 +1207,7 @@ fn acknowledge_turn(claimed: &Path) -> Result<()> {
 
 #[derive(Debug, Default, Serialize)]
 struct OutboxStatus {
-    schema_version: u32,
-    content_encrypted: bool,
+    key_available: bool,
     queued: usize,
     in_flight: usize,
     needs_attention: usize,
@@ -943,8 +1217,7 @@ struct OutboxStatus {
 
 fn outbox_status(outbox_dir: &Path) -> OutboxStatus {
     let mut status = OutboxStatus {
-        schema_version: outbox_schema_version(),
-        content_encrypted: false,
+        key_available: outbox_key(outbox_dir).is_some(),
         ..OutboxStatus::default()
     };
     let Ok(entries) = std::fs::read_dir(outbox_dir) else {
@@ -1064,6 +1337,10 @@ fn credential_identity(ctx: &CommandContext) -> Option<String> {
     None
 }
 
+fn turn_is_deliverable(turn: &OutboxTurn) -> bool {
+    !turn.content_omitted && !turn.transcript.is_empty()
+}
+
 fn turn_targets_context(ctx: &CommandContext, turn: &OutboxTurn) -> bool {
     let profile_matches =
         turn.profile.is_empty() || turn.profile == crate::config::active_profile();
@@ -1079,10 +1356,8 @@ fn turn_targets_context(ctx: &CommandContext, turn: &OutboxTurn) -> bool {
     profile_matches && api_base_matches && organization_matches && credential_matches
 }
 
-fn release_claim(outbox_dir: &Path, claimed: &Path, turn: &OutboxTurn) -> Result<()> {
-    write_turn_if_absent(outbox_dir, turn)?;
-    std::fs::remove_file(claimed)?;
-    Ok(())
+fn release_claim(outbox_dir: &Path, claimed: &Path) -> Result<()> {
+    restore_claim(outbox_dir, claimed)
 }
 
 async fn deliver_due(
@@ -1093,6 +1368,10 @@ async fn deliver_due(
 ) -> (usize, usize) {
     let started = std::time::Instant::now();
     let deadline = started.checked_add(budget);
+    if outbox_key(outbox_dir).is_none() {
+        eprintln!("seren memory hook: the outbox key is unavailable; sealed turns stay queued");
+        return (0, 0);
+    }
     if let Err(error) = reclaim_stale_claims_until(outbox_dir, deadline) {
         eprintln!("seren memory hook: could not reclaim an outbox delivery: {error:#}");
     }
@@ -1125,8 +1404,15 @@ async fn deliver_due(
             }
         };
         if !turn_targets_context(ctx, &turn) {
-            if let Err(error) = release_claim(outbox_dir, &claimed, &turn) {
+            if let Err(error) = release_claim(outbox_dir, &claimed) {
                 eprintln!("seren memory hook: could not release a foreign outbox turn: {error:#}");
+                failed += 1;
+            }
+            continue;
+        }
+        if !turn_is_deliverable(&turn) {
+            if let Err(error) = release_claim(outbox_dir, &claimed) {
+                eprintln!("seren memory hook: could not release an empty outbox record: {error:#}");
                 failed += 1;
             }
             continue;
@@ -1293,7 +1579,6 @@ async fn capture_stop(payload: &HookPayload, ctx: &CommandContext) -> Result<()>
     let source_external_id = format!("hook:agent-turn:{SUPPORTED_PLATFORM}:{session_id}:{turn_id}");
 
     let queued = OutboxTurn {
-        schema_version: outbox_schema_version(),
         profile: crate::config::active_profile().to_string(),
         api_base_url: ctx.api_base(),
         organization_id: configured_organization_id(),
@@ -1314,6 +1599,24 @@ async fn capture_stop(payload: &HookPayload, ctx: &CommandContext) -> Result<()>
         attempts: 0,
         next_attempt_at: None,
         last_error: None,
+        content_omitted: false,
+    };
+    let queued = if outbox_key(&outbox_dir).is_some() {
+        queued
+    } else {
+        // No secure key source: never persist transcript content in
+        // plaintext. A metadata-only record keeps the loss visible.
+        eprintln!("seren memory hook: no secure key source; captured content was not persisted");
+        OutboxTurn {
+            transcript: String::new(),
+            project_context: String::new(),
+            attempts: NEEDS_ATTENTION_ATTEMPTS,
+            last_error: Some(
+                "outbox encryption unavailable; transcript was not persisted".to_string(),
+            ),
+            content_omitted: true,
+            ..queued
+        }
     };
     enqueue_turn(&outbox_dir, &queued)?;
     deliver_due(ctx, &outbox_dir, STOP_DELIVERY_BUDGET, false).await;
@@ -1585,9 +1888,51 @@ mod tests {
         );
     }
 
+    #[test]
+    fn file_backed_outbox_key_is_stable_and_private() {
+        let root = tempfile::tempdir().unwrap();
+        let outbox_dir = root.path().join("outbox");
+        let config_dir = root.path().join("config");
+        create_private_dir(&outbox_dir).unwrap();
+        create_private_dir(&config_dir).unwrap();
+        let key_path = config_dir.join(OUTBOX_KEY_FILE);
+
+        let first = file_backed_outbox_key(&outbox_dir, &key_path).unwrap();
+        let second = file_backed_outbox_key(&outbox_dir, &key_path).unwrap();
+
+        assert_eq!(first, second);
+        assert_eq!(read_outbox_key_file(&key_path).unwrap(), first);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&key_path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[test]
+    fn missing_key_is_not_replaced_while_sealed_content_exists() {
+        let root = tempfile::tempdir().unwrap();
+        let outbox_dir = root.path().join("outbox");
+        let config_dir = root.path().join("config");
+        create_private_dir(&outbox_dir).unwrap();
+        create_private_dir(&config_dir).unwrap();
+        write_private_file(
+            &outbox_dir.join("queued.json"),
+            br#"{"ciphertext":"still-sealed"}"#,
+        )
+        .unwrap();
+        let key_path = config_dir.join(OUTBOX_KEY_FILE);
+
+        assert!(file_backed_outbox_key(&outbox_dir, &key_path).is_none());
+        assert!(!key_path.exists());
+    }
+
     fn sample_turn(id: &str) -> OutboxTurn {
+        install_test_outbox_key();
         OutboxTurn {
-            schema_version: outbox_schema_version(),
             profile: "default".to_string(),
             api_base_url: "https://api.serendb.com".to_string(),
             organization_id: None,
@@ -1605,6 +1950,7 @@ mod tests {
             attempts: 0,
             next_attempt_at: None,
             last_error: None,
+            content_omitted: false,
         }
     }
 
@@ -1629,6 +1975,15 @@ mod tests {
         );
 
         requeue_turn(dir.path(), &claimed, loaded, "boom").unwrap();
+        let queued_raw = std::fs::read_to_string(queued_turn_path(dir.path(), &turn)).unwrap();
+        assert!(!queued_raw.contains("boom"));
+        assert_eq!(
+            decode_turn(dir.path(), &queued_raw)
+                .unwrap()
+                .last_error
+                .as_deref(),
+            Some("boom")
+        );
         let status = outbox_status(dir.path());
         assert_eq!(status.queued, 1);
         assert_eq!(status.in_flight, 0);
@@ -1663,9 +2018,97 @@ mod tests {
         requeue_turn(dir.path(), &claimed, claimed_turn, "old delivery failed").unwrap();
 
         let queued = std::fs::read_to_string(queued_turn_path(dir.path(), &replay)).unwrap();
-        let loaded: OutboxTurn = serde_json::from_str(&queued).unwrap();
+        assert!(
+            !queued.contains("updated replay"),
+            "queued transcript content must not be readable at rest"
+        );
+        let loaded = decode_turn(dir.path(), &queued).unwrap();
         assert_eq!(loaded.transcript, "updated replay");
         assert_eq!(loaded.attempts, 0);
+    }
+
+    #[test]
+    fn metadata_only_records_are_never_claimed() {
+        let dir = tempfile::tempdir().unwrap();
+        for id in ["omitted-1", "omitted-2"] {
+            let mut turn = sample_turn(id);
+            turn.transcript.clear();
+            turn.project_context.clear();
+            turn.content_omitted = true;
+            turn.attempts = NEEDS_ATTENTION_ATTEMPTS;
+            turn.last_error = Some("content was not persisted".to_string());
+            enqueue_turn(dir.path(), &turn).unwrap();
+        }
+
+        assert!(
+            due_turn_paths(dir.path(), jiff::Timestamp::now(), true)
+                .unwrap()
+                .is_empty()
+        );
+        let status = outbox_status(dir.path());
+        assert_eq!(status.queued, 2);
+        assert_eq!(status.needs_attention, 2);
+        assert_eq!(status.unreadable, 0);
+
+        let queued: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.extension().and_then(|extension| extension.to_str()) == Some("json")
+            })
+            .collect();
+        for path in queued {
+            let (claimed, _) = claim_turn(&path).unwrap().unwrap();
+            release_claim(dir.path(), &claimed).unwrap();
+        }
+        let restored = outbox_status(dir.path());
+        assert_eq!(restored.queued, 2);
+        assert_eq!(restored.needs_attention, 2);
+    }
+
+    #[test]
+    fn records_that_cannot_be_opened_are_not_quarantined() {
+        use base64::Engine;
+
+        let dir = tempfile::tempdir().unwrap();
+        install_test_outbox_key();
+        let record = SealedRecord {
+            content_omitted: false,
+            attempts: 0,
+            next_attempt_at: None,
+            last_error: None,
+            observed_at: jiff::Timestamp::now(),
+            nonce: Some(base64::engine::general_purpose::STANDARD.encode([0u8; 12])),
+            ciphertext: Some(base64::engine::general_purpose::STANDARD.encode([0u8; 32])),
+        };
+        let path = dir.path().join("wrong-key.json");
+        write_private_file(&path, &serde_json::to_vec_pretty(&record).unwrap()).unwrap();
+
+        assert!(
+            due_turn_paths(dir.path(), jiff::Timestamp::now(), true)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(path.exists());
+        assert_eq!(
+            std::fs::read_dir(dir.path())
+                .unwrap()
+                .flatten()
+                .filter(|entry| is_quarantined_file(&entry.path()))
+                .count(),
+            0
+        );
+
+        let claim = dir.path().join("wrong-key.sending-0-test");
+        std::fs::rename(&path, &claim).unwrap();
+        assert_eq!(reclaim_stale_claims(dir.path()).unwrap(), 0);
+        assert!(path.exists());
+        assert!(!claim.exists());
+
+        let status = outbox_status(dir.path());
+        assert_eq!(status.needs_attention, 1);
+        assert_eq!(status.unreadable, 1);
     }
 
     #[test]
@@ -1681,21 +2124,6 @@ mod tests {
         assert_eq!(status.queued, 0);
         assert_eq!(status.needs_attention, 1);
         assert_eq!(status.unreadable, 1);
-    }
-
-    #[test]
-    fn unsupported_queue_schema_is_quarantined() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut turn = sample_turn("future-turn");
-        turn.schema_version = outbox_schema_version() + 1;
-        let serialized = serde_json::to_vec(&turn).unwrap();
-        write_private_file(&dir.path().join("future.json"), &serialized).unwrap();
-        assert!(
-            due_turn_paths(dir.path(), jiff::Timestamp::now(), false)
-                .unwrap()
-                .is_empty()
-        );
-        assert_eq!(outbox_status(dir.path()).needs_attention, 1);
     }
 
     #[test]
