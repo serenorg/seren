@@ -2579,13 +2579,112 @@
                 ]
             }
         },
+        "/migrations/{id}/embeddings": {
+            "post": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Generate embeddings for imported migration records",
+                "description": "Processes a bounded batch of pending or failed imported memories. Call until embedding_pending and embedding_failed are both zero before completing the migration.",
+                "operationId": "embed_migration_records",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Migration ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/EmbedMigrationRecordsRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Current embedding status",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_EmbedMigrationRecordsResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Migration not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Migration state does not accept embedding work",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Embedding service unavailable",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
         "/migrations/{id}/records": {
             "post": {
                 "tags": [
                     "Memory"
                 ],
                 "summary": "Import a batch of already-extracted records under a migration",
-                "description": "Records use the reserved import: namespace and are idempotent per source_external_id. Extraction never runs; embeddings backfill asynchronously. The response reports the outcome and durable IDs for every submitted record.",
+                "description": "Records use the reserved import: namespace and are idempotent per source_external_id. Extraction never runs. The response reports the outcome and durable IDs for every submitted record.",
                 "operationId": "import_migration_records",
                 "parameters": [
                     {
@@ -3281,6 +3380,7 @@
                     "user_id",
                     "source_origin",
                     "source_external_id",
+                    "conversation_id",
                     "source_metadata",
                     "content_sha256",
                     "content_retained",
@@ -3300,9 +3400,20 @@
                     "content_sha256": {
                         "type": "string"
                     },
+                    "conversation_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time"
+                    },
+                    "duplicate_of_source_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
                     },
                     "external_parent_session_id": {
                         "type": [
@@ -3449,9 +3560,14 @@
                 "required": [
                     "source_type",
                     "source_instance_id",
-                    "plan_hash"
+                    "plan_hash",
+                    "expected_record_count"
                 ],
                 "properties": {
+                    "expected_record_count": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
                     "final_catch_up": {
                         "type": [
                             "boolean",
@@ -3598,6 +3714,36 @@
                         "properties": {
                             "deleted": {
                                 "type": "boolean"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_EmbedMigrationRecordsResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "embedding_ready",
+                            "embedding_pending",
+                            "embedding_failed"
+                        ],
+                        "properties": {
+                            "embedding_failed": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "embedding_pending": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "embedding_ready": {
+                                "type": "integer",
+                                "format": "int64"
                             }
                         }
                     }
@@ -4176,6 +4322,7 @@
                             "source_type",
                             "source_instance_id",
                             "plan_hash",
+                            "expected_record_count",
                             "final_catch_up",
                             "state",
                             "imported_count",
@@ -4188,6 +4335,10 @@
                             "created_at": {
                                 "type": "string",
                                 "format": "date-time"
+                            },
+                            "expected_record_count": {
+                                "type": "integer",
+                                "format": "int64"
                             },
                             "failed_count": {
                                 "type": "integer",
@@ -4404,7 +4555,11 @@
                         "required": [
                             "migration",
                             "attributed_memories",
-                            "attributed_sources"
+                            "attributed_sources",
+                            "processed_records",
+                            "embedding_ready",
+                            "embedding_pending",
+                            "embedding_failed"
                         ],
                         "properties": {
                             "attributed_memories": {
@@ -4415,8 +4570,24 @@
                                 "type": "integer",
                                 "format": "int64"
                             },
+                            "embedding_failed": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "embedding_pending": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "embedding_ready": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
                             "migration": {
                                 "$ref": "#/components/schemas/MemoryMigration"
+                            },
+                            "processed_records": {
+                                "type": "integer",
+                                "format": "int64"
                             }
                         }
                     }
@@ -4995,6 +5166,42 @@
                     "supersedes",
                     "enriched_by"
                 ]
+            },
+            "EmbedMigrationRecordsRequest": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int64",
+                        "maximum": 100,
+                        "minimum": 1
+                    }
+                }
+            },
+            "EmbedMigrationRecordsResponse": {
+                "type": "object",
+                "required": [
+                    "embedding_ready",
+                    "embedding_pending",
+                    "embedding_failed"
+                ],
+                "properties": {
+                    "embedding_failed": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "embedding_pending": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "embedding_ready": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
             },
             "EmbeddingStatus": {
                 "type": "string",
@@ -6246,6 +6453,7 @@
                     "source_type",
                     "source_instance_id",
                     "plan_hash",
+                    "expected_record_count",
                     "final_catch_up",
                     "state",
                     "imported_count",
@@ -6258,6 +6466,10 @@
                     "created_at": {
                         "type": "string",
                         "format": "date-time"
+                    },
+                    "expected_record_count": {
+                        "type": "integer",
+                        "format": "int64"
                     },
                     "failed_count": {
                         "type": "integer",
@@ -6540,7 +6752,11 @@
                 "required": [
                     "migration",
                     "attributed_memories",
-                    "attributed_sources"
+                    "attributed_sources",
+                    "processed_records",
+                    "embedding_ready",
+                    "embedding_pending",
+                    "embedding_failed"
                 ],
                 "properties": {
                     "attributed_memories": {
@@ -6551,8 +6767,24 @@
                         "type": "integer",
                         "format": "int64"
                     },
+                    "embedding_failed": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "embedding_pending": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "embedding_ready": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
                     "migration": {
                         "$ref": "#/components/schemas/MemoryMigration"
+                    },
+                    "processed_records": {
+                        "type": "integer",
+                        "format": "int64"
                     }
                 }
             },

@@ -2858,6 +2858,9 @@ enum ClaudeMemMigrateAction {
         /// Confirm claude-mem hooks and workers have been stopped
         #[arg(long, requires = "final_catch_up")]
         source_stopped: bool,
+        /// Start a new snapshot even when an earlier run can still be resumed
+        #[arg(long)]
+        force_new_snapshot: bool,
     },
     /// Show remote lifecycle state and local resumability
     Status {
@@ -5518,9 +5521,16 @@ async fn main() -> anyhow::Result<()> {
                         plan,
                         final_catch_up,
                         source_stopped,
+                        force_new_snapshot,
                     } => {
-                        commands::memory_migrate::run(plan, final_catch_up, source_stopped, &ctx)
-                            .await?
+                        commands::memory_migrate::run(
+                            plan,
+                            final_catch_up,
+                            source_stopped,
+                            force_new_snapshot,
+                            &ctx,
+                        )
+                        .await?
                     }
                     ClaudeMemMigrateAction::Status { migration_id } => {
                         commands::memory_migrate::status(migration_id, &ctx).await?
@@ -9501,6 +9511,7 @@ mod tests {
             "migration.json",
             "--final-catch-up",
             "--source-stopped",
+            "--force-new-snapshot",
         ]);
         #[cfg(feature = "claude-mem")]
         assert!(matches!(
@@ -9511,6 +9522,7 @@ mod tests {
                         action: ClaudeMemMigrateAction::Run {
                             final_catch_up: true,
                             source_stopped: true,
+                            force_new_snapshot: true,
                             ..
                         }
                     }

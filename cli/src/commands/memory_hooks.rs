@@ -41,6 +41,12 @@ const REDACTED: &str = "[redacted]";
 struct HookPayload {
     #[serde(default)]
     session_id: Option<String>,
+    #[serde(
+        default,
+        alias = "parent_session_id",
+        alias = "resumed_from_session_id"
+    )]
+    external_parent_session_id: Option<String>,
     #[serde(default)]
     transcript_path: Option<String>,
     #[serde(default)]
@@ -277,7 +283,11 @@ fn is_secret_word(word: &str) -> bool {
 }
 
 fn redact_key_value_line(line: &str) -> String {
-    let lower = line.to_lowercase();
+    // Offsets found here index back into `line`, so the folded copy must keep
+    // identical byte positions. Full Unicode lowercasing can change a
+    // character's encoded length; the key names are ASCII, so ASCII folding is
+    // both sufficient and offset-preserving.
+    let lower = line.to_ascii_lowercase();
     let mut redact_from: Option<usize> = None;
     for name in SENSITIVE_KEY_NAMES {
         let mut search_from = 0;
@@ -499,6 +509,7 @@ struct OutboxTurn {
     source_external_id: String,
     agent_platform: String,
     external_session_id: Option<String>,
+    external_parent_session_id: Option<String>,
     external_turn_id: Option<String>,
     transcript: String,
     project_context: String,
@@ -726,6 +737,7 @@ fn decode_turn(outbox_dir: &Path, raw: &str) -> Result<OutboxTurn> {
             source_external_id: String::new(),
             agent_platform: String::new(),
             external_session_id: None,
+            external_parent_session_id: None,
             external_turn_id: None,
             transcript: String::new(),
             project_context: String::new(),
@@ -1276,7 +1288,7 @@ async fn deliver_turn(ctx: &CommandContext, turn: &OutboxTurn) -> Result<()> {
     let client = ctx.client().await?;
     let params = seren::SerenMemoryCaptureAgentTurnParams {
         agent_platform: turn.agent_platform.clone(),
-        external_parent_session_id: None,
+        external_parent_session_id: turn.external_parent_session_id.clone(),
         external_session_id: turn.external_session_id.clone(),
         external_turn_id: turn.external_turn_id.clone(),
         observed_at: Some(turn.observed_at),
@@ -1592,6 +1604,10 @@ async fn capture_stop(payload: &HookPayload, ctx: &CommandContext) -> Result<()>
     let cwd = canonical_workspace_path(&cwd);
     let workspace = resolve_workspace(&outbox_dir, &cwd);
     let session_id = stable_external_component(&native_session_id, 180);
+    let parent_session_id = payload
+        .external_parent_session_id
+        .as_deref()
+        .map(|value| stable_external_component(value, 180));
     let turn_id = stable_external_component(&turn.turn_id, 180);
     let source_external_id = format!("hook:agent-turn:{SUPPORTED_PLATFORM}:{session_id}:{turn_id}");
 
@@ -1603,6 +1619,7 @@ async fn capture_stop(payload: &HookPayload, ctx: &CommandContext) -> Result<()>
         source_external_id,
         agent_platform: SUPPORTED_PLATFORM.to_string(),
         external_session_id: Some(session_id.clone()),
+        external_parent_session_id: parent_session_id,
         external_turn_id: Some(turn_id.clone()),
         transcript: bounded,
         project_context: cwd.to_string_lossy().to_string(),
@@ -1844,6 +1861,21 @@ mod tests {
     }
 
     #[test]
+    fn redacts_key_value_assignments_around_non_ascii_text() {
+        // Characters whose full Unicode lowercase form has a different encoded
+        // length would shift every offset after them.
+        for prefix in ["\u{0130}", "\u{212A}", "\u{1E9E}"] {
+            let text = format!("{prefix} token=\u{65E5}\u{672C}\u{8A9E}-hunter2\n");
+            let redacted = redact_secrets(&text);
+            assert!(
+                !redacted.contains("hunter2"),
+                "value after {prefix:?} must be redacted, got {redacted:?}"
+            );
+            assert!(redacted.starts_with(&format!("{prefix} token=")));
+        }
+    }
+
+    #[test]
     fn redacts_secret_shapes_separated_by_tabs() {
         let secret = "ghp_0123456789abcdef0123456789abcdef0123";
         let redacted = redact_secrets(&format!("prefix\t{secret}\tsuffix"));
@@ -1957,6 +1989,7 @@ mod tests {
             source_external_id: format!("hook:agent-turn:claude:session:{id}"),
             agent_platform: "claude".to_string(),
             external_session_id: Some("session".to_string()),
+            external_parent_session_id: None,
             external_turn_id: Some(id.to_string()),
             transcript: "User: hi\n\nAssistant: hello".to_string(),
             project_context: "/workspace".to_string(),
