@@ -102,7 +102,7 @@
                     "Memory"
                 ],
                 "summary": "Capture a completed agent turn from a lifecycle hook",
-                "description": "Dedicated ingestion operation for automatic agent capture. Requires a stable source_external_id in the reserved hook: namespace, always stores a metadata source envelope for idempotent retries, and stores the raw payload only when retain_source is true.",
+                "description": "Dedicated ingestion operation for automatic agent capture. Accepts prompt and assistant-response content as separate fields so the current organization policy can independently permit each content class before the service assembles an extraction transcript. Requires a stable source_external_id in the reserved hook: namespace and the current server-issued organization policy_version. Stale callers must refresh the policy and re-sanitize queued content. The operation always stores a metadata source envelope for idempotent retries and stores the assembled raw payload only when both retain_source is requested and organization policy permits it. Source metadata is provenance validated against a separate 16,000-byte serialized bound and does not count against max_transcript_bytes.",
                 "operationId": "capture_agent_turn",
                 "requestBody": {
                     "content": {
@@ -137,6 +137,46 @@
                     },
                     "401": {
                         "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Automatic capture or the requested capture mode is disabled by organization policy",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "The submitted organization policy revision is stale",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "413": {
+                        "description": "The captured transcript and project context exceed the organization policy limit",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "The organization policy could not be verified",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -3349,13 +3389,20 @@
                 "type": "object",
                 "description": "Request body for the dedicated agent-capture operation. Requires a stable\nhook-namespace source identity so lifecycle retries stay idempotent.",
                 "required": [
-                    "transcript",
                     "source_external_id",
-                    "agent_platform"
+                    "agent_platform",
+                    "policy_version"
                 ],
                 "properties": {
                     "agent_platform": {
                         "type": "string"
+                    },
+                    "assistant_response": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "Sanitized final assistant content, when organization policy permits response capture."
                     },
                     "external_parent_session_id": {
                         "type": [
@@ -3390,10 +3437,7 @@
                         "format": "uuid"
                     },
                     "policy_version": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "project_context": {
                         "type": [
@@ -3424,7 +3468,9 @@
                     "source_external_id": {
                         "type": "string"
                     },
-                    "source_metadata": {},
+                    "source_metadata": {
+                        "description": "Provenance metadata validated against its own 16,000-byte serialized\nbound. It is not counted against the organization transcript limit."
+                    },
                     "source_revision": {
                         "type": [
                             "string",
@@ -3437,8 +3483,12 @@
                             "null"
                         ]
                     },
-                    "transcript": {
-                        "type": "string"
+                    "user_prompt": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "Sanitized user content, when organization policy permits prompt capture."
                     },
                     "workspace_key": {
                         "type": [
@@ -3453,10 +3503,13 @@
                         ]
                     }
                 },
+                "additionalProperties": false,
                 "example": {
-                    "transcript": "User: keep releases reversible\n\nAssistant: I will add rollback steps.",
+                    "user_prompt": "Keep releases reversible.",
+                    "assistant_response": "I will add rollback steps.",
                     "agent_platform": "claude",
-                    "source_external_id": "hook:agent-turn:claude:conv-1:turn-4"
+                    "source_external_id": "hook:agent-turn:claude:conv-1:turn-4",
+                    "policy_version": "baseline"
                 }
             },
             "ConflictAction": {

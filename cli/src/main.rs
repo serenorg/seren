@@ -2941,8 +2941,12 @@ enum MemoryHookAction {
 /// Arguments for capturing a completed agent turn from a lifecycle hook.
 #[derive(clap::Args)]
 struct MemoryCaptureArgs {
-    /// Completed turn transcript
-    transcript: String,
+    /// User prompt from the completed turn
+    #[arg(long, required_unless_present = "assistant_response")]
+    user_prompt: Option<String>,
+    /// Assistant response from the completed turn
+    #[arg(long, required_unless_present = "user_prompt")]
+    assistant_response: Option<String>,
     /// Agent platform such as claude or codex
     #[arg(long)]
     agent_platform: String,
@@ -2986,7 +2990,7 @@ struct MemoryCaptureArgs {
     observed_at: Option<jiff::Timestamp>,
     /// Capture-policy version applied before submission
     #[arg(long)]
-    policy_version: Option<String>,
+    policy_version: String,
 }
 
 #[derive(Subcommand)]
@@ -5484,7 +5488,8 @@ async fn main() -> anyhow::Result<()> {
                 let args = *args;
                 commands::memory::capture(
                     commands::memory::CaptureOptions {
-                        transcript: args.transcript,
+                        user_prompt: args.user_prompt,
+                        assistant_response: args.assistant_response,
                         project_context: args.project_context,
                         project_id: args.project_id,
                         org_id: args.org_id,

@@ -57,7 +57,8 @@ pub struct DeleteBySourceOptions {
 }
 
 pub struct CaptureOptions {
-    pub transcript: String,
+    pub user_prompt: Option<String>,
+    pub assistant_response: Option<String>,
     pub project_context: Option<String>,
     pub project_id: Option<Uuid>,
     pub org_id: Option<Uuid>,
@@ -74,7 +75,7 @@ pub struct CaptureOptions {
     pub workspace_uri: Option<String>,
     pub source_metadata: Option<String>,
     pub observed_at: Option<jiff::Timestamp>,
-    pub policy_version: Option<String>,
+    pub policy_version: String,
 }
 
 pub async fn health(detailed: bool, ctx: &CommandContext) -> Result<()> {
@@ -236,6 +237,7 @@ pub async fn capture(options: CaptureOptions, ctx: &CommandContext) -> Result<()
         .await?
         .seren_memory_capture_agent_turn(&seren::SerenMemoryCaptureAgentTurnParams {
             agent_platform: options.agent_platform,
+            assistant_response: options.assistant_response,
             external_parent_session_id: options.external_parent_session_id,
             external_session_id: options.external_session_id,
             external_turn_id: options.external_turn_id,
@@ -250,7 +252,7 @@ pub async fn capture(options: CaptureOptions, ctx: &CommandContext) -> Result<()
             source_metadata,
             source_revision: options.source_revision,
             source_uri: options.source_uri,
-            transcript: options.transcript,
+            user_prompt: options.user_prompt,
             workspace_key: options.workspace_key,
             workspace_uri: options.workspace_uri,
         })

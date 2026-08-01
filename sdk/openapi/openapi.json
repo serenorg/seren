@@ -139,7 +139,7 @@
           "agent"
         ],
         "summary": "Update an agent's profile (e.g. set a real email address).",
-        "description": "When the email is changed, `email_verified` is set to `false` and a\nverification email with a clickable link is sent. The user verifies\nby clicking the link — no separate API call is needed.\nA verified email is required before making Stripe deposits.",
+        "description": "When the email is changed, `email_verified` is set to `false` and a\nverification email with a clickable link is sent. The user verifies\nby clicking the link \u2014 no separate API call is needed.\nA verified email is required before making Stripe deposits.",
         "operationId": "agent_update",
         "requestBody": {
           "content": {
@@ -4497,6 +4497,97 @@
           },
           "404": {
             "description": "Member or role not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/memory-capture-policy": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "operationId": "get_memory_capture_policy",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID or 'default' for the authenticated user's default organization",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization automatic memory-capture policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationMemoryCapturePolicy"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "User is not a member of the organization"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Organizations"
+        ],
+        "operationId": "update_memory_capture_policy",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID or 'default' for the authenticated user's default organization",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrganizationMemoryCapturePolicyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated organization automatic memory-capture policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationMemoryCapturePolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid policy"
+          },
+          "403": {
+            "description": "User is not allowed to update the organization"
           }
         },
         "security": [
@@ -10069,7 +10160,7 @@
       },
       "AgentTask": {
         "type": "object",
-        "description": "An agent task — tracks a single agent invocation lifecycle.",
+        "description": "An agent task \u2014 tracks a single agent invocation lifecycle.",
         "required": [
           "id",
           "organization_id",
@@ -12443,7 +12534,7 @@
         "properties": {
           "data": {
             "type": "object",
-            "description": "An agent task — tracks a single agent invocation lifecycle.",
+            "description": "An agent task \u2014 tracks a single agent invocation lifecycle.",
             "required": [
               "id",
               "organization_id",
@@ -14380,6 +14471,90 @@
               },
               "role": {
                 "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_OrganizationMemoryCapturePolicy": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "organization_id",
+              "policy_version",
+              "capture_enabled",
+              "retain_source_allowed",
+              "capture_user_prompts",
+              "capture_assistant_responses",
+              "max_transcript_bytes",
+              "cache_ttl_seconds",
+              "offline_grace_seconds",
+              "allowed_agent_platforms",
+              "updated_at"
+            ],
+            "properties": {
+              "allowed_agent_platforms": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Empty permits every supported platform; otherwise names are lowercase."
+              },
+              "cache_ttl_seconds": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "capture_assistant_responses": {
+                "type": "boolean"
+              },
+              "capture_enabled": {
+                "type": "boolean"
+              },
+              "capture_user_prompts": {
+                "type": "boolean"
+              },
+              "max_transcript_bytes": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "offline_grace_seconds": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "policy_version": {
+                "type": "string",
+                "description": "Opaque revision that automatic capture submissions must present. It\nchanges only when the effective policy changes."
+              },
+              "retain_source_allowed": {
+                "type": "boolean"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
               }
             }
           },
@@ -16970,7 +17145,7 @@
             "type": "array",
             "items": {
               "type": "object",
-              "description": "An agent task — tracks a single agent invocation lifecycle.",
+              "description": "An agent task \u2014 tracks a single agent invocation lifecycle.",
               "required": [
                 "id",
                 "organization_id",
@@ -22711,6 +22886,70 @@
           }
         }
       },
+      "OrganizationMemoryCapturePolicy": {
+        "type": "object",
+        "required": [
+          "organization_id",
+          "policy_version",
+          "capture_enabled",
+          "retain_source_allowed",
+          "capture_user_prompts",
+          "capture_assistant_responses",
+          "max_transcript_bytes",
+          "cache_ttl_seconds",
+          "offline_grace_seconds",
+          "allowed_agent_platforms",
+          "updated_at"
+        ],
+        "properties": {
+          "allowed_agent_platforms": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Empty permits every supported platform; otherwise names are lowercase."
+          },
+          "cache_ttl_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "capture_assistant_responses": {
+            "type": "boolean"
+          },
+          "capture_enabled": {
+            "type": "boolean"
+          },
+          "capture_user_prompts": {
+            "type": "boolean"
+          },
+          "max_transcript_bytes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "offline_grace_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "policy_version": {
+            "type": "string",
+            "description": "Opaque revision that automatic capture submissions must present. It\nchanges only when the effective policy changes."
+          },
+          "retain_source_allowed": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "OrganizationOtpCodeRequest": {
         "type": "object",
         "required": [
@@ -26775,6 +27014,54 @@
             ]
           }
         }
+      },
+      "UpdateOrganizationMemoryCapturePolicyRequest": {
+        "type": "object",
+        "required": [
+          "capture_enabled",
+          "retain_source_allowed",
+          "capture_user_prompts",
+          "capture_assistant_responses",
+          "max_transcript_bytes",
+          "cache_ttl_seconds",
+          "offline_grace_seconds"
+        ],
+        "properties": {
+          "allowed_agent_platforms": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cache_ttl_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "capture_assistant_responses": {
+            "type": "boolean"
+          },
+          "capture_enabled": {
+            "type": "boolean"
+          },
+          "capture_user_prompts": {
+            "type": "boolean"
+          },
+          "max_transcript_bytes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "offline_grace_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "retain_source_allowed": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
       },
       "UpdateOrganizationOtpPolicyRequest": {
         "type": "object",

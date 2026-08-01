@@ -16,17 +16,20 @@ use crate::command_context::CommandContext;
 const SUPPORTED_PLATFORM: &str = "claude";
 const MAX_STDIN_BYTES: u64 = 1_048_576;
 const MAX_TRANSCRIPT_READ_BYTES: u64 = 8 * 1_048_576;
-const MAX_TRANSCRIPT_CHARS: usize = 200_000;
+const MAX_LOCAL_TRANSCRIPT_BYTES: usize = 200_000;
 const MAX_OUTBOX_BYTES: u64 = 256 * 1_048_576;
 const MAX_OUTBOX_TURN_BYTES: u64 = 1_048_576;
 const MAX_ERROR_CHARS: usize = 1_000;
 const MAX_LINEAGE_TURN_IDS: usize = 32;
+/// How long a session stays resumable for adapter-side lineage inference.
+const LINEAGE_RETENTION_SECONDS: i64 = 30 * 24 * 60 * 60;
 const SESSION_CONTEXT_TOKEN_BUDGET: u64 = 2_000;
 const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(4);
 const OPPORTUNISTIC_DRAIN_BUDGET: Duration = Duration::from_secs(3);
 const STOP_DELIVERY_BUDGET: Duration = Duration::from_secs(8);
 const FLUSH_DELIVERY_BUDGET: Duration = Duration::from_secs(60);
 const DELIVERY_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(20);
+const POLICY_FETCH_TIMEOUT: Duration = Duration::from_secs(2);
 const CLAIM_LEASE: Duration = Duration::from_secs(600);
 const NEEDS_ATTENTION_ATTEMPTS: u32 = 20;
 const MAX_RETRY_BACKOFF_SECONDS: u64 = 3_600;
@@ -380,17 +383,28 @@ pub(crate) fn redact_secrets(text: &str) -> String {
     result
 }
 
-fn truncate_transcript(text: &str, max_chars: usize) -> String {
-    if text.chars().count() <= max_chars {
+fn truncate_transcript(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
         return text.to_string();
     }
-    let head: String = text.chars().take(max_chars / 2).collect();
-    let tail: String = {
-        let tail_len = max_chars / 2 - 40;
-        let all: Vec<char> = text.chars().collect();
-        all[all.len() - tail_len..].iter().collect()
-    };
-    format!("{head}\n\n[transcript truncated]\n\n{tail}")
+    const MARKER: &str = "\n\n[transcript truncated]\n\n";
+    if max_bytes <= MARKER.len() {
+        let mut end = max_bytes;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        return text[..end].to_string();
+    }
+    let content_budget = max_bytes - MARKER.len();
+    let mut head_end = content_budget / 2;
+    while !text.is_char_boundary(head_end) {
+        head_end -= 1;
+    }
+    let mut tail_start = text.len() - (content_budget - head_end);
+    while !text.is_char_boundary(tail_start) {
+        tail_start += 1;
+    }
+    format!("{}{MARKER}{}", &text[..head_end], &text[tail_start..])
 }
 
 // ---------------------------------------------------------------------------
@@ -604,14 +618,16 @@ fn resolve_session_lineage(
             .map(String::as_str)
             .collect::<std::collections::BTreeSet<_>>();
 
+        // Inherited turns are only visible on a session's first observed turn,
+        // so that is the only point where a parent can be inferred. Rescanning
+        // later would let a still-open parent session adopt its own resumed
+        // child once the child's record repeats the shared turns, and would
+        // walk every record in the scope on every captured turn.
         let mut candidates = Vec::new();
-        if explicit_parent_session_id.is_none()
-            && existing
-                .as_ref()
-                .and_then(|record| record.external_parent_session_id.as_ref())
-                .is_none()
-            && !evidence_set.is_empty()
-        {
+        if existing.is_none() && explicit_parent_session_id.is_none() && !evidence_set.is_empty() {
+            let cutoff = jiff::Timestamp::now()
+                .as_second()
+                .saturating_sub(LINEAGE_RETENTION_SECONDS);
             for entry in std::fs::read_dir(&scope_dir)? {
                 let path = entry?.path();
                 if path == record_path
@@ -619,12 +635,18 @@ fn resolve_session_lineage(
                 {
                     continue;
                 }
-                let Ok(raw) = std::fs::read_to_string(path) else {
+                let Ok(raw) = std::fs::read_to_string(&path) else {
                     continue;
                 };
                 let Ok(candidate) = serde_json::from_str::<SessionLineage>(&raw) else {
                     continue;
                 };
+                if candidate.updated_at.as_second() < cutoff {
+                    // Records this old can no longer be resumed from; dropping
+                    // them keeps the scope directory from growing without end.
+                    let _ = std::fs::remove_file(&path);
+                    continue;
+                }
                 if candidate.agent_platform != scope.agent_platform
                     || candidate.workspace_key != scope.workspace_key
                     || candidate.external_session_id == external_session_id
@@ -690,7 +712,10 @@ struct OutboxTurn {
     external_session_id: Option<String>,
     external_parent_session_id: Option<String>,
     external_turn_id: Option<String>,
-    transcript: String,
+    user_text: Option<String>,
+    assistant_text: String,
+    #[serde(default)]
+    policy_version: Option<String>,
     project_context: String,
     workspace_key: Option<String>,
     workspace_uri: Option<String>,
@@ -704,6 +729,30 @@ struct OutboxTurn {
     last_error: Option<String>,
     #[serde(default)]
     content_omitted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OrganizationMemoryCapturePolicy {
+    organization_id: uuid::Uuid,
+    policy_version: String,
+    capture_enabled: bool,
+    capture_user_prompts: bool,
+    capture_assistant_responses: bool,
+    max_transcript_bytes: u32,
+    cache_ttl_seconds: u32,
+    offline_grace_seconds: u32,
+    allowed_agent_platforms: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiDataResponse<T> {
+    data: T,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CachedCapturePolicy {
+    policy: OrganizationMemoryCapturePolicy,
+    fetched_at: jiff::Timestamp,
 }
 
 // ---------------------------------------------------------------------------
@@ -918,7 +967,9 @@ fn decode_turn(outbox_dir: &Path, raw: &str) -> Result<OutboxTurn> {
             external_session_id: None,
             external_parent_session_id: None,
             external_turn_id: None,
-            transcript: String::new(),
+            user_text: None,
+            assistant_text: String::new(),
+            policy_version: None,
             project_context: String::new(),
             workspace_key: None,
             workspace_uri: None,
@@ -1463,16 +1514,287 @@ fn outbox_status(outbox_dir: &Path) -> OutboxStatus {
 // Delivery
 // ---------------------------------------------------------------------------
 
-async fn deliver_turn(ctx: &CommandContext, turn: &OutboxTurn) -> Result<()> {
+fn capture_policy_cache_path(
+    outbox_dir: &Path,
+    ctx: &CommandContext,
+    organization_selector: &str,
+) -> PathBuf {
+    let identity = serde_json::json!({
+        "profile": crate::config::active_profile(),
+        "api_base_url": ctx.api_base().trim_end_matches('/'),
+        "organization": organization_selector,
+        "credential": credential_identity(ctx),
+    });
+    let digest = hex::encode(Sha256::digest(identity.to_string().as_bytes()));
+    outbox_dir
+        .join("capture_policies")
+        .join(format!("{}.json", &digest[..32]))
+}
+
+fn policy_cache_is_usable(
+    cached: &CachedCapturePolicy,
+    now: jiff::Timestamp,
+    include_offline_grace: bool,
+) -> bool {
+    if cached.fetched_at.as_second() > now.as_second().saturating_add(300) {
+        return false;
+    }
+    let grace = if include_offline_grace {
+        cached.policy.offline_grace_seconds
+    } else {
+        0
+    };
+    let lifetime = i64::from(cached.policy.cache_ttl_seconds).saturating_add(i64::from(grace));
+    now.as_second() <= cached.fetched_at.as_second().saturating_add(lifetime)
+}
+
+fn validate_capture_policy(
+    policy: &OrganizationMemoryCapturePolicy,
+    expected_organization_id: Option<uuid::Uuid>,
+) -> Result<()> {
+    if expected_organization_id.is_some_and(|expected| expected != policy.organization_id) {
+        anyhow::bail!("capture policy resolved to a different organization");
+    }
+    if policy.policy_version.trim().is_empty() {
+        anyhow::bail!("capture policy did not include a revision");
+    }
+    if !(256..=500_000).contains(&policy.max_transcript_bytes) {
+        anyhow::bail!("capture policy contained an invalid transcript limit");
+    }
+    if !(60..=86_400).contains(&policy.cache_ttl_seconds) || policy.offline_grace_seconds > 604_800
+    {
+        anyhow::bail!("capture policy contained invalid cache bounds");
+    }
+    Ok(())
+}
+
+fn load_cached_capture_policy(
+    path: &Path,
+    expected_organization_id: Option<uuid::Uuid>,
+) -> Option<CachedCapturePolicy> {
+    let raw = std::fs::read(path).ok()?;
+    if raw.len() > 256 * 1024 {
+        return None;
+    }
+    let cached: CachedCapturePolicy = serde_json::from_slice(&raw).ok()?;
+    validate_capture_policy(&cached.policy, expected_organization_id)
+        .ok()
+        .map(|()| cached)
+}
+
+async fn fetch_capture_policy(
+    ctx: &CommandContext,
+    organization_selector: &str,
+    expected_organization_id: Option<uuid::Uuid>,
+) -> Result<OrganizationMemoryCapturePolicy> {
+    let client = ctx.http_client().await?;
+    let response = client
+        .get(format!(
+            "{}/organizations/{organization_selector}/memory-capture-policy",
+            ctx.api_base().trim_end_matches('/')
+        ))
+        .timeout(POLICY_FETCH_TIMEOUT)
+        .send()
+        .await
+        .context("could not fetch the organization memory-capture policy")?
+        .error_for_status()
+        .context("organization memory-capture policy request was rejected")?;
+    let body = response
+        .bytes()
+        .await
+        .context("could not read the organization memory-capture policy")?;
+    if body.len() > 256 * 1024 {
+        anyhow::bail!("organization memory-capture policy response was too large");
+    }
+    let response: ApiDataResponse<OrganizationMemoryCapturePolicy> =
+        serde_json::from_slice(&body).context("organization memory-capture policy was invalid")?;
+    validate_capture_policy(&response.data, expected_organization_id)?;
+    Ok(response.data)
+}
+
+async fn resolve_capture_policy(
+    ctx: &CommandContext,
+    outbox_dir: &Path,
+    expected_organization_id: Option<uuid::Uuid>,
+    force_refresh: bool,
+) -> Result<OrganizationMemoryCapturePolicy> {
+    let organization_selector = expected_organization_id
+        .or_else(configured_organization_id)
+        .map_or_else(|| "default".to_string(), |id| id.to_string());
+    let cache_path = capture_policy_cache_path(outbox_dir, ctx, &organization_selector);
+    let cached = load_cached_capture_policy(&cache_path, expected_organization_id);
+    let now = jiff::Timestamp::now();
+    if !force_refresh
+        && let Some(cached) = cached.as_ref()
+        && policy_cache_is_usable(cached, now, false)
+    {
+        return Ok(cached.policy.clone());
+    }
+
+    let fetched = tokio::time::timeout(
+        POLICY_FETCH_TIMEOUT,
+        fetch_capture_policy(ctx, &organization_selector, expected_organization_id),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("organization memory-capture policy lookup timed out"))
+    .and_then(|result| result);
+    match fetched {
+        Ok(policy) => {
+            let cached = CachedCapturePolicy {
+                policy: policy.clone(),
+                fetched_at: now,
+            };
+            write_private_file(&cache_path, &serde_json::to_vec_pretty(&cached)?)
+                .context("could not persist the organization memory-capture policy cache")?;
+            Ok(policy)
+        }
+        Err(error) => {
+            if let Some(cached) = cached
+                && policy_cache_is_usable(&cached, now, true)
+            {
+                eprintln!(
+                    "seren memory hook: policy refresh unavailable; using the bounded offline grace period"
+                );
+                return Ok(cached.policy);
+            }
+            Err(error.context(
+                "no current organization memory-capture policy was available; capture is disabled",
+            ))
+        }
+    }
+}
+
+fn render_turn_transcript(turn: &OutboxTurn) -> String {
+    match turn.user_text.as_deref() {
+        Some(user) if !turn.assistant_text.is_empty() => {
+            format!("User: {user}\n\nAssistant: {}", turn.assistant_text)
+        }
+        Some(user) => format!("User: {user}"),
+        None if !turn.assistant_text.is_empty() => {
+            format!("Assistant: {}", turn.assistant_text)
+        }
+        None => String::new(),
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CapturePolicyDecision {
+    Submit,
+    Skip(&'static str),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum DeliveryOutcome {
+    Delivered,
+    DroppedByPolicy(&'static str),
+}
+
+fn clear_turn_content(turn: &mut OutboxTurn, reason: impl Into<String>) {
+    turn.user_text = None;
+    turn.assistant_text.clear();
+    turn.project_context.clear();
+    turn.content_omitted = true;
+    turn.last_error = Some(reason.into());
+}
+
+fn omit_turn_for_attention(turn: &mut OutboxTurn, reason: impl Into<String>) {
+    clear_turn_content(turn, reason);
+    turn.attempts = NEEDS_ATTENTION_ATTEMPTS;
+}
+
+fn apply_capture_policy(
+    turn: &mut OutboxTurn,
+    policy: &OrganizationMemoryCapturePolicy,
+) -> Result<CapturePolicyDecision> {
+    validate_capture_policy(policy, turn.organization_id)?;
+    turn.organization_id = Some(policy.organization_id);
+    turn.policy_version = Some(policy.policy_version.clone());
+    if !policy.capture_enabled {
+        const REASON: &str = "automatic memory capture is disabled by organization policy";
+        clear_turn_content(turn, REASON);
+        return Ok(CapturePolicyDecision::Skip(REASON));
+    }
+    if !policy.allowed_agent_platforms.is_empty()
+        && !policy
+            .allowed_agent_platforms
+            .iter()
+            .any(|platform| platform == &turn.agent_platform)
+    {
+        const REASON: &str = "this agent platform is disabled by organization policy";
+        clear_turn_content(turn, REASON);
+        return Ok(CapturePolicyDecision::Skip(REASON));
+    }
+    if !policy.capture_user_prompts {
+        turn.user_text = None;
+    }
+    if !policy.capture_assistant_responses {
+        turn.assistant_text.clear();
+    }
+    if turn.user_text.is_none() && turn.assistant_text.is_empty() {
+        const REASON: &str = "the organization policy excludes this turn's content classes";
+        clear_turn_content(turn, REASON);
+        return Ok(CapturePolicyDecision::Skip(REASON));
+    }
+
+    let max_bytes =
+        usize::try_from(policy.max_transcript_bytes).unwrap_or(MAX_LOCAL_TRANSCRIPT_BYTES);
+    let max_bytes = max_bytes.min(MAX_LOCAL_TRANSCRIPT_BYTES);
+    let fixed_bytes = if turn.user_text.is_some() {
+        "User: ".len() + "\n\nAssistant: ".len()
+    } else {
+        "Assistant: ".len()
+    };
+    // The service counts project context against the same organization bound,
+    // because it reaches extraction alongside the transcript. Budget for it here
+    // so a locally accepted turn is not rejected on delivery. A workspace path
+    // long enough to crowd out the turn itself is dropped rather than truncated:
+    // it is provenance, and half a path is worth less than the captured content.
+    if turn.project_context.len().saturating_add(fixed_bytes) >= max_bytes {
+        turn.project_context.clear();
+    }
+    let content_budget = max_bytes
+        .saturating_sub(fixed_bytes)
+        .saturating_sub(turn.project_context.len());
+    match turn.user_text.as_mut() {
+        Some(user) => {
+            let user_budget = content_budget / 2;
+            *user = truncate_transcript(user, user_budget);
+            let assistant_budget = content_budget.saturating_sub(user.len());
+            turn.assistant_text = truncate_transcript(&turn.assistant_text, assistant_budget);
+        }
+        None => {
+            turn.assistant_text = truncate_transcript(&turn.assistant_text, content_budget);
+        }
+    }
+    if render_turn_transcript(turn).len() + turn.project_context.len() > max_bytes {
+        anyhow::bail!("locally sanitized transcript exceeded the organization policy limit");
+    }
+    Ok(CapturePolicyDecision::Submit)
+}
+
+async fn deliver_turn(
+    ctx: &CommandContext,
+    outbox_dir: &Path,
+    turn: &mut OutboxTurn,
+) -> Result<DeliveryOutcome> {
+    let policy = resolve_capture_policy(ctx, outbox_dir, turn.organization_id, true).await?;
+    if let CapturePolicyDecision::Skip(reason) = apply_capture_policy(turn, &policy)? {
+        return Ok(DeliveryOutcome::DroppedByPolicy(reason));
+    }
     let client = ctx.client().await?;
     let params = seren::SerenMemoryCaptureAgentTurnParams {
         agent_platform: turn.agent_platform.clone(),
+        assistant_response: Some(turn.assistant_text.clone())
+            .filter(|response| !response.is_empty()),
         external_parent_session_id: turn.external_parent_session_id.clone(),
         external_session_id: turn.external_session_id.clone(),
         external_turn_id: turn.external_turn_id.clone(),
         observed_at: Some(turn.observed_at),
         org_id: turn.organization_id,
-        policy_version: None,
+        policy_version: turn
+            .policy_version
+            .clone()
+            .context("queued turn did not have an applied capture policy revision")?,
         project_context: Some(turn.project_context.clone()).filter(|context| !context.is_empty()),
         project_id: None,
         retain_source: Some(false),
@@ -1481,14 +1803,14 @@ async fn deliver_turn(ctx: &CommandContext, turn: &OutboxTurn) -> Result<()> {
         source_metadata: None,
         source_revision: None,
         source_uri: turn.source_uri.clone(),
-        transcript: turn.transcript.clone(),
+        user_prompt: turn.user_text.clone(),
         workspace_key: turn.workspace_key.clone(),
         workspace_uri: turn.workspace_uri.clone(),
     };
     let response = client.seren_memory_capture_agent_turn(&params);
     let response = response.await;
     response.map_err(|error| anyhow::anyhow!("capture request failed: {error}"))?;
-    Ok(())
+    Ok(DeliveryOutcome::Delivered)
 }
 
 fn configured_organization_id() -> Option<uuid::Uuid> {
@@ -1530,7 +1852,7 @@ fn credential_identity(ctx: &CommandContext) -> Option<String> {
 }
 
 fn turn_is_deliverable(turn: &OutboxTurn) -> bool {
-    !turn.content_omitted && !turn.transcript.is_empty()
+    !turn.content_omitted && !render_turn_transcript(turn).is_empty()
 }
 
 fn turn_targets_context(ctx: &CommandContext, turn: &OutboxTurn) -> bool {
@@ -1538,9 +1860,11 @@ fn turn_targets_context(ctx: &CommandContext, turn: &OutboxTurn) -> bool {
         turn.profile.is_empty() || turn.profile == crate::config::active_profile();
     let api_base_matches = turn.api_base_url.is_empty()
         || turn.api_base_url.trim_end_matches('/') == ctx.api_base().trim_end_matches('/');
-    let organization_matches = turn
-        .organization_id
-        .is_none_or(|organization_id| configured_organization_id() == Some(organization_id));
+    let configured_organization_id = configured_organization_id();
+    let organization_matches = configured_organization_id.is_none()
+        || turn
+            .organization_id
+            .is_none_or(|organization_id| configured_organization_id == Some(organization_id));
     let credential_matches = turn
         .credential_identity
         .as_ref()
@@ -1586,7 +1910,7 @@ async fn deliver_due(
             break;
         };
         let attempt_timeout = remaining.min(DELIVERY_ATTEMPT_TIMEOUT);
-        let (claimed, turn) = match claim_turn(&path) {
+        let (claimed, mut turn) = match claim_turn(&path) {
             Ok(Some(claimed)) => claimed,
             Ok(None) => continue,
             Err(error) => {
@@ -1609,7 +1933,8 @@ async fn deliver_due(
             }
             continue;
         }
-        match tokio::time::timeout(attempt_timeout, deliver_turn(ctx, &turn)).await {
+        match tokio::time::timeout(attempt_timeout, deliver_turn(ctx, outbox_dir, &mut turn)).await
+        {
             Err(_) => {
                 if let Err(error) =
                     requeue_turn(outbox_dir, &claimed, turn, "capture request timed out")
@@ -1618,11 +1943,16 @@ async fn deliver_due(
                 }
                 failed += 1;
             }
-            Ok(Ok(())) => match acknowledge_turn(&claimed) {
-                Ok(()) => delivered += 1,
+            Ok(Ok(outcome)) => match acknowledge_turn(&claimed) {
+                Ok(()) => match outcome {
+                    DeliveryOutcome::Delivered => delivered += 1,
+                    DeliveryOutcome::DroppedByPolicy(reason) => {
+                        eprintln!("seren memory hook: queued turn discarded: {reason}");
+                    }
+                },
                 Err(error) => {
                     eprintln!(
-                        "seren memory hook: delivery succeeded but its claim remains: {error:#}"
+                        "seren memory hook: delivery finished but its claim remains: {error:#}"
                     );
                     failed += 1;
                 }
@@ -1768,12 +2098,6 @@ async fn capture_stop(payload: &HookPayload, ctx: &CommandContext) -> Result<()>
     let completed = read_completed_transcript(Path::new(&transcript_path))?;
     let turn = &completed.turn;
 
-    let combined = match &turn.user_text {
-        Some(user) => format!("User: {user}\n\nAssistant: {}", turn.assistant_text),
-        None => format!("Assistant: {}", turn.assistant_text),
-    };
-    let bounded = truncate_transcript(&redact_secrets(&combined), MAX_TRANSCRIPT_CHARS);
-
     let outbox_dir = default_outbox_dir()?;
     let cwd = payload
         .cwd
@@ -1794,34 +2118,27 @@ async fn capture_stop(payload: &HookPayload, ctx: &CommandContext) -> Result<()>
     let api_base_url = ctx.api_base();
     let organization_id = configured_organization_id();
     let credential_identity = credential_identity(ctx);
-    let parent_session_id = resolve_session_lineage(
-        &outbox_dir,
-        &LineageScope {
-            agent_platform: SUPPORTED_PLATFORM,
-            workspace_key: &workspace.key,
-            profile: &profile,
-            api_base_url: &api_base_url,
-            organization_id,
-            credential_identity: credential_identity.as_deref(),
-        },
-        &session_id,
-        explicit_parent_session_id.as_deref(),
-        &completed.recent_turn_ids,
-    )?;
+    let workspace_key = workspace.key;
 
-    let queued = OutboxTurn {
-        profile,
-        api_base_url,
+    let mut queued = OutboxTurn {
+        profile: profile.clone(),
+        api_base_url: api_base_url.clone(),
         organization_id,
-        credential_identity,
+        credential_identity: credential_identity.clone(),
         source_external_id,
         agent_platform: SUPPORTED_PLATFORM.to_string(),
         external_session_id: Some(session_id.clone()),
-        external_parent_session_id: parent_session_id,
+        external_parent_session_id: explicit_parent_session_id.clone(),
         external_turn_id: Some(turn_id.clone()),
-        transcript: bounded,
+        user_text: turn
+            .user_text
+            .as_deref()
+            .map(redact_secrets)
+            .filter(|text| !text.trim().is_empty()),
+        assistant_text: redact_secrets(&turn.assistant_text),
+        policy_version: None,
         project_context: cwd.to_string_lossy().to_string(),
-        workspace_key: Some(workspace.key),
+        workspace_key: Some(workspace_key.clone()),
         workspace_uri: workspace.uri,
         source_uri: Some(format!(
             "agent-transcript://{SUPPORTED_PLATFORM}/{session_id}#{}",
@@ -1833,23 +2150,48 @@ async fn capture_stop(payload: &HookPayload, ctx: &CommandContext) -> Result<()>
         last_error: None,
         content_omitted: false,
     };
-    let queued = if outbox_key(&outbox_dir).is_some() {
-        queued
-    } else {
+    match resolve_capture_policy(ctx, &outbox_dir, organization_id, false).await {
+        Ok(policy) => match apply_capture_policy(&mut queued, &policy)? {
+            CapturePolicyDecision::Submit => {}
+            CapturePolicyDecision::Skip(reason) => {
+                eprintln!("seren memory hook: completed turn skipped: {reason}");
+                deliver_due(ctx, &outbox_dir, STOP_DELIVERY_BUDGET, false).await;
+                return Ok(());
+            }
+        },
+        Err(error) => {
+            eprintln!("seren memory hook: {error:#}");
+            omit_turn_for_attention(
+                &mut queued,
+                "organization memory-capture policy was unavailable; transcript was not persisted",
+            );
+        }
+    }
+    if !queued.content_omitted {
+        queued.external_parent_session_id = resolve_session_lineage(
+            &outbox_dir,
+            &LineageScope {
+                agent_platform: SUPPORTED_PLATFORM,
+                workspace_key: &workspace_key,
+                profile: &profile,
+                api_base_url: &api_base_url,
+                organization_id: queued.organization_id,
+                credential_identity: credential_identity.as_deref(),
+            },
+            &session_id,
+            explicit_parent_session_id.as_deref(),
+            &completed.recent_turn_ids,
+        )?;
+    }
+    if !queued.content_omitted && outbox_key(&outbox_dir).is_none() {
         // No secure key source: never persist transcript content in
         // plaintext. A metadata-only record keeps the loss visible.
         eprintln!("seren memory hook: no secure key source; captured content was not persisted");
-        OutboxTurn {
-            transcript: String::new(),
-            project_context: String::new(),
-            attempts: NEEDS_ATTENTION_ATTEMPTS,
-            last_error: Some(
-                "outbox encryption unavailable; transcript was not persisted".to_string(),
-            ),
-            content_omitted: true,
-            ..queued
-        }
-    };
+        omit_turn_for_attention(
+            &mut queued,
+            "outbox encryption unavailable; transcript was not persisted",
+        );
+    }
     enqueue_turn(&outbox_dir, &queued)?;
     deliver_due(ctx, &outbox_dir, STOP_DELIVERY_BUDGET, false).await;
     Ok(())
@@ -2189,6 +2531,98 @@ mod tests {
         );
     }
 
+    /// Resuming a session leaves the original still open. Once the child has
+    /// recorded the turns it inherited, the parent's own later turns overlap
+    /// that record, so rescanning would make the parent adopt its own child.
+    #[test]
+    fn an_already_observed_session_never_adopts_a_later_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let scope = LineageScope {
+            agent_platform: "claude",
+            workspace_key: "git:example/repo",
+            profile: "default",
+            api_base_url: "https://api.example.test",
+            organization_id: Some(uuid::Uuid::nil()),
+            credential_identity: Some("user:one"),
+        };
+
+        // The parent session captures its first turns.
+        assert_eq!(
+            resolve_session_lineage(
+                dir.path(),
+                &scope,
+                "session-a",
+                None,
+                &["t1".to_string(), "t2".to_string()],
+            )
+            .unwrap(),
+            None
+        );
+        // A resumed session inherits those turns and links to the parent.
+        assert_eq!(
+            resolve_session_lineage(
+                dir.path(),
+                &scope,
+                "session-b",
+                None,
+                &["t1".to_string(), "t2".to_string(), "b1".to_string()],
+            )
+            .unwrap()
+            .as_deref(),
+            Some("session-a")
+        );
+        // The still-open parent captures another turn. Its evidence overlaps
+        // the child's record, but it must not adopt the child as its parent.
+        assert_eq!(
+            resolve_session_lineage(
+                dir.path(),
+                &scope,
+                "session-a",
+                None,
+                &["t1".to_string(), "t2".to_string(), "a3".to_string()],
+            )
+            .unwrap(),
+            None,
+            "a session observed as a root must stay a root"
+        );
+    }
+
+    #[test]
+    fn stale_lineage_records_are_pruned_and_never_matched() {
+        let dir = tempfile::tempdir().unwrap();
+        let scope = LineageScope {
+            agent_platform: "claude",
+            workspace_key: "git:example/repo",
+            profile: "default",
+            api_base_url: "https://api.example.test",
+            organization_id: Some(uuid::Uuid::nil()),
+            credential_identity: Some("user:one"),
+        };
+        let scope_dir = lineage_scope_dir(dir.path(), &scope);
+        create_private_dir(&scope_dir).unwrap();
+        let stale_path = lineage_record_path(&scope_dir, "ancient-session");
+        let stale = SessionLineage {
+            agent_platform: "claude".to_string(),
+            workspace_key: "git:example/repo".to_string(),
+            external_session_id: "ancient-session".to_string(),
+            external_parent_session_id: None,
+            recent_turn_ids: vec!["shared".to_string()],
+            updated_at: jiff::Timestamp::from_second(
+                jiff::Timestamp::now().as_second() - LINEAGE_RETENTION_SECONDS - 1,
+            )
+            .unwrap(),
+        };
+        write_private_file(&stale_path, &serde_json::to_vec_pretty(&stale).unwrap()).unwrap();
+
+        assert_eq!(
+            resolve_session_lineage(dir.path(), &scope, "fresh", None, &["shared".to_string()])
+                .unwrap(),
+            None,
+            "a record past the resume window must not become a parent"
+        );
+        assert!(!stale_path.exists(), "stale records must be pruned");
+    }
+
     #[test]
     fn persisted_lineage_evidence_is_bounded_to_the_most_recent_turns() {
         let turn_ids = (0..100)
@@ -2329,7 +2763,9 @@ mod tests {
             external_session_id: Some("session".to_string()),
             external_parent_session_id: None,
             external_turn_id: Some(id.to_string()),
-            transcript: "User: hi\n\nAssistant: hello".to_string(),
+            user_text: Some("hi".to_string()),
+            assistant_text: "hello".to_string(),
+            policy_version: Some("baseline".to_string()),
             project_context: "/workspace".to_string(),
             workspace_key: Some("git:github.com/seren/seren-memory".to_string()),
             workspace_uri: None,
@@ -2340,6 +2776,115 @@ mod tests {
             last_error: None,
             content_omitted: false,
         }
+    }
+
+    fn sample_policy(organization_id: uuid::Uuid) -> OrganizationMemoryCapturePolicy {
+        OrganizationMemoryCapturePolicy {
+            organization_id,
+            policy_version: "policy-current".to_string(),
+            capture_enabled: true,
+            capture_user_prompts: true,
+            capture_assistant_responses: true,
+            max_transcript_bytes: 256,
+            cache_ttl_seconds: 900,
+            offline_grace_seconds: 3_600,
+            allowed_agent_platforms: vec!["claude".to_string()],
+        }
+    }
+
+    #[test]
+    fn capture_policy_stamps_and_byte_bounds_the_queued_turn() {
+        let organization_id = uuid::Uuid::new_v4();
+        let mut turn = sample_turn("policy-bounded");
+        turn.user_text = Some("日".repeat(200));
+        turn.assistant_text = "語".repeat(200);
+
+        assert_eq!(
+            apply_capture_policy(&mut turn, &sample_policy(organization_id)).unwrap(),
+            CapturePolicyDecision::Submit
+        );
+
+        assert_eq!(turn.organization_id, Some(organization_id));
+        assert_eq!(turn.policy_version.as_deref(), Some("policy-current"));
+        assert!(render_turn_transcript(&turn).len() <= 256);
+        assert!(!turn.content_omitted);
+    }
+
+    /// The service counts transcript and project context together against
+    /// `max_transcript_bytes`, so a locally accepted turn must satisfy that same
+    /// combined bound or it would be rejected on every delivery attempt.
+    #[test]
+    fn capture_policy_budgets_project_context_with_the_transcript() {
+        let organization_id = uuid::Uuid::new_v4();
+        let policy = sample_policy(organization_id);
+        let limit = usize::try_from(policy.max_transcript_bytes).unwrap();
+
+        let mut turn = sample_turn("policy-context");
+        turn.project_context = "/Users/example/workspaces/deeply/nested/project".to_string();
+        turn.user_text = Some("\u{65e5}".repeat(200));
+        turn.assistant_text = "\u{8a9e}".repeat(200);
+        assert_eq!(
+            apply_capture_policy(&mut turn, &policy).unwrap(),
+            CapturePolicyDecision::Submit
+        );
+        assert!(
+            render_turn_transcript(&turn).len() + turn.project_context.len() <= limit,
+            "combined captured bytes must satisfy the organization bound"
+        );
+        assert!(!turn.project_context.is_empty(), "context should survive");
+
+        // A workspace path that cannot coexist with any content is dropped
+        // rather than truncated, and the turn itself still delivers.
+        let mut crowded = sample_turn("policy-context-crowded");
+        crowded.project_context = "/".to_string() + &"p".repeat(limit);
+        crowded.user_text = Some("hello".to_string());
+        crowded.assistant_text = "there".to_string();
+        assert_eq!(
+            apply_capture_policy(&mut crowded, &policy).unwrap(),
+            CapturePolicyDecision::Submit
+        );
+        assert!(
+            crowded.project_context.is_empty(),
+            "an oversized workspace path must be dropped, not truncated"
+        );
+        assert!(render_turn_transcript(&crowded).contains("hello"));
+        assert!(render_turn_transcript(&crowded).len() + crowded.project_context.len() <= limit);
+    }
+
+    #[test]
+    fn capture_policy_removes_disallowed_content_classes() {
+        let organization_id = uuid::Uuid::new_v4();
+        let mut policy = sample_policy(organization_id);
+        policy.capture_user_prompts = false;
+        let mut turn = sample_turn("policy-omitted");
+
+        assert_eq!(
+            apply_capture_policy(&mut turn, &policy).unwrap(),
+            CapturePolicyDecision::Submit
+        );
+
+        assert!(turn.user_text.is_none());
+        assert_eq!(turn.assistant_text, "hello");
+        assert!(!turn.content_omitted);
+        assert_eq!(turn.attempts, 0);
+
+        policy.capture_assistant_responses = false;
+        assert!(matches!(
+            apply_capture_policy(&mut turn, &policy).unwrap(),
+            CapturePolicyDecision::Skip(_)
+        ));
+        assert!(turn.content_omitted);
+    }
+
+    #[test]
+    fn policy_cache_expires_after_its_offline_grace() {
+        let now = jiff::Timestamp::now();
+        let cached = CachedCapturePolicy {
+            policy: sample_policy(uuid::Uuid::new_v4()),
+            fetched_at: now - Duration::from_secs(4_501),
+        };
+        assert!(!policy_cache_is_usable(&cached, now, true));
+        assert!(!policy_cache_is_usable(&cached, now, false));
     }
 
     #[test]
@@ -2406,7 +2951,7 @@ mod tests {
         let (claimed, claimed_turn) = claim_turn(&due[0]).unwrap().unwrap();
 
         let mut replay = turn.clone();
-        replay.transcript = "updated replay".to_string();
+        replay.assistant_text = "updated replay".to_string();
         enqueue_turn(dir.path(), &replay).unwrap();
         requeue_turn(dir.path(), &claimed, claimed_turn, "old delivery failed").unwrap();
 
@@ -2416,7 +2961,7 @@ mod tests {
             "queued transcript content must not be readable at rest"
         );
         let loaded = decode_turn(dir.path(), &queued).unwrap();
-        assert_eq!(loaded.transcript, "updated replay");
+        assert_eq!(loaded.assistant_text, "updated replay");
         assert_eq!(loaded.attempts, 0);
     }
 
@@ -2425,7 +2970,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         for id in ["omitted-1", "omitted-2"] {
             let mut turn = sample_turn(id);
-            turn.transcript.clear();
+            turn.user_text = None;
+            turn.assistant_text.clear();
             turn.project_context.clear();
             turn.content_omitted = true;
             turn.attempts = NEEDS_ATTENTION_ATTEMPTS;
