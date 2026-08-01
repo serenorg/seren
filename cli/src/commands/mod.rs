@@ -15,6 +15,7 @@ pub mod memory_agent;
 pub mod memory_hooks;
 #[cfg(feature = "claude-mem")]
 pub mod memory_migrate;
+pub mod memory_workspace;
 pub mod oauth;
 pub mod object_storage;
 pub mod operations;

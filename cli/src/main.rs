@@ -3079,6 +3079,11 @@ enum MemoryAction {
     },
     /// Capture a completed agent turn idempotently from a lifecycle hook
     Capture(Box<MemoryCaptureArgs>),
+    /// Preview or execute an explicit workspace-history merge
+    Workspace {
+        #[command(subcommand)]
+        action: MemoryWorkspaceAction,
+    },
     /// Agent lifecycle hook bridge for automatic capture and context injection
     Hook {
         #[command(subcommand)]
@@ -3163,6 +3168,31 @@ enum MemoryAction {
     Connections {
         #[command(subcommand)]
         action: MemoryConnectionAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum MemoryWorkspaceAction {
+    /// Inspect counts and collisions and receive a state-bound merge plan hash
+    Preview {
+        /// Sticky workspace key whose history will move
+        #[arg(long)]
+        source: String,
+        /// Canonical workspace key that will retain the combined history
+        #[arg(long)]
+        target: String,
+    },
+    /// Execute a previously previewed merge after revalidating its plan hash
+    Merge {
+        /// Sticky workspace key whose history will move
+        #[arg(long)]
+        source: String,
+        /// Canonical workspace key that will retain the combined history
+        #[arg(long)]
+        target: String,
+        /// Exact state-bound hash returned by `workspace preview`
+        #[arg(long)]
+        plan_hash: String,
     },
 }
 
@@ -5477,6 +5507,16 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
+            MemoryAction::Workspace { action } => match action {
+                MemoryWorkspaceAction::Preview { source, target } => {
+                    commands::memory_workspace::preview(source, target, &ctx).await?
+                }
+                MemoryWorkspaceAction::Merge {
+                    source,
+                    target,
+                    plan_hash,
+                } => commands::memory_workspace::merge(source, target, plan_hash, &ctx).await?,
+            },
             #[cfg(feature = "claude-mem")]
             MemoryAction::Migrate { action } => match action {
                 MemoryMigrateAction::ClaudeMem { action } => match action {
@@ -9343,6 +9383,46 @@ mod tests {
                     retain_source: true,
                     source_external_id: Some(_),
                     ..
+                }
+            }
+        ));
+
+        let workspace_preview = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "workspace",
+            "preview",
+            "--source",
+            "path:old-workspace",
+            "--target",
+            "git:github.com/serenorg/seren",
+        ]);
+        assert!(matches!(
+            workspace_preview.command,
+            Commands::Memory {
+                action: MemoryAction::Workspace {
+                    action: MemoryWorkspaceAction::Preview { .. }
+                }
+            }
+        ));
+
+        let workspace_merge = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "workspace",
+            "merge",
+            "--source",
+            "path:old-workspace",
+            "--target",
+            "git:github.com/serenorg/seren",
+            "--plan-hash",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ]);
+        assert!(matches!(
+            workspace_merge.command,
+            Commands::Memory {
+                action: MemoryAction::Workspace {
+                    action: MemoryWorkspaceAction::Merge { .. }
                 }
             }
         ));

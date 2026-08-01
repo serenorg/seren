@@ -3196,6 +3196,140 @@
                     }
                 ]
             }
+        },
+        "/workspaces/merge": {
+            "post": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Execute a reviewed workspace merge",
+                "description": "Rechecks the state-bound preview under workspace locks, rewrites source envelopes to the canonical target, creates a durable alias for future captures, and records an immutable audit row. Retrying the same accepted plan is idempotent.",
+                "operationId": "execute_workspace_merge",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExecuteWorkspaceMergeRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Completed workspace merge",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_WorkspaceMergeResult"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid workspace keys or plan hash",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Preview is stale or workspace alias conflicts",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/workspaces/merge/preview": {
+            "post": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Preview a controlled workspace merge",
+                "description": "Returns content-free source counts, shared external-session collisions, dependent aliases, and a state-bound plan hash. No records are changed.",
+                "operationId": "preview_workspace_merge",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PreviewWorkspaceMergeRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Workspace merge preview",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_WorkspaceMergePreview"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid workspace keys",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Source workspace is already an alias",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
         }
     },
     "components": {
@@ -5068,6 +5202,115 @@
                     }
                 }
             },
+            "DataResponse_WorkspaceMergePreview": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "source_workspace_key",
+                            "target_workspace_key",
+                            "source_count",
+                            "target_count",
+                            "shared_external_sessions",
+                            "dependent_alias_count",
+                            "plan_hash"
+                        ],
+                        "properties": {
+                            "dependent_alias_count": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "plan_hash": {
+                                "type": "string"
+                            },
+                            "shared_external_sessions": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "source_count": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "source_workspace_key": {
+                                "type": "string"
+                            },
+                            "target_count": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "target_workspace_key": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_WorkspaceMergeResult": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "merge_id",
+                            "source_workspace_key",
+                            "target_workspace_key",
+                            "source_count",
+                            "target_count",
+                            "shared_external_sessions",
+                            "dependent_alias_count",
+                            "merged_source_count",
+                            "plan_hash",
+                            "created_at"
+                        ],
+                        "properties": {
+                            "created_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "dependent_alias_count": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "merge_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "merged_source_count": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "plan_hash": {
+                                "type": "string"
+                            },
+                            "shared_external_sessions": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "source_count": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "source_workspace_key": {
+                                "type": "string"
+                            },
+                            "target_count": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "target_workspace_key": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
             "DeleteBySourceOutcome": {
                 "type": "object",
                 "description": "Audit result of erasing retained conversation sources by source identity.",
@@ -5223,6 +5466,25 @@
                         "type": "string"
                     },
                     "message": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ExecuteWorkspaceMergeRequest": {
+                "type": "object",
+                "required": [
+                    "source_workspace_key",
+                    "target_workspace_key",
+                    "plan_hash"
+                ],
+                "properties": {
+                    "plan_hash": {
+                        "type": "string"
+                    },
+                    "source_workspace_key": {
+                        "type": "string"
+                    },
+                    "target_workspace_key": {
                         "type": "string"
                     }
                 }
@@ -6820,6 +7082,21 @@
                     "entity_id": "service:seren-memory"
                 }
             },
+            "PreviewWorkspaceMergeRequest": {
+                "type": "object",
+                "required": [
+                    "source_workspace_key",
+                    "target_workspace_key"
+                ],
+                "properties": {
+                    "source_workspace_key": {
+                        "type": "string"
+                    },
+                    "target_workspace_key": {
+                        "type": "string"
+                    }
+                }
+            },
             "ProcessConversationParams": {
                 "type": "object",
                 "required": [
@@ -7374,6 +7651,99 @@
                     }
                 },
                 "additionalProperties": false
+            },
+            "WorkspaceMergePreview": {
+                "type": "object",
+                "required": [
+                    "source_workspace_key",
+                    "target_workspace_key",
+                    "source_count",
+                    "target_count",
+                    "shared_external_sessions",
+                    "dependent_alias_count",
+                    "plan_hash"
+                ],
+                "properties": {
+                    "dependent_alias_count": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "plan_hash": {
+                        "type": "string"
+                    },
+                    "shared_external_sessions": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "source_count": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "source_workspace_key": {
+                        "type": "string"
+                    },
+                    "target_count": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "target_workspace_key": {
+                        "type": "string"
+                    }
+                }
+            },
+            "WorkspaceMergeResult": {
+                "type": "object",
+                "required": [
+                    "merge_id",
+                    "source_workspace_key",
+                    "target_workspace_key",
+                    "source_count",
+                    "target_count",
+                    "shared_external_sessions",
+                    "dependent_alias_count",
+                    "merged_source_count",
+                    "plan_hash",
+                    "created_at"
+                ],
+                "properties": {
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "dependent_alias_count": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "merge_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "merged_source_count": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "plan_hash": {
+                        "type": "string"
+                    },
+                    "shared_external_sessions": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "source_count": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "source_workspace_key": {
+                        "type": "string"
+                    },
+                    "target_count": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "target_workspace_key": {
+                        "type": "string"
+                    }
+                }
             }
         },
         "securitySchemes": {
