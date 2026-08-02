@@ -13,7 +13,8 @@ use zeroize::Zeroize;
 
 use crate::command_context::CommandContext;
 
-const SUPPORTED_PLATFORM: &str = "claude";
+const CLAUDE_PLATFORM: &str = "claude";
+const CODEX_PLATFORM: &str = "codex";
 const MAX_STDIN_BYTES: u64 = 1_048_576;
 const MAX_TRANSCRIPT_READ_BYTES: u64 = 8 * 1_048_576;
 const MAX_LOCAL_TRANSCRIPT_BYTES: usize = 200_000;
@@ -33,7 +34,22 @@ const POLICY_FETCH_TIMEOUT: Duration = Duration::from_secs(2);
 const CLAIM_LEASE: Duration = Duration::from_secs(600);
 const NEEDS_ATTENTION_ATTEMPTS: u32 = 20;
 const MAX_RETRY_BACKOFF_SECONDS: u64 = 3_600;
+const CODEX_TURN_CACHE_RETENTION_SECONDS: i64 = 24 * 60 * 60;
 const REDACTED: &str = "[redacted]";
+const HOOK_HEALTH_FILE: &str = "health.json";
+
+fn emit_hook_event(platform: &str, event: &str, outcome: &str) {
+    eprintln!(
+        "{}",
+        serde_json::json!({
+            "component": "seren_memory_hook",
+            "platform": platform,
+            "event": event,
+            "outcome": outcome,
+            "occurred_at": jiff::Timestamp::now(),
+        })
+    );
+}
 
 // ---------------------------------------------------------------------------
 // Native hook payloads
@@ -55,6 +71,14 @@ struct HookPayload {
     transcript_path: Option<String>,
     #[serde(default)]
     cwd: Option<String>,
+    #[serde(default)]
+    turn_id: Option<String>,
+    #[serde(default)]
+    prompt: Option<String>,
+    #[serde(default)]
+    last_assistant_message: Option<String>,
+    #[serde(default)]
+    stop_hook_active: bool,
 }
 
 fn read_stdin_payload() -> HookPayload {
@@ -70,7 +94,7 @@ fn read_stdin_payload() -> HookPayload {
 }
 
 fn platform_supported(platform: &str) -> bool {
-    platform == SUPPORTED_PLATFORM
+    matches!(platform, CLAUDE_PLATFORM | CODEX_PLATFORM)
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +166,10 @@ fn extract_completed_transcript_reader(reader: impl BufRead) -> Option<Completed
         };
         if entry.get("isSidechain").and_then(|value| value.as_bool()) == Some(true)
             || entry.get("isMeta").and_then(|value| value.as_bool()) == Some(true)
+            || entry
+                .get("isApiErrorMessage")
+                .and_then(|value| value.as_bool())
+                == Some(true)
         {
             continue;
         }
@@ -788,28 +816,29 @@ fn is_outbox_record_path(path: &Path) -> bool {
 }
 
 fn outbox_contains_sealed_content(outbox_dir: &Path) -> bool {
-    let Ok(entries) = std::fs::read_dir(outbox_dir) else {
-        return false;
-    };
-    entries.flatten().any(|entry| {
-        if !is_outbox_record_path(&entry.path()) {
-            return false;
-        }
-        let Ok(metadata) = entry.metadata() else {
-            return false;
-        };
-        if metadata.len() > MAX_OUTBOX_TURN_BYTES {
-            return true;
-        }
-        std::fs::read_to_string(entry.path())
-            .ok()
-            .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
-            .is_some_and(|value| {
-                value
-                    .get("ciphertext")
-                    .is_some_and(serde_json::Value::is_string)
-            })
-    })
+    [outbox_dir.to_path_buf(), outbox_dir.join("pending")]
+        .into_iter()
+        .filter_map(|directory| std::fs::read_dir(directory).ok())
+        .flat_map(|entries| entries.flatten())
+        .any(|entry| {
+            if !is_outbox_record_path(&entry.path()) {
+                return false;
+            }
+            let Ok(metadata) = entry.metadata() else {
+                return false;
+            };
+            if metadata.len() > MAX_OUTBOX_TURN_BYTES {
+                return true;
+            }
+            std::fs::read_to_string(entry.path())
+                .ok()
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                .is_some_and(|value| {
+                    value
+                        .get("ciphertext")
+                        .is_some_and(serde_json::Value::is_string)
+                })
+        })
 }
 
 fn read_outbox_key_file(path: &Path) -> Option<chacha20poly1305::Key> {
@@ -1155,12 +1184,28 @@ fn queued_turn_path(outbox_dir: &Path, turn: &OutboxTurn) -> PathBuf {
     outbox_dir.join(format!("{}.json", turn_file_stem(turn)))
 }
 
+fn pending_turn_path(
+    outbox_dir: &Path,
+    platform: &str,
+    session_id: &str,
+    turn_id: &str,
+) -> PathBuf {
+    let mut hasher = Sha256::new();
+    for component in [platform, session_id, turn_id] {
+        hasher.update((component.len() as u64).to_be_bytes());
+        hasher.update(component.as_bytes());
+    }
+    let digest = hex::encode(hasher.finalize());
+    outbox_dir
+        .join("pending")
+        .join(format!("{}.json", &digest[..32]))
+}
+
 fn outbox_content_bytes(outbox_dir: &Path) -> u64 {
-    let Ok(entries) = std::fs::read_dir(outbox_dir) else {
-        return 0;
-    };
-    entries
-        .flatten()
+    [outbox_dir.to_path_buf(), outbox_dir.join("pending")]
+        .into_iter()
+        .filter_map(|directory| std::fs::read_dir(directory).ok())
+        .flat_map(|entries| entries.flatten())
         .filter(|entry| {
             let name = entry.file_name();
             let name = name.to_string_lossy();
@@ -1172,6 +1217,34 @@ fn outbox_content_bytes(outbox_dir: &Path) -> u64 {
         })
         .filter_map(|entry| entry.metadata().ok().map(|metadata| metadata.len()))
         .sum()
+}
+
+fn write_pending_turn(outbox_dir: &Path, path: &Path, turn: &OutboxTurn) -> Result<()> {
+    with_outbox_lock(outbox_dir, || {
+        let serialized = encode_turn(outbox_dir, turn)?;
+        let existing_bytes = path.metadata().map(|metadata| metadata.len()).unwrap_or(0);
+        let projected = outbox_content_bytes(outbox_dir)
+            .saturating_sub(existing_bytes)
+            .saturating_add(serialized.len() as u64);
+        if projected > MAX_OUTBOX_BYTES {
+            anyhow::bail!(
+                "memory hook state is full ({projected} bytes; limit {MAX_OUTBOX_BYTES}); run 'seren memory hook flush' or inspect 'seren memory hook status'"
+            );
+        }
+        write_private_file(path, &serialized)
+    })
+}
+
+fn read_pending_turn(outbox_dir: &Path, path: &Path) -> Result<Option<OutboxTurn>> {
+    let raw = match std::fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if raw.len() as u64 > MAX_OUTBOX_TURN_BYTES {
+        anyhow::bail!("pending memory hook record is too large");
+    }
+    decode_turn(outbox_dir, &raw).map(Some)
 }
 
 fn write_turn_if_absent(outbox_dir: &Path, turn: &OutboxTurn) -> Result<bool> {
@@ -1455,12 +1528,123 @@ struct OutboxStatus {
     in_flight: usize,
     needs_attention: usize,
     unreadable: usize,
+    pending_turns: usize,
+    encrypted_bytes: u64,
     oldest_queued_at: Option<jiff::Timestamp>,
+    oldest_queued_age_seconds: Option<u64>,
+    health: HookHealth,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct HookHealth {
+    hook_invocations: std::collections::BTreeMap<String, u64>,
+    capture_failures: u64,
+    policy_skips: u64,
+    policy_rejections: u64,
+    delivery_outcomes: std::collections::BTreeMap<String, u64>,
+    last_successful_delivery_at: Option<jiff::Timestamp>,
+    last_delivery_problem_at: Option<jiff::Timestamp>,
+    updated_at: Option<jiff::Timestamp>,
+}
+
+fn hook_health_dir(outbox_dir: &Path) -> PathBuf {
+    outbox_dir.join("observability")
+}
+
+fn hook_health_path(outbox_dir: &Path) -> PathBuf {
+    hook_health_dir(outbox_dir).join(HOOK_HEALTH_FILE)
+}
+
+fn read_hook_health(outbox_dir: &Path) -> HookHealth {
+    std::fs::read(hook_health_path(outbox_dir))
+        .ok()
+        .and_then(|raw| serde_json::from_slice(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn update_hook_health(outbox_dir: &Path, operation: impl FnOnce(&mut HookHealth)) -> Result<()> {
+    let health_dir = hook_health_dir(outbox_dir);
+    create_private_dir(&health_dir)?;
+    with_private_lock(&health_dir.join(".health.lock"), || {
+        let mut health = read_hook_health(outbox_dir);
+        operation(&mut health);
+        health.updated_at = Some(jiff::Timestamp::now());
+        write_private_file(
+            &hook_health_path(outbox_dir),
+            &serde_json::to_vec_pretty(&health)?,
+        )
+    })
+}
+
+fn increment_counter(counter: &mut std::collections::BTreeMap<String, u64>, key: &str) {
+    let value = counter.entry(key.to_string()).or_default();
+    *value = value.saturating_add(1);
+}
+
+fn record_hook_invocation(outbox_dir: &Path, platform: &str, event: &str) {
+    if update_hook_health(outbox_dir, |health| {
+        increment_counter(&mut health.hook_invocations, &format!("{platform}:{event}"));
+    })
+    .is_err()
+    {
+        emit_hook_event(platform, "observability", "health_write_failed");
+    }
+}
+
+fn record_capture_failure(outbox_dir: &Path, platform: &str) {
+    if update_hook_health(outbox_dir, |health| {
+        health.capture_failures = health.capture_failures.saturating_add(1);
+        health.last_delivery_problem_at = Some(jiff::Timestamp::now());
+    })
+    .is_err()
+    {
+        emit_hook_event(platform, "observability", "health_write_failed");
+    }
+}
+
+fn record_policy_skip(outbox_dir: &Path, platform: &str) {
+    if update_hook_health(outbox_dir, |health| {
+        health.policy_skips = health.policy_skips.saturating_add(1);
+    })
+    .is_err()
+    {
+        emit_hook_event(platform, "observability", "health_write_failed");
+    }
+}
+
+fn record_policy_rejection(outbox_dir: &Path, platform: &str) {
+    if update_hook_health(outbox_dir, |health| {
+        health.policy_rejections = health.policy_rejections.saturating_add(1);
+    })
+    .is_err()
+    {
+        emit_hook_event(platform, "observability", "health_write_failed");
+    }
+}
+
+fn record_delivery_outcome(outbox_dir: &Path, platform: &str, outcome: &str) {
+    if update_hook_health(outbox_dir, |health| {
+        increment_counter(&mut health.delivery_outcomes, outcome);
+        if outcome == "delivered" {
+            health.last_successful_delivery_at = Some(jiff::Timestamp::now());
+        } else if matches!(
+            outcome,
+            "content_omitted" | "failed" | "key_unavailable" | "timed_out"
+        ) {
+            health.last_delivery_problem_at = Some(jiff::Timestamp::now());
+        }
+    })
+    .is_err()
+    {
+        emit_hook_event(platform, "observability", "health_write_failed");
+    }
 }
 
 fn outbox_status(outbox_dir: &Path) -> OutboxStatus {
     let mut status = OutboxStatus {
         key_available: outbox_key(outbox_dir).is_some(),
+        encrypted_bytes: outbox_content_bytes(outbox_dir),
+        health: read_hook_health(outbox_dir),
         ..OutboxStatus::default()
     };
     let Ok(entries) = std::fs::read_dir(outbox_dir) else {
@@ -1507,7 +1691,64 @@ fn outbox_status(outbox_dir: &Path) -> OutboxStatus {
             _ => {}
         }
     }
+    status.pending_turns = std::fs::read_dir(outbox_dir.join("pending"))
+        .into_iter()
+        .flat_map(|entries| entries.flatten())
+        .filter(|entry| is_outbox_record_path(&entry.path()))
+        .count();
+    status.oldest_queued_age_seconds = status.oldest_queued_at.map(|oldest| {
+        jiff::Timestamp::now()
+            .as_second()
+            .saturating_sub(oldest.as_second())
+            .max(0) as u64
+    });
     status
+}
+
+fn outbox_health_warning(status: &OutboxStatus) -> Option<String> {
+    let old_queue = status
+        .oldest_queued_age_seconds
+        .is_some_and(|age| age >= 60 * 60);
+    let unresolved_problem = status
+        .health
+        .last_delivery_problem_at
+        .is_some_and(|problem| {
+            status
+                .health
+                .last_successful_delivery_at
+                .is_none_or(|success| problem > success)
+        });
+    if status.needs_attention == 0 && !old_queue && !unresolved_problem {
+        return None;
+    }
+    Some(format!(
+        "Seren Memory capture needs attention: {} queued, {} need attention, oldest queued age {} seconds, unresolved delivery problem: {}. Run `seren memory hook status` for content-free diagnostics.",
+        status.queued,
+        status.needs_attention,
+        status.oldest_queued_age_seconds.unwrap_or(0),
+        unresolved_problem,
+    ))
+}
+
+fn prune_codex_turn_cache(outbox_dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(outbox_dir.join("pending")) else {
+        return;
+    };
+    let now = jiff::Timestamp::now().as_second();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !is_outbox_record_path(&path) {
+            continue;
+        }
+        let Ok(Some(turn)) = read_pending_turn(outbox_dir, &path) else {
+            // Never delete sealed content merely because its key is temporarily
+            // unavailable or the record cannot currently be decoded.
+            continue;
+        };
+        if now.saturating_sub(turn.observed_at.as_second()) > CODEX_TURN_CACHE_RETENTION_SECONDS {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1809,6 +2050,14 @@ async fn deliver_turn(
     };
     let response = client.seren_memory_capture_agent_turn(&params);
     let response = response.await;
+    if response
+        .as_ref()
+        .err()
+        .and_then(|error| error.status())
+        .is_some_and(|status| status.as_u16() == 409)
+    {
+        record_policy_rejection(outbox_dir, &turn.agent_platform);
+    }
     response.map_err(|error| anyhow::anyhow!("capture request failed: {error}"))?;
     Ok(DeliveryOutcome::Delivered)
 }
@@ -1885,7 +2134,8 @@ async fn deliver_due(
     let started = std::time::Instant::now();
     let deadline = started.checked_add(budget);
     if outbox_key(outbox_dir).is_none() {
-        eprintln!("seren memory hook: the outbox key is unavailable; sealed turns stay queued");
+        emit_hook_event("shared", "delivery", "key_unavailable");
+        record_delivery_outcome(outbox_dir, "shared", "key_unavailable");
         return (0, 0);
     }
     if let Err(error) = reclaim_stale_claims_until(outbox_dir, deadline) {
@@ -1919,6 +2169,7 @@ async fn deliver_due(
                 continue;
             }
         };
+        let agent_platform = turn.agent_platform.clone();
         if !turn_targets_context(ctx, &turn) {
             if let Err(error) = release_claim(outbox_dir, &claimed) {
                 eprintln!("seren memory hook: could not release a foreign outbox turn: {error:#}");
@@ -1941,12 +2192,21 @@ async fn deliver_due(
                 {
                     eprintln!("seren memory hook: could not requeue a timed-out turn: {error:#}");
                 }
+                record_delivery_outcome(outbox_dir, &agent_platform, "timed_out");
+                emit_hook_event(&agent_platform, "delivery", "timed_out");
                 failed += 1;
             }
             Ok(Ok(outcome)) => match acknowledge_turn(&claimed) {
                 Ok(()) => match outcome {
-                    DeliveryOutcome::Delivered => delivered += 1,
+                    DeliveryOutcome::Delivered => {
+                        record_delivery_outcome(outbox_dir, &agent_platform, "delivered");
+                        emit_hook_event(&agent_platform, "delivery", "delivered");
+                        delivered += 1;
+                    }
                     DeliveryOutcome::DroppedByPolicy(reason) => {
+                        record_policy_skip(outbox_dir, &agent_platform);
+                        record_delivery_outcome(outbox_dir, &agent_platform, "dropped_by_policy");
+                        emit_hook_event(&agent_platform, "delivery", "dropped_by_policy");
                         eprintln!("seren memory hook: queued turn discarded: {reason}");
                     }
                 },
@@ -1965,6 +2225,8 @@ async fn deliver_due(
                         "seren memory hook: delivery failed and its claim could not be requeued: {requeue_error:#}"
                     );
                 }
+                record_delivery_outcome(outbox_dir, &agent_platform, "failed");
+                emit_hook_event(&agent_platform, "delivery", "failed");
                 failed += 1;
             }
         }
@@ -1983,25 +2245,44 @@ pub async fn session_start(platform: String, ctx: &CommandContext) -> Result<()>
         eprintln!("seren memory hook: platform {platform} is not supported yet");
         return Ok(());
     }
+    let health_warning = if let Ok(outbox_dir) = default_outbox_dir() {
+        record_hook_invocation(&outbox_dir, &platform, "session_start");
+        prune_codex_turn_cache(&outbox_dir);
+        outbox_health_warning(&outbox_status(&outbox_dir))
+    } else {
+        None
+    };
     let payload = read_stdin_payload();
     let cwd = payload
         .cwd
         .map(PathBuf::from)
         .or_else(|| std::env::current_dir().ok());
+    let mut output = serde_json::Map::new();
     match bootstrap_context(ctx, cwd.as_deref()).await {
         Ok(context_text) if !context_text.is_empty() => {
-            let output = serde_json::json!({
-                "hookSpecificOutput": {
+            output.insert(
+                "hookSpecificOutput".to_string(),
+                serde_json::json!({
                     "hookEventName": "SessionStart",
                     "additionalContext": context_text,
-                }
-            });
-            println!("{output}");
+                }),
+            );
+            emit_hook_event(&platform, "session_start", "context_injected");
         }
-        Ok(_) => {}
+        Ok(_) => emit_hook_event(&platform, "session_start", "empty"),
         Err(error) => {
+            emit_hook_event(&platform, "session_start", "unavailable");
             eprintln!("seren memory hook: bootstrap unavailable: {error:#}");
         }
+    }
+    if let Some(warning) = health_warning {
+        output.insert(
+            "systemMessage".to_string(),
+            serde_json::Value::String(warning),
+        );
+    }
+    if !output.is_empty() {
+        println!("{}", serde_json::Value::Object(output));
     }
     Ok(())
 }
@@ -2015,6 +2296,7 @@ pub async fn drain(platform: String, ctx: &CommandContext) -> Result<()> {
     }
     match default_outbox_dir() {
         Ok(outbox_dir) => {
+            record_hook_invocation(&outbox_dir, &platform, "drain");
             deliver_due(ctx, &outbox_dir, OPPORTUNISTIC_DRAIN_BUDGET, false).await;
         }
         Err(error) => {
@@ -2022,6 +2304,142 @@ pub async fn drain(platform: String, ctx: &CommandContext) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Codex user-prompt hook: stage the prompt in the encrypted local turn cache.
+/// The matching Stop hook supplies the final response and performs capture.
+pub async fn prompt_submit(platform: String, ctx: &CommandContext) -> Result<()> {
+    if platform != CODEX_PLATFORM {
+        eprintln!("seren memory hook: prompt-submit is only supported for Codex");
+        return Ok(());
+    }
+    let outbox_dir = match default_outbox_dir() {
+        Ok(outbox_dir) => outbox_dir,
+        Err(error) => {
+            emit_hook_event(&platform, "prompt_submit", "state_unavailable");
+            eprintln!("seren memory hook: prompt staging failed: {error:#}");
+            return Ok(());
+        }
+    };
+    record_hook_invocation(&outbox_dir, &platform, "prompt_submit");
+    prune_codex_turn_cache(&outbox_dir);
+    let payload = read_stdin_payload();
+    match capture_codex_prompt(&payload, ctx, &outbox_dir) {
+        Ok(CodexPromptOutcome::Staged) => emit_hook_event(&platform, "prompt_submit", "staged"),
+        Ok(CodexPromptOutcome::AlreadyCompleted) => {
+            emit_hook_event(&platform, "prompt_submit", "already_completed")
+        }
+        Ok(CodexPromptOutcome::KeyUnavailable) => {
+            record_delivery_outcome(&outbox_dir, &platform, "content_omitted");
+            emit_hook_event(&platform, "prompt_submit", "content_omitted");
+        }
+        Err(error) => {
+            record_capture_failure(&outbox_dir, &platform);
+            emit_hook_event(&platform, "prompt_submit", "staging_failed");
+            eprintln!("seren memory hook: prompt staging failed: {error:#}");
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CodexPromptOutcome {
+    Staged,
+    AlreadyCompleted,
+    KeyUnavailable,
+}
+
+fn codex_turn_from_payload(
+    payload: &HookPayload,
+    ctx: &CommandContext,
+    outbox_dir: &Path,
+    user_text: Option<String>,
+    assistant_text: String,
+) -> Result<(PathBuf, OutboxTurn)> {
+    let native_session_id = payload
+        .session_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .context("Codex hook payload did not include session_id")?;
+    let native_turn_id = payload
+        .turn_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .context("Codex hook payload did not include turn_id")?;
+    let session_id = stable_external_component(native_session_id, 180);
+    let turn_id = stable_external_component(native_turn_id, 180);
+    let cache_path = pending_turn_path(outbox_dir, CODEX_PLATFORM, &session_id, &turn_id);
+    let cwd = payload
+        .cwd
+        .clone()
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let cwd = canonical_workspace_path(&cwd);
+    let workspace = resolve_workspace(outbox_dir, &cwd);
+    let turn = OutboxTurn {
+        profile: crate::config::active_profile().to_string(),
+        api_base_url: ctx.api_base(),
+        organization_id: configured_organization_id(),
+        credential_identity: credential_identity(ctx),
+        source_external_id: format!("hook:agent-turn:{CODEX_PLATFORM}:{session_id}:{turn_id}"),
+        agent_platform: CODEX_PLATFORM.to_string(),
+        external_session_id: Some(session_id.clone()),
+        external_parent_session_id: None,
+        external_turn_id: Some(turn_id.clone()),
+        user_text,
+        assistant_text,
+        policy_version: None,
+        project_context: cwd.to_string_lossy().to_string(),
+        workspace_key: Some(workspace.key),
+        workspace_uri: workspace.uri,
+        source_uri: Some(format!(
+            "agent-turn://{CODEX_PLATFORM}/{session_id}#{turn_id}"
+        )),
+        observed_at: jiff::Timestamp::now(),
+        attempts: 0,
+        next_attempt_at: None,
+        last_error: None,
+        content_omitted: false,
+    };
+    Ok((cache_path, turn))
+}
+
+fn capture_codex_prompt(
+    payload: &HookPayload,
+    ctx: &CommandContext,
+    outbox_dir: &Path,
+) -> Result<CodexPromptOutcome> {
+    if outbox_key(outbox_dir).is_none() {
+        // A prompt by itself is not a deliverable turn, so there is no useful
+        // metadata-only record to enqueue. The content-free health counter
+        // makes the omission visible without writing the prompt in plaintext.
+        return Ok(CodexPromptOutcome::KeyUnavailable);
+    }
+    let prompt = payload
+        .prompt
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .context("Codex UserPromptSubmit payload did not include prompt")?;
+    let (path, mut turn) = codex_turn_from_payload(
+        payload,
+        ctx,
+        outbox_dir,
+        Some(truncate_transcript(
+            &redact_secrets(prompt),
+            MAX_LOCAL_TRANSCRIPT_BYTES,
+        )),
+        String::new(),
+    )?;
+    if read_pending_turn(outbox_dir, &path)?.is_some_and(|existing| {
+        !existing.assistant_text.is_empty()
+            && existing.source_external_id == turn.source_external_id
+    }) {
+        return Ok(CodexPromptOutcome::AlreadyCompleted);
+    }
+    turn.observed_at = jiff::Timestamp::now();
+    write_pending_turn(outbox_dir, &path, &turn)?;
+    Ok(CodexPromptOutcome::Staged)
 }
 
 async fn bootstrap_context(ctx: &CommandContext, _cwd: Option<&Path>) -> Result<String> {
@@ -2078,14 +2496,46 @@ pub async fn stop(platform: String, ctx: &CommandContext) -> Result<()> {
         eprintln!("seren memory hook: platform {platform} is not supported yet");
         return Ok(());
     }
+    let outbox_dir = match default_outbox_dir() {
+        Ok(outbox_dir) => outbox_dir,
+        Err(error) => {
+            emit_hook_event(&platform, "stop", "state_unavailable");
+            eprintln!("seren memory hook: capture failed: {error:#}");
+            return Ok(());
+        }
+    };
+    record_hook_invocation(&outbox_dir, &platform, "stop");
     let payload = read_stdin_payload();
-    if let Err(error) = capture_stop(&payload, ctx).await {
+    if platform == CODEX_PLATFORM && payload.stop_hook_active {
+        emit_hook_event(&platform, "stop", "continuation_active");
+        println!("{{}}");
+        return Ok(());
+    }
+    let capture = if platform == CODEX_PLATFORM {
+        capture_codex_stop(&payload, ctx, &outbox_dir).await
+    } else {
+        capture_claude_stop(&payload, ctx, &outbox_dir).await
+    };
+    if let Err(error) = capture {
+        record_capture_failure(&outbox_dir, &platform);
+        emit_hook_event(&platform, "stop", "capture_failed");
         eprintln!("seren memory hook: capture failed: {error:#}");
+    } else {
+        emit_hook_event(&platform, "stop", "queued");
+    }
+    if platform == CODEX_PLATFORM {
+        // Codex Stop hooks expect a JSON document on successful exit. An empty
+        // object preserves the normal stop decision while capture fails open.
+        println!("{{}}");
     }
     Ok(())
 }
 
-async fn capture_stop(payload: &HookPayload, ctx: &CommandContext) -> Result<()> {
+async fn capture_claude_stop(
+    payload: &HookPayload,
+    ctx: &CommandContext,
+    outbox_dir: &Path,
+) -> Result<()> {
     let native_session_id = payload
         .session_id
         .clone()
@@ -2098,7 +2548,6 @@ async fn capture_stop(payload: &HookPayload, ctx: &CommandContext) -> Result<()>
     let completed = read_completed_transcript(Path::new(&transcript_path))?;
     let turn = &completed.turn;
 
-    let outbox_dir = default_outbox_dir()?;
     let cwd = payload
         .cwd
         .clone()
@@ -2106,14 +2555,14 @@ async fn capture_stop(payload: &HookPayload, ctx: &CommandContext) -> Result<()>
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."));
     let cwd = canonical_workspace_path(&cwd);
-    let workspace = resolve_workspace(&outbox_dir, &cwd);
+    let workspace = resolve_workspace(outbox_dir, &cwd);
     let session_id = stable_external_component(&native_session_id, 180);
     let explicit_parent_session_id = payload
         .external_parent_session_id
         .as_deref()
         .map(|value| stable_external_component(value, 180));
     let turn_id = stable_external_component(&turn.turn_id, 180);
-    let source_external_id = format!("hook:agent-turn:{SUPPORTED_PLATFORM}:{session_id}:{turn_id}");
+    let source_external_id = format!("hook:agent-turn:{CLAUDE_PLATFORM}:{session_id}:{turn_id}");
     let profile = crate::config::active_profile().to_string();
     let api_base_url = ctx.api_base();
     let organization_id = configured_organization_id();
@@ -2126,7 +2575,7 @@ async fn capture_stop(payload: &HookPayload, ctx: &CommandContext) -> Result<()>
         organization_id,
         credential_identity: credential_identity.clone(),
         source_external_id,
-        agent_platform: SUPPORTED_PLATFORM.to_string(),
+        agent_platform: CLAUDE_PLATFORM.to_string(),
         external_session_id: Some(session_id.clone()),
         external_parent_session_id: explicit_parent_session_id.clone(),
         external_turn_id: Some(turn_id.clone()),
@@ -2141,7 +2590,7 @@ async fn capture_stop(payload: &HookPayload, ctx: &CommandContext) -> Result<()>
         workspace_key: Some(workspace_key.clone()),
         workspace_uri: workspace.uri,
         source_uri: Some(format!(
-            "agent-transcript://{SUPPORTED_PLATFORM}/{session_id}#{}",
+            "agent-transcript://{CLAUDE_PLATFORM}/{session_id}#{}",
             turn_id
         )),
         observed_at: turn.observed_at.unwrap_or_else(jiff::Timestamp::now),
@@ -2150,12 +2599,14 @@ async fn capture_stop(payload: &HookPayload, ctx: &CommandContext) -> Result<()>
         last_error: None,
         content_omitted: false,
     };
-    match resolve_capture_policy(ctx, &outbox_dir, organization_id, false).await {
+    match resolve_capture_policy(ctx, outbox_dir, organization_id, false).await {
         Ok(policy) => match apply_capture_policy(&mut queued, &policy)? {
             CapturePolicyDecision::Submit => {}
             CapturePolicyDecision::Skip(reason) => {
+                record_policy_skip(outbox_dir, CLAUDE_PLATFORM);
+                emit_hook_event(CLAUDE_PLATFORM, "stop", "skipped_by_policy");
                 eprintln!("seren memory hook: completed turn skipped: {reason}");
-                deliver_due(ctx, &outbox_dir, STOP_DELIVERY_BUDGET, false).await;
+                deliver_due(ctx, outbox_dir, STOP_DELIVERY_BUDGET, false).await;
                 return Ok(());
             }
         },
@@ -2169,9 +2620,9 @@ async fn capture_stop(payload: &HookPayload, ctx: &CommandContext) -> Result<()>
     }
     if !queued.content_omitted {
         queued.external_parent_session_id = resolve_session_lineage(
-            &outbox_dir,
+            outbox_dir,
             &LineageScope {
-                agent_platform: SUPPORTED_PLATFORM,
+                agent_platform: CLAUDE_PLATFORM,
                 workspace_key: &workspace_key,
                 profile: &profile,
                 api_base_url: &api_base_url,
@@ -2183,7 +2634,7 @@ async fn capture_stop(payload: &HookPayload, ctx: &CommandContext) -> Result<()>
             &completed.recent_turn_ids,
         )?;
     }
-    if !queued.content_omitted && outbox_key(&outbox_dir).is_none() {
+    if !queued.content_omitted && outbox_key(outbox_dir).is_none() {
         // No secure key source: never persist transcript content in
         // plaintext. A metadata-only record keeps the loss visible.
         eprintln!("seren memory hook: no secure key source; captured content was not persisted");
@@ -2191,15 +2642,102 @@ async fn capture_stop(payload: &HookPayload, ctx: &CommandContext) -> Result<()>
             &mut queued,
             "outbox encryption unavailable; transcript was not persisted",
         );
+        record_delivery_outcome(outbox_dir, CLAUDE_PLATFORM, "content_omitted");
+        emit_hook_event(CLAUDE_PLATFORM, "stop", "content_omitted");
     }
-    enqueue_turn(&outbox_dir, &queued)?;
-    deliver_due(ctx, &outbox_dir, STOP_DELIVERY_BUDGET, false).await;
+    enqueue_turn(outbox_dir, &queued)?;
+    deliver_due(ctx, outbox_dir, STOP_DELIVERY_BUDGET, false).await;
+    Ok(())
+}
+
+async fn capture_codex_stop(
+    payload: &HookPayload,
+    ctx: &CommandContext,
+    outbox_dir: &Path,
+) -> Result<()> {
+    prune_codex_turn_cache(outbox_dir);
+    let assistant = payload
+        .last_assistant_message
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .context("Codex Stop payload did not include last_assistant_message")?;
+    let (cache_path, fresh) = codex_turn_from_payload(
+        payload,
+        ctx,
+        outbox_dir,
+        None,
+        truncate_transcript(&redact_secrets(assistant), MAX_LOCAL_TRANSCRIPT_BYTES),
+    )?;
+    let mut queued = match read_pending_turn(outbox_dir, &cache_path)? {
+        Some(existing) => {
+            if existing.source_external_id != fresh.source_external_id
+                || existing.agent_platform != CODEX_PLATFORM
+            {
+                anyhow::bail!("Codex turn cache identity did not match the Stop payload");
+            }
+            if existing.assistant_text.is_empty() {
+                OutboxTurn {
+                    assistant_text: fresh.assistant_text,
+                    observed_at: fresh.observed_at,
+                    ..existing
+                }
+            } else {
+                // Repeated Stop delivery must reproduce the exact content that
+                // was first submitted for this stable external turn ID.
+                existing
+            }
+        }
+        None => fresh,
+    };
+    match resolve_capture_policy(ctx, outbox_dir, queued.organization_id, false).await {
+        Ok(policy) => match apply_capture_policy(&mut queued, &policy)? {
+            CapturePolicyDecision::Submit => {}
+            CapturePolicyDecision::Skip(reason) => {
+                let _ = std::fs::remove_file(&cache_path);
+                record_policy_skip(outbox_dir, CODEX_PLATFORM);
+                emit_hook_event(CODEX_PLATFORM, "stop", "skipped_by_policy");
+                eprintln!("seren memory hook: completed turn skipped: {reason}");
+                deliver_due(ctx, outbox_dir, STOP_DELIVERY_BUDGET, false).await;
+                return Ok(());
+            }
+        },
+        Err(error) => {
+            // Without a verifiable current policy, do not keep the staged
+            // prompt merely because Codex no longer has a transcript source we
+            // are willing to parse. Preserve a content-free attention record.
+            let _ = std::fs::remove_file(&cache_path);
+            eprintln!("seren memory hook: {error:#}");
+            omit_turn_for_attention(
+                &mut queued,
+                "organization memory-capture policy was unavailable; turn content was not persisted",
+            );
+        }
+    }
+    if !queued.content_omitted && outbox_key(outbox_dir).is_none() {
+        let _ = std::fs::remove_file(&cache_path);
+        omit_turn_for_attention(
+            &mut queued,
+            "outbox encryption unavailable; turn content was not persisted",
+        );
+        record_delivery_outcome(outbox_dir, CODEX_PLATFORM, "content_omitted");
+        emit_hook_event(CODEX_PLATFORM, "stop", "content_omitted");
+    }
+    if !queued.content_omitted {
+        // Retain the sealed, policy-sanitized completed turn for bounded replay
+        // idempotency. Codex Stop does not repeat the user prompt, and its
+        // transcript format is explicitly not a stable adapter interface.
+        write_pending_turn(outbox_dir, &cache_path, &queued)?;
+    }
+    enqueue_turn(outbox_dir, &queued)?;
+    deliver_due(ctx, outbox_dir, STOP_DELIVERY_BUDGET, false).await;
     Ok(())
 }
 
 /// Deliver every due queued turn within a generous budget.
 pub async fn flush(ctx: &CommandContext) -> Result<()> {
     let outbox_dir = default_outbox_dir()?;
+    prune_codex_turn_cache(&outbox_dir);
+    record_hook_invocation(&outbox_dir, "shared", "flush");
     let (delivered, failed) = deliver_due(ctx, &outbox_dir, FLUSH_DELIVERY_BUDGET, true).await;
     let status = outbox_status(&outbox_dir);
     println!(
@@ -2219,6 +2757,7 @@ pub async fn flush(ctx: &CommandContext) -> Result<()> {
 /// Report outbox depth, in-flight claims, and turns needing attention.
 pub async fn status() -> Result<()> {
     let outbox_dir = default_outbox_dir()?;
+    prune_codex_turn_cache(&outbox_dir);
     reclaim_stale_claims(&outbox_dir)?;
     println!(
         "{}",
@@ -2291,6 +2830,57 @@ mod tests {
         let turn = extract_completed_turn(&transcript).unwrap();
         assert_eq!(turn.turn_id, "a1");
         assert_eq!(turn.assistant_text, "answer");
+    }
+
+    #[test]
+    fn current_claude_transcript_error_entries_are_not_captured_as_answers() {
+        // Sanitized from the structural keys emitted by a current Claude Code
+        // transcript: thinking, tool use, tool result, then an API-generated
+        // assistant error. Error text is not a completed assistant response.
+        let transcript = [
+            serde_json::json!({
+                "type": "user",
+                "uuid": "user-current",
+                "sessionId": "session-current",
+                "isSidechain": false,
+                "message": {"role": "user", "content": "inspect the workspace"},
+            }),
+            serde_json::json!({
+                "type": "assistant",
+                "uuid": "assistant-thinking",
+                "sessionId": "session-current",
+                "isSidechain": false,
+                "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "omitted", "signature": "omitted"}]},
+            }),
+            serde_json::json!({
+                "type": "assistant",
+                "uuid": "assistant-tool",
+                "sessionId": "session-current",
+                "isSidechain": false,
+                "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "tool-1", "name": "Read", "input": {}}]},
+            }),
+            serde_json::json!({
+                "type": "user",
+                "uuid": "tool-result",
+                "sessionId": "session-current",
+                "isSidechain": false,
+                "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tool-1", "content": "omitted"}]},
+            }),
+            serde_json::json!({
+                "type": "assistant",
+                "uuid": "assistant-api-error",
+                "sessionId": "session-current",
+                "isSidechain": false,
+                "isApiErrorMessage": true,
+                "error": "rate_limit",
+                "message": {"role": "assistant", "content": [{"type": "text", "text": "temporary API error"}]},
+            }),
+        ]
+        .into_iter()
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+        assert!(extract_completed_turn(&transcript).is_none());
     }
 
     #[test]
@@ -2940,6 +3530,94 @@ mod tests {
         let empty = outbox_status(dir.path());
         assert_eq!(empty.queued, 0);
         assert_eq!(empty.in_flight, 0);
+    }
+
+    #[test]
+    fn codex_turn_cache_assembles_and_replays_the_same_sealed_turn() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = pending_turn_path(dir.path(), "codex", "session-1", "turn-1");
+        let mut turn = sample_turn("turn-1");
+        turn.agent_platform = "codex".to_string();
+        turn.source_external_id = "hook:agent-turn:codex:session-1:turn-1".to_string();
+        turn.external_session_id = Some("session-1".to_string());
+        turn.user_text = Some("a private prompt".to_string());
+        turn.assistant_text.clear();
+
+        write_pending_turn(dir.path(), &path, &turn).unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("a private prompt"));
+
+        let mut completed = read_pending_turn(dir.path(), &path).unwrap().unwrap();
+        completed.assistant_text = "the final response".to_string();
+        write_pending_turn(dir.path(), &path, &completed).unwrap();
+        let replay = read_pending_turn(dir.path(), &path).unwrap().unwrap();
+        assert_eq!(replay.user_text.as_deref(), Some("a private prompt"));
+        assert_eq!(replay.assistant_text, "the final response");
+        assert_eq!(replay.source_external_id, completed.source_external_id);
+
+        let status = outbox_status(dir.path());
+        assert_eq!(status.pending_turns, 1);
+        assert!(status.encrypted_bytes > 0);
+    }
+
+    #[test]
+    fn codex_turn_cache_prunes_only_expired_decodable_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let incomplete_path = pending_turn_path(dir.path(), "codex", "session", "incomplete");
+        let complete_path = pending_turn_path(dir.path(), "codex", "session", "complete");
+        let current_path = pending_turn_path(dir.path(), "codex", "session", "current");
+
+        let mut incomplete = sample_turn("incomplete");
+        incomplete.assistant_text.clear();
+        incomplete.observed_at = jiff::Timestamp::now() - Duration::from_secs(25 * 60 * 60);
+        write_pending_turn(dir.path(), &incomplete_path, &incomplete).unwrap();
+
+        let mut complete = sample_turn("complete");
+        complete.observed_at = jiff::Timestamp::now() - Duration::from_secs(25 * 60 * 60);
+        write_pending_turn(dir.path(), &complete_path, &complete).unwrap();
+        write_pending_turn(dir.path(), &current_path, &sample_turn("current")).unwrap();
+
+        prune_codex_turn_cache(dir.path());
+        assert!(!incomplete_path.exists());
+        assert!(!complete_path.exists());
+        assert!(current_path.exists());
+    }
+
+    #[test]
+    fn content_free_hook_health_is_durable_and_reported_with_queue_age() {
+        let dir = tempfile::tempdir().unwrap();
+        record_hook_invocation(dir.path(), "claude", "stop");
+        record_capture_failure(dir.path(), "claude");
+        record_policy_skip(dir.path(), "claude");
+        record_policy_rejection(dir.path(), "claude");
+        record_delivery_outcome(dir.path(), "claude", "failed");
+        record_delivery_outcome(dir.path(), "claude", "delivered");
+
+        let mut turn = sample_turn("health");
+        turn.observed_at = jiff::Timestamp::now() - Duration::from_secs(2 * 60 * 60);
+        enqueue_turn(dir.path(), &turn).unwrap();
+
+        let status = outbox_status(dir.path());
+        assert_eq!(status.queued, 1);
+        assert!(status.encrypted_bytes > 0);
+        assert!(
+            status
+                .oldest_queued_age_seconds
+                .is_some_and(|age| age >= 2 * 60 * 60)
+        );
+        assert_eq!(status.health.hook_invocations["claude:stop"], 1);
+        assert_eq!(status.health.capture_failures, 1);
+        assert_eq!(status.health.policy_skips, 1);
+        assert_eq!(status.health.policy_rejections, 1);
+        assert_eq!(status.health.delivery_outcomes["failed"], 1);
+        assert_eq!(status.health.delivery_outcomes["delivered"], 1);
+        assert!(status.health.last_successful_delivery_at.is_some());
+        assert!(outbox_health_warning(&status).is_some());
+
+        let raw = std::fs::read_to_string(hook_health_path(dir.path())).unwrap();
+        assert!(!raw.contains("hi"));
+        assert!(!raw.contains("hello"));
+        assert!(!raw.contains("hook:agent-turn"));
     }
 
     #[test]

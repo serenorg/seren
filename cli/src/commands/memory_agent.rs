@@ -13,8 +13,8 @@ struct HookDefinition {
     asynchronous: bool,
 }
 
-const HOOK_EVENTS: [&str; 2] = ["SessionStart", "Stop"];
-const HOOK_DEFINITIONS: [HookDefinition; 3] = [
+const CLAUDE_HOOK_EVENTS: [&str; 2] = ["SessionStart", "Stop"];
+const CLAUDE_HOOK_DEFINITIONS: [HookDefinition; 3] = [
     HookDefinition {
         event: "SessionStart",
         command: "seren memory hook session-start --platform claude",
@@ -32,6 +32,55 @@ const HOOK_DEFINITIONS: [HookDefinition; 3] = [
     },
 ];
 
+#[derive(Clone, Copy)]
+struct CodexHookDefinition {
+    event: &'static str,
+    matcher: Option<&'static str>,
+    command: &'static str,
+    timeout_seconds: u64,
+    additional_context_limit: Option<u64>,
+}
+
+const CODEX_HOOK_EVENTS: [&str; 4] = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"];
+const CODEX_HOOK_DEFINITIONS: [CodexHookDefinition; 4] = [
+    CodexHookDefinition {
+        event: "SessionStart",
+        matcher: Some("startup|resume|clear|compact"),
+        command: "seren memory hook session-start --platform codex",
+        timeout_seconds: 5,
+        additional_context_limit: Some(2_500),
+    },
+    CodexHookDefinition {
+        event: "UserPromptSubmit",
+        matcher: None,
+        command: "seren memory hook prompt-submit --platform codex",
+        timeout_seconds: 3,
+        additional_context_limit: None,
+    },
+    CodexHookDefinition {
+        event: "Stop",
+        matcher: None,
+        command: "seren memory hook stop --platform codex",
+        timeout_seconds: 15,
+        additional_context_limit: None,
+    },
+    CodexHookDefinition {
+        event: "SessionEnd",
+        matcher: None,
+        command: "seren memory hook drain --platform codex",
+        timeout_seconds: 3,
+        additional_context_limit: None,
+    },
+];
+
+const VALIDATED_HOOK_EVENTS: [&str; 5] = [
+    "SessionStart",
+    "UserPromptSubmit",
+    "Stop",
+    "SessionEnd",
+    "Notification",
+];
+
 fn claude_settings_path() -> Result<PathBuf> {
     if let Some(config_dir) = std::env::var_os("CLAUDE_CONFIG_DIR")
         && !config_dir.is_empty()
@@ -40,6 +89,16 @@ fn claude_settings_path() -> Result<PathBuf> {
     }
     let home = std::env::var_os("HOME").context("HOME is not set")?;
     Ok(PathBuf::from(home).join(".claude").join("settings.json"))
+}
+
+fn codex_settings_path() -> Result<PathBuf> {
+    if let Some(config_dir) = std::env::var_os("CODEX_HOME")
+        && !config_dir.is_empty()
+    {
+        return Ok(PathBuf::from(config_dir).join("hooks.json"));
+    }
+    let home = std::env::var_os("HOME").context("HOME is not set")?;
+    Ok(PathBuf::from(home).join(".codex").join("hooks.json"))
 }
 
 fn hook_matches_definition(hook: &serde_json::Value, definition: &HookDefinition) -> bool {
@@ -94,7 +153,7 @@ fn validate_settings(settings: &serde_json::Value) -> Result<()> {
     let hooks = hooks
         .as_object()
         .context("agent settings hooks section is not a JSON object")?;
-    for event in HOOK_EVENTS {
+    for event in VALIDATED_HOOK_EVENTS {
         let Some(entries) = hooks.get(event) else {
             continue;
         };
@@ -167,10 +226,10 @@ fn event_entries<'a>(
 
 fn installed_events(settings: &serde_json::Value) -> Result<Vec<&'static str>> {
     validate_settings(settings)?;
-    Ok(HOOK_EVENTS
+    Ok(CLAUDE_HOOK_EVENTS
         .iter()
         .filter(|event| {
-            HOOK_DEFINITIONS
+            CLAUDE_HOOK_DEFINITIONS
                 .iter()
                 .filter(|definition| definition.event == **event)
                 .any(|definition| hook_is_installed(settings, definition))
@@ -199,13 +258,13 @@ fn hook_is_installed(settings: &serde_json::Value, definition: &HookDefinition) 
 }
 
 fn all_hooks_installed(settings: &serde_json::Value) -> bool {
-    HOOK_DEFINITIONS
+    CLAUDE_HOOK_DEFINITIONS
         .iter()
         .all(|definition| hook_is_installed(settings, definition))
 }
 
 fn missing_hook_commands(settings: &serde_json::Value) -> Vec<&'static str> {
-    HOOK_DEFINITIONS
+    CLAUDE_HOOK_DEFINITIONS
         .iter()
         .filter(|definition| !hook_is_installed(settings, definition))
         .map(|definition| definition.command)
@@ -217,7 +276,7 @@ fn missing_hook_commands(settings: &serde_json::Value) -> Vec<&'static str> {
 fn install_into(settings: &mut serde_json::Value) -> Result<bool> {
     validate_settings(settings)?;
     let mut changed = false;
-    for definition in HOOK_DEFINITIONS {
+    for definition in CLAUDE_HOOK_DEFINITIONS {
         let entries = event_entries(settings, definition.event)?;
         let mut found = false;
         for hook in entries
@@ -256,7 +315,7 @@ fn uninstall_from(settings: &mut serde_json::Value) -> Result<bool> {
     let Some(hooks) = settings.get_mut("hooks").and_then(|h| h.as_object_mut()) else {
         return Ok(false);
     };
-    for definition in HOOK_DEFINITIONS {
+    for definition in CLAUDE_HOOK_DEFINITIONS {
         let Some(entries) = hooks
             .get_mut(definition.event)
             .and_then(|e| e.as_array_mut())
@@ -275,6 +334,119 @@ fn uninstall_from(settings: &mut serde_json::Value) -> Result<bool> {
             let removed_owned_command = commands.len() != before;
             changed |= removed_owned_command;
             !removed_owned_command || !commands.is_empty()
+        });
+    }
+    Ok(changed)
+}
+
+fn codex_hook_is_installed(settings: &serde_json::Value, definition: &CodexHookDefinition) -> bool {
+    settings
+        .get("hooks")
+        .and_then(|hooks| hooks.get(definition.event))
+        .and_then(|entries| entries.as_array())
+        .is_some_and(|entries| {
+            entries.iter().any(|entry| {
+                let matcher = entry.get("matcher").and_then(|value| value.as_str());
+                matcher == definition.matcher
+                    && entry
+                        .get("hooks")
+                        .and_then(|hooks| hooks.as_array())
+                        .is_some_and(|hooks| {
+                            hooks.iter().any(|hook| {
+                                hook.get("type").and_then(|value| value.as_str()) == Some("command")
+                                    && hook.get("command").and_then(|value| value.as_str())
+                                        == Some(definition.command)
+                                    && hook.get("timeout").and_then(|value| value.as_u64())
+                                        == Some(definition.timeout_seconds)
+                                    && hook.get("async").and_then(|value| value.as_bool())
+                                        != Some(true)
+                                    && definition.additional_context_limit.is_none_or(|limit| {
+                                        hook.get("additionalContextLimit")
+                                            .and_then(|value| value.as_u64())
+                                            == Some(limit)
+                                    })
+                            })
+                        })
+            })
+        })
+}
+
+fn codex_installed_events(settings: &serde_json::Value) -> Result<Vec<&'static str>> {
+    validate_settings(settings)?;
+    Ok(CODEX_HOOK_EVENTS
+        .iter()
+        .filter(|event| {
+            CODEX_HOOK_DEFINITIONS
+                .iter()
+                .filter(|definition| definition.event == **event)
+                .any(|definition| codex_hook_is_installed(settings, definition))
+        })
+        .copied()
+        .collect())
+}
+
+fn codex_missing_hook_commands(settings: &serde_json::Value) -> Vec<&'static str> {
+    CODEX_HOOK_DEFINITIONS
+        .iter()
+        .filter(|definition| !codex_hook_is_installed(settings, definition))
+        .map(|definition| definition.command)
+        .collect()
+}
+
+fn codex_install_into(settings: &mut serde_json::Value) -> Result<bool> {
+    validate_settings(settings)?;
+    let mut changed = false;
+    for definition in CODEX_HOOK_DEFINITIONS {
+        if codex_hook_is_installed(settings, &definition) {
+            continue;
+        }
+        let entries = event_entries(settings, definition.event)?;
+        let mut hook = serde_json::json!({
+            "type": "command",
+            "command": definition.command,
+            "timeout": definition.timeout_seconds,
+        });
+        if let Some(limit) = definition.additional_context_limit {
+            hook["additionalContextLimit"] = serde_json::json!(limit);
+        }
+        let mut entry = serde_json::json!({"hooks": [hook]});
+        if let Some(matcher) = definition.matcher {
+            entry["matcher"] = serde_json::Value::String(matcher.to_string());
+        }
+        entries.push(entry);
+        changed = true;
+    }
+    Ok(changed)
+}
+
+fn codex_uninstall_from(settings: &mut serde_json::Value) -> Result<bool> {
+    validate_settings(settings)?;
+    let mut changed = false;
+    let Some(hooks) = settings
+        .get_mut("hooks")
+        .and_then(|hooks| hooks.as_object_mut())
+    else {
+        return Ok(false);
+    };
+    for definition in CODEX_HOOK_DEFINITIONS {
+        let Some(entries) = hooks
+            .get_mut(definition.event)
+            .and_then(|entries| entries.as_array_mut())
+        else {
+            continue;
+        };
+        entries.retain_mut(|entry| {
+            let commands = entry
+                .get_mut("hooks")
+                .and_then(|commands| commands.as_array_mut())
+                .expect("validated hook entry");
+            let before = commands.len();
+            commands.retain(|hook| {
+                hook.get("command").and_then(|command| command.as_str()) != Some(definition.command)
+            });
+            let removed = commands.len() != before;
+            changed |= removed;
+            !removed || !commands.is_empty()
         });
     }
     Ok(changed)
@@ -360,7 +532,7 @@ fn write_settings_with_backup(
     let path = resolved_settings_path(path)?;
     let parent = path
         .parent()
-        .context("Claude settings path does not have a parent directory")?;
+        .context("agent settings path does not have a parent directory")?;
     create_settings_dir(parent)?;
 
     let lock_path = parent.join(".seren_memory_hooks.lock");
@@ -398,7 +570,7 @@ fn write_settings_with_backup(
         let file_name = path
             .file_name()
             .and_then(|name| name.to_str())
-            .context("Claude settings filename is not valid UTF-8")?;
+            .context("agent settings filename is not valid UTF-8")?;
         let temporary = parent.join(format!(".{file_name}.seren_tmp-{}", uuid::Uuid::new_v4()));
         let mut serialized = serde_json::to_vec_pretty(settings)?;
         serialized.push(b'\n');
@@ -436,18 +608,32 @@ fn write_settings_with_backup(
     }
 }
 
-fn require_claude(claude: bool) -> Result<()> {
-    if !claude {
-        anyhow::bail!("specify --claude; it is the only supported platform so far");
-    }
-    Ok(())
+#[derive(Clone, Copy)]
+enum AgentPlatform {
+    Claude,
+    Codex,
 }
 
-pub async fn install(claude: bool) -> Result<()> {
-    require_claude(claude)?;
-    let path = claude_settings_path()?;
+fn require_platform(claude: bool, codex: bool) -> Result<AgentPlatform> {
+    match (claude, codex) {
+        (true, false) => Ok(AgentPlatform::Claude),
+        (false, true) => Ok(AgentPlatform::Codex),
+        _ => anyhow::bail!("specify exactly one agent platform: --claude or --codex"),
+    }
+}
+
+pub async fn install(claude: bool, codex: bool) -> Result<()> {
+    let platform = require_platform(claude, codex)?;
+    let path = match platform {
+        AgentPlatform::Claude => claude_settings_path()?,
+        AgentPlatform::Codex => codex_settings_path()?,
+    };
     let (mut settings, original) = load_settings(&path)?;
-    if install_into(&mut settings)? {
+    let changed = match platform {
+        AgentPlatform::Claude => install_into(&mut settings)?,
+        AgentPlatform::Codex => codex_install_into(&mut settings)?,
+    };
+    if changed {
         write_settings_with_backup(&path, &settings, original.as_deref())?;
         println!("Installed Seren Memory hooks into {}", path.display());
         println!(
@@ -459,19 +645,31 @@ pub async fn install(claude: bool) -> Result<()> {
             path.display()
         );
     }
-    if !hooks_enabled(&settings) {
+    if matches!(platform, AgentPlatform::Claude) && !hooks_enabled(&settings) {
         eprintln!(
             "Seren Memory hooks are configured but Claude Code disableAllHooks is true; automatic capture remains disabled"
+        );
+    }
+    if matches!(platform, AgentPlatform::Codex) {
+        println!(
+            "Codex requires an explicit trust decision for non-managed hooks; open `/hooks`, review these commands, and enable them."
         );
     }
     Ok(())
 }
 
-pub async fn uninstall(claude: bool) -> Result<()> {
-    require_claude(claude)?;
-    let path = claude_settings_path()?;
+pub async fn uninstall(claude: bool, codex: bool) -> Result<()> {
+    let platform = require_platform(claude, codex)?;
+    let path = match platform {
+        AgentPlatform::Claude => claude_settings_path()?,
+        AgentPlatform::Codex => codex_settings_path()?,
+    };
     let (mut settings, original) = load_settings(&path)?;
-    if uninstall_from(&mut settings)? {
+    let changed = match platform {
+        AgentPlatform::Claude => uninstall_from(&mut settings)?,
+        AgentPlatform::Codex => codex_uninstall_from(&mut settings)?,
+    };
+    if changed {
         write_settings_with_backup(&path, &settings, original.as_deref())?;
         println!("Removed Seren Memory hooks from {}", path.display());
     } else {
@@ -480,14 +678,35 @@ pub async fn uninstall(claude: bool) -> Result<()> {
     Ok(())
 }
 
-pub async fn status(claude: bool) -> Result<()> {
-    require_claude(claude)?;
-    let path = claude_settings_path()?;
+pub async fn status(claude: bool, codex: bool) -> Result<()> {
+    let platform = require_platform(claude, codex)?;
+    let path = match platform {
+        AgentPlatform::Claude => claude_settings_path()?,
+        AgentPlatform::Codex => codex_settings_path()?,
+    };
     let (settings, _) = load_settings(&path)?;
-    let installed = installed_events(&settings)?;
-    let hooks_enabled = hooks_enabled(&settings);
-    let fully_installed = hooks_enabled && all_hooks_installed(&settings);
-    let missing_commands = missing_hook_commands(&settings);
+    let (installed, hooks_enabled, fully_installed, missing_commands, trust_review_required) =
+        match platform {
+            AgentPlatform::Claude => {
+                let enabled = hooks_enabled(&settings);
+                (
+                    installed_events(&settings)?,
+                    enabled,
+                    enabled && all_hooks_installed(&settings),
+                    missing_hook_commands(&settings),
+                    false,
+                )
+            }
+            AgentPlatform::Codex => (
+                codex_installed_events(&settings)?,
+                true,
+                CODEX_HOOK_DEFINITIONS
+                    .iter()
+                    .all(|definition| codex_hook_is_installed(&settings, definition)),
+                codex_missing_hook_commands(&settings),
+                true,
+            ),
+        };
     println!(
         "{}",
         serde_json::json!({
@@ -496,6 +715,7 @@ pub async fn status(claude: bool) -> Result<()> {
             "missing_commands": missing_commands,
             "hooks_enabled": hooks_enabled,
             "fully_installed": fully_installed,
+            "trust_review_required": trust_review_required,
         })
     );
     Ok(())
@@ -649,6 +869,59 @@ mod tests {
             vec!["SessionStart", "Stop"]
         );
         assert!(!hooks_enabled(&settings));
+    }
+
+    #[test]
+    fn codex_install_is_complete_idempotent_and_preserves_foreign_hooks() {
+        let mut settings = serde_json::json!({
+            "hooks": {
+                "Stop": [{"hooks": [{"type": "command", "command": "other-tool stop"}]}],
+                "PreToolUse": [{"hooks": [{"type": "command", "command": "guard"}]}]
+            }
+        });
+        assert!(codex_install_into(&mut settings).unwrap());
+        assert!(!codex_install_into(&mut settings).unwrap());
+        assert_eq!(
+            codex_installed_events(&settings).unwrap(),
+            vec!["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"]
+        );
+        assert!(
+            CODEX_HOOK_DEFINITIONS
+                .iter()
+                .all(|definition| codex_hook_is_installed(&settings, definition))
+        );
+        assert_eq!(
+            settings["hooks"]["SessionStart"][0]["matcher"],
+            "startup|resume|clear|compact"
+        );
+        assert_eq!(
+            settings["hooks"]["SessionStart"][0]["hooks"][0]["additionalContextLimit"],
+            2_500
+        );
+        assert_eq!(settings["hooks"]["Stop"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+            "guard"
+        );
+    }
+
+    #[test]
+    fn codex_uninstall_removes_only_exact_owned_commands() {
+        let mut settings = serde_json::json!({});
+        codex_install_into(&mut settings).unwrap();
+        settings["hooks"]["Stop"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "hooks": [{
+                    "type": "command",
+                    "command": "echo seren memory hook stop --platform codex"
+                }]
+            }));
+        assert!(codex_uninstall_from(&mut settings).unwrap());
+        assert!(codex_installed_events(&settings).unwrap().is_empty());
+        assert_eq!(settings["hooks"]["Stop"].as_array().unwrap().len(), 1);
+        assert!(!codex_uninstall_from(&mut settings).unwrap());
     }
 
     #[test]

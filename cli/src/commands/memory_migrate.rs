@@ -2,7 +2,7 @@
 // ABOUTME: Source content stays local except for explicitly accepted, redacted import records.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -18,7 +18,7 @@ use crate::{CommandContext, config};
 const IMPORT_NAMESPACE: &str = "import:claude-mem";
 const MAX_CONTENT_CHARS: usize = 40_000;
 const IMPORT_BATCH_SIZE: usize = 100;
-const REPORT_CHECKPOINT_BATCHES: usize = 10;
+const TARGET_REPORT_CHECKPOINTS: usize = 8;
 const VERIFY_SAMPLE_SIZE: usize = 20;
 const EMBEDDING_RETRY_ATTEMPTS: u32 = 4;
 const EMBEDDING_RETRY_BASE_DELAY_MS: u64 = 250;
@@ -1030,8 +1030,14 @@ pub async fn rehearse(
     limit: Option<u64>,
 ) -> Result<()> {
     let database = canonical_database_path(&database)?;
+    let activity_before = source_activity(&database);
     let source_instance = source_instance.unwrap_or_else(|| default_source_instance(&database));
-    let connection = open_read_only(&database)?;
+    create_private_dir(&output)?;
+    let snapshot = output.join(format!(".source_snapshot-{}.db", Uuid::new_v4()));
+    create_snapshot(&database, &snapshot)?;
+    let snapshot = TemporarySnapshot(snapshot);
+    let connection = open_read_only(&snapshot.0)?;
+    let schema = source_schema(&connection)?;
     ensure_supported_source_corpus(&connection)?;
     let mappings = distinct_projects(&connection)?
         .into_iter()
@@ -1053,7 +1059,6 @@ pub async fn rehearse(
             )
         })
         .collect::<BTreeMap<_, _>>();
-    create_private_dir(&output)?;
     let records_path = output.join("records.jsonl");
     let mut options = std::fs::OpenOptions::new();
     options.create(true).write(true).truncate(true);
@@ -1121,17 +1126,48 @@ pub async fn rehearse(
         }
     }
     sink.flush()?;
+    drop(sink);
+    let records_sha256 = sha256_file(&records_path)?;
+    let records_bytes = records_path.metadata()?.len();
+    let activity_after = source_activity(&database);
+    let manifest_path = output.join("rehearsal.json");
+    let manifest = serde_json::json!({
+        "source_instance": source_instance,
+        "source_schema_identity": schema.identity,
+        "source_activity_before": activity_before,
+        "source_activity_after": activity_after,
+        "records_path": records_path,
+        "records_sha256": records_sha256,
+        "records_bytes": records_bytes,
+        "written": written,
+        "skipped": skipped,
+        "limited": limit.is_some(),
+        "service_calls": 0,
+        "completed_at": jiff::Timestamp::now(),
+    });
+    write_json_file(&manifest_path, &manifest, true)?;
     println!(
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({
-            "source_instance": source_instance,
-            "records_path": records_path,
-            "written": written,
-            "skipped": skipped,
-            "service_calls": 0,
+            "manifest": manifest_path,
+            "rehearsal": manifest,
         }))?
     );
     Ok(())
+}
+
+fn sha256_file(path: &Path) -> Result<String> {
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hex::encode(hasher.finalize()))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1633,6 +1669,85 @@ fn load_page(
     }
 }
 
+fn inventory_page(
+    connection: &Connection,
+    category: RecordCategory,
+    after_id: i64,
+    limit: usize,
+    source_instance: &str,
+    mappings: &BTreeMap<String, WorkspaceMapping>,
+) -> Result<Vec<(i64, String, bool)>> {
+    let (table, content_columns, identity_kind): (&str, &[&str], &str) = match category {
+        RecordCategory::Observation => (
+            "observations",
+            &["title", "subtitle", "narrative", "facts", "text"],
+            "observation",
+        ),
+        RecordCategory::Summary => (
+            "session_summaries",
+            &[
+                "request",
+                "investigated",
+                "learned",
+                "completed",
+                "next_steps",
+                "notes",
+            ],
+            "summary",
+        ),
+    };
+    let columns = table_columns(connection, table)?;
+    for required in ["id", "project"] {
+        if !columns.contains(required) {
+            anyhow::bail!("{table} table is missing required column {required}");
+        }
+    }
+    let selected_content = content_columns
+        .iter()
+        .map(|column| optional_column(&columns, column))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT id, project, {selected_content}
+        FROM {table}
+        WHERE id > ?1
+        ORDER BY id
+        LIMIT ?2"
+    );
+    let mut statement = connection.prepare(&sql)?;
+    let rows = statement.query_map(
+        params![after_id, i64::try_from(limit).unwrap_or(i64::MAX)],
+        |row| {
+            let id: i64 = row.get(0)?;
+            let project: String = row.get(1)?;
+            let mapping = workspace_mapping(mappings, &project).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    1,
+                    rusqlite::types::Type::Text,
+                    error.into(),
+                )
+            })?;
+            let source_external_id =
+                format!("{IMPORT_NAMESPACE}:{source_instance}:{identity_kind}:{id}");
+            let mut content_present = false;
+            for offset in 0..content_columns.len() {
+                let value: Option<String> = row.get(offset + 2)?;
+                content_present |= value.is_some_and(|value| !value.trim().is_empty());
+            }
+            content_present &= mapping.disposition != WorkspaceDisposition::Skip;
+            Ok((id, source_external_id, content_present))
+        },
+    )?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+fn report_checkpoint_batches(total_records: u64) -> usize {
+    let total_records = usize::try_from(total_records).unwrap_or(usize::MAX);
+    let total_batches = total_records.div_ceil(IMPORT_BATCH_SIZE).max(1);
+    total_batches.div_ceil(TARGET_REPORT_CHECKPOINTS).max(1)
+}
+
 fn snapshot_inventory(plan: &MigrationPlan, snapshot: &Path) -> Result<SnapshotInventory> {
     let connection = open_read_only(snapshot)?;
     let mappings = plan
@@ -1654,7 +1769,7 @@ fn snapshot_inventory(plan: &MigrationPlan, snapshot: &Path) -> Result<SnapshotI
         }
         let mut after_id = i64::MIN;
         loop {
-            let page = load_page(
+            let page = inventory_page(
                 &connection,
                 category,
                 after_id,
@@ -1666,20 +1781,13 @@ fn snapshot_inventory(plan: &MigrationPlan, snapshot: &Path) -> Result<SnapshotI
                 break;
             }
             after_id = page.last().expect("non-empty page").0;
-            for (_, outcome) in page {
+            for (_, source_external_id, submitted) in page {
                 total_records += 1;
-                let source_external_id = match outcome {
-                    PreparedOutcome::Record(record) => {
-                        submitted_records += 1;
-                        record.api.source_external_id
-                    }
-                    PreparedOutcome::Skipped {
-                        source_external_id, ..
-                    } => {
-                        skipped_records += 1;
-                        source_external_id
-                    }
-                };
+                if submitted {
+                    submitted_records += 1;
+                } else {
+                    skipped_records += 1;
+                }
                 if !identities.insert(source_external_id) {
                     anyhow::bail!("fixed snapshot produced a duplicate stable record identity");
                 }
@@ -1786,7 +1894,7 @@ fn create_snapshot(source: &Path, destination: &Path) -> Result<()> {
     drop(backup);
     drop(destination_connection);
     if let Err(error) = result {
-        let _ = std::fs::remove_file(destination);
+        let _ = remove_snapshot_files(destination);
         return Err(error.into());
     }
     #[cfg(unix)]
@@ -1797,6 +1905,38 @@ fn create_snapshot(source: &Path, destination: &Path) -> Result<()> {
         std::fs::set_permissions(destination, permissions)?;
     }
     Ok(())
+}
+
+fn snapshot_sidecar(path: &Path, suffix: &str) -> PathBuf {
+    let mut sidecar = path.as_os_str().to_os_string();
+    sidecar.push(suffix);
+    PathBuf::from(sidecar)
+}
+
+fn remove_snapshot_files(path: &Path) -> Result<()> {
+    for file in [
+        path.to_path_buf(),
+        snapshot_sidecar(path, "-wal"),
+        snapshot_sidecar(path, "-shm"),
+    ] {
+        match std::fs::remove_file(&file) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("could not remove snapshot file {}", file.display()));
+            }
+        }
+    }
+    Ok(())
+}
+
+struct TemporarySnapshot(PathBuf);
+
+impl Drop for TemporarySnapshot {
+    fn drop(&mut self) {
+        let _ = remove_snapshot_files(&self.0);
+    }
 }
 
 fn run_state_path(migration_id: Uuid) -> Result<PathBuf> {
@@ -2093,6 +2233,7 @@ async fn execute_snapshot(
         .collect::<BTreeMap<_, _>>();
     let already_successful = successful_record_ids(report);
     let mut completed_batches = 0usize;
+    let checkpoint_batches = report_checkpoint_batches(report.inventory.total_records);
     for (category, enabled) in [
         (RecordCategory::Observation, plan.include_observations),
         (RecordCategory::Summary, plan.include_session_summaries),
@@ -2150,7 +2291,7 @@ async fn execute_snapshot(
                 return Err(error);
             }
             completed_batches += 1;
-            if completed_batches.is_multiple_of(REPORT_CHECKPOINT_BATCHES) {
+            if completed_batches.is_multiple_of(checkpoint_batches) {
                 report_counts(report);
                 write_json_file(&state.report_path, report, true)?;
             }
@@ -2185,6 +2326,7 @@ async fn execute_snapshot(
         write_json_file(&state.report_path, report, true)?;
         return Err(error);
     }
+    drop(connection);
     transition(
         state.migration_id,
         seren::SerenMemoryMigrationTransitionState::Completed,
@@ -2194,9 +2336,7 @@ async fn execute_snapshot(
     report.completed_at = Some(jiff::Timestamp::now());
     write_json_file(&state.report_path, report, true)?;
     if let Some(snapshot) = state.snapshot_path.take() {
-        std::fs::remove_file(&snapshot).with_context(|| {
-            format!("could not remove completed snapshot {}", snapshot.display())
-        })?;
+        remove_snapshot_files(&snapshot)?;
     }
     save_run_state(state)?;
     Ok(())
@@ -2271,7 +2411,7 @@ pub async fn run(
         create_snapshot(&plan.source_database, &snapshot_path)?;
         let activity_at_snapshot = source_activity(&plan.source_database);
         if final_catch_up && activity_at_snapshot.active {
-            let _ = std::fs::remove_file(&snapshot_path);
+            let _ = remove_snapshot_files(&snapshot_path);
             anyhow::bail!("claude-mem became active while the final snapshot was created");
         }
         let inventory = snapshot_inventory(&plan, &snapshot_path)?;
@@ -2611,7 +2751,7 @@ fn cleanup_local_snapshots(migration_id: Uuid, series_id: Option<Uuid>) -> Resul
             continue;
         }
         if let Some(snapshot) = state.snapshot_path.take() {
-            let _ = std::fs::remove_file(snapshot);
+            let _ = remove_snapshot_files(&snapshot);
             save_run_state(&state)?;
         }
     }
@@ -3095,6 +3235,24 @@ mod tests {
     }
 
     #[test]
+    fn report_checkpoint_frequency_stays_bounded_for_a_large_corpus() {
+        let total_records = 45_000;
+        let interval = report_checkpoint_batches(total_records);
+        let total_batches = usize::try_from(total_records)
+            .unwrap()
+            .div_ceil(IMPORT_BATCH_SIZE);
+        assert!(
+            interval > 10,
+            "large imports must not rewrite every ten batches"
+        );
+        assert!(
+            total_batches.div_ceil(interval) <= TARGET_REPORT_CHECKPOINTS,
+            "checkpoint rewrites must stay within the target"
+        );
+        assert_eq!(report_checkpoint_batches(3), 1);
+    }
+
+    #[test]
     fn resumable_snapshot_is_detected_before_starting_an_overlapping_run() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("state");
@@ -3177,6 +3335,11 @@ mod tests {
             count(&snapshot, "SELECT COUNT(*) FROM observations").unwrap(),
             2
         );
+        drop(snapshot);
+        remove_snapshot_files(&destination).unwrap();
+        assert!(!destination.exists());
+        assert!(!snapshot_sidecar(&destination, "-wal").exists());
+        assert!(!snapshot_sidecar(&destination, "-shm").exists());
     }
 
     #[test]

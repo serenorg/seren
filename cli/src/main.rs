@@ -2895,20 +2895,29 @@ enum MemoryAgentAction {
     /// Register the Seren Memory hooks in the agent configuration
     Install {
         /// Target the Claude Code hook configuration
-        #[arg(long)]
+        #[arg(long, conflicts_with = "codex")]
         claude: bool,
+        /// Target the Codex hook configuration
+        #[arg(long, conflicts_with = "claude")]
+        codex: bool,
     },
     /// Remove only the Seren-owned hooks from the agent configuration
     Uninstall {
         /// Target the Claude Code hook configuration
-        #[arg(long)]
+        #[arg(long, conflicts_with = "codex")]
         claude: bool,
+        /// Target the Codex hook configuration
+        #[arg(long, conflicts_with = "claude")]
+        codex: bool,
     },
     /// Report which Seren Memory hooks are installed
     Status {
         /// Target the Claude Code hook configuration
-        #[arg(long)]
+        #[arg(long, conflicts_with = "codex")]
         claude: bool,
+        /// Target the Codex hook configuration
+        #[arg(long, conflicts_with = "claude")]
+        codex: bool,
     },
 }
 
@@ -2924,6 +2933,12 @@ enum MemoryHookAction {
     Drain {
         /// Agent platform invoking the hook
         #[arg(long, default_value = "claude")]
+        platform: String,
+    },
+    /// Stage a Codex user prompt until the matching completed response arrives
+    PromptSubmit {
+        /// Agent platform invoking the hook
+        #[arg(long, default_value = "codex")]
         platform: String,
     },
     /// Capture the completed turn from a finished agent response (fails open)
@@ -5596,14 +5611,14 @@ async fn main() -> anyhow::Result<()> {
                 },
             },
             MemoryAction::Agent { action } => match action {
-                MemoryAgentAction::Install { claude } => {
-                    commands::memory_agent::install(claude).await?
+                MemoryAgentAction::Install { claude, codex } => {
+                    commands::memory_agent::install(claude, codex).await?
                 }
-                MemoryAgentAction::Uninstall { claude } => {
-                    commands::memory_agent::uninstall(claude).await?
+                MemoryAgentAction::Uninstall { claude, codex } => {
+                    commands::memory_agent::uninstall(claude, codex).await?
                 }
-                MemoryAgentAction::Status { claude } => {
-                    commands::memory_agent::status(claude).await?
+                MemoryAgentAction::Status { claude, codex } => {
+                    commands::memory_agent::status(claude, codex).await?
                 }
             },
             MemoryAction::Hook { action } => match action {
@@ -5612,6 +5627,9 @@ async fn main() -> anyhow::Result<()> {
                 }
                 MemoryHookAction::Drain { platform } => {
                     commands::memory_hooks::drain(platform, &ctx).await?
+                }
+                MemoryHookAction::PromptSubmit { platform } => {
+                    commands::memory_hooks::prompt_submit(platform, &ctx).await?
                 }
                 MemoryHookAction::Stop { platform } => {
                     commands::memory_hooks::stop(platform, &ctx).await?
@@ -9533,6 +9551,23 @@ mod tests {
             } if platform == "claude"
         ));
 
+        let prompt_submit = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "hook",
+            "prompt-submit",
+            "--platform",
+            "codex",
+        ]);
+        assert!(matches!(
+            prompt_submit.command,
+            Commands::Memory {
+                action: MemoryAction::Hook {
+                    action: MemoryHookAction::PromptSubmit { platform }
+                }
+            } if platform == "codex"
+        ));
+
         let hook_status = parse_cli_with_large_stack(vec!["seren", "memory", "hook", "status"]);
         assert!(matches!(
             hook_status.command,
@@ -9549,7 +9584,24 @@ mod tests {
             agent_status.command,
             Commands::Memory {
                 action: MemoryAction::Agent {
-                    action: MemoryAgentAction::Status { claude: true }
+                    action: MemoryAgentAction::Status {
+                        claude: true,
+                        codex: false,
+                    }
+                }
+            }
+        ));
+
+        let codex_agent_status =
+            parse_cli_with_large_stack(vec!["seren", "memory", "agent", "status", "--codex"]);
+        assert!(matches!(
+            codex_agent_status.command,
+            Commands::Memory {
+                action: MemoryAction::Agent {
+                    action: MemoryAgentAction::Status {
+                        claude: false,
+                        codex: true,
+                    }
                 }
             }
         ));
