@@ -556,6 +556,127 @@
         }
       }
     },
+    "/skills/{slug}/agent-grants": {
+      "get": {
+        "tags": [
+          "skills"
+        ],
+        "operationId": "list_agent_grants",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Skill slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed agent grants for an organization-authorized skill",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_SkillAgentGrant"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/skills/{slug}/agent-grants/{agent_identity_id}": {
+      "put": {
+        "tags": [
+          "skills"
+        ],
+        "operationId": "upsert_agent_grant",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Skill slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "agent_identity_id",
+            "in": "path",
+            "description": "Managed agent identity",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertSkillAgentGrantRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Created or updated managed agent skill grant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_SkillAgentGrant"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "skills"
+        ],
+        "operationId": "revoke_agent_grant",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Skill slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "agent_identity_id",
+            "in": "path",
+            "description": "Managed agent identity",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed agent skill grant revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_bool"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/skills/{slug}/collaborators": {
       "get": {
         "tags": [
@@ -2703,6 +2824,83 @@
           }
         }
       },
+      "DataResponse_SkillAgentGrant": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "organization_id",
+              "skill_id",
+              "skill_version_id",
+              "agent_identity_id",
+              "allowed_task_labels",
+              "grant_generation",
+              "granted_by_user_id",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "agent_identity_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "allowed_task_labels": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "grant_generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "granted_by_user_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "skill_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "skill_version_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_SkillBundle": {
         "type": "object",
         "required": [
@@ -3326,6 +3524,86 @@
           }
         }
       },
+      "DataResponse_Vec_SkillAgentGrant": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "organization_id",
+                "skill_id",
+                "skill_version_id",
+                "agent_identity_id",
+                "allowed_task_labels",
+                "grant_generation",
+                "granted_by_user_id",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "agent_identity_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "allowed_task_labels": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "grant_generation": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "granted_by_user_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "organization_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "skill_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "skill_version_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_Vec_SkillSummary": {
         "type": "object",
         "required": [
@@ -3748,6 +4026,27 @@
                 }
               }
             }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_bool": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "boolean"
           },
           "pagination": {
             "oneOf": [
@@ -4310,6 +4609,65 @@
           },
           "reason": {
             "type": "string"
+          }
+        }
+      },
+      "SkillAgentGrant": {
+        "type": "object",
+        "required": [
+          "id",
+          "organization_id",
+          "skill_id",
+          "skill_version_id",
+          "agent_identity_id",
+          "allowed_task_labels",
+          "grant_generation",
+          "granted_by_user_id",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "agent_identity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "allowed_task_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "grant_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "granted_by_user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "skill_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "skill_version_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -5082,6 +5440,25 @@
             "type": "string"
           }
         }
+      },
+      "UpsertSkillAgentGrantRequest": {
+        "type": "object",
+        "required": [
+          "skill_version_id"
+        ],
+        "properties": {
+          "allowed_task_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "skill_version_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
       },
       "UsageEvent": {
         "type": "object",

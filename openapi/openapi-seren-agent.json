@@ -2615,7 +2615,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "Seren Secrets agent identity this managed employee acts as when\nresolving `seren-secrets://` references."
+            "description": "Seren Secrets agent identity this managed agent acts as when\nresolving `seren-secrets://` references."
           },
           "agent_slug": {
             "type": [
@@ -2675,7 +2675,7 @@
             "items": {
               "$ref": "#/components/schemas/AgentCredentialRef"
             },
-            "description": "Optional credential references resolved by the control plane at runtime.\nReusable `org-secret://` and `user-secret://` records are managed\nthrough `/organizations/{organization_id}/agent-credential-secrets`."
+            "description": "Optional credential references resolved by the control plane at runtime.\nAccepts `seren-secrets://{vault_id}/{item_id}/{field}` for vault-held\ncredentials, `control-plane://providers/{id-or-slug}` for control-plane\nprovider credentials, and `org-secret://{key}` / `user-secret://{key}`\nfor reusable credential-secret records managed through\n`/organizations/{organization_id}/agent-credential-secrets`.\n`seren-secrets://` references additionally require\n`secret_resolution_delegation`, which is signed client-side in the\nEmployees UI and cannot be produced by an API key."
           },
           "cron_schedule": {
             "type": [
@@ -2843,7 +2843,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "Updated Seren Secrets agent identity this managed employee acts as."
+            "description": "Updated Seren Secrets agent identity this managed agent acts as."
           },
           "agent_slug": {
             "type": [
@@ -2947,7 +2947,7 @@
             "items": {
               "$ref": "#/components/schemas/AgentCredentialRef"
             },
-            "description": "Updated credential references. Replaces the entire previous list when\npresent. Reusable `org-secret://` and `user-secret://` records are\nmanaged through the organization credential-secret API."
+            "description": "Updated credential references. Replaces the entire previous list when\npresent. Accepts `seren-secrets://{vault_id}/{item_id}/{field}`,\n`control-plane://providers/{id-or-slug}`, `org-secret://{key}`, and\n`user-secret://{key}`. `seren-secrets://` references require a client-signed\n`secret_resolution_delegation` created in the Employees UI."
           },
           "cron_schedule": {
             "type": [
@@ -4209,7 +4209,7 @@
                   "null"
                 ],
                 "format": "uuid",
-                "description": "Seren Secrets agent identity this managed employee acts as when\nresolving `seren-secrets://` references."
+                "description": "Seren Secrets agent identity this managed agent acts as when\nresolving `seren-secrets://` references."
               },
               "agent_slug": {
                 "type": "string"
@@ -6047,7 +6047,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "Seren Secrets agent identity this managed employee acts as when\nresolving `seren-secrets://` references."
+            "description": "Seren Secrets agent identity this managed agent acts as when\nresolving `seren-secrets://` references."
           },
           "agent_slug": {
             "type": "string"

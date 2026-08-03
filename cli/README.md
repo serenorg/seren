@@ -390,6 +390,11 @@ seren agent managed-update <deployment-id> --clear-eval-gate
 seren agent cloud run start --deployment-id <deployment-id> \
   --message "Give me the latest BTC update."
 
+# Organization work is explicit and may select governed knowledge and a task label
+seren agent cloud run start --deployment-id <deployment-id> \
+  --message "Review the release." --organization \
+  --knowledge-selection-id <selection-id> --task-label release_review
+
 # See the org-wide activity overview
 seren agent cloud overview
 seren agent cloud overview --runs-limit 12 --approvals-limit 6
@@ -421,7 +426,7 @@ To attach an existing SerenDB database, add `external_databases` to the skill's 
 
 Managed skill storage is separate: declare it in the skill manifest under `storage.databases` instead of attaching a physical project, branch, and database.
 
-Changing database attachments on an existing code-bundle deployment requires redeploying it. Prompt-based managed employees can replace or clear attachments through the managed-agent update command.
+Changing database attachments on an existing code-bundle deployment requires redeploying it. Prompt-based managed agents can replace or clear attachments through the managed-agent update command.
 
 ### Cloud Activity
 

@@ -926,6 +926,10 @@ pub struct CallPublisherParams {
     /// Used for payment proxy mode where the client signs payments locally.
     #[serde(default, rename = "_x402_payment")]
     pub x402_payment: Option<String>,
+    /// Core-signed organization collaboration context supplied by the managed runtime.
+    #[serde(default, rename = "_seren_work_context")]
+    #[schemars(skip)]
+    pub(crate) seren_work_context: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -2894,6 +2898,15 @@ pub struct CloudRunAgentParams {
     /// Request async execution for always_on deployments
     #[serde(default, rename = "async")]
     pub async_run: Option<bool>,
+    /// Run for the organization instead of the current individual.
+    #[serde(default)]
+    pub organization: bool,
+    /// Provider-owned organization knowledge selection for this run.
+    #[serde(default)]
+    pub knowledge_selection_id: Option<Uuid>,
+    /// Organization-defined task label for this run.
+    #[serde(default)]
+    pub task_label: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -3507,6 +3520,9 @@ fn build_cloud_run_body(
     run_id: Option<&str>,
     payload: Option<&serde_json::Value>,
     async_run: Option<bool>,
+    organization: bool,
+    knowledge_selection_id: Option<Uuid>,
+    task_label: Option<&str>,
 ) -> Result<Option<serde_json::Value>, McpError> {
     let mut body = payload.cloned();
 
@@ -3564,6 +3580,53 @@ fn build_cloud_run_body(
                 body = Some(serde_json::json!({ "async": async_run }));
             }
         }
+    }
+
+    if organization {
+        let task_label = match task_label {
+            Some(value) if value.trim().is_empty() => {
+                return Err(McpError::invalid_params(
+                    "task_label must not be empty",
+                    None,
+                ));
+            }
+            Some(value) => Some(value.trim()),
+            None => None,
+        };
+        let knowledge_selection = match knowledge_selection_id {
+            Some(selection_id) => serde_json::json!({
+                "kind": "organization",
+                "provider": "memory",
+                "selection_id": selection_id,
+            }),
+            None => serde_json::json!({ "kind": "none" }),
+        };
+        let collaboration = serde_json::json!({
+            "invocation_origin": { "kind": "direct" },
+            "knowledge_selection": knowledge_selection,
+            "knowledge_capture_target": { "kind": "none" },
+            "task_label": task_label,
+            "output_audience": { "kind": "organization" },
+        });
+        match body.as_mut() {
+            Some(serde_json::Value::Object(map)) => {
+                map.insert("collaboration".to_string(), collaboration);
+            }
+            Some(_) => {
+                return Err(McpError::invalid_params(
+                    "payload must be a JSON object when organization is selected",
+                    None,
+                ));
+            }
+            None => {
+                body = Some(serde_json::json!({ "collaboration": collaboration }));
+            }
+        }
+    } else if knowledge_selection_id.is_some() || task_label.is_some() {
+        return Err(McpError::invalid_params(
+            "knowledge_selection_id and task_label require organization=true",
+            None,
+        ));
     }
 
     Ok(body)
@@ -5487,7 +5550,11 @@ struct AgentMetadata {
     client_name: Option<String>,
     software_id: Option<String>,
     software_version: Option<String>,
+    work_context_token: Option<String>,
 }
+
+#[derive(Clone)]
+struct RuntimeWorkContextToken(String);
 
 struct CallPublisherErrorContext<'a, T: Serialize> {
     publisher: &'a str,
@@ -5606,37 +5673,32 @@ fn oauth_connection_selector_headers(
 }
 
 fn extract_agent_metadata_from_extensions(extensions: &Extensions) -> AgentMetadata {
-    let parts = match extensions.get::<axum::http::request::Parts>() {
-        Some(p) => p,
-        None => return AgentMetadata::default(),
-    };
+    let parts = extensions.get::<axum::http::request::Parts>();
 
     AgentMetadata {
         user_id: parts
-            .headers
-            .get("x-user-id")
+            .and_then(|parts| parts.headers.get("x-user-id"))
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string()),
         client_id: parts
-            .headers
-            .get("x-agent-client-id")
+            .and_then(|parts| parts.headers.get("x-agent-client-id"))
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string()),
         client_name: parts
-            .headers
-            .get("x-agent-client-name")
+            .and_then(|parts| parts.headers.get("x-agent-client-name"))
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string()),
         software_id: parts
-            .headers
-            .get("x-agent-software-id")
+            .and_then(|parts| parts.headers.get("x-agent-software-id"))
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string()),
         software_version: parts
-            .headers
-            .get("x-agent-software-version")
+            .and_then(|parts| parts.headers.get("x-agent-software-version"))
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string()),
+        work_context_token: extensions
+            .get::<RuntimeWorkContextToken>()
+            .map(|token| token.0.clone()),
     }
 }
 
@@ -6189,6 +6251,14 @@ impl SerenMcpServer {
             headers.insert(
                 reqwest::header::HeaderName::from_static("x-agent-software-version"),
                 v,
+            );
+        }
+        if let Some(ref work_context_token) = agent_metadata.work_context_token
+            && let Ok(value) = reqwest::header::HeaderValue::from_str(work_context_token)
+        {
+            headers.insert(
+                reqwest::header::HeaderName::from_static("x-seren-organization-work-context"),
+                value,
             );
         }
     }
@@ -10232,9 +10302,24 @@ Examples:
     async fn call_publisher(
         &self,
         Parameters(params): Parameters<CallPublisherParams>,
-        extensions: Extensions,
+        mut extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
+
+        if let Some(token) = params
+            .seren_work_context
+            .as_deref()
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+        {
+            if token.len() > 16 * 1024 {
+                return Err(McpError::invalid_params(
+                    "invalid managed organization work context".to_string(),
+                    None,
+                ));
+            }
+            extensions.insert(RuntimeWorkContextToken(token.to_string()));
+        }
 
         let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
         let return_text = params.response_format.as_deref() == Some("text");
@@ -13966,6 +14051,9 @@ API endpoint: {endpoint}",
             params.run_id.as_deref(),
             params.payload.as_ref(),
             params.async_run,
+            params.organization,
+            params.knowledge_selection_id,
+            params.task_label.as_deref(),
         )?;
         let body: seren::CloudDeploymentRunRequest =
             serde_json::from_value(body.unwrap_or_else(|| serde_json::json!({})))
@@ -15401,6 +15489,67 @@ mod tests {
         extensions
     }
 
+    #[test]
+    fn managed_work_context_is_hidden_from_tools_and_forwarded_to_core() {
+        let schema = serde_json::to_value(schemars::schema_for!(CallPublisherParams))
+            .expect("serialize call_publisher schema");
+        assert!(!schema.to_string().contains("_seren_work_context"));
+
+        let metadata = AgentMetadata {
+            work_context_token: Some("signed-work-context".to_string()),
+            ..AgentMetadata::default()
+        };
+        let mut headers = reqwest::header::HeaderMap::new();
+        SerenMcpServer::insert_agent_metadata_headers(&mut headers, &metadata);
+        assert_eq!(
+            headers
+                .get("x-seren-organization-work-context")
+                .and_then(|value| value.to_str().ok()),
+            Some("signed-work-context")
+        );
+    }
+
+    #[test]
+    fn cloud_run_body_builds_an_explicit_organization_selection() {
+        let domain_id = Uuid::new_v4();
+        let body = build_cloud_run_body(
+            Some("review the release"),
+            None,
+            None,
+            None,
+            true,
+            Some(domain_id),
+            Some("release_review"),
+        )
+        .expect("build organization run")
+        .expect("run body");
+
+        assert_eq!(body["message"], "review the release");
+        assert_eq!(body["collaboration"]["invocation_origin"]["kind"], "direct");
+        assert_eq!(
+            body["collaboration"]["knowledge_selection"]["selection_id"],
+            domain_id.to_string()
+        );
+        assert_eq!(
+            body["collaboration"]["knowledge_capture_target"]["kind"],
+            "none"
+        );
+        assert_eq!(body["collaboration"]["task_label"], "release_review");
+        assert_eq!(
+            body["collaboration"]["output_audience"]["kind"],
+            "organization"
+        );
+    }
+
+    #[test]
+    fn cloud_run_body_rejects_organization_options_for_an_individual_run() {
+        assert!(
+            build_cloud_run_body(None, None, None, None, false, Some(Uuid::new_v4()), None,)
+                .is_err()
+        );
+        assert!(build_cloud_run_body(None, None, None, None, true, None, Some("   "),).is_err());
+    }
+
     fn server_with_http_client(http_client: reqwest::Client) -> SerenMcpServer {
         SerenMcpServer {
             api_base_url: "https://api.serendb.com".to_string(),
@@ -15852,6 +16001,7 @@ mod tests {
             request_id: None,
             confirm: false,
             x402_payment: None,
+            seren_work_context: None,
         };
 
         let result = server
@@ -16879,6 +17029,7 @@ mod tests {
             request_id: None,
             confirm: false,
             x402_payment: None,
+            seren_work_context: None,
         };
 
         let err = server
@@ -16926,6 +17077,7 @@ mod tests {
             request_id: None,
             confirm: false,
             x402_payment: None,
+            seren_work_context: None,
         };
 
         let err = server
@@ -16968,6 +17120,7 @@ mod tests {
             request_id: None,
             confirm: false,
             x402_payment: None,
+            seren_work_context: None,
         };
 
         let err = server
@@ -17006,6 +17159,7 @@ mod tests {
             request_id: None,
             confirm: false,
             x402_payment: None,
+            seren_work_context: None,
         };
 
         let err = server
@@ -17623,6 +17777,7 @@ mod tests {
             request_id: None,
             confirm: false,
             x402_payment: None,
+            seren_work_context: None,
         };
 
         let result = server
@@ -17676,6 +17831,7 @@ mod tests {
             request_id: None,
             confirm: false,
             x402_payment: None,
+            seren_work_context: None,
         };
 
         let error = server
@@ -17928,6 +18084,7 @@ mod tests {
             request_id: None,
             confirm: false,
             x402_payment: None,
+            seren_work_context: None,
         };
 
         let result = server
@@ -18318,6 +18475,7 @@ mod tests {
             client_name: None,
             software_id: None,
             software_version: None,
+            work_context_token: None,
         };
         let mut headers = reqwest::header::HeaderMap::new();
         SerenMcpServer::insert_agent_metadata_headers(&mut headers, &metadata);
@@ -18336,6 +18494,7 @@ mod tests {
             client_name: Some("Test Agent".to_string()),
             software_id: Some("software-789".to_string()),
             software_version: Some("1.0.0".to_string()),
+            work_context_token: None,
         };
         let mut headers = reqwest::header::HeaderMap::new();
         SerenMcpServer::insert_agent_metadata_headers(&mut headers, &metadata);

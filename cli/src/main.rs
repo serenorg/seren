@@ -2036,6 +2036,15 @@ enum CloudRunAction {
         /// Request async execution for always_on deployments (returns run_id + execution_id)
         #[arg(long = "async")]
         async_run: bool,
+        /// Run for the organization instead of the current individual
+        #[arg(long)]
+        organization: bool,
+        /// Seren Memory knowledge selection to use for an organization run
+        #[arg(long, requires = "organization")]
+        knowledge_selection_id: Option<Uuid>,
+        /// Organization-defined task label for this run
+        #[arg(long, requires = "organization")]
+        task_label: Option<String>,
     },
     /// Get details of a run by ID; provide --deployment-id to use deployment-scoped lookup
     Get {
@@ -4616,14 +4625,22 @@ async fn execute_agent_cloud_action(
                 json_file,
                 run_id,
                 async_run,
+                organization,
+                knowledge_selection_id,
+                task_label,
             } => {
                 commands::agent::cloud_run(
                     deployment_id,
-                    message.as_deref(),
-                    json_body.as_deref(),
-                    json_file.as_deref(),
-                    run_id.as_deref(),
-                    async_run,
+                    commands::agent::CloudRunOptions {
+                        message: message.as_deref(),
+                        json_body: json_body.as_deref(),
+                        json_file: json_file.as_deref(),
+                        run_id: run_id.as_deref(),
+                        async_run,
+                        organization,
+                        knowledge_selection_id,
+                        task_label: task_label.as_deref(),
+                    },
                     ctx,
                 )
                 .await?

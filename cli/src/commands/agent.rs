@@ -5312,13 +5312,29 @@ pub async fn cloud_stop(deployment_id: Uuid, ctx: &CommandContext) -> Result<()>
     Ok(())
 }
 
-fn build_cloud_run_payload(
-    message: Option<&str>,
-    json_body: Option<&str>,
-    json_file: Option<&str>,
-    run_id: Option<&str>,
-    async_run: bool,
-) -> Result<Option<serde_json::Value>> {
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CloudRunOptions<'a> {
+    pub message: Option<&'a str>,
+    pub json_body: Option<&'a str>,
+    pub json_file: Option<&'a str>,
+    pub run_id: Option<&'a str>,
+    pub async_run: bool,
+    pub organization: bool,
+    pub knowledge_selection_id: Option<Uuid>,
+    pub task_label: Option<&'a str>,
+}
+
+fn build_cloud_run_payload(options: &CloudRunOptions<'_>) -> Result<Option<serde_json::Value>> {
+    let CloudRunOptions {
+        message,
+        json_body,
+        json_file,
+        run_id,
+        async_run,
+        organization,
+        knowledge_selection_id,
+        task_label,
+    } = *options;
     if json_body.is_some() && json_file.is_some() {
         return Err(anyhow::anyhow!(
             "Provide only one of --json or --json-file for cloud-run."
@@ -5398,6 +5414,47 @@ fn build_cloud_run_payload(
                 payload = Some(serde_json::json!({ "async": true }));
             }
         }
+    }
+
+    if organization {
+        let task_label = match task_label {
+            Some(value) if value.trim().is_empty() => {
+                return Err(anyhow::anyhow!("--task-label cannot be empty."));
+            }
+            Some(value) => Some(value.trim().to_string()),
+            None => None,
+        };
+        let collaboration = serde_json::json!({
+            "invocation_origin": { "kind": "direct" },
+            "knowledge_selection": match knowledge_selection_id {
+                Some(selection_id) => serde_json::json!({
+                    "kind": "organization",
+                    "provider": "memory",
+                    "selection_id": selection_id,
+                }),
+                None => serde_json::json!({ "kind": "none" }),
+            },
+            "knowledge_capture_target": { "kind": "none" },
+            "task_label": task_label,
+            "output_audience": { "kind": "organization" },
+        });
+        match payload.as_mut() {
+            Some(serde_json::Value::Object(map)) => {
+                map.insert("collaboration".to_string(), collaboration);
+            }
+            Some(_) => {
+                return Err(anyhow::anyhow!(
+                    "When --organization is provided, --json/--json-file must be a JSON object."
+                ));
+            }
+            None => {
+                payload = Some(serde_json::json!({ "collaboration": collaboration }));
+            }
+        }
+    } else if knowledge_selection_id.is_some() || task_label.is_some() {
+        return Err(anyhow::anyhow!(
+            "--knowledge-selection-id and --task-label require --organization."
+        ));
     }
 
     Ok(payload)
@@ -5623,15 +5680,10 @@ async fn resolve_cloud_run_pending_approvals(
 /// Trigger a one-shot run of a cloud agent.
 pub async fn cloud_run(
     deployment_id: Uuid,
-    message: Option<&str>,
-    json_body: Option<&str>,
-    json_file: Option<&str>,
-    run_id: Option<&str>,
-    async_run: bool,
+    options: CloudRunOptions<'_>,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let payload = build_cloud_run_payload(message, json_body, json_file, run_id, async_run)?
-        .unwrap_or_else(|| serde_json::json!({}));
+    let payload = build_cloud_run_payload(&options)?.unwrap_or_else(|| serde_json::json!({}));
     let body: seren::CloudDeploymentRunRequest = serde_json::from_value(payload)
         .map_err(|e| anyhow::anyhow!("Failed to build run payload: {}", e))?;
     let client = ctx.client().await?;
@@ -9226,6 +9278,66 @@ fn parse_json_file(path: &str) -> Result<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cloud_run_payload_selects_organization_context() {
+        let knowledge_selection_id = Uuid::new_v4();
+        let payload = build_cloud_run_payload(&CloudRunOptions {
+            message: Some("Review the launch plan"),
+            organization: true,
+            knowledge_selection_id: Some(knowledge_selection_id),
+            task_label: Some("product.launch"),
+            ..Default::default()
+        })
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(
+            payload["collaboration"]["invocation_origin"]["kind"],
+            "direct"
+        );
+        assert_eq!(
+            payload["collaboration"]["knowledge_selection"],
+            serde_json::json!({
+                "kind": "organization",
+                "provider": "memory",
+                "selection_id": knowledge_selection_id,
+            })
+        );
+        assert_eq!(
+            payload["collaboration"]["knowledge_capture_target"]["kind"],
+            "none"
+        );
+        assert_eq!(payload["collaboration"]["task_label"], "product.launch");
+        assert_eq!(
+            payload["collaboration"]["output_audience"]["kind"],
+            "organization"
+        );
+        assert_eq!(payload["message"], "Review the launch plan");
+    }
+
+    #[test]
+    fn cloud_run_payload_requires_organization_for_shared_context() {
+        let error = build_cloud_run_payload(&CloudRunOptions {
+            knowledge_selection_id: Some(Uuid::new_v4()),
+            ..Default::default()
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("require --organization"));
+    }
+
+    #[test]
+    fn cloud_run_payload_keeps_individual_runs_implicit() {
+        let payload = build_cloud_run_payload(&CloudRunOptions {
+            message: Some("Hello"),
+            ..Default::default()
+        })
+        .unwrap()
+        .unwrap();
+
+        assert!(payload.get("collaboration").is_none());
+    }
 
     #[test]
     fn merge_managed_agent_config_accepts_runtime_policy() {

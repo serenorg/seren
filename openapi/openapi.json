@@ -2345,6 +2345,67 @@
         ]
       }
     },
+    "/organizations/default/api-keys/{key_id}/scopes": {
+      "patch": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Replace scopes on an API key in the user's default organization.",
+        "description": "Requires a signed-in user access token. API keys cannot update their own privileges.",
+        "operationId": "update_default_org_api_key_scopes",
+        "parameters": [
+          {
+            "name": "key_id",
+            "in": "path",
+            "description": "API key ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateApiKeyScopesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "API key scopes replaced",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ApiKeyInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid scope set"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "A signed-in user session is required"
+          },
+          "404": {
+            "description": "API key not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/organizations/{organization_id}/agent-credential-secrets": {
       "get": {
         "tags": [
@@ -2930,6 +2991,77 @@
         "responses": {
           "200": {
             "description": "API key revoked"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "A signed-in user session is required"
+          },
+          "404": {
+            "description": "API key not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/api-keys/{key_id}/scopes": {
+      "patch": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Replace the least-privilege scopes on an organization API key.",
+        "description": "Requires a signed-in user access token. A user may update only their own\nactive user API keys; API keys cannot update their own privileges.",
+        "operationId": "update_org_api_key_scopes",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "key_id",
+            "in": "path",
+            "description": "API key ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateApiKeyScopesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "API key scopes replaced",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ApiKeyInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid scope set"
           },
           "401": {
             "description": "Unauthorized"
@@ -4291,6 +4423,248 @@
                 }
               }
             }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/employee-collaboration-policy": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "operationId": "get_employee_collaboration_policy",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID or 'default' for the authenticated user's default organization",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization employee collaboration policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationEmployeeCollaborationPolicy"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "User is not a member of the organization"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Organizations"
+        ],
+        "operationId": "update_employee_collaboration_policy",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID or 'default' for the authenticated user's default organization",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrganizationEmployeeCollaborationPolicyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated organization employee collaboration policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationEmployeeCollaborationPolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid policy or no current employee assignment"
+          },
+          "403": {
+            "description": "Only a signed-in organization owner or administrator can update the policy"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/employee-collaboration/assignments": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "operationId": "list_employee_collaboration_assignments",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID or 'default' for the authenticated user's default organization",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current managed agent collaboration assignments",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_OrganizationEmployeeCollaborationAssignment"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only a signed-in organization owner or administrator can list assignments"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/employee-collaboration/assignments/{deployment_id}": {
+      "put": {
+        "tags": [
+          "Organizations"
+        ],
+        "operationId": "upsert_employee_collaboration_assignment",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID or 'default' for the authenticated user's default organization",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "deployment_id",
+            "in": "path",
+            "description": "Managed agent deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertOrganizationEmployeeCollaborationAssignmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Created or updated employee collaboration assignment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationEmployeeCollaborationAssignment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Deployment is not a managed agent with a stable agent identity"
+          },
+          "403": {
+            "description": "Only a signed-in organization owner or administrator can manage assignments"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Organizations"
+        ],
+        "operationId": "revoke_employee_collaboration_assignment",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID or 'default' for the authenticated user's default organization",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "deployment_id",
+            "in": "path",
+            "description": "Managed agent deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether an active assignment was revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_bool"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only a signed-in organization owner or administrator can manage assignments"
           }
         },
         "security": [
@@ -9568,7 +9942,7 @@
         "tags": [
           "Connector Webhooks"
         ],
-        "summary": "Accepts provider webhook callbacks for managed employee channel connectors.",
+        "summary": "Accepts provider webhook callbacks for managed agent channel connectors.",
         "description": "This route is intentionally public because providers call it directly. The\nroute id maps to server-side connector routing metadata; provider-specific\nsignature verification happens inside the selected connector plugin.",
         "operationId": "post_connector_webhook",
         "parameters": [
@@ -12737,6 +13111,95 @@
           }
         }
       },
+      "DataResponse_ApiKeyInfo": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Response struct for listing API keys (never includes the secret)",
+            "required": [
+              "id",
+              "key_id",
+              "name",
+              "key_prefix",
+              "organization_id",
+              "key_type",
+              "created_at"
+            ],
+            "properties": {
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "expires_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "key_id": {
+                "type": "string"
+              },
+              "key_prefix": {
+                "type": "string"
+              },
+              "key_type": {
+                "$ref": "#/components/schemas/ApiKeyType"
+              },
+              "last_used_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "name": {
+                "type": "string"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "revoked_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "scopes": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_AuditLog": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -14400,6 +14863,156 @@
                   "string",
                   "null"
                 ]
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_OrganizationEmployeeCollaborationAssignment": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "organization_id",
+              "deployment_id",
+              "agent_identity_id",
+              "assignment_generation",
+              "organization_knowledge_read",
+              "organization_credential_use",
+              "organization_skill_use",
+              "organization_artifact_write",
+              "allowed_task_labels",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "agent_identity_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "allowed_task_labels": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "assignment_generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "granted_by_user_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "organization_artifact_write": {
+                "type": "boolean"
+              },
+              "organization_credential_use": {
+                "type": "boolean"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "organization_knowledge_read": {
+                "type": "boolean"
+              },
+              "organization_skill_use": {
+                "type": "boolean"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_OrganizationEmployeeCollaborationPolicy": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "organization_id",
+              "policy_revision",
+              "enabled",
+              "organization_knowledge_read",
+              "organization_credential_use",
+              "organization_skill_use",
+              "organization_artifact_write",
+              "updated_at"
+            ],
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "description": "Organization collaboration is unavailable unless explicitly enabled."
+              },
+              "organization_artifact_write": {
+                "type": "boolean"
+              },
+              "organization_credential_use": {
+                "type": "boolean"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "organization_knowledge_read": {
+                "type": "boolean"
+              },
+              "organization_skill_use": {
+                "type": "boolean"
+              },
+              "policy_revision": {
+                "type": "string",
+                "description": "Opaque revision rotated only when the effective policy changes."
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
               }
             }
           },
@@ -18158,6 +18771,96 @@
                     "string",
                     "null"
                   ]
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_Vec_OrganizationEmployeeCollaborationAssignment": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "organization_id",
+                "deployment_id",
+                "agent_identity_id",
+                "assignment_generation",
+                "organization_knowledge_read",
+                "organization_credential_use",
+                "organization_skill_use",
+                "organization_artifact_write",
+                "allowed_task_labels",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "agent_identity_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "allowed_task_labels": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "assignment_generation": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "deployment_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "granted_by_user_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "organization_artifact_write": {
+                  "type": "boolean"
+                },
+                "organization_credential_use": {
+                  "type": "boolean"
+                },
+                "organization_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "organization_knowledge_read": {
+                  "type": "boolean"
+                },
+                "organization_skill_use": {
+                  "type": "boolean"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
                 }
               }
             }
@@ -22793,6 +23496,116 @@
           "archived"
         ]
       },
+      "OrganizationEmployeeCollaborationAssignment": {
+        "type": "object",
+        "required": [
+          "organization_id",
+          "deployment_id",
+          "agent_identity_id",
+          "assignment_generation",
+          "organization_knowledge_read",
+          "organization_credential_use",
+          "organization_skill_use",
+          "organization_artifact_write",
+          "allowed_task_labels",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "agent_identity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "allowed_task_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "assignment_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "granted_by_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "organization_artifact_write": {
+            "type": "boolean"
+          },
+          "organization_credential_use": {
+            "type": "boolean"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_knowledge_read": {
+            "type": "boolean"
+          },
+          "organization_skill_use": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OrganizationEmployeeCollaborationPolicy": {
+        "type": "object",
+        "required": [
+          "organization_id",
+          "policy_revision",
+          "enabled",
+          "organization_knowledge_read",
+          "organization_credential_use",
+          "organization_skill_use",
+          "organization_artifact_write",
+          "updated_at"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Organization collaboration is unavailable unless explicitly enabled."
+          },
+          "organization_artifact_write": {
+            "type": "boolean"
+          },
+          "organization_credential_use": {
+            "type": "boolean"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_knowledge_read": {
+            "type": "boolean"
+          },
+          "organization_skill_use": {
+            "type": "boolean"
+          },
+          "policy_revision": {
+            "type": "string",
+            "description": "Opaque revision rotated only when the effective policy changes."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "OrganizationInvite": {
         "type": "object",
         "description": "Response type for organization invites (token is not exposed over the API).",
@@ -26874,6 +27687,22 @@
           "default_deny"
         ]
       },
+      "UpdateApiKeyScopesRequest": {
+        "type": "object",
+        "description": "Request to replace the least-privilege scopes on an existing user API key.",
+        "required": [
+          "scopes"
+        ],
+        "properties": {
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Complete replacement scope set. At least one valid scope is required."
+          }
+        }
+      },
       "UpdateOAuthProviderRequest": {
         "type": "object",
         "description": "Request to update an OAuth provider (admin only).\n\nFields use `Option<Option<T>>` where `null` explicitly clears the value.",
@@ -27014,6 +27843,30 @@
             ]
           }
         }
+      },
+      "UpdateOrganizationEmployeeCollaborationPolicyRequest": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "organization_artifact_write": {
+            "type": "boolean"
+          },
+          "organization_credential_use": {
+            "type": "boolean"
+          },
+          "organization_knowledge_read": {
+            "type": "boolean"
+          },
+          "organization_skill_use": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
       },
       "UpdateOrganizationMemoryCapturePolicyRequest": {
         "type": "object",
@@ -28097,6 +28950,30 @@
             "description": "Resource status (default: \"active\")"
           }
         }
+      },
+      "UpsertOrganizationEmployeeCollaborationAssignmentRequest": {
+        "type": "object",
+        "properties": {
+          "allowed_task_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "organization_artifact_write": {
+            "type": "boolean"
+          },
+          "organization_credential_use": {
+            "type": "boolean"
+          },
+          "organization_knowledge_read": {
+            "type": "boolean"
+          },
+          "organization_skill_use": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
       },
       "UsageEventDebugRecord": {
         "type": "object",

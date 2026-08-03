@@ -816,7 +816,7 @@
         "tags": [
           "seren-cloud"
         ],
-        "summary": "Bind encrypted Seren Secrets references to a managed employee connector.",
+        "summary": "Bind encrypted `seren-secrets://` references to a managed agent connector.",
         "operationId": "seren_cloud_bind_connector_secrets",
         "parameters": [
           {
@@ -851,7 +851,7 @@
         },
         "responses": {
           "200": {
-            "description": "Connector secret references bound to the managed employee",
+            "description": "Connector secret references bound to the managed agent",
             "content": {
               "application/json": {
                 "schema": {
@@ -2646,7 +2646,7 @@
         "tags": [
           "seren-cloud"
         ],
-        "summary": "Get the storage attachment for a managed employee.",
+        "summary": "Get the storage attachment for a managed agent.",
         "operationId": "seren_cloud_get_storage",
         "parameters": [
           {
@@ -2662,7 +2662,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Managed employee storage attachment",
+            "description": "Managed agent storage attachment",
             "content": {
               "application/json": {
                 "schema": {
@@ -2691,7 +2691,7 @@
         "tags": [
           "seren-cloud"
         ],
-        "summary": "Attach an organization storage bucket to a managed employee and optionally\nkeep its workspace portable across runtime restarts.",
+        "summary": "Attach an organization storage bucket to a managed agent and optionally\nkeep its workspace portable across runtime restarts.",
         "operationId": "seren_cloud_attach_storage",
         "parameters": [
           {
@@ -2717,7 +2717,7 @@
         },
         "responses": {
           "200": {
-            "description": "Storage attached to the managed employee",
+            "description": "Storage attached to the managed agent",
             "content": {
               "application/json": {
                 "schema": {
@@ -2746,7 +2746,7 @@
         "tags": [
           "seren-cloud"
         ],
-        "summary": "Detach organization storage from a managed employee and revoke its bucket\ngrant.",
+        "summary": "Detach organization storage from a managed agent and revoke its bucket\ngrant.",
         "operationId": "seren_cloud_detach_storage",
         "parameters": [
           {
@@ -2762,7 +2762,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Storage detached from the managed employee",
+            "description": "Storage detached from the managed agent",
             "content": {
               "application/json": {
                 "schema": {
@@ -4583,7 +4583,7 @@
         "tags": [
           "seren-cloud"
         ],
-        "summary": "List organization storage buckets that can be attached to a managed employee.",
+        "summary": "List organization storage buckets that can be attached to a managed agent.",
         "operationId": "seren_cloud_list_storage_buckets",
         "responses": {
           "200": {
@@ -5280,7 +5280,7 @@
         "properties": {
           "secret_refs": {
             "type": "object",
-            "description": "Connector credential field names mapped to opaque Seren Passwords references.",
+            "description": "Connector credential field names mapped to opaque Seren Secrets references.",
             "additionalProperties": {
               "type": "string"
             },
@@ -5322,6 +5322,24 @@
           }
         }
       },
+      "ChannelBindingRef": {
+        "type": "object",
+        "description": "Current Core-owned identity of an organization channel binding.\n\nThe binding is provider-neutral. Core resolves it to the configured\nconnector account and external conversation and rechecks the generation\nbefore minting a target-scoped identity. Downstream services still recheck\ntheir own resource grants.",
+        "required": [
+          "binding_id",
+          "generation"
+        ],
+        "properties": {
+          "binding_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "CloudConversationListResponse": {
         "type": "object",
         "required": [
@@ -5356,6 +5374,7 @@
           "user_id",
           "role",
           "source",
+          "collaboration_target",
           "content",
           "events",
           "created_at",
@@ -5367,6 +5386,9 @@
               "string",
               "null"
             ]
+          },
+          "collaboration_target": {
+            "$ref": "#/components/schemas/CloudRunCollaborationTarget"
           },
           "content": {
             "type": "string"
@@ -6482,6 +6504,17 @@
               "null"
             ],
             "description": "Whether to request async execution for always-on orchestrators."
+          },
+          "collaboration": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudRunCollaborationSelection",
+                "description": "Explicit audience and governed knowledge selection for this invocation.\nOmit this field to preserve individual employee behavior."
+              }
+            ]
           },
           "message": {
             "type": [
@@ -7766,6 +7799,51 @@
         "enum": [
           "approve",
           "reject"
+        ]
+      },
+      "CloudRunCollaborationSelection": {
+        "type": "object",
+        "required": [
+          "invocation_origin",
+          "knowledge_capture_target",
+          "output_audience"
+        ],
+        "properties": {
+          "invocation_origin": {
+            "$ref": "#/components/schemas/InvocationOrigin",
+            "description": "Trusted source proposed for this invocation. Core revalidates channel\nbinding references before signing the organization work context."
+          },
+          "knowledge_capture_target": {
+            "$ref": "#/components/schemas/KnowledgeCaptureTarget",
+            "description": "Explicit destination for captured interaction data."
+          },
+          "knowledge_selection": {
+            "$ref": "#/components/schemas/KnowledgeSelection",
+            "description": "Provider-owned organization knowledge requested for this invocation."
+          },
+          "output_audience": {
+            "$ref": "#/components/schemas/OutputAudience",
+            "description": "Audience permitted to receive output or protected side effects."
+          },
+          "task_label": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskLabel",
+                "description": "Optional organization-defined task label constrained by the assignment."
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "CloudRunCollaborationTarget": {
+        "type": "string",
+        "enum": [
+          "individual",
+          "organization"
         ]
       },
       "CloudRunDoneStatus": {
@@ -13551,6 +13629,147 @@
         },
         "additionalProperties": false
       },
+      "InvocationOrigin": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Invocation not received through a governed collaboration surface.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "direct"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Invocation received through the current organization channel binding.",
+            "required": [
+              "binding",
+              "kind"
+            ],
+            "properties": {
+              "binding": {
+                "$ref": "#/components/schemas/ChannelBindingRef"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "channel"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Trusted source that initiated an organization-authorized invocation.\n\nThis is provenance rather than resource ownership. A channel-originated\ninvocation can read a provider-owned knowledge selection and can have an\nindependently authorized output audience."
+      },
+      "KnowledgeCaptureTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "none"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Capture into the organization collection named by `knowledge_selection`.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "organization_selection"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Capture into personal knowledge owned by the authenticated user.",
+            "required": [
+              "provider",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "personal"
+                ]
+              },
+              "provider": {
+                "$ref": "#/components/schemas/KnowledgeProvider"
+              }
+            }
+          }
+        ],
+        "description": "Single knowledge destination permitted to receive captured interaction data.\n\nPersonal capture is relative to the authenticated user bound by the\nenclosing context. It is an explicit cross-boundary write and does not\nfollow automatically from invocation origin or output audience.\n\nEmployee identity is deliberately absent because it identifies the actor,\nwhile Memory has no agent-owned capture boundary."
+      },
+      "KnowledgeProvider": {
+        "type": "string",
+        "description": "Service that owns and revalidates a knowledge selection or capture target.",
+        "enum": [
+          "memory"
+        ]
+      },
+      "KnowledgeSelection": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "none"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "provider",
+              "selection_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "organization"
+                ]
+              },
+              "provider": {
+                "$ref": "#/components/schemas/KnowledgeProvider"
+              },
+              "selection_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          }
+        ],
+        "description": "Organization knowledge requested for one invocation.\n\nSeren Core transports the selection opaquely, and the named provider retains\nfinal authorization over the stable selection and its current materialized\nsources."
+      },
       "ManagedAgentApprovalPolicy": {
         "type": "string",
         "enum": [
@@ -13811,6 +14030,45 @@
           "llm"
         ]
       },
+      "OutputAudience": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "The organization identified by the enclosing context.\n\nDeclared as a zero-field struct variant rather than a unit variant on\npurpose. On an internally tagged enum, `deny_unknown_fields` does not\napply to a unit variant: `{\"kind\": \"organization\", \"readable_by\": [..]}`\ndeserializes successfully into a unit `Organization` and the extra key\nis discarded. A narrowing audience constraint added by a later Core\nrelease would then be silently dropped by an older consumer, which is\nthe failure this crate exists to prevent. `rejects_unknown_variant_constraints`\nfails if this is simplified back to a unit variant.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "organization"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "External channel represented by a current organization binding.",
+            "required": [
+              "binding",
+              "kind"
+            ],
+            "properties": {
+              "binding": {
+                "$ref": "#/components/schemas/ChannelBindingRef"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "channel"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Audience permitted to receive output or protected side effects."
+      },
       "PaginationMeta": {
         "type": "object",
         "description": "Pagination metadata included in responses.",
@@ -13932,6 +14190,11 @@
             "type": "boolean"
           }
         }
+      },
+      "TaskLabel": {
+        "type": "string",
+        "description": "Organization-defined policy selector in canonical form.\n\nThe syntax is enforced during deserialization rather than by convention, so\nevery producer and consumer of an [`OrganizationWorkContext`] agrees on which labels\nexist without each one repeating the check.",
+        "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
       },
       "ToolApprovalCondition": {
         "oneOf": [
