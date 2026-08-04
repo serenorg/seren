@@ -1055,7 +1055,7 @@ pub fn print_role_with_password(
 }
 
 // Endpoints
-pub fn print_endpoints_table(endpoints: &[seren::Endpoint]) {
+pub fn print_endpoints_table(endpoints: &[seren::EndpointResponse]) {
     if endpoints.is_empty() {
         println!("No endpoints found");
         return;
@@ -1092,7 +1092,10 @@ pub fn print_endpoints_table(endpoints: &[seren::Endpoint]) {
     println!("{table}");
 }
 
-pub fn print_endpoint(endpoint: &seren::Endpoint, format: OutputFormat) -> anyhow::Result<()> {
+pub fn print_endpoint(
+    endpoint: &seren::DataResponseEndpointResponseData,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
     match format {
         OutputFormat::Json => print_json(endpoint)?,
         OutputFormat::Table => {

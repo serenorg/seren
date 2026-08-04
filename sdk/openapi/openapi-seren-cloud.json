@@ -6535,7 +6535,7 @@
               "string",
               "null"
             ],
-            "description": "Optional client-provided run identifier (used by some orchestrators)."
+            "description": "Optional client correlation identifier used by some orchestrators.\nDeployment-scoped callers must omit it because Seren Cloud assigns\nchild run identifiers."
           }
         }
       },

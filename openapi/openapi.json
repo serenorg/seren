@@ -139,7 +139,7 @@
           "agent"
         ],
         "summary": "Update an agent's profile (e.g. set a real email address).",
-        "description": "When the email is changed, `email_verified` is set to `false` and a\nverification email with a clickable link is sent. The user verifies\nby clicking the link \u2014 no separate API call is needed.\nA verified email is required before making Stripe deposits.",
+        "description": "When the email is changed, `email_verified` is set to `false` and a\nverification email with a clickable link is sent. The user verifies\nby clicking the link — no separate API call is needed.\nA verified email is required before making Stripe deposits.",
         "operationId": "agent_update",
         "requestBody": {
           "content": {
@@ -4514,6 +4514,9 @@
           },
           "403": {
             "description": "Only a signed-in organization owner or administrator can update the policy"
+          },
+          "409": {
+            "description": "Policy revision is stale"
           }
         },
         "security": [
@@ -4539,11 +4542,19 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "include_revoked",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Current managed agent collaboration assignments",
+            "description": "Managed agent collaboration assignments, optionally including revoked assignments",
             "content": {
               "application/json": {
                 "schema": {
@@ -4617,6 +4628,9 @@
           },
           "403": {
             "description": "Only a signed-in organization owner or administrator can manage assignments"
+          },
+          "409": {
+            "description": "Assignment generation is stale or the assignment requires explicit reactivation"
           }
         },
         "security": [
@@ -4650,6 +4664,15 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "expected_assignment_generation",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
           }
         ],
         "responses": {
@@ -4663,8 +4686,80 @@
               }
             }
           },
+          "400": {
+            "description": "Expected assignment generation is invalid"
+          },
           "403": {
             "description": "Only a signed-in organization owner or administrator can manage assignments"
+          },
+          "409": {
+            "description": "Assignment generation is stale"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/employee-collaboration/assignments/{deployment_id}/reactivate": {
+      "post": {
+        "tags": [
+          "Organizations"
+        ],
+        "operationId": "reactivate_employee_collaboration_assignment",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID or 'default' for the authenticated user's default organization",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "deployment_id",
+            "in": "path",
+            "description": "Managed agent deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertOrganizationEmployeeCollaborationAssignmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Reactivated employee collaboration assignment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_OrganizationEmployeeCollaborationAssignment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Expected assignment generation is missing or invalid"
+          },
+          "403": {
+            "description": "Only a signed-in organization owner or administrator can manage assignments"
+          },
+          "409": {
+            "description": "Assignment is active or its generation is stale"
           }
         },
         "security": [
@@ -10534,7 +10629,7 @@
       },
       "AgentTask": {
         "type": "object",
-        "description": "An agent task \u2014 tracks a single agent invocation lifecycle.",
+        "description": "An agent task — tracks a single agent invocation lifecycle.",
         "required": [
           "id",
           "organization_id",
@@ -11464,7 +11559,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Optional least-privilege scopes. Omit for an unrestricted user API key.\nPublisher scopes and `managed-deployment:<operation>` control-plane\nscopes grant separate capabilities and may be combined."
+            "description": "Optional least-privilege scopes. Omit for an unrestricted user API key.\nPublisher invocation scopes, `managed-deployment:<operation>`, and the\nexact publisher-administration scopes `organization:read`,\n`publisher-definition:{read,create,update}`, `publisher-pricing:update`,\n`oauth-provider:{read,create,update}`, and `oauth-connection:read` grant\nseparate capabilities and may be combined. No administration wildcard\nor delete scope is supported. Publisher create or update payloads that\nset pricing, billing, or accepted-asset fields also require\n`publisher-pricing:update`."
           }
         }
       },
@@ -12908,7 +13003,7 @@
         "properties": {
           "data": {
             "type": "object",
-            "description": "An agent task \u2014 tracks a single agent invocation lifecycle.",
+            "description": "An agent task — tracks a single agent invocation lifecycle.",
             "required": [
               "id",
               "organization_id",
@@ -14946,6 +15041,13 @@
               },
               "organization_skill_use": {
                 "type": "boolean"
+              },
+              "revoked_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
               },
               "updated_at": {
                 "type": "string",
@@ -17758,7 +17860,7 @@
             "type": "array",
             "items": {
               "type": "object",
-              "description": "An agent task \u2014 tracks a single agent invocation lifecycle.",
+              "description": "An agent task — tracks a single agent invocation lifecycle.",
               "required": [
                 "id",
                 "organization_id",
@@ -18857,6 +18959,13 @@
                 },
                 "organization_skill_use": {
                   "type": "boolean"
+                },
+                "revoked_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
                 },
                 "updated_at": {
                   "type": "string",
@@ -23557,6 +23666,13 @@
           "organization_skill_use": {
             "type": "boolean"
           },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "updated_at": {
             "type": "string",
             "format": "date-time"
@@ -27847,11 +27963,16 @@
       "UpdateOrganizationEmployeeCollaborationPolicyRequest": {
         "type": "object",
         "required": [
+          "expected_policy_revision",
           "enabled"
         ],
         "properties": {
           "enabled": {
             "type": "boolean"
+          },
+          "expected_policy_revision": {
+            "type": "string",
+            "description": "Revision returned by the last policy read. Use `baseline` when no\norganization-specific policy row exists yet."
           },
           "organization_artifact_write": {
             "type": "boolean"
@@ -28959,6 +29080,14 @@
             "items": {
               "type": "string"
             }
+          },
+          "expected_assignment_generation": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Generation returned by the last assignment read. Omit only when\ncreating an assignment that does not yet exist."
           },
           "organization_artifact_write": {
             "type": "boolean"

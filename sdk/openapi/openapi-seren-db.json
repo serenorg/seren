@@ -1066,7 +1066,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DataResponse_Vec_Endpoint"
+                  "$ref": "#/components/schemas/DataResponse_Vec_EndpointResponse"
                 }
               }
             }
@@ -1252,7 +1252,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DataResponse_Endpoint"
+                  "$ref": "#/components/schemas/DataResponse_EndpointResponse"
                 }
               }
             }
@@ -5380,162 +5380,6 @@
           }
         }
       },
-      "DataResponse_Endpoint": {
-        "type": "object",
-        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
-        "required": [
-          "data"
-        ],
-        "properties": {
-          "data": {
-            "type": "object",
-            "description": "Endpoint represents a compute instance for a branch",
-            "required": [
-              "id",
-              "name",
-              "branch_id",
-              "tenant_id",
-              "timeline_id",
-              "endpoint_type",
-              "compute_unit",
-              "autoscaling_min",
-              "autoscaling_max",
-              "suspend_timeout_seconds",
-              "status",
-              "pooler_enabled",
-              "pooler_mode",
-              "created_by",
-              "created_at",
-              "updated_at"
-            ],
-            "properties": {
-              "active_time_seconds": {
-                "type": "number",
-                "format": "double"
-              },
-              "autoscaling_max": {
-                "type": "integer",
-                "format": "int32"
-              },
-              "autoscaling_min": {
-                "type": "integer",
-                "format": "int32"
-              },
-              "branch_id": {
-                "type": "string",
-                "format": "uuid"
-              },
-              "compute_unit": {
-                "type": "string"
-              },
-              "connection_count": {
-                "type": "integer",
-                "format": "int32"
-              },
-              "connection_string": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "connection_string_direct": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "connection_string_pooled": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "created_at": {
-                "type": "string",
-                "format": "date-time"
-              },
-              "created_by": {
-                "type": "string",
-                "format": "uuid"
-              },
-              "current_state": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "endpoint_type": {
-                "type": "string",
-                "description": "Type of endpoint: read_write (primary) or read_only (replica)"
-              },
-              "id": {
-                "type": "string",
-                "format": "uuid"
-              },
-              "last_active_at": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "format": "date-time"
-              },
-              "name": {
-                "type": "string"
-              },
-              "pooler_enabled": {
-                "type": "boolean"
-              },
-              "pooler_mode": {
-                "type": "string"
-              },
-              "primary_endpoint_id": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "format": "uuid",
-                "description": "Reference to the primary endpoint for read replicas (NULL for read_write endpoints)"
-              },
-              "proxy_host": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "status": {
-                "type": "string"
-              },
-              "suspend_timeout_seconds": {
-                "type": "integer",
-                "format": "int32"
-              },
-              "tenant_id": {
-                "type": "string",
-                "format": "uuid"
-              },
-              "timeline_id": {
-                "type": "string",
-                "format": "uuid"
-              },
-              "updated_at": {
-                "type": "string",
-                "format": "date-time"
-              }
-            }
-          },
-          "pagination": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/PaginationMeta",
-                "description": "Optional pagination metadata"
-              }
-            ]
-          }
-        }
-      },
       "DataResponse_EndpointCreated": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -5551,6 +5395,8 @@
               "name",
               "branch_id",
               "compute_unit",
+              "suspend_timeout_seconds",
+              "effective_suspend_timeout_seconds",
               "endpoint_type",
               "status",
               "created_at"
@@ -5584,6 +5430,10 @@
               "created_at": {
                 "type": "string",
                 "format": "date-time"
+              },
+              "effective_suspend_timeout_seconds": {
+                "type": "integer",
+                "format": "int32"
               },
               "endpoint_type": {
                 "type": "string",
@@ -5619,6 +5469,10 @@
               "status": {
                 "type": "string"
               },
+              "suspend_timeout_seconds": {
+                "type": "integer",
+                "format": "int32"
+              },
               "warnings": {
                 "type": [
                   "array",
@@ -5629,6 +5483,45 @@
                 }
               }
             }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_EndpointResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Endpoint"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "effective_suspend_timeout_seconds"
+                ],
+                "properties": {
+                  "effective_suspend_timeout_seconds": {
+                    "type": "integer",
+                    "format": "int32"
+                  }
+                }
+              }
+            ]
           },
           "pagination": {
             "oneOf": [
@@ -5656,7 +5549,9 @@
             "required": [
               "id",
               "status",
-              "k8s_ready"
+              "k8s_ready",
+              "suspend_timeout_seconds",
+              "effective_suspend_timeout_seconds"
             ],
             "properties": {
               "compute_status": {
@@ -5664,6 +5559,10 @@
                   "string",
                   "null"
                 ]
+              },
+              "effective_suspend_timeout_seconds": {
+                "type": "integer",
+                "format": "int32"
               },
               "id": {
                 "type": "string",
@@ -5674,6 +5573,10 @@
               },
               "status": {
                 "type": "string"
+              },
+              "suspend_timeout_seconds": {
+                "type": "integer",
+                "format": "int32"
               }
             }
           },
@@ -6854,7 +6757,7 @@
           }
         }
       },
-      "DataResponse_Vec_Endpoint": {
+      "DataResponse_Vec_EndpointResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
         "required": [
@@ -6864,140 +6767,23 @@
           "data": {
             "type": "array",
             "items": {
-              "type": "object",
-              "description": "Endpoint represents a compute instance for a branch",
-              "required": [
-                "id",
-                "name",
-                "branch_id",
-                "tenant_id",
-                "timeline_id",
-                "endpoint_type",
-                "compute_unit",
-                "autoscaling_min",
-                "autoscaling_max",
-                "suspend_timeout_seconds",
-                "status",
-                "pooler_enabled",
-                "pooler_mode",
-                "created_by",
-                "created_at",
-                "updated_at"
-              ],
-              "properties": {
-                "active_time_seconds": {
-                  "type": "number",
-                  "format": "double"
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Endpoint"
                 },
-                "autoscaling_max": {
-                  "type": "integer",
-                  "format": "int32"
-                },
-                "autoscaling_min": {
-                  "type": "integer",
-                  "format": "int32"
-                },
-                "branch_id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "compute_unit": {
-                  "type": "string"
-                },
-                "connection_count": {
-                  "type": "integer",
-                  "format": "int32"
-                },
-                "connection_string": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "connection_string_direct": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "connection_string_pooled": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "created_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "created_by": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "current_state": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "endpoint_type": {
-                  "type": "string",
-                  "description": "Type of endpoint: read_write (primary) or read_only (replica)"
-                },
-                "id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "last_active_at": {
-                  "type": [
-                    "string",
-                    "null"
+                {
+                  "type": "object",
+                  "required": [
+                    "effective_suspend_timeout_seconds"
                   ],
-                  "format": "date-time"
-                },
-                "name": {
-                  "type": "string"
-                },
-                "pooler_enabled": {
-                  "type": "boolean"
-                },
-                "pooler_mode": {
-                  "type": "string"
-                },
-                "primary_endpoint_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "format": "uuid",
-                  "description": "Reference to the primary endpoint for read replicas (NULL for read_write endpoints)"
-                },
-                "proxy_host": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "status": {
-                  "type": "string"
-                },
-                "suspend_timeout_seconds": {
-                  "type": "integer",
-                  "format": "int32"
-                },
-                "tenant_id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "timeline_id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "updated_at": {
-                  "type": "string",
-                  "format": "date-time"
+                  "properties": {
+                    "effective_suspend_timeout_seconds": {
+                      "type": "integer",
+                      "format": "int32"
+                    }
+                  }
                 }
-              }
+              ]
             }
           },
           "pagination": {
@@ -7682,6 +7468,8 @@
           "name",
           "branch_id",
           "compute_unit",
+          "suspend_timeout_seconds",
+          "effective_suspend_timeout_seconds",
           "endpoint_type",
           "status",
           "created_at"
@@ -7715,6 +7503,10 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "effective_suspend_timeout_seconds": {
+            "type": "integer",
+            "format": "int32"
           },
           "endpoint_type": {
             "type": "string",
@@ -7750,6 +7542,10 @@
           "status": {
             "type": "string"
           },
+          "suspend_timeout_seconds": {
+            "type": "integer",
+            "format": "int32"
+          },
           "warnings": {
             "type": [
               "array",
@@ -7761,13 +7557,34 @@
           }
         }
       },
+      "EndpointResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Endpoint"
+          },
+          {
+            "type": "object",
+            "required": [
+              "effective_suspend_timeout_seconds"
+            ],
+            "properties": {
+              "effective_suspend_timeout_seconds": {
+                "type": "integer",
+                "format": "int32"
+              }
+            }
+          }
+        ]
+      },
       "EndpointStatusInfo": {
         "type": "object",
         "description": "Status response used by lifecycle endpoints",
         "required": [
           "id",
           "status",
-          "k8s_ready"
+          "k8s_ready",
+          "suspend_timeout_seconds",
+          "effective_suspend_timeout_seconds"
         ],
         "properties": {
           "compute_status": {
@@ -7775,6 +7592,10 @@
               "string",
               "null"
             ]
+          },
+          "effective_suspend_timeout_seconds": {
+            "type": "integer",
+            "format": "int32"
           },
           "id": {
             "type": "string",
@@ -7785,6 +7606,10 @@
           },
           "status": {
             "type": "string"
+          },
+          "suspend_timeout_seconds": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
