@@ -24,8 +24,8 @@ claude-mem = ["dep:rusqlite"]
 [dependencies]
 seren = { package = "seren-sdk", path = "../sdk" }
 seren-mcp = { path = "../mcp" }
-seren-secrets-crypto = { git = "https://github.com/serenorg/seren-secrets.git", tag = "v0.2.0" }
-seren-secrets-resolver = { git = "https://github.com/serenorg/seren-secrets.git", tag = "v0.2.0" }
+seren-secrets-crypto = { git = "https://github.com/serenorg/seren-secrets.git", tag = "v0.5.0" }
+seren-secrets-resolver = { git = "https://github.com/serenorg/seren-secrets.git", tag = "v0.5.0" }
 tokio = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
