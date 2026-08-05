@@ -23,7 +23,7 @@ COPY cli ./cli
 COPY mcp ./mcp
 
 # Build the unified CLI binary with hosted telemetry support
-RUN cargo build --release --package seren-cli --features telemetry
+RUN cargo build --release --locked --package seren-cli --features telemetry
 
 # ---------- Runtime ----------
 FROM debian:trixie-slim
