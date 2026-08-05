@@ -379,6 +379,38 @@ pub struct OrgOAuthProviderPath {
 
 pub type ListOrgOAuthProvidersParams = OrganizationPath;
 
+pub type GetEmployeeCollaborationPolicyParams = OrganizationPath;
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct UpdateEmployeeCollaborationPolicyParams {
+    #[serde(flatten)]
+    pub path: OrganizationPath,
+    #[serde(flatten)]
+    pub body: seren::UpdateOrganizationEmployeeCollaborationPolicyRequest,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ListEmployeeCollaborationAssignmentsParams {
+    pub organization_id: Uuid,
+    #[serde(default)]
+    pub include_revoked: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct EmployeeCollaborationAssignmentParams {
+    pub organization_id: Uuid,
+    pub deployment_id: Uuid,
+    #[serde(flatten)]
+    pub body: seren::UpsertOrganizationEmployeeCollaborationAssignmentRequest,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct RevokeEmployeeCollaborationAssignmentParams {
+    pub organization_id: Uuid,
+    pub deployment_id: Uuid,
+    pub expected_assignment_generation: i64,
+}
+
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GetOrgOAuthProviderParams {
     /// The organization ID (UUID)
@@ -7557,6 +7589,149 @@ impl SerenMcpServer {
             .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&projects)?]))
+    }
+
+    #[tool(
+        description = "Read the organization employee-collaboration policy and its current compare-and-swap revision.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_employee_collaboration_policy(
+        &self,
+        Parameters(params): Parameters<GetEmployeeCollaborationPolicyParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let policy = self
+            .api_client(&extensions)?
+            .get_employee_collaboration_policy(&params.organization_id)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&policy)?]))
+    }
+
+    #[tool(
+        description = "Update the organization employee-collaboration policy using the expected policy revision returned by the read tool.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn update_employee_collaboration_policy(
+        &self,
+        Parameters(params): Parameters<UpdateEmployeeCollaborationPolicyParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let policy = self
+            .api_client(&extensions)?
+            .update_employee_collaboration_policy(&params.path.organization_id, &params.body)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&policy)?]))
+    }
+
+    #[tool(
+        description = "List employee-collaboration assignments for an organization, optionally including revoked assignments.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_employee_collaboration_assignments(
+        &self,
+        Parameters(params): Parameters<ListEmployeeCollaborationAssignmentsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let assignments = self
+            .api_client(&extensions)?
+            .list_employee_collaboration_assignments(
+                &params.organization_id,
+                params.include_revoked,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&assignments)?]))
+    }
+
+    #[tool(
+        description = "Create or update one employee-collaboration assignment. Supply the current assignment generation when updating an existing assignment.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn upsert_employee_collaboration_assignment(
+        &self,
+        Parameters(params): Parameters<EmployeeCollaborationAssignmentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let assignment = self
+            .api_client(&extensions)?
+            .upsert_employee_collaboration_assignment(
+                &params.organization_id,
+                &params.deployment_id,
+                &params.body,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&assignment)?]))
+    }
+
+    #[tool(
+        description = "Revoke an employee-collaboration assignment using its current assignment generation.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn revoke_employee_collaboration_assignment(
+        &self,
+        Parameters(params): Parameters<RevokeEmployeeCollaborationAssignmentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let revoked = self
+            .api_client(&extensions)?
+            .revoke_employee_collaboration_assignment(
+                &params.organization_id,
+                &params.deployment_id,
+                params.expected_assignment_generation,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&revoked)?]))
+    }
+
+    #[tool(
+        description = "Reactivate a revoked employee-collaboration assignment with a new compare-and-swap assignment generation.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn reactivate_employee_collaboration_assignment(
+        &self,
+        Parameters(params): Parameters<EmployeeCollaborationAssignmentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let assignment = self
+            .api_client(&extensions)?
+            .reactivate_employee_collaboration_assignment(
+                &params.organization_id,
+                &params.deployment_id,
+                &params.body,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&assignment)?]))
     }
 
     #[tool(
