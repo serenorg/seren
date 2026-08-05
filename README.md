@@ -119,7 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-The `seren` crate is generated from the [Seren OpenAPI spec](./openapi/), and typed clients for other languages can be generated from the same source.
+The `seren` crate is generated from the [Seren OpenAPI specs](./sdk/openapi/). The SDK stores these specs inside its crate so Cargo packages contain every code-generation input.
 
 ## Packages
 
@@ -174,13 +174,12 @@ cargo fmt --all
 
 ```text
 seren/
-|-- sdk/            # Rust SDK - OpenAPI-generated type-safe client
+|-- sdk/            # Rust SDK with its OpenAPI inputs
 |-- cli/            # CLI tool - clap-based platform management
 |-- mcp/            # MCP server - stdio, HTTP, and OAuth modes
 |   |-- oauth/      # OAuth 2.1 + PKCE implementation
 |   |-- wallet/     # x402 crypto payment support
 |   `-- migrations/ # Embedded SQL migrations
-|-- openapi/        # OpenAPI spec source for SDK codegen
 |-- docker/         # Dockerfiles
 `-- Cargo.toml      # Workspace configuration
 ```

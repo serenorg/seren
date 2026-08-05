@@ -18,7 +18,6 @@ RUN apt-get update && apt-get install -y \
 
 # Copy workspace files
 COPY Cargo.toml Cargo.lock ./
-COPY openapi ./openapi
 COPY sdk ./sdk
 COPY cli ./cli
 COPY mcp ./mcp

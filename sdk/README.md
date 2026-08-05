@@ -102,7 +102,7 @@ The product catalog covers Seren Employees powered by Seren Agent, Seren Cloud, 
 
 The client is auto-generated from the OpenAPI specs at build time. Methods are available directly on the `Client` struct, including generated calls for Seren DB projects, Seren Agent deployments, and Seren Storage buckets. Seren Storage publisher methods use the `seren_storage_` prefix.
 
-The crate bundles a synchronized copy of its OpenAPI inputs so builds do not depend on the root OpenAPI directory. After changing a root spec, run `./sdk/scripts/sync-openapi.sh`; CI and the release workflow reject stale packaged inputs.
+The crate stores its OpenAPI inputs in `sdk/openapi`. Cargo packages include this directory, so code generation does not depend on files outside the crate.
 
 Return values are wrapped in `ResponseValue<T>`. Call `.into_inner()` to get the response body.
 

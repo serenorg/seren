@@ -597,13 +597,7 @@ fn merge_publisher_spec(
 
 fn main() -> anyhow::Result<()> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-    let workspace_openapi_dir = manifest_dir.join("../openapi");
-    let bundled_openapi_dir = manifest_dir.join("openapi");
-    let openapi_dir = if workspace_openapi_dir.join("openapi.json").is_file() {
-        workspace_openapi_dir
-    } else {
-        bundled_openapi_dir
-    };
+    let openapi_dir = manifest_dir.join("openapi");
     let spec_files = [
         "openapi.json",
         "openapi-seren-db.json",

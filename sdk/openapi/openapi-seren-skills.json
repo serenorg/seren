@@ -661,6 +661,16 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "expected_grant_generation",
+            "in": "query",
+            "description": "Generation observed by the caller before revocation.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
           }
         ],
         "responses": {
@@ -5452,6 +5462,14 @@
             "items": {
               "type": "string"
             }
+          },
+          "expected_grant_generation": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Generation observed by the caller when changing an existing grant.\nOmit only when creating a grant that does not yet exist."
           },
           "skill_version_id": {
             "type": "string",
