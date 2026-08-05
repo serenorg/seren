@@ -18,9 +18,19 @@ use seren::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = ClientConfig::from_env();
+    // Collaboration management requires a signed-in user session. Core rejects
+    // API keys on these routes because collaboration authority must trace to a
+    // person, so this example authenticates with a user access token from the
+    // sign-in flow instead of SEREN_API_KEY.
+    let mut config = ClientConfig::from_env();
+    config.bearer_token = std::env::var("SEREN_ACCESS_TOKEN")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
     if config.bearer_token.is_none() {
-        eprintln!("Set SEREN_API_KEY to run this example against the Seren API.");
+        eprintln!(
+            "SEREN_ACCESS_TOKEN is not set. Set it to a signed-in user access token. API keys cannot manage collaboration authority."
+        );
         std::process::exit(1);
     }
 
@@ -50,8 +60,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let policy_revision = policy.data.policy_revision.clone();
     println!("Current policy revision: {policy_revision}");
 
-    // The policy is the ceiling for every employee. Enable only the capabilities
-    // the organization is willing to delegate at all.
+    let assignments_before = client
+        .list_employee_collaboration_assignments(&organization_id, Some(true))
+        .await?
+        .into_inner();
+    if assignments_before
+        .data
+        .iter()
+        .any(|assignment| assignment.deployment_id == deployment_id)
+    {
+        return Err("The deployment already has a collaboration assignment. Update it or reactivate it with its current generation.".into());
+    }
+
+    // Create an assignment before enabling the policy. Core requires at least
+    // one current assignment before organization collaboration can be enabled.
+    let assignment = client
+        .upsert_employee_collaboration_assignment(
+            &organization_id,
+            &deployment_id,
+            &UpsertOrganizationEmployeeCollaborationAssignmentRequest {
+                allowed_task_labels: vec!["research".to_string()],
+                expected_assignment_generation: None,
+                organization_knowledge_read: Some(true),
+                organization_credential_use: Some(false),
+                organization_skill_use: Some(false),
+                organization_artifact_write: Some(false),
+            },
+        )
+        .await?
+        .into_inner();
+    let generation = assignment.data.assignment_generation;
+    println!("Assignment generation: {generation}");
+
+    // The policy is the ceiling for every employee. An assignment can only
+    // narrow it, never widen it.
     let updated_policy = client
         .update_employee_collaboration_policy(
             &organization_id,
@@ -71,26 +113,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         updated_policy.data.policy_revision
     );
 
-    // An assignment can only narrow the policy, never widen it. Requesting a
-    // capability the policy withholds does not grant it.
-    let assignment = client
-        .upsert_employee_collaboration_assignment(
-            &organization_id,
-            &deployment_id,
-            &UpsertOrganizationEmployeeCollaborationAssignmentRequest {
-                allowed_task_labels: vec!["research".to_string()],
-                expected_assignment_generation: None,
-                organization_knowledge_read: Some(true),
-                organization_credential_use: Some(false),
-                organization_skill_use: Some(false),
-                organization_artifact_write: Some(false),
-            },
-        )
-        .await?
-        .into_inner();
-    let generation = assignment.data.assignment_generation;
-    println!("Assignment generation: {generation}");
-
     let assignments = client
         .list_employee_collaboration_assignments(&organization_id, Some(false))
         .await?
@@ -104,7 +126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     client
         .revoke_employee_collaboration_assignment(&organization_id, &deployment_id, generation)
         .await?;
-    println!("Assignment revoked; the next protected operation is denied.");
+    println!("The assignment is revoked. The next protected operation is denied.");
 
     Ok(())
 }

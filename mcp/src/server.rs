@@ -6479,7 +6479,9 @@ impl SerenMcpServer {
             .seren_cloud_run_detail(&run_id)
             .into_mcp_result()
             .await?;
-        let deployment_id = run_detail.into_inner().data.deployment_id;
+        let run_detail = run_detail.into_inner().data;
+        let deployment_id = run_detail.deployment_id;
+        let original_execution_id = run_detail.execution_id;
 
         let approval_state = api_client
             .seren_cloud_run_pending_approvals(&run_id)
@@ -6510,11 +6512,19 @@ impl SerenMcpServer {
         }
 
         let body = maybe_body.unwrap_or_default();
-        let response_json = api_client
-            .seren_cloud_run(&deployment_id, &body)
+        let response = api_client
+            .seren_cloud_run_resume(&run_id, &body)
             .into_mcp_result()
             .await?;
-        let response_json = response_json.into_inner();
+        let response = response.into_inner();
+        seren::validate_cloud_approval_resume_identity(
+            &run_id,
+            &original_execution_id,
+            &response.data.id,
+            &response.data.execution_id,
+        )
+        .map_err(|error| McpError::internal_error(error.to_string(), None))?;
+        let response_json = response;
         let data = serde_json::to_value(&response_json)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         let data = data.get("data").cloned().unwrap_or(data);
@@ -18634,6 +18644,19 @@ mod tests {
             seren::CloudRunApprovalDecisionValue::Reject
         );
         assert_eq!(approval_decisions[1].id, "approval-2");
+    }
+
+    #[test]
+    fn cloud_approval_resolution_uses_the_exact_run_resume_endpoint() {
+        let source = include_str!("server.rs");
+        let handler = source
+            .split_once("async fn resolve_cloud_run_pending_approvals(")
+            .and_then(|(_, remainder)| remainder.split_once("\n    async fn "))
+            .map(|(handler, _)| handler)
+            .expect("approval resolution handler must remain discoverable");
+
+        assert!(handler.contains(".seren_cloud_run_resume(&run_id, &body)"));
+        assert!(!handler.contains(".seren_cloud_run(&deployment_id, &body)"));
     }
 
     #[tokio::test]

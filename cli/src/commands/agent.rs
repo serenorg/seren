@@ -5576,6 +5576,7 @@ async fn resolve_cloud_run_pending_approvals(
         Err(e) => return Err(anyhow_from_seren_error("Failed to load run detail", e).await),
     };
     let deployment_id = run_detail.data.deployment_id;
+    let original_execution_id = run_detail.data.execution_id.clone();
 
     let approval_state = match client.seren_cloud_run_pending_approvals(&run_id).await {
         Ok(response) => response.into_inner(),
@@ -5610,10 +5611,17 @@ async fn resolve_cloud_run_pending_approvals(
     }
 
     let body = maybe_body.unwrap_or_default();
-    let response_body = match client.seren_cloud_run(&deployment_id, &body).await {
+    let response_body = match client.seren_cloud_run_resume(&run_id, &body).await {
         Ok(response) => response.into_inner(),
         Err(e) => return Err(anyhow_from_seren_error("Failed to resume run", e).await),
     };
+    seren::validate_cloud_approval_resume_identity(
+        &run_id,
+        &original_execution_id,
+        &response_body.data.id,
+        &response_body.data.execution_id,
+    )
+    .map_err(|error| anyhow::anyhow!(error))?;
 
     if matches!(ctx.format, OutputFormat::Json) {
         let payload = serde_json::json!({

@@ -320,7 +320,7 @@ pub fn resolve_cloud_eval_set_schedule_request(
 pub fn build_cloud_approval_resume_request(
     approval_state: &serde_json::Value,
     decision: &str,
-) -> Result<Option<crate::CloudDeploymentRunRequest>, ValidationError> {
+) -> Result<Option<crate::CloudDeploymentRunResumeRequest>, ValidationError> {
     let decision = crate::CloudRunApprovalDecisionValue::try_from(decision).map_err(|_| {
         ValidationError::new("Invalid approval decision. Expected approve or reject.")
     })?;
@@ -329,42 +329,70 @@ pub fn build_cloud_approval_resume_request(
         .get("status")
         .and_then(|value| value.as_str())
         .unwrap_or_default();
+    if status != "awaiting_approval" {
+        return Ok(None);
+    }
+
     let approvals = data
         .get("pending_approvals")
         .and_then(|value| value.as_array())
+        .filter(|approvals| !approvals.is_empty())
         .cloned()
-        .unwrap_or_default();
-
-    if status != "awaiting_approval" || approvals.is_empty() {
-        return Ok(None);
-    }
+        .ok_or_else(|| {
+            ValidationError::new("Run is awaiting approval but no pending_approvals were returned.")
+        })?;
 
     let checkpoint_id = data
         .get("checkpoint_id")
         .and_then(|value| value.as_str())
-        .filter(|value| !value.is_empty())
+        .filter(|value| !value.is_empty() && *value == value.trim())
         .ok_or_else(|| {
             ValidationError::new("Run is awaiting approval but no checkpoint_id was returned.")
         })?;
 
+    let mut approval_ids = std::collections::HashSet::with_capacity(approvals.len());
     let approval_decisions = approvals
         .into_iter()
-        .filter_map(|approval| {
-            approval
+        .enumerate()
+        .map(|(index, approval)| {
+            let id = approval
                 .get("id")
                 .and_then(|value| value.as_str())
-                .map(|id| crate::CloudRunApprovalDecision {
-                    id: id.to_string(),
-                    decision,
-                })
+                .filter(|id| !id.is_empty() && *id == id.trim())
+                .ok_or_else(|| {
+                    ValidationError::new(format!("pending_approvals[{index}] has no approval id"))
+                })?;
+            if !approval_ids.insert(id.to_string()) {
+                return Err(ValidationError::new(
+                    "pending_approvals contains a duplicate approval id",
+                ));
+            }
+            Ok(crate::CloudRunApprovalDecision {
+                id: id.to_string(),
+                decision,
+            })
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, ValidationError>>()?;
 
-    Ok(Some(crate::CloudDeploymentRunRequest {
+    Ok(Some(crate::CloudDeploymentRunResumeRequest {
         resume_checkpoint_id: Some(checkpoint_id.to_string()),
         approval_decisions: Some(approval_decisions),
         ..Default::default()
     }))
+}
+
+pub fn validate_cloud_approval_resume_identity(
+    expected_run_id: &uuid::Uuid,
+    expected_execution_id: &str,
+    resumed_run_id: &uuid::Uuid,
+    resumed_execution_id: &str,
+) -> Result<(), ValidationError> {
+    if resumed_run_id != expected_run_id || resumed_execution_id != expected_execution_id {
+        return Err(ValidationError::new(
+            "The resume response did not match the suspended run identity.",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -405,6 +433,68 @@ mod tests {
         assert_eq!(
             payload.approval_decisions.unwrap()[0].decision,
             crate::CloudRunApprovalDecisionValue::Reject
+        );
+    }
+
+    #[test]
+    fn build_cloud_approval_resume_request_rejects_missing_or_duplicate_ids() {
+        let malformed_checkpoint = serde_json::json!({
+            "status": "awaiting_approval",
+            "checkpoint_id": " checkpoint-123 ",
+            "pending_approvals": [{ "id": "approval-a" }]
+        });
+        assert!(build_cloud_approval_resume_request(&malformed_checkpoint, "reject").is_err());
+
+        let missing_list = serde_json::json!({
+            "status": "awaiting_approval",
+            "checkpoint_id": "checkpoint-123"
+        });
+        assert!(build_cloud_approval_resume_request(&missing_list, "reject").is_err());
+
+        let missing = serde_json::json!({
+            "status": "awaiting_approval",
+            "checkpoint_id": "checkpoint-123",
+            "pending_approvals": [{ "tool": "send_message" }]
+        });
+        assert!(build_cloud_approval_resume_request(&missing, "reject").is_err());
+
+        let malformed = serde_json::json!({
+            "status": "awaiting_approval",
+            "checkpoint_id": "checkpoint-123",
+            "pending_approvals": [{ "id": " approval-a " }]
+        });
+        assert!(build_cloud_approval_resume_request(&malformed, "reject").is_err());
+
+        let duplicate = serde_json::json!({
+            "status": "awaiting_approval",
+            "checkpoint_id": "checkpoint-123",
+            "pending_approvals": [{ "id": "approval-a" }, { "id": "approval-a" }]
+        });
+        assert!(build_cloud_approval_resume_request(&duplicate, "approve").is_err());
+    }
+
+    #[test]
+    fn approval_resume_identity_must_match_the_suspended_run() {
+        let run_id = uuid::Uuid::new_v4();
+        validate_cloud_approval_resume_identity(&run_id, "execution-1", &run_id, "execution-1")
+            .expect("matching identity should pass");
+        assert!(
+            validate_cloud_approval_resume_identity(
+                &run_id,
+                "execution-1",
+                &uuid::Uuid::new_v4(),
+                "execution-1",
+            )
+            .is_err()
+        );
+        assert!(
+            validate_cloud_approval_resume_identity(
+                &run_id,
+                "execution-1",
+                &run_id,
+                "execution-2",
+            )
+            .is_err()
         );
     }
 }

@@ -1812,7 +1812,7 @@
         "tags": [
           "seren-cloud"
         ],
-        "summary": "Resume a managed async deployment run that was interrupted after runtime restart.",
+        "summary": "Resume the exact managed deployment run that owns a durable checkpoint.",
         "operationId": "seren_cloud_deployment_run_resume",
         "parameters": [
           {
@@ -4426,7 +4426,7 @@
         "tags": [
           "seren-cloud"
         ],
-        "summary": "Resume a managed async run by ID that was interrupted after runtime restart.",
+        "summary": "Resume the exact managed run that owns a durable checkpoint.",
         "operationId": "seren_cloud_run_resume",
         "parameters": [
           {
@@ -6496,7 +6496,7 @@
             "items": {
               "$ref": "#/components/schemas/CloudRunApprovalDecision"
             },
-            "description": "Optional approval decisions used when resuming a paused run checkpoint."
+            "description": "Optional approval decisions for runtimes that support inline resume."
           },
           "async": {
             "type": [
@@ -6528,7 +6528,7 @@
               "string",
               "null"
             ],
-            "description": "Optional checkpoint identifier used to resume an awaiting-approval run."
+            "description": "Optional checkpoint identifier for runtimes that support inline resume."
           },
           "run_id": {
             "type": [
@@ -6542,7 +6542,16 @@
       "CloudDeploymentRunResumeRequest": {
         "type": "object",
         "properties": {
-          "approval_decisions": {},
+          "approval_decisions": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CloudRunApprovalDecision"
+            },
+            "description": "Complete decision set for the checkpoint's current pending approvals."
+          },
           "include_raw_tool_outputs": {
             "type": [
               "boolean",
@@ -6554,6 +6563,13 @@
               "string",
               "null"
             ]
+          },
+          "resume_checkpoint_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Checkpoint returned with the current pending approvals. Approval decisions\nmust name the exact checkpoint that owns them."
           }
         }
       },
@@ -7770,7 +7786,7 @@
       },
       "CloudRunApprovalDecision": {
         "type": "object",
-        "description": "Approval decision submitted when resuming an awaiting-approval run.",
+        "description": "One decision submitted for a pending approval.",
         "required": [
           "id",
           "decision"
@@ -7795,7 +7811,6 @@
       },
       "CloudRunApprovalDecisionValue": {
         "type": "string",
-        "description": "Normalized approval action accepted by the cloud resume API.",
         "enum": [
           "approve",
           "reject"
@@ -7811,7 +7826,7 @@
         "properties": {
           "invocation_origin": {
             "$ref": "#/components/schemas/InvocationOrigin",
-            "description": "Trusted source proposed for this invocation. Core revalidates channel\nbinding references before signing the organization work context."
+            "description": "Requested source for this invocation. Core accepts only origins whose\nauthority boundary is implemented for the selected deployment."
           },
           "knowledge_capture_target": {
             "$ref": "#/components/schemas/KnowledgeCaptureTarget",
@@ -8239,7 +8254,18 @@
                   "null"
                 ]
               },
+              "contract_version": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
               "details": {},
+              "pending_approvals": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CloudRunPendingApproval"
+                }
+              },
               "state": {
                 "type": "string"
               },
@@ -8689,7 +8715,7 @@
       },
       "CloudRunPendingApproval": {
         "type": "object",
-        "description": "Pending approval attached to an `awaiting_approval` run.",
+        "description": "One tool call that is waiting for an approval decision.",
         "required": [
           "id",
           "tool"
@@ -8714,7 +8740,8 @@
           "tool": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "CloudRunPendingApprovalsResponse": {
         "type": "object",
