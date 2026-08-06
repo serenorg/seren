@@ -842,8 +842,12 @@ impl SerenMcpServer {
                     None,
                 ));
             }
-            match &record.status {
-                DelegationStatus::Denied | DelegationStatus::Expired => {
+            match pending_hosted_access_action(
+                params.force == Some(true),
+                &record.status,
+                pending.consent_capability.is_some(),
+            ) {
+                PendingHostedAccessAction::Delete => {
                     store
                         .delete_pending_hosted_passwords_agent(
                             user_id,
@@ -853,8 +857,14 @@ impl SerenMcpServer {
                         .await
                         .map_err(|e| McpError::internal_error(e.to_string(), None))?;
                 }
-                DelegationStatus::Pending | DelegationStatus::Approved => {
-                    let consent_url = hosted_passwords_consent_url(pending.request_id)?;
+                PendingHostedAccessAction::ReturnConsent => {
+                    let consent_url = hosted_passwords_consent_url(
+                        pending.request_id,
+                        pending
+                            .consent_capability
+                            .as_ref()
+                            .map(|capability| capability.as_str()),
+                    )?;
                     return Ok(CallToolResult::success(vec![crate::server::json_content(
                         &serde_json::json!({
                             "status": "pending",
@@ -896,6 +906,7 @@ impl SerenMcpServer {
                 kem_public: &kem_public,
                 signing_public: &signing_public,
                 kem_private: &kem_private,
+                consent_capability: None,
                 expires_at: local_expires_at,
             })
             .await
@@ -945,12 +956,14 @@ impl SerenMcpServer {
                 kem_public: &kem_public,
                 signing_public: &signing_public,
                 kem_private: &kem_private,
+                consent_capability: Some(&created.consent_capability),
                 expires_at: server_expires_at,
             })
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let consent_url = hosted_passwords_consent_url(request_id)?;
+        let consent_url =
+            hosted_passwords_consent_url(request_id, Some(&created.consent_capability))?;
         Ok(CallToolResult::success(vec![crate::server::json_content(
             &serde_json::json!({
                 "status": "pending",
@@ -1017,7 +1030,13 @@ impl SerenMcpServer {
 
         match &record.status {
             DelegationStatus::Pending => {
-                let consent_url = hosted_passwords_consent_url(params.request_id)?;
+                let consent_url = hosted_passwords_consent_url(
+                    params.request_id,
+                    pending
+                        .consent_capability
+                        .as_ref()
+                        .map(|capability| capability.as_str()),
+                )?;
                 Ok(CallToolResult::success(vec![crate::server::json_content(
                     &serde_json::json!({
                         "status": "pending",
@@ -1127,7 +1146,7 @@ impl SerenMcpServer {
         display_name: &str,
         kem_public: &str,
         signing_public: &str,
-    ) -> Result<seren::DelegationRequestRecord, McpError> {
+    ) -> Result<seren::DelegationRequestCreatedResponse, McpError> {
         let client = self.api_client(extensions)?;
         let response = match client
             .delegation_request_create(&seren::CreateDelegationRequest {
@@ -1141,7 +1160,7 @@ impl SerenMcpServer {
             Ok(response) => response,
             Err(seren::Error::InvalidResponsePayload(bytes, e)) => {
                 return crate::server::decode_publisher_gateway_body::<
-                    seren::DataResponseDelegationRequestRecord,
+                    seren::DataResponseDelegationRequestCreated,
                 >(&bytes)
                 .map(|response| response.data)
                 .map_err(|fallback| {
@@ -3528,9 +3547,37 @@ fn hosted_membership_update_handoff_unavailable(
     }
 }
 
-fn hosted_passwords_consent_url(request_id: Uuid) -> Result<String, McpError> {
+fn hosted_passwords_consent_url(
+    request_id: Uuid,
+    consent_capability: Option<&str>,
+) -> Result<String, McpError> {
     let base = hosted_seren_passwords_url()?;
-    Ok(format!("{base}/grant?request={request_id}"))
+    match consent_capability {
+        Some(capability) => Ok(format!("{base}/grant#consent={capability}")),
+        None => Ok(format!("{base}/grant?request={request_id}")),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PendingHostedAccessAction {
+    Delete,
+    ReturnConsent,
+}
+
+fn pending_hosted_access_action(
+    force: bool,
+    status: &DelegationStatus,
+    has_consent_capability: bool,
+) -> PendingHostedAccessAction {
+    if force
+        || status == &DelegationStatus::Denied
+        || status == &DelegationStatus::Expired
+        || status == &DelegationStatus::Pending && !has_consent_capability
+    {
+        PendingHostedAccessAction::Delete
+    } else {
+        PendingHostedAccessAction::ReturnConsent
+    }
 }
 
 fn hosted_passwords_ui_action_result(
@@ -4908,8 +4955,12 @@ mod tests {
         temp_env::with_var_unset(PASSWORDS_URL_ENV, || {
             let request_id = Uuid::nil();
             assert_eq!(
-                hosted_passwords_consent_url(request_id).unwrap(),
+                hosted_passwords_consent_url(request_id, None).unwrap(),
                 format!("{DEFAULT_SEREN_PASSWORDS_URL}/grant?request={request_id}")
+            );
+            assert_eq!(
+                hosted_passwords_consent_url(request_id, Some("opaque-capability")).unwrap(),
+                format!("{DEFAULT_SEREN_PASSWORDS_URL}/grant#consent=opaque-capability")
             );
         });
 
@@ -5321,6 +5372,34 @@ mod tests {
 
         assert_eq!(params.display_name.as_deref(), Some("Hosted MCP"));
         assert_eq!(params.force, Some(true));
+    }
+
+    #[test]
+    fn force_reconsent_replaces_an_existing_pending_request() {
+        assert_eq!(
+            pending_hosted_access_action(true, &DelegationStatus::Pending, true),
+            PendingHostedAccessAction::Delete
+        );
+        assert_eq!(
+            pending_hosted_access_action(false, &DelegationStatus::Pending, false),
+            PendingHostedAccessAction::Delete
+        );
+        assert_eq!(
+            pending_hosted_access_action(false, &DelegationStatus::Pending, true),
+            PendingHostedAccessAction::ReturnConsent
+        );
+        assert_eq!(
+            pending_hosted_access_action(false, &DelegationStatus::Approved, true),
+            PendingHostedAccessAction::ReturnConsent
+        );
+        assert_eq!(
+            pending_hosted_access_action(false, &DelegationStatus::Denied, true),
+            PendingHostedAccessAction::Delete
+        );
+        assert_eq!(
+            pending_hosted_access_action(false, &DelegationStatus::Expired, true),
+            PendingHostedAccessAction::Delete
+        );
     }
 
     #[test]

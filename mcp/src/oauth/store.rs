@@ -246,10 +246,12 @@ pub struct HostedPasswordsAgentRequest {
     pub kem_public: String,
     pub signing_public: String,
     pub kem_private: Zeroizing<String>,
+    pub consent_capability: Option<Zeroizing<String>>,
 }
 
 pub struct HostedPasswordsPendingAgentRequest {
     pub request_id: Uuid,
+    pub consent_capability: Option<Zeroizing<String>>,
 }
 
 pub struct PendingHostedPasswordsAgentRequest<'a> {
@@ -260,6 +262,7 @@ pub struct PendingHostedPasswordsAgentRequest<'a> {
     pub kem_public: &'a str,
     pub signing_public: &'a str,
     pub kem_private: &'a str,
+    pub consent_capability: Option<&'a str>,
     pub expires_at: OffsetDateTime,
 }
 
@@ -301,6 +304,8 @@ struct HostedPasswordsAgentRequestSecretBundle {
     credential_subject: String,
     request_id: Uuid,
     kem_private: String,
+    #[serde(default)]
+    consent_capability: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -309,6 +314,8 @@ struct HostedPasswordsAgentRequestSecretBundleRef<'a> {
     credential_subject: &'a str,
     request_id: Uuid,
     kem_private: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    consent_capability: Option<&'a str>,
 }
 
 fn default_hosted_passwords_credential_subject() -> String {
@@ -501,6 +508,7 @@ impl TokenStore {
             credential_subject: request.credential_subject,
             request_id: request.request_id,
             kem_private: request.kem_private,
+            consent_capability: request.consent_capability,
         };
         let credential_json =
             Zeroizing::new(serde_json::to_string(&credential_bundle).map_err(|e| {
@@ -603,6 +611,7 @@ impl TokenStore {
             kem_public: row.kem_public,
             signing_public: row.signing_public,
             kem_private: Zeroizing::new(bundle.kem_private),
+            consent_capability: bundle.consent_capability.map(Zeroizing::new),
         }))
     }
 
@@ -661,6 +670,7 @@ impl TokenStore {
 
         Ok(Some(HostedPasswordsPendingAgentRequest {
             request_id: row.request_id,
+            consent_capability: bundle.consent_capability.map(Zeroizing::new),
         }))
     }
 
@@ -729,6 +739,7 @@ impl TokenStore {
             kem_public: row.kem_public,
             signing_public: row.signing_public,
             kem_private: Zeroizing::new(bundle.kem_private),
+            consent_capability: bundle.consent_capability.map(Zeroizing::new),
         }))
     }
 
