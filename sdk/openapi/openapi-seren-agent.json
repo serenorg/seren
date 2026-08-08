@@ -1614,6 +1614,13 @@
             "type": "string",
             "description": "Name the workload uses to address the credential."
           },
+          "publisher_slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Exact publisher receiving this credential on outbound requests. Header\nand body credentials may omit this only when the deployment declares a\nsingle publisher."
+          },
           "ref_uri": {
             "type": "string",
             "description": "URI of the credential record. Supported schemes:\n`control-plane://providers/{id}`, `org-secret://{key}`,\n`user-secret://{key}`, `seren-secrets://{vault}/{item}/{field}`.\nCreate `org-secret` and `user-secret` records with\n`/organizations/{organization_id}/agent-credential-secrets`."
@@ -8469,6 +8476,13 @@
                   "null"
                 ],
                 "description": "Model identifier override (e.g. `\"anthropic/claude-sonnet-4.6\"`)."
+              },
+              "requirements_txt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Python requirements.txt contents installed before the managed runtime starts. Installer directives and environment expansion are rejected; SHA-256 hash continuations are supported."
               },
               "tool_definitions": {
                 "type": [
