@@ -15774,6 +15774,15 @@ mod tests {
                 "runtime_adapter": "seren_agent",
                 "private_output_policy": "private_session_database",
                 "secret_keys": ["SEREN_AGENT_SESSION_DATABASE_URL"],
+                "credentials": [{
+                    "name": "slack_authorization",
+                    "ref_uri": "org-secret://slack-authorization",
+                    "kind": "api_key",
+                    "binding": "header",
+                    "binding_target": "X-Passthrough-Authorization",
+                    "publisher_slug": "slack-byok",
+                    "rotation": null
+                }],
                 "requirements": [],
                 "visibility": "opaque",
                 "routing_reason": "Explicit model policy",
@@ -18946,6 +18955,10 @@ mod tests {
             decoded_json.pointer("/data/runtime_policy/resources/max_runtime_seconds"),
             Some(&serde_json::json!(900))
         );
+        assert_eq!(
+            decoded_json.pointer("/data/credentials/0/publisher_slug"),
+            Some(&serde_json::json!("slack-byok"))
+        );
 
         let proxy = MockServer::start().await;
         Mock::given(method("GET"))
@@ -18966,6 +18979,117 @@ mod tests {
             .await
             .expect("managed detail should reach the first-class MCP wrapper");
         assert!(!result.is_error.unwrap_or(false));
+    }
+
+    #[tokio::test]
+    async fn publisher_scoped_credentials_decode_across_the_rollback_workflow() {
+        use wiremock::matchers::{body_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let deployment_id = Uuid::from_u128(13);
+        let revision_id = Uuid::from_u128(14);
+        let detail = managed_agent_detail_fixture(deployment_id)["data"].clone();
+        let preview = serde_json::json!({
+            "data": {
+                "deployment_id": deployment_id,
+                "target_revision": {
+                    "revision_id": revision_id,
+                    "deployment_id": deployment_id,
+                    "version": 2,
+                    "change_kind": "update",
+                    "created_by_user_id": Uuid::from_u128(15),
+                    "name": "Runtime Policy Canary",
+                    "agent_slug": "runtime-policy-canary",
+                    "model_id": "openai/gpt-5",
+                    "template": "research_monitor",
+                    "approval_policy": "read_only",
+                    "model_policy": "balanced",
+                    "changed_fields": ["credentials"],
+                    "change_summary": ["Restore publisher credential scope"],
+                    "created_at": "2026-08-09T12:00:00Z"
+                },
+                "current": detail,
+                "proposed": managed_agent_detail_fixture(deployment_id)["data"].clone(),
+                "changed_fields": [{
+                    "field": "credentials",
+                    "label": "Credentials",
+                    "current_value": [],
+                    "proposed_value": [{"publisher_slug": "slack-byok"}]
+                }]
+            }
+        });
+        let decoded: seren::DataResponseManagedAgentDeploymentRollbackPreview =
+            serde_json::from_value(preview.clone()).expect("publisher-scoped rollback preview");
+        let decoded_json = serde_json::to_value(decoded).expect("rollback preview re-encodes");
+        for location in ["current", "proposed"] {
+            assert_eq!(
+                decoded_json.pointer(&format!("/data/{location}/credentials/0/publisher_slug")),
+                Some(&serde_json::json!("slack-byok"))
+            );
+        }
+
+        let rollback = serde_json::json!({
+            "data": {
+                "id": deployment_id,
+                "organization_id": Uuid::from_u128(2),
+                "user_id": Uuid::from_u128(3),
+                "name": "Runtime Policy Canary",
+                "skill_slug": "runtime-policy-canary",
+                "compute_backend": "aws_container",
+                "runtime_kind": "python",
+                "mode": "job",
+                "status": "running",
+                "code_bundle_hash": "bundle-sha",
+                "orchestration_mode": "llm",
+                "requirements": [],
+                "visibility": "opaque",
+                "created_at": "2026-08-09T11:00:00Z",
+                "updated_at": "2026-08-09T12:00:00Z"
+            }
+        });
+        let proxy = MockServer::start().await;
+        let request_body = serde_json::json!({"revision_id": revision_id});
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed/rollback/preview"
+            )))
+            .and(body_json(request_body.clone()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(preview))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed/rollback"
+            )))
+            .and(body_json(request_body))
+            .respond_with(ResponseTemplate::new(200).set_body_json(rollback))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let params = RollbackSerenAgentDeploymentParams {
+            deployment_id,
+            revision_id,
+        };
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let preview_result = server
+            .preview_seren_agent_deployment_rollback(
+                Parameters(RollbackSerenAgentDeploymentParams {
+                    deployment_id: params.deployment_id,
+                    revision_id: params.revision_id,
+                }),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect("rollback preview should decode publisher-scoped credentials");
+        assert!(!preview_result.is_error.unwrap_or(false));
+
+        let rollback_result = server
+            .rollback_seren_agent_deployment(Parameters(params), extensions_with_headers(&[]))
+            .await
+            .expect("rollback apply should preserve the typed workflow");
+        assert!(!rollback_result.is_error.unwrap_or(false));
     }
 
     #[tokio::test]
