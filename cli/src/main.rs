@@ -7,6 +7,7 @@ use seren_cli::{CommandContext, OutputFormat, config, defaults};
 
 #[derive(Parser)]
 #[command(name = "seren")]
+#[command(version)]
 #[command(about = "CLI tool for Seren database management", long_about = None)]
 struct Cli {
     #[command(subcommand)]
