@@ -2930,7 +2930,7 @@ pub struct CloudRunAgentParams {
     /// Request async execution for always_on deployments
     #[serde(default, rename = "async")]
     pub async_run: Option<bool>,
-    /// Run for the organization instead of the current individual.
+    /// Run for the organization instead of the current individual. Requires a Hosted MCP OAuth user session.
     #[serde(default)]
     pub organization: bool,
     /// Provider-owned organization knowledge selection for this run.
@@ -5545,6 +5545,18 @@ fn ensure_api_key_management_user_session(extensions: &Extensions) -> Result<(),
     ))
 }
 
+fn ensure_organization_collaboration_user_session(extensions: &Extensions) -> Result<(), McpError> {
+    if request_auth_context_from_extensions(extensions)
+        .is_some_and(|auth| matches!(&auth.credential, crate::SerenRequestCredential::UserSession))
+    {
+        return Ok(());
+    }
+    Err(McpError::invalid_request(
+        "Organization employee collaboration requires signing in to Hosted MCP with OAuth; API keys cannot carry user-session authority.",
+        None,
+    ))
+}
+
 pub(crate) fn hosted_passwords_credential_subject_from_extensions(
     extensions: &Extensions,
 ) -> Result<crate::oauth::store::HostedPasswordsCredentialSubject, McpError> {
@@ -7592,7 +7604,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Read the organization employee-collaboration policy and its current compare-and-swap revision.",
+        description = "Read the organization employee-collaboration policy and its current compare-and-swap revision. Requires a Hosted MCP OAuth user session.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn get_employee_collaboration_policy(
@@ -7600,6 +7612,7 @@ impl SerenMcpServer {
         Parameters(params): Parameters<GetEmployeeCollaborationPolicyParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_organization_collaboration_user_session(&extensions)?;
         let policy = self
             .api_client(&extensions)?
             .get_employee_collaboration_policy(&params.organization_id)
@@ -7610,7 +7623,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Update the organization employee-collaboration policy using the expected policy revision returned by the read tool.",
+        description = "Update the organization employee-collaboration policy using the expected policy revision returned by the read tool. Requires a Hosted MCP OAuth user session.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -7622,6 +7635,7 @@ impl SerenMcpServer {
         Parameters(params): Parameters<UpdateEmployeeCollaborationPolicyParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_organization_collaboration_user_session(&extensions)?;
         ensure_writes_allowed(&extensions)?;
         let policy = self
             .api_client(&extensions)?
@@ -7633,7 +7647,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "List employee-collaboration assignments for an organization, optionally including revoked assignments.",
+        description = "List employee-collaboration assignments for an organization, optionally including revoked assignments. Requires a Hosted MCP OAuth user session.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_employee_collaboration_assignments(
@@ -7641,6 +7655,7 @@ impl SerenMcpServer {
         Parameters(params): Parameters<ListEmployeeCollaborationAssignmentsParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_organization_collaboration_user_session(&extensions)?;
         let assignments = self
             .api_client(&extensions)?
             .list_employee_collaboration_assignments(
@@ -7654,7 +7669,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Create or update one employee-collaboration assignment. Supply the current assignment generation when updating an existing assignment.",
+        description = "Create or update one employee-collaboration assignment. Supply the current assignment generation when updating an existing assignment. Requires a Hosted MCP OAuth user session.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -7666,6 +7681,7 @@ impl SerenMcpServer {
         Parameters(params): Parameters<EmployeeCollaborationAssignmentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_organization_collaboration_user_session(&extensions)?;
         ensure_writes_allowed(&extensions)?;
         let assignment = self
             .api_client(&extensions)?
@@ -7681,7 +7697,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Revoke an employee-collaboration assignment using its current assignment generation.",
+        description = "Revoke an employee-collaboration assignment using its current assignment generation. Requires a Hosted MCP OAuth user session.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -7693,6 +7709,7 @@ impl SerenMcpServer {
         Parameters(params): Parameters<RevokeEmployeeCollaborationAssignmentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_organization_collaboration_user_session(&extensions)?;
         ensure_writes_allowed(&extensions)?;
         let revoked = self
             .api_client(&extensions)?
@@ -7708,7 +7725,7 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Reactivate a revoked employee-collaboration assignment with a new compare-and-swap assignment generation.",
+        description = "Reactivate a revoked employee-collaboration assignment with a new compare-and-swap assignment generation. Requires a Hosted MCP OAuth user session.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -7720,6 +7737,7 @@ impl SerenMcpServer {
         Parameters(params): Parameters<EmployeeCollaborationAssignmentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_organization_collaboration_user_session(&extensions)?;
         ensure_writes_allowed(&extensions)?;
         let assignment = self
             .api_client(&extensions)?
@@ -14231,6 +14249,9 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CloudRunAgentParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        if params.organization {
+            ensure_organization_collaboration_user_session(&extensions)?;
+        }
         let body = build_cloud_run_body(
             params.message.as_deref(),
             params.run_id.as_deref(),
@@ -15667,6 +15688,22 @@ mod tests {
             .uri("http://localhost/")
             .body(Body::empty())
             .unwrap();
+        let (mut parts, _body) = request.into_parts();
+        parts.extensions.insert(auth);
+        let mut extensions = Extensions::default();
+        extensions.insert(parts);
+        extensions
+    }
+
+    fn extensions_with_headers_and_auth_context(
+        headers: &[(&str, &str)],
+        auth: crate::SerenRequestAuthContext,
+    ) -> Extensions {
+        let mut builder = Request::builder().uri("http://localhost/");
+        for (name, value) in headers {
+            builder = builder.header(*name, *value);
+        }
+        let request = builder.body(Body::empty()).unwrap();
         let (mut parts, _body) = request.into_parts();
         parts.extensions.insert(auth);
         let mut extensions = Extensions::default();
@@ -18642,6 +18679,137 @@ mod tests {
             },
         });
         assert!(ensure_api_key_management_user_session(&user_api_key).is_err());
+    }
+
+    #[test]
+    fn organization_collaboration_requires_hosted_oauth_user_authority() {
+        let user_session = extensions_with_auth_context(crate::SerenRequestAuthContext {
+            user_id: Uuid::new_v4(),
+            email: None,
+            credential: crate::SerenRequestCredential::UserSession,
+        });
+        assert!(ensure_organization_collaboration_user_session(&user_session).is_ok());
+
+        for credential in [
+            crate::SerenRequestCredential::UserApiKey {
+                api_key_id: Some(Uuid::new_v4()),
+                api_key_scopes: None,
+            },
+            crate::SerenRequestCredential::AgentApiKey {
+                api_key_id: Some(Uuid::new_v4()),
+                agent_identity_id: Some(Uuid::new_v4()),
+            },
+            crate::SerenRequestCredential::ApiKey {
+                api_key_id: Some(Uuid::new_v4()),
+            },
+        ] {
+            let extensions = extensions_with_auth_context(crate::SerenRequestAuthContext {
+                user_id: Uuid::new_v4(),
+                email: None,
+                credential,
+            });
+            let error = ensure_organization_collaboration_user_session(&extensions)
+                .expect_err("API keys must not gain collaboration authority");
+            assert!(error.message.contains("Hosted MCP with OAuth"));
+        }
+
+        let local = extensions_with_headers(&[]);
+        assert!(ensure_organization_collaboration_user_session(&local).is_err());
+    }
+
+    #[tokio::test]
+    async fn hosted_oauth_user_authority_reaches_collaboration_reads() {
+        use wiremock::matchers::{header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let upstream = MockServer::start().await;
+        let organization_id = Uuid::new_v4();
+        let user_id = Uuid::new_v4();
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/organizations/{organization_id}/employee-collaboration-policy"
+            )))
+            .and(header("authorization", "Bearer core-user-session"))
+            .and(header("x-user-id", user_id.to_string()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "organization_id": organization_id,
+                    "policy_revision": "revision",
+                    "enabled": true,
+                    "organization_knowledge_read": true,
+                    "organization_credential_use": false,
+                    "organization_skill_use": true,
+                    "organization_artifact_write": false,
+                    "updated_at": "2026-08-11T00:00:00Z"
+                }
+            })))
+            .expect(1)
+            .mount(&upstream)
+            .await;
+        let server = SerenMcpServer::new_oauth(&upstream.uri()).unwrap();
+        let extensions = extensions_with_headers_and_auth_context(
+            &[
+                ("authorization", "Bearer core-user-session"),
+                ("x-user-id", user_id.to_string().as_str()),
+            ],
+            crate::SerenRequestAuthContext {
+                user_id,
+                email: Some("user@example.com".to_string()),
+                credential: crate::SerenRequestCredential::UserSession,
+            },
+        );
+
+        server
+            .get_employee_collaboration_policy(
+                Parameters(GetEmployeeCollaborationPolicyParams { organization_id }),
+                extensions,
+            )
+            .await
+            .expect("OAuth user session should reach the collaboration endpoint");
+    }
+
+    #[tokio::test]
+    async fn collaboration_tools_reject_api_keys_before_core_dispatch() {
+        let server = SerenMcpServer::new("restricted-key", "http://127.0.0.1:9").unwrap();
+        let api_key_extensions = || {
+            extensions_with_auth_context(crate::SerenRequestAuthContext {
+                user_id: Uuid::new_v4(),
+                email: None,
+                credential: crate::SerenRequestCredential::UserApiKey {
+                    api_key_id: Some(Uuid::new_v4()),
+                    api_key_scopes: Some(vec!["managed-deployment:*".to_string()]),
+                },
+            })
+        };
+
+        let policy_error = server
+            .get_employee_collaboration_policy(
+                Parameters(GetEmployeeCollaborationPolicyParams {
+                    organization_id: Uuid::new_v4(),
+                }),
+                api_key_extensions(),
+            )
+            .await
+            .expect_err("API key must not read collaboration policy");
+        assert!(policy_error.message.contains("Hosted MCP with OAuth"));
+
+        let run_error = server
+            .run_cloud_agent(
+                Parameters(CloudRunAgentParams {
+                    deployment_id: Uuid::new_v4(),
+                    message: Some("run".to_string()),
+                    run_id: None,
+                    payload: None,
+                    async_run: None,
+                    organization: true,
+                    knowledge_selection_id: None,
+                    task_label: None,
+                }),
+                api_key_extensions(),
+            )
+            .await
+            .expect_err("API key must not start an organization run");
+        assert!(run_error.message.contains("Hosted MCP with OAuth"));
     }
 
     #[test]
