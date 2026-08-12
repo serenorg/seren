@@ -123,6 +123,56 @@ fn normalize_nullable_parameters(value: &mut serde_json::Value) {
     }
 }
 
+/// Keep the complete public contract bundled with the SDK while omitting
+/// operations that Progenitor cannot represent in its generated Rust client.
+fn remove_unsupported_multipart_operations(value: &mut serde_json::Value) -> anyhow::Result<()> {
+    const OMITTED_OPERATIONS: &[(&str, &str)] = &[("/users/me/avatar", "post")];
+
+    let paths = value
+        .get_mut("paths")
+        .and_then(serde_json::Value::as_object_mut)
+        .context("OpenAPI document is missing paths")?;
+
+    for (path, method) in OMITTED_OPERATIONS {
+        let Some(path_item) = paths
+            .get_mut(*path)
+            .and_then(serde_json::Value::as_object_mut)
+        else {
+            continue;
+        };
+        let is_multipart = path_item
+            .get(*method)
+            .and_then(|operation| operation.pointer("/requestBody/content/multipart~1form-data"))
+            .is_some();
+        if is_multipart {
+            path_item.remove(*method);
+        }
+    }
+
+    for (path, path_item) in paths {
+        let Some(path_item) = path_item.as_object() else {
+            continue;
+        };
+        for method in [
+            "get", "put", "post", "delete", "options", "head", "patch", "trace",
+        ] {
+            if path_item
+                .get(method)
+                .and_then(|operation| {
+                    operation.pointer("/requestBody/content/multipart~1form-data")
+                })
+                .is_some()
+            {
+                anyhow::bail!(
+                    "Rust SDK generation does not support multipart operation {method} {path}"
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn ensure_schema(components: &mut openapiv3::Components, name: &str, schema: Schema) {
     components
         .schemas
@@ -694,6 +744,7 @@ fn main() -> anyhow::Result<()> {
     // response so callers can deserialize the error body manually when needed.
     strip_error_response_content(&mut raw_json);
     normalize_binary_content_schemas(&mut raw_json);
+    remove_unsupported_multipart_operations(&mut raw_json)?;
 
     let mut refs = HashSet::new();
     collect_refs(&raw_json, &mut refs);

@@ -39,7 +39,6 @@ jiff = { workspace = true }
 uuid = { workspace = true }
 rpassword = "7.5"
 reqwest = { workspace = true, features = ["stream"] }
-reqwest_012 = { package = "reqwest", version = "0.12", default-features = false, features = ["rustls-tls"] }
 oauth2 = { workspace = true }
 url = "2.5"
 open = "5.3"

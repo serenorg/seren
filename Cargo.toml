@@ -31,7 +31,10 @@ colored = "3"
 futures = "0.3"
 html-escape = "0.2"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
-oauth2 = "5.0"
+# Only the authorize-URL/PKCE builders are used; the token exchange goes
+# through the generated SDK, so oauth2's bundled reqwest 0.12 client is not
+# needed and would duplicate the reqwest 0.13 dependency tree.
+oauth2 = { version = "5.0", default-features = false }
 openapiv3 = "2"
 progenitor = "0.14"
 progenitor-client = "0.14"

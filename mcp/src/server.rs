@@ -173,6 +173,46 @@ pub struct CreateEndpointParams {
 // API key operations
 pub type ListApiKeysParams = OrganizationPath;
 
+// Account operations
+//
+// These params are declared here rather than aliasing the generated request
+// type: progenitor attaches a rendered JSON schema to each type's doc comment,
+// and schemars would surface that block as the tool description.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct UpdateCurrentUserProfileParams {
+    /// New display name. Omit to leave the current name unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// New avatar URL. Omit to leave the current avatar unchanged, or send an
+    /// empty string to clear it. Use upload_current_user_avatar to upload image
+    /// data instead of a URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
+}
+
+impl From<UpdateCurrentUserProfileParams> for seren::UpdateProfileRequest {
+    fn from(params: UpdateCurrentUserProfileParams) -> Self {
+        Self {
+            name: params.name,
+            avatar_url: params.avatar_url,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct UserAvatarParams {
+    /// The user ID (UUID)
+    pub user_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct UploadCurrentUserAvatarParams {
+    /// Original image file name
+    pub file_name: String,
+    /// Base64-encoded image bytes
+    pub image_base64: String,
+}
+
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CreateApiKeyParams {
     #[serde(flatten)]
@@ -3728,6 +3768,32 @@ pub(crate) fn json_content<T: Serialize>(data: &T) -> Result<Content, McpError> 
     Ok(Content::text(text))
 }
 
+/// Collect a normalized avatar body into MCP image content.
+///
+/// Avatars are returned as image content rather than base64 inside a JSON text
+/// block so clients render them instead of pasting the encoded bytes into the
+/// model's context. The declared response media type is `image/png`; the
+/// server-supplied Content-Type is used when present so a future normalization
+/// format is still labelled correctly.
+async fn avatar_image_content(
+    response: seren::ResponseValue<seren::ByteStream>,
+) -> Result<Content, McpError> {
+    let mime_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.split(';').next().unwrap_or(value).trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "image/png".to_string());
+    let chunks: Vec<_> = response
+        .into_inner_stream()
+        .try_collect()
+        .await
+        .map_err(|error| McpError::internal_error(error.to_string(), None))?;
+    let bytes: Vec<u8> = chunks.into_iter().flatten().collect();
+    Ok(Content::image(BASE64.encode(bytes), mime_type))
+}
+
 fn settlement_meta(headers: &reqwest::header::HeaderMap) -> Option<Meta> {
     let mut meta = serde_json::Map::new();
 
@@ -5555,6 +5621,28 @@ fn ensure_organization_collaboration_user_session(extensions: &Extensions) -> Re
         "Organization employee collaboration requires signing in to Hosted MCP with OAuth; API keys cannot carry user-session authority.",
         None,
     ))
+}
+
+/// Reject account operations carried by a credential the MCP layer has already
+/// classified as an API key.
+///
+/// Unlike the API-key-management and collaboration guards, an absent auth
+/// context is allowed: stdio and bearer modes supply one opaque token that the
+/// MCP layer never classifies, and the API enforces the user-session
+/// requirement itself. Failing closed here would block local operators whose
+/// configured token is a user access token, and would gain nothing, because the
+/// API returns 403 for any credential that lacks user-session authority.
+fn ensure_account_user_session(extensions: &Extensions) -> Result<(), McpError> {
+    match request_auth_context_from_extensions(extensions) {
+        None => Ok(()),
+        Some(auth) if matches!(&auth.credential, crate::SerenRequestCredential::UserSession) => {
+            Ok(())
+        }
+        Some(_) => Err(McpError::invalid_request(
+            "This account operation requires signing in to Hosted MCP with OAuth; API keys cannot carry user-session authority.",
+            None,
+        )),
+    }
 }
 
 pub(crate) fn hosted_passwords_credential_subject_from_extensions(
@@ -8463,6 +8551,144 @@ impl SerenMcpServer {
             .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&orgs)?]))
+    }
+
+    #[tool(
+        description = "List the authenticated user's active organization memberships, including the user's role. Organization-bound API keys return only their organization.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_current_user_organization_memberships(
+        &self,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let memberships = self
+            .api_client(&extensions)?
+            .list_current_user_organization_memberships()
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&memberships)?]))
+    }
+
+    #[tool(
+        description = "Get the authenticated user's account profile",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_current_user(&self, extensions: Extensions) -> Result<CallToolResult, McpError> {
+        let user = self
+            .api_client(&extensions)?
+            .get_current_user()
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&user)?]))
+    }
+
+    #[tool(
+        description = "Update the authenticated user's display name or avatar URL. Only the supplied fields change; an empty avatar_url clears the avatar. Requires a user session.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn update_current_user_profile(
+        &self,
+        Parameters(params): Parameters<UpdateCurrentUserProfileParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_account_user_session(&extensions)?;
+        ensure_writes_allowed(&extensions)?;
+        if params.name.is_none() && params.avatar_url.is_none() {
+            return Err(McpError::invalid_params(
+                "name or avatar_url is required".to_string(),
+                None,
+            ));
+        }
+        let updated = self
+            .api_client(&extensions)?
+            .update_current_user_profile(&params.into())
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&updated)?]))
+    }
+
+    #[tool(
+        description = "Get the authenticated user's normalized avatar as MCP image content",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_current_user_avatar(
+        &self,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let response = self
+            .api_client(&extensions)?
+            .get_current_user_avatar()
+            .into_mcp_result()
+            .await?;
+        Ok(CallToolResult::success(vec![
+            avatar_image_content(response).await?,
+        ]))
+    }
+
+    #[tool(
+        description = "Get a user's normalized avatar as MCP image content",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_user_avatar(
+        &self,
+        Parameters(params): Parameters<UserAvatarParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let response = self
+            .api_client(&extensions)?
+            .get_user_avatar(&params.user_id)
+            .into_mcp_result()
+            .await?;
+        Ok(CallToolResult::success(vec![
+            avatar_image_content(response).await?,
+        ]))
+    }
+
+    #[tool(
+        description = "Upload and normalize the authenticated user's avatar from base64-encoded image data. Replaces any existing avatar. Requires a user session.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn upload_current_user_avatar(
+        &self,
+        Parameters(params): Parameters<UploadCurrentUserAvatarParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_account_user_session(&extensions)?;
+        ensure_writes_allowed(&extensions)?;
+        let file_name = params.file_name.trim();
+        if file_name.is_empty() {
+            return Err(McpError::invalid_params(
+                "file_name is required".to_string(),
+                None,
+            ));
+        }
+        let image = BASE64
+            .decode(params.image_base64.trim())
+            .map_err(|_| McpError::invalid_params("image_base64 is invalid".to_string(), None))?;
+        if image.is_empty() {
+            return Err(McpError::invalid_params(
+                "image_base64 must decode to a non-empty image".to_string(),
+                None,
+            ));
+        }
+        let uploaded = self
+            .api_client(&extensions)?
+            .upload_current_user_avatar(file_name, image)
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&uploaded)?]))
     }
 
     #[tool(
@@ -16140,6 +16366,105 @@ mod tests {
         ] {
             assert!(tool_names.contains(expected), "missing MCP tool {expected}");
         }
+    }
+
+    #[test]
+    fn account_tools_are_exposed() {
+        let server = server_with_http_client(reqwest::Client::new());
+        let tool_names = server
+            .tool_router
+            .list_all()
+            .into_iter()
+            .map(|tool| tool.name.into_owned())
+            .collect::<std::collections::HashSet<_>>();
+
+        for expected in [
+            "get_current_user",
+            "update_current_user_profile",
+            "list_current_user_organization_memberships",
+            "get_current_user_avatar",
+            "get_user_avatar",
+            "upload_current_user_avatar",
+        ] {
+            assert!(tool_names.contains(expected), "missing MCP tool {expected}");
+        }
+    }
+
+    #[test]
+    fn account_mutations_are_annotated_as_writes() {
+        let server = server_with_http_client(reqwest::Client::new());
+        let tools = server.tool_router.list_all();
+
+        for name in ["update_current_user_profile", "upload_current_user_avatar"] {
+            let tool = tools
+                .iter()
+                .find(|tool| tool.name == name)
+                .unwrap_or_else(|| panic!("missing MCP tool {name}"));
+            let annotations = tool
+                .annotations
+                .as_ref()
+                .unwrap_or_else(|| panic!("{name} must declare annotations"));
+            assert_eq!(annotations.read_only_hint, Some(false), "{name}");
+            // These replace user-owned profile fields; they are not deletes, so
+            // they follow the repo's other partial-update tools.
+            assert_eq!(annotations.destructive_hint, Some(false), "{name}");
+        }
+
+        for name in [
+            "get_current_user",
+            "get_current_user_avatar",
+            "get_user_avatar",
+            "list_current_user_organization_memberships",
+        ] {
+            let tool = tools
+                .iter()
+                .find(|tool| tool.name == name)
+                .unwrap_or_else(|| panic!("missing MCP tool {name}"));
+            assert_eq!(
+                tool.annotations
+                    .as_ref()
+                    .and_then(|annotations| annotations.read_only_hint),
+                Some(true),
+                "{name}",
+            );
+        }
+    }
+
+    /// Progenitor renders each generated type's JSON schema into its doc
+    /// comment. Aliasing one as tool params pushes that block into the tool
+    /// description that every agent receives, so account params stay
+    /// hand-declared with per-field documentation.
+    #[test]
+    fn account_tool_schemas_document_fields_without_leaking_generated_docs() {
+        let server = server_with_http_client(reqwest::Client::new());
+        let tools = server.tool_router.list_all();
+        let schema = tools
+            .iter()
+            .find(|tool| tool.name == "update_current_user_profile")
+            .expect("missing MCP tool update_current_user_profile")
+            .input_schema
+            .clone();
+        let rendered = serde_json::to_string(&schema).expect("serialize input schema");
+
+        assert!(
+            !rendered.contains("JSON schema"),
+            "generated type docs leaked into the tool schema: {rendered}",
+        );
+        for field in ["name", "avatar_url"] {
+            assert!(
+                schema["properties"][field]
+                    .get("description")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|description| !description.trim().is_empty()),
+                "{field} needs a description in the tool schema",
+            );
+        }
+        assert!(
+            schema["properties"]["avatar_url"]["description"]
+                .as_str()
+                .is_some_and(|description| description.contains("empty string to clear")),
+            "avatar_url must document clearing semantics",
+        );
     }
 
     #[test]

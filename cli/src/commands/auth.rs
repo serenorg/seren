@@ -2,12 +2,11 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use jiff::Timestamp;
 use oauth2::{
-    AuthType, AuthUrl, AuthorizationCode, ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl,
-    Scope, TokenResponse, TokenUrl, basic::BasicClient,
+    AuthUrl, ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope, basic::BasicClient,
 };
-use serde::Deserialize;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpListener;
+use std::path::Path;
 use url::Url;
 
 use crate::OutputFormat;
@@ -19,6 +18,29 @@ use crate::output;
 
 const ACCESS_TOKEN_DEFAULT_TTL_SECS: i64 = 900; // 15 minutes
 const TOKEN_REFRESH_SKEW_SECONDS: i64 = 60;
+
+/// Resolve the OAuth host, dropping a trailing slash so generated SDK
+/// operations do not build `host//oauth2/token`.
+fn oauth_host() -> String {
+    std::env::var("SEREN_OAUTH_HOST")
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_OAUTH_HOST.to_string())
+}
+
+/// Absolute expiry for a freshly issued access token.
+///
+/// A non-positive lifetime would make every subsequent command refresh again,
+/// so fall back to the documented default instead of trusting it.
+fn access_token_expires_at(expires_in: i64) -> i64 {
+    let ttl = if expires_in > 0 {
+        expires_in
+    } else {
+        ACCESS_TOKEN_DEFAULT_TTL_SECS
+    };
+    Timestamp::now().as_second() + ttl
+}
 
 pub async fn login() -> Result<()> {
     println!("{}", "Seren CLI Authentication".bold().green());
@@ -49,8 +71,7 @@ async fn login_oauth() -> Result<()> {
     println!();
 
     // Get OAuth host from runtime env var or use compile-time default
-    let oauth_host =
-        std::env::var("SEREN_OAUTH_HOST").unwrap_or_else(|_| DEFAULT_OAUTH_HOST.to_string());
+    let oauth_host = oauth_host();
     let api_host = runtime_api_host();
 
     // Start local server to receive OAuth callback
@@ -62,10 +83,10 @@ async fn login_oauth() -> Result<()> {
     let client_id =
         std::env::var("SEREN_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
 
+    // Only the authorization URL is built here; the code exchange below goes
+    // through the generated SDK so the response's session ID is retained.
     let client = BasicClient::new(ClientId::new(client_id.clone()))
         .set_auth_uri(AuthUrl::new(format!("{}/oauth2/authorize", oauth_host))?)
-        .set_token_uri(TokenUrl::new(format!("{}/oauth2/token", oauth_host))?)
-        .set_auth_type(AuthType::RequestBody)
         .set_redirect_uri(RedirectUrl::new(redirect_url.clone())?);
 
     // Generate PKCE challenge
@@ -103,40 +124,46 @@ async fn login_oauth() -> Result<()> {
     println!("Exchanging authorization code for tokens...");
 
     // Avoid following redirects during token exchange.
-    let http_client = reqwest_012::ClientBuilder::new()
-        .redirect(reqwest_012::redirect::Policy::none())
+    let http_client = reqwest::ClientBuilder::new()
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .context("Failed to build OAuth HTTP client")?;
 
-    // Exchange code for token
-    let token_result = client
-        .exchange_code(AuthorizationCode::new(code))
-        .set_pkce_verifier(pkce_verifier)
-        .request_async(&http_client)
-        .await?;
+    // Exchange code through the typed API contract so session metadata is retained.
+    let token_result = seren::Client::new_with_client(&oauth_host, http_client)
+        .token(&seren::TokenRequest {
+            client_id: Some(client_id),
+            code: Some(code),
+            code_verifier: Some(pkce_verifier.secret().to_string()),
+            grant_type: "authorization_code".to_string(),
+            redirect_uri: Some(redirect_url),
+            refresh_token: None,
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("OAuth token exchange failed: {}", e))?
+        .into_inner();
 
-    let access_token = token_result.access_token().secret().to_string();
-    let refresh_token = token_result
-        .refresh_token()
-        .map(|t| t.secret().to_string())
-        .unwrap_or_default();
+    let access_token = token_result.access_token;
+    let refresh_token = token_result.refresh_token.unwrap_or_default();
 
     if refresh_token.is_empty() {
         anyhow::bail!("OAuth response did not include a refresh token; please contact support");
     }
 
     // Calculate expiration timestamp
-    let expires_at = token_result
-        .expires_in()
-        .map(|duration| Timestamp::now().as_second() + duration.as_secs() as i64)
-        .unwrap_or_else(|| Timestamp::now().as_second() + ACCESS_TOKEN_DEFAULT_TTL_SECS);
+    let expires_at = access_token_expires_at(token_result.expires_in);
 
     // Verify token works by calling /me endpoint
     println!("Verifying authentication...");
     verify_token(&access_token, &api_host).await?;
 
     // Save credentials
-    let config = Config::from_oauth(access_token, refresh_token, expires_at);
+    let config = Config::from_oauth(
+        access_token,
+        refresh_token,
+        expires_at,
+        token_result.session_id,
+    );
     config.save()?;
 
     println!();
@@ -276,6 +303,9 @@ pub async fn status() -> Result<()> {
             if let Ok(path) = Config::config_path() {
                 println!("Config: {}", path.display());
             }
+            if let Some(session_id) = config.session_id {
+                println!("Session ID: {}", session_id);
+            }
         }
         Err(_) => {
             println!("{}", "✗ Not authenticated".red().bold());
@@ -354,6 +384,193 @@ pub async fn organizations(
     Ok(())
 }
 
+pub async fn organization_memberships(ctx: &crate::CommandContext) -> Result<()> {
+    let memberships = ctx
+        .client()
+        .await?
+        .list_current_user_organization_memberships()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to list organization memberships: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&memberships)?,
+        OutputFormat::Table => output::print_organization_memberships_table(&memberships.data),
+    }
+    Ok(())
+}
+
+pub async fn update_profile(
+    name: Option<String>,
+    avatar_url: Option<String>,
+    ctx: &crate::CommandContext,
+) -> Result<()> {
+    if name.is_none() && avatar_url.is_none() {
+        anyhow::bail!("At least one of --name or --avatar-url is required");
+    }
+
+    let request = seren::UpdateProfileRequest { name, avatar_url };
+    let response = ctx
+        .client()
+        .await?
+        .update_current_user_profile(&request)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to update profile: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => {
+            println!("{}", response.data.message.green().bold());
+            println!("Name: {}", response.data.user.name);
+            println!("Email: {}", response.data.user.email);
+            if let Some(avatar_url) = response.data.user.avatar_url {
+                println!("Avatar URL: {}", avatar_url);
+            }
+        }
+    }
+    Ok(())
+}
+
+pub async fn upload_avatar(path: &Path, ctx: &crate::CommandContext) -> Result<()> {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .context("Avatar path must have a UTF-8 file name")?;
+    let file = std::fs::read(path)
+        .with_context(|| format!("Failed to read avatar image {}", path.display()))?;
+    let response = ctx
+        .client()
+        .await?
+        .upload_current_user_avatar(file_name, file)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to upload avatar: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => println!("Avatar uploaded: {}", response.data.avatar_url),
+    }
+    Ok(())
+}
+
+pub async fn download_avatar(
+    path: &Path,
+    user_id: Option<uuid::Uuid>,
+    ctx: &crate::CommandContext,
+) -> Result<()> {
+    use futures_util::TryStreamExt;
+
+    let client = ctx.client().await?;
+    let response = match &user_id {
+        Some(user_id) => client.get_user_avatar(user_id).await,
+        None => client.get_current_user_avatar().await,
+    }
+    .map_err(|e| anyhow::anyhow!("Failed to download avatar: {}", e))?;
+    let chunks: Vec<_> = response
+        .into_inner_stream()
+        .try_collect()
+        .await
+        .context("Failed to read avatar response")?;
+    let bytes: Vec<u8> = chunks.into_iter().flatten().collect();
+    std::fs::write(path, &bytes)
+        .with_context(|| format!("Failed to write avatar image {}", path.display()))?;
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&serde_json::json!({
+            "path": path,
+            "bytes": bytes.len(),
+            "user_id": user_id,
+        }))?,
+        OutputFormat::Table => println!("Avatar written to {}", path.display()),
+    }
+    Ok(())
+}
+
+pub async fn recovery_email_status(ctx: &crate::CommandContext) -> Result<()> {
+    let response = ctx
+        .client()
+        .await?
+        .get_account_security()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read account security state: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => {
+            println!(
+                "Recovery email: {}",
+                response
+                    .data
+                    .recovery_email
+                    .as_deref()
+                    .unwrap_or("not configured")
+            );
+            if let Some(pending) = response.data.pending_recovery_email.as_deref() {
+                println!("Pending verification: {}", pending);
+            }
+        }
+    }
+    Ok(())
+}
+
+pub async fn set_recovery_email(email: &str, ctx: &crate::CommandContext) -> Result<()> {
+    let current_password = rpassword::prompt_password("Current password: ")?;
+    let request = seren::SetRecoveryEmailRequest {
+        recovery_email: email.to_string().into(),
+        current_password,
+    };
+    let response = ctx
+        .client()
+        .await?
+        .set_recovery_email(&request)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to set recovery email: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => println!("{}", response.data.message),
+    }
+    Ok(())
+}
+
+pub async fn remove_recovery_email(ctx: &crate::CommandContext) -> Result<()> {
+    let current_password = rpassword::prompt_password("Current password: ")?;
+    let request = seren::RemoveRecoveryEmailRequest { current_password };
+    let response = ctx
+        .client()
+        .await?
+        .remove_recovery_email(&request)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to remove recovery email: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => println!("{}", response.data.message),
+    }
+    Ok(())
+}
+
+pub async fn verify_recovery_email(token: &str, ctx: &crate::CommandContext) -> Result<()> {
+    let request = seren::VerifyRecoveryEmailRequest {
+        token: token.to_string(),
+    };
+    let response = seren::Client::new(&ctx.api_base())
+        .verify_recovery_email(&request)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to verify recovery email: {}", e))?
+        .into_inner();
+
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&response)?,
+        OutputFormat::Table => println!("{}", response.data.message),
+    }
+    Ok(())
+}
+
 /// Helper to get bearer token with priority: CLI flag > env var > config file
 pub async fn get_bearer_token(api_key_override: Option<String>) -> Result<String> {
     // Priority 1: --api-key flag or SEREN_API_KEY env var (handled by clap)
@@ -369,15 +586,6 @@ pub async fn get_bearer_token(api_key_override: Option<String>) -> Result<String
         .get_bearer_token()
         .map(|s| s.to_string())
         .context("No valid authentication token found")
-}
-
-#[derive(Debug, Deserialize)]
-struct OAuthTokenResponse {
-    access_token: String,
-    #[allow(dead_code)]
-    token_type: Option<String>,
-    expires_in: i64,
-    refresh_token: Option<String>,
 }
 
 async fn maybe_refresh_oauth_token(config: &mut Config) -> Result<()> {
@@ -399,19 +607,19 @@ async fn maybe_refresh_oauth_token(config: &mut Config) -> Result<()> {
         return Ok(());
     }
 
-    let oauth_host =
-        std::env::var("SEREN_OAUTH_HOST").unwrap_or_else(|_| DEFAULT_OAUTH_HOST.to_string());
+    let oauth_host = oauth_host();
     let client_id =
         std::env::var("SEREN_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
 
     let refreshed = request_token_refresh(&oauth_host, &client_id, &refresh_token).await?;
 
-    let expires_at = Timestamp::now().as_second() + refreshed.expires_in;
+    let expires_at = access_token_expires_at(refreshed.expires_in);
     let refresh_token = refreshed.refresh_token.unwrap_or(refresh_token);
 
     config.access_token = Some(refreshed.access_token);
     config.refresh_token = Some(refresh_token);
     config.expires_at = Some(expires_at);
+    config.session_id = refreshed.session_id.or(config.session_id);
     config.save_silent()?;
 
     Ok(())
@@ -421,29 +629,47 @@ async fn request_token_refresh(
     oauth_host: &str,
     client_id: &str,
     refresh_token: &str,
-) -> Result<OAuthTokenResponse> {
-    let base = oauth_host.trim_end_matches('/');
-    let token_url = format!("{}/oauth2/token", base);
-
-    let client = reqwest::Client::new();
-    let response = client
-        .post(token_url)
-        .form(&[
-            ("grant_type", "refresh_token"),
-            ("refresh_token", refresh_token),
-            ("client_id", client_id),
-        ])
-        .send()
+) -> Result<seren::TokenResponse> {
+    let http_client = reqwest::ClientBuilder::new()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .context("Failed to build OAuth HTTP client")?;
+    seren::Client::new_with_client(oauth_host, http_client)
+        .token(&seren::TokenRequest {
+            client_id: Some(client_id.to_string()),
+            code: None,
+            code_verifier: None,
+            grant_type: "refresh_token".to_string(),
+            redirect_uri: None,
+            refresh_token: Some(refresh_token.to_string()),
+        })
         .await
-        .context("Failed to contact OAuth token endpoint")?;
+        .map(|response| response.into_inner())
+        .map_err(|error| anyhow::anyhow!("Token refresh failed: {}", error))
+}
 
-    if !response.status().is_success() {
-        let status = response.status();
-        anyhow::bail!("Token refresh failed with status {}", status);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn access_token_expiry_uses_the_reported_lifetime() {
+        let before = Timestamp::now().as_second();
+        let expires_at = access_token_expires_at(3600);
+        assert!((expires_at - before - 3600).abs() <= 1, "{expires_at}");
     }
 
-    response
-        .json::<OAuthTokenResponse>()
-        .await
-        .context("Failed to parse OAuth token response")
+    #[test]
+    fn access_token_expiry_falls_back_when_lifetime_is_not_positive() {
+        // A zero or negative lifetime would otherwise mark the token expired on
+        // arrival and make every later command refresh again.
+        for reported in [0, -1, i64::MIN + 1] {
+            let before = Timestamp::now().as_second();
+            let expires_at = access_token_expires_at(reported);
+            assert!(
+                (expires_at - before - ACCESS_TOKEN_DEFAULT_TTL_SECS).abs() <= 1,
+                "expires_in {reported} produced {expires_at}",
+            );
+        }
+    }
 }

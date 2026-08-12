@@ -205,6 +205,20 @@ Publishers with `requires_user_oauth` use connections authorized by the current 
 
 OAuth consent remains a human action. These tools expose connection metadata and selection controls but never return provider tokens.
 
+### Account Tools
+
+Hosted MCP exposes account profile and avatar operations without exposing password or OAuth token-grant material as tool arguments.
+
+- `get_current_user` reads the authenticated user's profile
+- `update_current_user_profile` updates the display name or avatar URL, accepts an empty `avatar_url` to clear it, and requires a user session
+- `list_current_user_organization_memberships` lists active memberships with the user's role; organization-bound API keys return only their organization
+- `get_current_user_avatar` and `get_user_avatar` return the normalized avatar as MCP image content rather than a base64 string inside a JSON result
+- `upload_current_user_avatar` uploads base64-encoded image data for normalization and requires a user session
+
+The mutating account tools respect read-only mode. Hosted MCP rejects them when the request carries an API key, and the API rejects any credential without user-session authority.
+
+Recovery-email changes remain interactive CLI or SDK operations because they require the user's current password. OAuth authorization-code and refresh-token exchange remain transport authentication operations rather than MCP tools.
+
 ### Seren Passwords Tools
 
 Seren Passwords lets agents use credentials without pasting secrets into prompts or committing them into project files. Hosted MCP uses browser consent to create a scoped agent identity, and local MCP can unlock a vault from the user's machine. Vault owners can require approvals for sensitive reads, grant or revoke memberships, rotate vault keys, and inspect audit logs.

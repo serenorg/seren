@@ -127,6 +127,25 @@ seren auth status
 seren me
 ```
 
+### Account Profile and Recovery
+
+```bash
+seren profile update --name "Taylor Example"
+seren profile update --avatar-url ""
+seren profile upload-avatar ./avatar.png
+seren profile download-avatar ./avatar.png
+seren profile download-avatar ./teammate.png --user-id <user-id>
+seren organization-memberships
+seren auth recovery-email status
+seren auth recovery-email set taylor.recovery@example.com
+seren auth recovery-email verify <verification-token>
+seren auth recovery-email remove
+```
+
+Recovery-email set and remove commands prompt for the current password without placing it in shell history.
+
+`profile update`, `profile upload-avatar`, and `auth recovery-email status` require an interactive user session; an API key is rejected with HTTP 403. Passing an empty string to `profile update --avatar-url` clears the current avatar. Setting and removing a recovery email additionally require interactive password authentication. Organization memberships and avatar downloads accept either credential, and `auth recovery-email verify` consumes a single-use token and needs no credential at all.
+
 ## Commands
 
 ### Projects
@@ -580,9 +599,11 @@ seren rbac --org-id <id> my-permissions
 ```bash
 seren sessions list
 seren sessions revoke <session-id>
-seren sessions revoke-others <current-session-id>
+seren sessions revoke-others
 seren sessions revoke-all
 ```
+
+Session revocation disables refresh credentials. Access tokens already issued from a revoked session remain valid until they expire. OAuth login and token refresh store the current refresh-session ID, so `revoke-others` uses it automatically; an explicit ID remains available as an optional positional argument.
 
 ### Billing
 

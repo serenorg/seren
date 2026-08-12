@@ -1461,6 +1461,38 @@ pub fn print_organizations_table(organizations: &[seren::Organization]) {
     println!("{table}");
 }
 
+pub fn print_organization_memberships_table(memberships: &[seren::OrganizationMembership]) {
+    if memberships.is_empty() {
+        println!("No organization memberships found");
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+
+    table.set_header(vec![
+        Cell::new("ID").fg(Color::Green),
+        Cell::new("Name").fg(Color::Green),
+        Cell::new("Slug").fg(Color::Green),
+        Cell::new("Role").fg(Color::Green),
+        Cell::new("Personal").fg(Color::Green),
+    ]);
+
+    for membership in memberships {
+        table.add_row(vec![
+            Cell::new(membership.id),
+            Cell::new(&membership.name),
+            Cell::new(&membership.slug),
+            Cell::new(&membership.role),
+            Cell::new(if membership.is_personal { "yes" } else { "no" }),
+        ]);
+    }
+
+    println!("{table}");
+}
+
 // IP Allow Lists
 pub fn print_ip_allow_list_table(ips: &[seren::IpAllowList]) {
     if ips.is_empty() {

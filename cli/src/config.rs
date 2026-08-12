@@ -101,6 +101,8 @@ pub struct Config {
     pub refresh_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<uuid::Uuid>,
 }
 
 impl Config {
@@ -110,15 +112,22 @@ impl Config {
             access_token: None,
             refresh_token: None,
             expires_at: None,
+            session_id: None,
         }
     }
 
-    pub fn from_oauth(access_token: String, refresh_token: String, expires_at: i64) -> Self {
+    pub fn from_oauth(
+        access_token: String,
+        refresh_token: String,
+        expires_at: i64,
+        session_id: Option<uuid::Uuid>,
+    ) -> Self {
         Self {
             api_key: None,
             access_token: Some(access_token),
             refresh_token: Some(refresh_token),
             expires_at: Some(expires_at),
+            session_id,
         }
     }
 
@@ -365,6 +374,35 @@ mod tests {
     fn resolve_profile_empty_strings_fall_through() {
         assert_eq!(resolve_profile(Some("   "), Some("")), DEFAULT_PROFILE);
         assert_eq!(resolve_profile(Some(""), Some("ci")), "ci");
+    }
+
+    #[test]
+    fn oauth_config_retains_refresh_session_id() {
+        let session_id = uuid::Uuid::new_v4();
+        let config = Config::from_oauth(
+            "access".to_string(),
+            "refresh".to_string(),
+            123,
+            Some(session_id),
+        );
+        let encoded = toml::to_string(&config).unwrap();
+        let decoded: Config = toml::from_str(&encoded).unwrap();
+
+        assert_eq!(decoded.session_id, Some(session_id));
+    }
+
+    #[test]
+    fn legacy_oauth_config_without_session_id_still_loads() {
+        let config: Config = toml::from_str(
+            r#"
+access_token = "access"
+refresh_token = "refresh"
+expires_at = 123
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.session_id, None);
     }
 
     #[test]

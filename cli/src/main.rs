@@ -49,8 +49,15 @@ enum Commands {
     },
     /// Get current user information
     Me,
-    /// List organizations
+    /// Manage the signed-in user's profile and avatar
+    Profile {
+        #[command(subcommand)]
+        action: ProfileAction,
+    },
+    /// List organizations reachable by the current credential (API keys supported)
     Organizations,
+    /// List active organization memberships with roles (API keys supported)
+    OrganizationMemberships,
     /// Manage organizations (members, invites)
     Orgs {
         #[command(subcommand)]
@@ -2535,6 +2542,55 @@ enum AuthAction {
     Status,
     /// Logout and remove stored credentials
     Logout,
+    /// Manage the account recovery email
+    RecoveryEmail {
+        #[command(subcommand)]
+        action: RecoveryEmailAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum RecoveryEmailAction {
+    /// Show the verified and pending recovery email
+    Status,
+    /// Start verification of a recovery email
+    Set {
+        /// Recovery email address
+        email: String,
+    },
+    /// Remove the verified and pending recovery email
+    Remove,
+    /// Verify a recovery email token
+    Verify {
+        /// Single-use verification token
+        token: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProfileAction {
+    /// Update profile fields
+    Update {
+        /// Display name
+        #[arg(long)]
+        name: Option<String>,
+        /// Avatar URL; pass an empty string to clear it
+        #[arg(long)]
+        avatar_url: Option<String>,
+    },
+    /// Upload and normalize an avatar image
+    UploadAvatar {
+        /// Image file to upload
+        file: std::path::PathBuf,
+    },
+    /// Download a normalized avatar image
+    DownloadAvatar {
+        /// Destination PNG path
+        output: std::path::PathBuf,
+        /// User to download; defaults to the signed-in user
+        #[arg(long)]
+        user_id: Option<Uuid>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -4157,19 +4213,19 @@ enum BillingAction {
 
 #[derive(Subcommand)]
 enum SessionAction {
-    /// List all active sessions
+    /// List all active refresh sessions
     List,
-    /// Revoke a specific session
+    /// Revoke a specific refresh session
     Revoke {
         /// Session ID to revoke
         session_id: String,
     },
-    /// Revoke all other sessions (keep current)
+    /// Revoke all other refresh sessions (keep current)
     RevokeOthers {
-        /// Session ID to keep (usually your current session)
-        keep_session_id: String,
+        /// Session ID to keep (defaults to the current OAuth refresh session)
+        keep_session_id: Option<String>,
     },
-    /// Revoke all sessions (logout everywhere)
+    /// Revoke all refresh sessions
     RevokeAll,
 }
 
@@ -5085,13 +5141,35 @@ async fn main() -> anyhow::Result<()> {
             AuthAction::Login => commands::auth::login().await?,
             AuthAction::Status => commands::auth::status().await?,
             AuthAction::Logout => commands::auth::logout().await?,
+            AuthAction::RecoveryEmail { action } => match action {
+                RecoveryEmailAction::Status => commands::auth::recovery_email_status(&ctx).await?,
+                RecoveryEmailAction::Set { email } => {
+                    commands::auth::set_recovery_email(&email, &ctx).await?
+                }
+                RecoveryEmailAction::Remove => commands::auth::remove_recovery_email(&ctx).await?,
+                RecoveryEmailAction::Verify { token } => {
+                    commands::auth::verify_recovery_email(&token, &ctx).await?
+                }
+            },
         },
         Commands::Me => {
             commands::auth::me(cli.format, api_host.clone(), cli.api_key.clone()).await?
         }
+        Commands::Profile { action } => match action {
+            ProfileAction::Update { name, avatar_url } => {
+                commands::auth::update_profile(name, avatar_url, &ctx).await?
+            }
+            ProfileAction::UploadAvatar { file } => {
+                commands::auth::upload_avatar(&file, &ctx).await?
+            }
+            ProfileAction::DownloadAvatar { output, user_id } => {
+                commands::auth::download_avatar(&output, user_id, &ctx).await?
+            }
+        },
         Commands::Organizations => {
             commands::auth::organizations(cli.format, api_host.clone(), cli.api_key.clone()).await?
         }
+        Commands::OrganizationMemberships => commands::auth::organization_memberships(&ctx).await?,
         Commands::Orgs { action } => match action {
             OrgAction::Members { org_id } => {
                 commands::organizations::list_members(&org_id, &ctx).await?
@@ -6173,7 +6251,7 @@ async fn main() -> anyhow::Result<()> {
                 commands::sessions::revoke(&session_id, &ctx).await?
             }
             SessionAction::RevokeOthers { keep_session_id } => {
-                commands::sessions::revoke_others(&keep_session_id, &ctx).await?
+                commands::sessions::revoke_others(keep_session_id.as_deref(), &ctx).await?
             }
             SessionAction::RevokeAll => commands::sessions::revoke_all(&ctx).await?,
         },

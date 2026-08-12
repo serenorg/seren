@@ -86,6 +86,9 @@
           "401": {
             "description": "Unauthorized"
           },
+          "403": {
+            "description": "Interactive user session required"
+          },
           "404": {
             "description": "User not found"
           }
@@ -296,7 +299,8 @@
         "tags": [
           "Auth"
         ],
-        "summary": "POST /auth/logout\nRevoke all sessions for current user.",
+        "summary": "POST /auth/logout\nRevoke all refresh sessions for the current user.",
+        "description": "Revokes all refresh sessions for the current user. Access tokens already issued from those sessions remain valid until they expire.",
         "operationId": "logout",
         "responses": {
           "200": {
@@ -347,6 +351,134 @@
             "bearer_auth": []
           }
         ]
+      }
+    },
+    "/auth/recovery-email": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "POST /auth/recovery-email\nStart verification of a recovery email for the authenticated account.",
+        "operationId": "set_recovery_email",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRecoveryEmailRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Recovery email verification requested",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_RecoveryEmailUpdated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid recovery email or password"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Interactive password authentication is required"
+          },
+          "429": {
+            "description": "Password verification is temporarily locked"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "DELETE /auth/recovery-email\nRemove the authenticated account's verified and pending recovery email.",
+        "operationId": "remove_recovery_email",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveRecoveryEmailRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Recovery email removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_RecoveryEmailUpdated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid current password"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Interactive password authentication is required"
+          },
+          "429": {
+            "description": "Password verification is temporarily locked"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/auth/recovery-email/verify": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "POST /auth/recovery-email/verify\nConsume a single-use recovery-email verification token.",
+        "operationId": "verify_recovery_email",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyRecoveryEmailRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Recovery email verified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_RecoveryEmailUpdated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or expired verification token"
+          }
+        }
       }
     },
     "/auth/refresh": {
@@ -2188,6 +2320,43 @@
           },
           "400": {
             "description": "Invalid callback parameters"
+          }
+        }
+      }
+    },
+    "/oauth2/token": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "POST /oauth2/token\nOAuth token endpoint - exchange authorization code for access/refresh tokens",
+        "operationId": "token",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Tokens issued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid token request"
+          },
+          "401": {
+            "description": "Invalid authorization code or refresh token"
           }
         }
       }
@@ -8614,11 +8783,12 @@
         "tags": [
           "Sessions"
         ],
-        "summary": "Revoke all sessions (logout everywhere)",
+        "summary": "Revoke all refresh sessions",
+        "description": "Revokes all refresh sessions. Access tokens already issued from those sessions remain valid until they expire.",
         "operationId": "revoke_all_sessions",
         "responses": {
           "200": {
-            "description": "All sessions revoked successfully",
+            "description": "All refresh sessions revoked successfully",
             "content": {
               "application/json": {
                 "schema": {
@@ -8644,6 +8814,7 @@
           "Sessions"
         ],
         "summary": "Revoke a specific session",
+        "description": "Revokes the session's refresh credentials. Access tokens already issued from the session remain valid until they expire.",
         "operationId": "revoke_session",
         "parameters": [
           {
@@ -8687,7 +8858,8 @@
         "tags": [
           "Sessions"
         ],
-        "summary": "Revoke all sessions except a specified one",
+        "summary": "Revoke all refresh sessions except a specified one",
+        "description": "Revokes other refresh sessions while retaining the session backing the current access token. Access tokens already issued from revoked sessions remain valid until they expire.",
         "operationId": "revoke_other_sessions",
         "parameters": [
           {
@@ -8973,6 +9145,214 @@
             "description": "Sandbox execution failed"
           }
         }
+      }
+    },
+    "/users/me": {
+      "patch": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Update the signed-in user's profile.",
+        "operationId": "update_current_user_profile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Profile updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ProfileUpdated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid profile update"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "User session required"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/users/me/avatar": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Return the signed-in user's normalized avatar.",
+        "operationId": "get_current_user_avatar",
+        "responses": {
+          "200": {
+            "description": "Current user avatar",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvatarImage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Avatar not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Upload and normalize the signed-in user's avatar.",
+        "operationId": "upload_current_user_avatar",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Avatar uploaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_AvatarUploaded"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid avatar image"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "User session required"
+          },
+          "413": {
+            "description": "Avatar upload is too large"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/users/me/organizations": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "List the current user's active organization memberships.",
+        "operationId": "list_current_user_organization_memberships",
+        "responses": {
+          "200": {
+            "description": "Current user organization memberships",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_OrganizationMembership"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/users/{user_id}/avatar": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Return a user's normalized avatar.",
+        "operationId": "get_user_avatar",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "User ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User avatar",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvatarImage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Avatar not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
     "/wallet/balance": {
@@ -10131,6 +10511,20 @@
           "has_password": {
             "type": "boolean",
             "description": "Whether this account can authenticate directly with an email/password."
+          },
+          "pending_recovery_email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Address awaiting ownership verification."
+          },
+          "recovery_email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Verified recovery address used only for account access and security notices."
           }
         }
       },
@@ -11207,6 +11601,21 @@
           "microsoft",
           "apple"
         ]
+      },
+      "AvatarImage": {
+        "type": "string",
+        "format": "binary"
+      },
+      "AvatarUploaded": {
+        "type": "object",
+        "required": [
+          "avatar_url"
+        ],
+        "properties": {
+          "avatar_url": {
+            "type": "string"
+          }
+        }
       },
       "BillingHealth": {
         "type": "object",
@@ -12653,6 +13062,20 @@
               "has_password": {
                 "type": "boolean",
                 "description": "Whether this account can authenticate directly with an email/password."
+              },
+              "pending_recovery_email": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Address awaiting ownership verification."
+              },
+              "recovery_email": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Verified recovery address used only for account access and security notices."
               }
             }
           },
@@ -13435,6 +13858,37 @@
               "total": {
                 "type": "integer",
                 "format": "int64"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_AvatarUploaded": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "avatar_url"
+            ],
+            "properties": {
+              "avatar_url": {
+                "type": "string"
               }
             }
           },
@@ -14396,6 +14850,14 @@
               },
               "refresh_token": {
                 "type": "string"
+              },
+              "session_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Opaque identifier for the refresh session backing these tokens. Revoking the session does not invalidate access tokens already issued from it."
               },
               "user": {
                 "$ref": "#/components/schemas/UserInfo"
@@ -16333,6 +16795,41 @@
           }
         }
       },
+      "DataResponse_ProfileUpdated": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "user",
+              "message"
+            ],
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "user": {
+                "$ref": "#/components/schemas/UserInfo"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_PublisherAgentBalance": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -17194,6 +17691,37 @@
           }
         }
       },
+      "DataResponse_RecoveryEmailUpdated": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "message"
+            ],
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_RecoveryResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -17581,6 +18109,14 @@
               },
               "refresh_token": {
                 "type": "string"
+              },
+              "session_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Opaque identifier for the rotated refresh session. Revoking the session does not invalidate access tokens already issued from it."
               }
             }
           },
@@ -19126,6 +19662,87 @@
           }
         }
       },
+      "DataResponse_Vec_OrganizationMembership": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Organization details paired with the current user's membership role.",
+              "required": [
+                "id",
+                "name",
+                "slug",
+                "created_by",
+                "is_personal",
+                "created_at",
+                "updated_at",
+                "role"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "created_by": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "deleted_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "is_personal": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "slug": {
+                  "$ref": "#/components/schemas/Slug"
+                },
+                "stripe_customer_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Stripe Customer ID for this organization (if billing is enabled)."
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_Vec_OrganizationVpcEndpoint": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -20316,7 +20933,8 @@
                   ]
                 },
                 "is_current": {
-                  "type": "boolean"
+                  "type": "boolean",
+                  "description": "Whether this row backs the access token used for this request."
                 },
                 "last_active_at": {
                   "type": "string",
@@ -22726,6 +23344,14 @@
           "refresh_token": {
             "type": "string"
           },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Opaque identifier for the refresh session backing these tokens. Revoking the session does not invalidate access tokens already issued from it."
+          },
           "user": {
             "$ref": "#/components/schemas/UserInfo"
           }
@@ -23812,6 +24438,64 @@
           "user_id": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "OrganizationMembership": {
+        "type": "object",
+        "description": "Organization details paired with the current user's membership role.",
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "created_by",
+          "is_personal",
+          "created_at",
+          "updated_at",
+          "role"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deleted_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_personal": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "slug": {
+            "$ref": "#/components/schemas/Slug"
+          },
+          "stripe_customer_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Stripe Customer ID for this organization (if billing is enabled)."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -25740,6 +26424,21 @@
           "prohibited"
         ]
       },
+      "ProfileUpdated": {
+        "type": "object",
+        "required": [
+          "user",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserInfo"
+          }
+        }
+      },
       "ProvidersResponse": {
         "type": "object",
         "required": [
@@ -26822,6 +27521,17 @@
           }
         }
       },
+      "RecoveryEmailUpdated": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
       "RecoveryResponse": {
         "type": "object",
         "description": "Response for recovery setup",
@@ -26909,6 +27619,17 @@
         ],
         "properties": {
           "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "RemoveRecoveryEmailRequest": {
+        "type": "object",
+        "required": [
+          "current_password"
+        ],
+        "properties": {
+          "current_password": {
             "type": "string"
           }
         }
@@ -27142,7 +27863,8 @@
             ]
           },
           "is_current": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether this row backs the access token used for this request."
           },
           "last_active_at": {
             "type": "string",
@@ -27181,6 +27903,21 @@
         "properties": {
           "connection": {
             "$ref": "#/components/schemas/UserOAuthConnectionResponse"
+          }
+        }
+      },
+      "SetRecoveryEmailRequest": {
+        "type": "object",
+        "required": [
+          "recovery_email",
+          "current_password"
+        ],
+        "properties": {
+          "current_password": {
+            "type": "string"
+          },
+          "recovery_email": {
+            "$ref": "#/components/schemas/Email"
           }
         }
       },
@@ -27650,6 +28387,97 @@
             "format": "int64"
           },
           "refresh_token": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Opaque identifier for the rotated refresh session. Revoking the session does not invalidate access tokens already issued from it."
+          }
+        }
+      },
+      "TokenRequest": {
+        "type": "object",
+        "description": "OAuth 2.0 token request parameters (from CLI)",
+        "required": [
+          "grant_type"
+        ],
+        "properties": {
+          "client_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "code_verifier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "grant_type": {
+            "type": "string"
+          },
+          "redirect_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "refresh_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TokenResponse": {
+        "type": "object",
+        "description": "OAuth 2.0 token response (to CLI)",
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_in"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "expires_in": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "refresh_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Opaque identifier for the refresh session backing these tokens. Revoking the session does not invalidate access tokens already issued from it."
+          },
+          "token_type": {
             "type": "string"
           }
         }
@@ -28376,6 +29204,24 @@
             "description": "JSON field in exchange response containing the token"
           },
           "unresolved_fallback_charge": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateProfileRequest": {
+        "type": "object",
+        "properties": {
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Avatar URL. Omit this field to preserve the current avatar. Send null or an empty string to clear it."
+          },
+          "name": {
             "type": [
               "string",
               "null"
@@ -29438,6 +30284,17 @@
         }
       },
       "VerifyEmailRequest": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "VerifyRecoveryEmailRequest": {
         "type": "object",
         "required": [
           "token"
