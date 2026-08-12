@@ -106,6 +106,12 @@ lru = "0.18.0"
 tokio-stream = "0.1.18"
 
 [dev-dependencies]
+# Client transport, so the sessionless-transport tests can drive the server
+# with a real MCP client instead of asserting on hand-built HTTP requests.
+rmcp = { workspace = true, features = [
+    "client",
+    "transport-streamable-http-client-reqwest",
+] }
 temp-env = { version = "0.3", features = ["async_closure"] }
 tempfile = "3"
 testcontainers = "0.27"

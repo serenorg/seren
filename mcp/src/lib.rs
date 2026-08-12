@@ -289,6 +289,52 @@ fn build_mcp_allowed_hosts(configured_urls: &[&str]) -> Vec<String> {
     allowed
 }
 
+/// Path of the streamable-HTTP MCP endpoint.
+const MCP_ENDPOINT_PATH: &str = "/mcp";
+
+fn streamable_http_config(
+    allowed_hosts: Vec<String>,
+    cancellation_token: tokio_util::sync::CancellationToken,
+) -> rmcp::transport::streamable_http_server::StreamableHttpServerConfig {
+    let mut config = rmcp::transport::streamable_http_server::StreamableHttpServerConfig::default()
+        .with_allowed_hosts(allowed_hosts);
+    config.sse_keep_alive = Some(std::time::Duration::from_secs(15));
+    // Retry hints are irrelevant without a resumable standalone stream.
+    config.sse_retry = None;
+    config.legacy_session_mode = false;
+    config.cancellation_token = cancellation_token;
+    config
+}
+
+/// Match the method rejection returned by the sessionless RMCP transport.
+fn mcp_method_not_allowed() -> axum::response::Response {
+    axum::response::Response::builder()
+        .status(axum::http::StatusCode::METHOD_NOT_ALLOWED)
+        .header(axum::http::header::ALLOW, "POST")
+        .body(axum::body::Body::from("Method Not Allowed"))
+        .expect("valid method-not-allowed response")
+}
+
+/// Reject unsupported stream methods before credential validation.
+async fn reject_unsupported_mcp_methods(
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let is_stream_method = matches!(
+        *req.method(),
+        axum::http::Method::GET | axum::http::Method::DELETE
+    );
+    if is_stream_method && req.uri().path() == MCP_ENDPOINT_PATH {
+        tracing::debug!(
+            event = "mcp_stream_method_rejected",
+            method = %req.method(),
+            "Rejected sessionless-transport method before authentication"
+        );
+        return mcp_method_not_allowed();
+    }
+    next.run(req).await
+}
+
 fn push_unique_allowed_host(allowed: &mut Vec<String>, host: &str) {
     if host.is_empty() || allowed.iter().any(|existing| existing == host) {
         return;
@@ -568,23 +614,6 @@ async fn require_oauth_auth(
         headers.remove(axum::http::header::HeaderName::from_static("x-user-email"));
     }
 
-    let session_id = req
-        .headers()
-        .get(axum::http::header::HeaderName::from_static(
-            "mcp-session-id",
-        ))
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty());
-
-    tracing::debug!(
-        event = "oauth_auth_session",
-        session_id = ?session_id,
-        "Session ID from request"
-    );
-
-    // MCP auth is per-request. Session IDs are transport state only and must not
-    // be treated as authentication credentials.
     let token = extract_bearer_token(&req).map(|t| t.to_string());
 
     let resolved_auth = if let Some(token) = token {
@@ -743,7 +772,6 @@ async fn require_oauth_auth(
             event = "oauth_auth_no_token",
             method = %method,
             uri = %uri,
-            session_id = ?session_id,
             "No bearer token found in request"
         );
         return state.unauthorized_response("unauthorized", "Bearer token required");
@@ -1126,7 +1154,6 @@ async fn require_oauth_auth(
             let token_hash = refresh_token.token_hash.clone();
             let user_id_for_log = user_id;
             let client_id_for_log = client_id_value.clone();
-            let session_id = session_id.clone();
             tokio::spawn(async move {
                 match store
                     .extend_refresh_token_expiry_if_needed(
@@ -1150,20 +1177,6 @@ async fn require_oauth_auth(
                         error = %e,
                         "Failed to extend refresh token expiry"
                     ),
-                }
-
-                if let Some(session_id) = session_id
-                    && let Err(e) = store
-                        .extend_session_expiry_if_needed(&session_id, new_expires_at, renew_before)
-                        .await
-                {
-                    tracing::warn!(
-                        event = "session_token_extend_error",
-                        user_id = %user_id_for_log,
-                        client_id = %client_id_for_log,
-                        error = %e,
-                        "Failed to extend session token expiry"
-                    );
                 }
             });
         }
@@ -1263,31 +1276,6 @@ async fn require_oauth_auth(
             status = %response_status,
             "Request completed"
         );
-    }
-
-    // Best-effort cleanup: when a session is explicitly closed, delete it from the database.
-    if req_method == axum::http::Method::DELETE
-        && let Some(sid) = session_id
-    {
-        // Remove from database asynchronously (fire-and-forget)
-        let store = state.store.clone();
-        let sid_clone = sid;
-        tokio::spawn(async move {
-            if let Err(e) = store.delete_session(&sid_clone).await {
-                tracing::warn!(
-                    event = "session_delete_error",
-                    session_id = %sid_clone,
-                    error = %e,
-                    "Failed to delete session from database"
-                );
-            } else {
-                tracing::debug!(
-                    event = "session_deleted",
-                    session_id = %sid_clone,
-                    "Session token deleted from database"
-                );
-            }
-        });
     }
 
     response
@@ -1447,7 +1435,7 @@ async fn run_stdio(config: Config) -> Result<()> {
 
 async fn run_http(config: Config) -> Result<()> {
     use rmcp::transport::streamable_http_server::{
-        StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
+        StreamableHttpService, session::never::NeverSessionManager,
     };
     use std::sync::Arc;
     use tokio_util::sync::CancellationToken;
@@ -1479,8 +1467,7 @@ async fn run_http(config: Config) -> Result<()> {
         }
     });
 
-    // Create session manager
-    let session_manager = Arc::new(LocalSessionManager::default());
+    let session_manager = Arc::new(NeverSessionManager::default());
 
     // Create streamable HTTP service config
     let public_urls = public_url.iter().map(String::as_str).collect::<Vec<_>>();
@@ -1489,11 +1476,7 @@ async fn run_http(config: Config) -> Result<()> {
         allowed_hosts = ?allowed_hosts,
         "Configured MCP streamable HTTP Host allowlist"
     );
-    let mut http_config = StreamableHttpServerConfig::default().with_allowed_hosts(allowed_hosts);
-    http_config.sse_keep_alive = Some(std::time::Duration::from_secs(15));
-    http_config.sse_retry = Some(std::time::Duration::from_secs(3));
-    http_config.stateful_mode = true;
-    http_config.cancellation_token = ct.clone();
+    let http_config = streamable_http_config(allowed_hosts, ct.clone());
 
     // Create streamable HTTP service - it's a tower Service
     let mcp_service = StreamableHttpService::new(
@@ -1511,7 +1494,6 @@ async fn run_http(config: Config) -> Result<()> {
     );
 
     // CORS configuration per MCP spec - allow browser-based clients
-    // Must allow and expose Mcp-Session-Id for rmcp session management
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -1520,27 +1502,17 @@ async fn run_http(config: Config) -> Result<()> {
             axum::http::header::CONTENT_TYPE,
             axum::http::header::ACCEPT,
             axum::http::header::HeaderName::from_static("x-read-only"),
-            axum::http::header::HeaderName::from_static("mcp-session-id"),
         ])
-        .expose_headers([
-            axum::http::header::CONTENT_TYPE,
-            axum::http::header::HeaderName::from_static("mcp-session-id"),
-        ]);
+        .expose_headers([axum::http::header::CONTENT_TYPE]);
 
-    // MCP endpoint with auth
-    // Recover stale in-memory session handles after server restarts.
+    // Keep unsupported stream methods outside the authentication boundary.
     let mcp_router = axum::Router::new()
-        .route(
-            "/mcp",
-            axum::routing::any_service(
-                tower::ServiceBuilder::new()
-                    .service(middleware::StaleSessionRecoveryService::new(mcp_service)),
-            ),
-        )
+        .route(MCP_ENDPOINT_PATH, axum::routing::any_service(mcp_service))
         .layer(axum::middleware::from_fn_with_state(
             SimpleAuthState { token: auth_token },
             require_simple_auth,
-        ));
+        ))
+        .layer(axum::middleware::from_fn(reject_unsupported_mcp_methods));
 
     // Health endpoints (no auth required) for k8s probes
     let health_router = axum::Router::new()
@@ -1572,8 +1544,7 @@ async fn run_http(config: Config) -> Result<()> {
     tracing::info!("  GET /livez   - liveness");
     tracing::info!("  GET /readyz  - readiness");
     tracing::info!("  POST   /mcp - send JSON-RPC messages");
-    tracing::info!("  GET    /mcp - establish SSE stream (with session)");
-    tracing::info!("  DELETE /mcp - close session");
+    tracing::info!("  GET    /mcp - method not allowed (sessionless transport)");
     tracing::info!("Auth: set `Authorization: Bearer <AUTH_TOKEN>`");
     tracing::info!("Read-only: set `x-read-only: true` header (or `READ_ONLY=true`)");
 
@@ -1590,7 +1561,7 @@ async fn run_http(config: Config) -> Result<()> {
 async fn run_oauth(config: Config) -> Result<()> {
     use oauth::{OAuthState, oauth_router};
     use rmcp::transport::streamable_http_server::{
-        StreamableHttpServerConfig, StreamableHttpService, session::local::SessionConfig,
+        StreamableHttpService, session::never::NeverSessionManager,
     };
     use std::sync::Arc;
     use tokio_util::sync::CancellationToken;
@@ -1627,8 +1598,6 @@ async fn run_oauth(config: Config) -> Result<()> {
     let oauth_redirect_base_url = config.oauth_redirect_base_url.clone();
     let api_base_url_for_service = api_base_url.clone();
     let passwords_api_base_url_for_service = passwords_api_base_url.clone();
-    let api_base_url_for_session_manager = api_base_url.clone();
-    let passwords_api_base_url_for_session_manager = passwords_api_base_url.clone();
 
     let ct = CancellationToken::new();
 
@@ -1666,39 +1635,7 @@ async fn run_oauth(config: Config) -> Result<()> {
         }
     });
 
-    // Keep in-process session workers warm across normal usage gaps so requests
-    // handled by the same server instance do not repeatedly depend on database
-    // restoration. Persisted session rows remain the durability boundary; this
-    // only bounds idle workers.
-    let mut session_config = SessionConfig::default();
-    session_config.keep_alive = Some(std::time::Duration::from_secs(60 * 60));
-    let session_manager = Arc::new(middleware::RestorableSessionManager::new(
-        Arc::new(store.clone()),
-        session_config,
-        api_base_url_for_session_manager,
-        passwords_api_base_url_for_session_manager,
-    ));
-
-    // Log initial session count (sessions from previous instance can now be restored)
-    match store.count_sessions().await {
-        Ok(count) => {
-            if count > 0 {
-                tracing::info!(
-                    event = "restorable_sessions_detected",
-                    count = count,
-                    "Found {} sessions in database that can be restored",
-                    count
-                );
-            }
-        }
-        Err(e) => {
-            tracing::warn!(
-                event = "rmcp_session_count_failed",
-                error = %e,
-                "Failed to count existing rmcp sessions"
-            );
-        }
-    }
+    let session_manager = Arc::new(NeverSessionManager::default());
 
     // Create streamable HTTP service config
     let allowed_hosts = build_mcp_allowed_hosts(&[&server_host]);
@@ -1706,13 +1643,9 @@ async fn run_oauth(config: Config) -> Result<()> {
         allowed_hosts = ?allowed_hosts,
         "Configured MCP streamable HTTP Host allowlist"
     );
-    let mut http_config = StreamableHttpServerConfig::default().with_allowed_hosts(allowed_hosts);
-    http_config.sse_keep_alive = Some(std::time::Duration::from_secs(15));
-    http_config.sse_retry = Some(std::time::Duration::from_secs(3));
-    http_config.stateful_mode = true;
-    http_config.cancellation_token = ct.clone();
+    let http_config = streamable_http_config(allowed_hosts, ct.clone());
 
-    // Create streamable HTTP service with persistent session manager
+    // Create a sessionless streamable HTTP service.
     let store_for_service = Arc::new(store.clone());
     let mcp_service = StreamableHttpService::new(
         move || {
@@ -1728,7 +1661,6 @@ async fn run_oauth(config: Config) -> Result<()> {
     );
 
     // CORS configuration per MCP spec
-    // Must allow and expose Mcp-Session-Id for rmcp session management.
     // WWW-Authenticate and the reauth headers are exposed so browser-based MCP
     // clients can read the OAuth discovery challenge and the upstream-reauth
     // signal emitted by the auth middleware.
@@ -1740,12 +1672,10 @@ async fn run_oauth(config: Config) -> Result<()> {
             axum::http::header::CONTENT_TYPE,
             axum::http::header::ACCEPT,
             axum::http::header::HeaderName::from_static("x-read-only"),
-            axum::http::header::HeaderName::from_static("mcp-session-id"),
         ])
         .expose_headers([
             axum::http::header::CONTENT_TYPE,
             axum::http::header::WWW_AUTHENTICATE,
-            axum::http::header::HeaderName::from_static("mcp-session-id"),
             axum::http::header::HeaderName::from_static(REAUTH_REQUIRED_HEADER),
             axum::http::header::HeaderName::from_static(REAUTH_REASON_HEADER),
         ]);
@@ -1826,15 +1756,9 @@ async fn run_oauth(config: Config) -> Result<()> {
         oauth_state: oauth_state.clone(),
     };
 
-    // Recover stale in-memory session handles after server restarts.
+    // Keep unsupported MCP methods outside the authentication boundary.
     let mcp_router = axum::Router::new()
-        .route(
-            "/mcp",
-            axum::routing::any_service(
-                tower::ServiceBuilder::new()
-                    .service(middleware::StaleSessionRecoveryService::new(mcp_service)),
-            ),
-        )
+        .route(MCP_ENDPOINT_PATH, axum::routing::any_service(mcp_service))
         .route(
             "/passwords/hosted-agent/{identity_id}",
             axum::routing::delete(delete_hosted_passwords_agent),
@@ -1843,7 +1767,8 @@ async fn run_oauth(config: Config) -> Result<()> {
         .layer(axum::middleware::from_fn_with_state(
             oauth_auth_state,
             require_oauth_auth,
-        ));
+        ))
+        .layer(axum::middleware::from_fn(reject_unsupported_mcp_methods));
 
     // Health endpoints (no auth required) for k8s probes
     let health_router = axum::Router::new()
@@ -1887,8 +1812,7 @@ async fn run_oauth(config: Config) -> Result<()> {
     tracing::info!("  GET  /readyz  - readiness");
     tracing::info!("MCP endpoint:");
     tracing::info!("  POST   /mcp - send JSON-RPC messages");
-    tracing::info!("  GET    /mcp - establish SSE stream (with session)");
-    tracing::info!("  DELETE /mcp - close session");
+    tracing::info!("  GET    /mcp - method not allowed (sessionless transport)");
     tracing::info!("Server host: {}", server_host);
 
     let server_ct = ct.clone();
@@ -1912,9 +1836,384 @@ mod tests {
 
     use axum::body::Body;
     use axum::http::Request;
+    use rmcp::ServerHandler;
+    use rmcp::model::{ServerCapabilities, ServerInfo};
+    use rmcp::transport::streamable_http_server::{
+        StreamableHttpService, session::never::NeverSessionManager,
+    };
     use tower::ServiceExt;
     use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[derive(Clone)]
+    struct TransportTestServer;
+
+    impl ServerHandler for TransportTestServer {
+        fn get_info(&self) -> ServerInfo {
+            ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+        }
+    }
+
+    fn sessionless_test_service() -> StreamableHttpService<TransportTestServer, NeverSessionManager>
+    {
+        StreamableHttpService::new(
+            || Ok(TransportTestServer),
+            Arc::new(NeverSessionManager::default()),
+            streamable_http_config(
+                vec!["localhost".to_string()],
+                tokio_util::sync::CancellationToken::new(),
+            ),
+        )
+    }
+
+    /// Start a loopback server and count standalone `GET` requests.
+    async fn spawn_transport_server(
+        sessionless: bool,
+    ) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+        use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let authority = listener.local_addr().unwrap().to_string();
+        let get_requests = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let allowed_hosts = vec!["127.0.0.1".to_string(), authority.clone()];
+        let ct = tokio_util::sync::CancellationToken::new();
+
+        let route = if sessionless {
+            axum::routing::any_service(StreamableHttpService::new(
+                || Ok(TransportTestServer),
+                Arc::new(NeverSessionManager::default()),
+                streamable_http_config(allowed_hosts, ct),
+            ))
+        } else {
+            let mut config = streamable_http_config(allowed_hosts, ct);
+            config.legacy_session_mode = true;
+            config.sse_retry = Some(std::time::Duration::from_millis(50));
+            axum::routing::any_service(StreamableHttpService::new(
+                || Ok(TransportTestServer),
+                Arc::new(LocalSessionManager::default()),
+                config,
+            ))
+        };
+
+        let counter = get_requests.clone();
+        let app = axum::Router::new()
+            .route(MCP_ENDPOINT_PATH, route)
+            .layer(axum::middleware::from_fn(reject_unsupported_mcp_methods))
+            .layer(axum::middleware::from_fn(
+                move |req: axum::http::Request<axum::body::Body>, next: axum::middleware::Next| {
+                    let counter = counter.clone();
+                    async move {
+                        if req.method() == axum::http::Method::GET {
+                            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        next.run(req).await
+                    }
+                },
+            ));
+
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+
+        (authority, get_requests)
+    }
+
+    async fn connect_legacy_client(
+        authority: &str,
+    ) -> rmcp::service::RunningService<rmcp::RoleClient, rmcp::model::InitializeRequestParams> {
+        use rmcp::ServiceExt;
+        use rmcp::model::{ClientCapabilities, ClientInfo, Implementation, ProtocolVersion};
+        use rmcp::transport::StreamableHttpClientTransport;
+
+        let transport = StreamableHttpClientTransport::from_uri(format!("http://{authority}/mcp"));
+        ClientInfo::new(
+            ClientCapabilities::default(),
+            Implementation::new("legacy-reconnect-test-client", "1.0.0"),
+        )
+        .with_protocol_version(ProtocolVersion::V_2025_11_25)
+        .serve(transport)
+        .await
+        .expect("legacy client must complete initialization")
+    }
+
+    #[tokio::test]
+    async fn legacy_sessions_are_what_make_a_client_open_a_standalone_stream() {
+        let (authority, get_requests) = spawn_transport_server(false).await;
+        let client = connect_legacy_client(&authority).await;
+
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert!(
+            get_requests.load(std::sync::atomic::Ordering::SeqCst) > 0,
+            "session-mode server must open a standalone GET stream",
+        );
+
+        client.cancel().await.expect("clean shutdown");
+    }
+
+    /// Verify sessionless initialization does not start a standalone stream.
+    #[tokio::test]
+    async fn a_legacy_client_never_opens_a_standalone_stream() {
+        use rmcp::model::ProtocolVersion;
+
+        let (authority, get_requests) = spawn_transport_server(true).await;
+        let client = connect_legacy_client(&authority).await;
+
+        assert_eq!(
+            client.peer_info().map(|info| info.protocol_version.clone()),
+            Some(ProtocolVersion::V_2025_11_25),
+            "the server must still negotiate the legacy protocol version",
+        );
+        // Request-scoped operations must remain usable after initialization.
+        client
+            .list_tools(Default::default())
+            .await
+            .expect("tools/list must work without a session");
+
+        // Allow any asynchronously spawned stream request to start.
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert_eq!(
+            get_requests.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "sessionless client opened an unsupported standalone GET stream",
+        );
+
+        client.cancel().await.expect("clean shutdown");
+    }
+
+    /// Build the production middleware order with rejecting test authentication.
+    fn guarded_router_with_rejecting_auth() -> axum::Router {
+        async fn always_unauthorized(
+            _req: axum::http::Request<axum::body::Body>,
+            _next: axum::middleware::Next,
+        ) -> axum::response::Response {
+            axum::response::Response::builder()
+                .status(axum::http::StatusCode::UNAUTHORIZED)
+                .body(axum::body::Body::empty())
+                .unwrap()
+        }
+
+        axum::Router::new()
+            .route(
+                MCP_ENDPOINT_PATH,
+                axum::routing::any(|| async { "transport reached" }),
+            )
+            .route(
+                "/passwords/hosted-agent/{identity_id}",
+                axum::routing::delete(|| async { "passwords reached" }),
+            )
+            .layer(axum::middleware::from_fn(always_unauthorized))
+            .layer(axum::middleware::from_fn(reject_unsupported_mcp_methods))
+    }
+
+    async fn guarded_status(method: axum::http::Method, uri: &str) -> axum::http::Response<Body> {
+        guarded_router_with_rejecting_auth()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn stream_methods_are_rejected_before_authentication_runs() {
+        for method in [axum::http::Method::GET, axum::http::Method::DELETE] {
+            let response = guarded_status(method.clone(), "http://localhost/mcp").await;
+            assert_eq!(
+                response.status(),
+                axum::http::StatusCode::METHOD_NOT_ALLOWED,
+                "{method} /mcp must not reach the auth layer",
+            );
+            assert_eq!(
+                response
+                    .headers()
+                    .get(axum::http::header::ALLOW)
+                    .and_then(|value| value.to_str().ok()),
+                Some("POST"),
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn the_guard_does_not_shadow_other_routes_or_methods() {
+        // POST remains subject to authentication.
+        assert_eq!(
+            guarded_status(axum::http::Method::POST, "http://localhost/mcp")
+                .await
+                .status(),
+            axum::http::StatusCode::UNAUTHORIZED,
+        );
+        // Non-MCP DELETE remains subject to authentication.
+        assert_eq!(
+            guarded_status(
+                axum::http::Method::DELETE,
+                "http://localhost/passwords/hosted-agent/abc",
+            )
+            .await
+            .status(),
+            axum::http::StatusCode::UNAUTHORIZED,
+        );
+        // Unrelated GET remains subject to authentication.
+        assert_eq!(
+            guarded_status(axum::http::Method::GET, "http://localhost/livez")
+                .await
+                .status(),
+            axum::http::StatusCode::UNAUTHORIZED,
+        );
+    }
+
+    /// Verify the guard preserves the RMCP transport response.
+    #[tokio::test]
+    async fn the_guard_matches_the_transport_rejection_byte_for_byte() {
+        for method in [axum::http::Method::GET, axum::http::Method::DELETE] {
+            let from_transport = sessionless_test_service()
+                .oneshot(
+                    Request::builder()
+                        .method(method.clone())
+                        .uri("http://localhost/mcp")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let from_guard = guarded_status(method.clone(), "http://localhost/mcp").await;
+
+            assert_eq!(from_transport.status(), from_guard.status(), "{method}");
+            assert_eq!(
+                from_transport.headers().get(axum::http::header::ALLOW),
+                from_guard.headers().get(axum::http::header::ALLOW),
+                "{method}",
+            );
+
+            let transport_body =
+                axum::body::to_bytes(Body::new(from_transport.into_body()), 64 * 1024)
+                    .await
+                    .unwrap();
+            let guard_body = axum::body::to_bytes(from_guard.into_body(), 64 * 1024)
+                .await
+                .unwrap();
+            assert_eq!(transport_body, guard_body, "{method}");
+        }
+    }
+
+    #[tokio::test]
+    async fn sessionless_transport_rejects_standalone_get_streams() {
+        let response = sessionless_test_service()
+            .oneshot(
+                Request::builder()
+                    .method(axum::http::Method::GET)
+                    .uri("http://localhost/mcp")
+                    .header(axum::http::header::ACCEPT, "text/event-stream")
+                    .header("mcp-session-id", "restored-session")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::METHOD_NOT_ALLOWED
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get(axum::http::header::ALLOW)
+                .and_then(|value| value.to_str().ok()),
+            Some("POST")
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_initialize_is_served_without_creating_a_session() {
+        let initialize = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "legacy-test-client",
+                    "version": "1.0.0"
+                }
+            }
+        });
+        let response = sessionless_test_service()
+            .oneshot(
+                Request::builder()
+                    .method(axum::http::Method::POST)
+                    .uri("http://localhost/mcp")
+                    .header(
+                        axum::http::header::ACCEPT,
+                        "application/json, text/event-stream",
+                    )
+                    .header(axum::http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_vec(&initialize).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert!(response.headers().get("mcp-session-id").is_none());
+        let body = axum::body::to_bytes(Body::new(response.into_body()), 64 * 1024)
+            .await
+            .unwrap();
+        assert!(
+            std::str::from_utf8(&body)
+                .unwrap()
+                .contains("protocolVersion")
+        );
+    }
+
+    #[tokio::test]
+    async fn current_protocol_discovery_is_served_without_creating_a_session() {
+        let discover = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "server/discover",
+            "params": {
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientInfo": {
+                        "name": "current-test-client",
+                        "version": "1.0.0"
+                    },
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }
+            }
+        });
+        let response = sessionless_test_service()
+            .oneshot(
+                Request::builder()
+                    .method(axum::http::Method::POST)
+                    .uri("http://localhost/mcp")
+                    .header(
+                        axum::http::header::ACCEPT,
+                        "application/json, text/event-stream",
+                    )
+                    .header(axum::http::header::CONTENT_TYPE, "application/json")
+                    .header("mcp-protocol-version", "2026-07-28")
+                    .header("mcp-method", "server/discover")
+                    .body(Body::from(serde_json::to_vec(&discover).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert!(response.headers().get("mcp-session-id").is_none());
+        let body = axum::body::to_bytes(Body::new(response.into_body()), 64 * 1024)
+            .await
+            .unwrap();
+        let body = std::str::from_utf8(&body).unwrap();
+        assert!(body.contains("supportedVersions"));
+        assert!(body.contains("2026-07-28"));
+    }
 
     #[test]
     fn auth_me_scopes_become_managed_mutation_capabilities() {

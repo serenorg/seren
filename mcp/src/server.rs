@@ -23,8 +23,8 @@ use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::{router::tool::ToolRouter, tool::ToolCallContext, wrapper::Parameters},
     model::{
-        CallToolRequestParams, CallToolResult, Content, Extensions, ListToolsResult, Meta,
-        PaginatedRequestParams, ServerCapabilities, ServerInfo,
+        CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Extensions,
+        ListToolsResult, MetaObject, PaginatedRequestParams, ServerCapabilities, ServerInfo,
     },
     service::{RequestContext, RoleServer},
     tool, tool_router,
@@ -3762,10 +3762,10 @@ struct SqlBatchRequest {
 // Helper to convert to JSON content
 // ============================================================================
 
-pub(crate) fn json_content<T: Serialize>(data: &T) -> Result<Content, McpError> {
+pub(crate) fn json_content<T: Serialize>(data: &T) -> Result<ContentBlock, McpError> {
     let text = serde_json::to_string_pretty(data)
         .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-    Ok(Content::text(text))
+    Ok(ContentBlock::text(text))
 }
 
 /// Collect a normalized avatar body into MCP image content.
@@ -3777,7 +3777,7 @@ pub(crate) fn json_content<T: Serialize>(data: &T) -> Result<Content, McpError> 
 /// format is still labelled correctly.
 async fn avatar_image_content(
     response: seren::ResponseValue<seren::ByteStream>,
-) -> Result<Content, McpError> {
+) -> Result<ContentBlock, McpError> {
     let mime_type = response
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
@@ -3791,10 +3791,10 @@ async fn avatar_image_content(
         .await
         .map_err(|error| McpError::internal_error(error.to_string(), None))?;
     let bytes: Vec<u8> = chunks.into_iter().flatten().collect();
-    Ok(Content::image(BASE64.encode(bytes), mime_type))
+    Ok(ContentBlock::image(BASE64.encode(bytes), mime_type))
 }
 
-fn settlement_meta(headers: &reqwest::header::HeaderMap) -> Option<Meta> {
+fn settlement_meta(headers: &reqwest::header::HeaderMap) -> Option<MetaObject> {
     let mut meta = serde_json::Map::new();
 
     if let (Some(micros), Some(asset)) = (
@@ -3825,11 +3825,11 @@ fn settlement_meta(headers: &reqwest::header::HeaderMap) -> Option<Meta> {
         );
     }
 
-    (!meta.is_empty()).then_some(Meta(meta))
+    (!meta.is_empty()).then_some(MetaObject(meta))
 }
 
 fn call_result_with_response_meta(
-    content: Vec<Content>,
+    content: Vec<ContentBlock>,
     headers: &reqwest::header::HeaderMap,
 ) -> CallToolResult {
     let mut result = CallToolResult::success(content);
@@ -3837,8 +3837,11 @@ fn call_result_with_response_meta(
     result
 }
 
-fn text_and_json_content<T: Serialize>(text: String, data: &T) -> Result<Vec<Content>, McpError> {
-    Ok(vec![Content::text(text), json_content(data)?])
+fn text_and_json_content<T: Serialize>(
+    text: String,
+    data: &T,
+) -> Result<Vec<ContentBlock>, McpError> {
+    Ok(vec![ContentBlock::text(text), json_content(data)?])
 }
 
 fn cloud_run_state_summary<T: Serialize>(response: &T) -> Result<String, McpError> {
@@ -6635,7 +6638,7 @@ impl SerenMcpServer {
                 "message": "This run is not currently awaiting approval.",
             });
             return Ok(CallToolResult::success(vec![
-                Content::text(format!(
+                ContentBlock::text(format!(
                     "Run {} is not currently awaiting approval.",
                     run_id
                 )),
@@ -6673,17 +6676,17 @@ impl SerenMcpServer {
         };
         let mut content = Vec::new();
         if let (Some(resumed_run_id), Some(execution_id)) = (resumed_run_id, execution_id) {
-            content.push(Content::text(format!(
+            content.push(ContentBlock::text(format!(
                 "{} pending approvals for run {} and resumed deployment {}.\nrun_id: {}\nexecution_id: {}",
                 action_label, run_id, deployment_id, resumed_run_id, execution_id
             )));
         } else if let Some(resumed_run_id) = resumed_run_id {
-            content.push(Content::text(format!(
+            content.push(ContentBlock::text(format!(
                 "{} pending approvals for run {} and resumed deployment {} (run_id: {}).",
                 action_label, run_id, deployment_id, resumed_run_id
             )));
         } else {
-            content.push(Content::text(format!(
+            content.push(ContentBlock::text(format!(
                 "{} pending approvals for run {} and resumed deployment {}.",
                 action_label, run_id, deployment_id
             )));
@@ -7546,7 +7549,7 @@ impl SerenMcpServer {
             "instructions": "To approve, call this tool again with confirm: true"
         });
 
-        CallToolResult::success(vec![Content::text(content.to_string())])
+        CallToolResult::success(vec![ContentBlock::text(content.to_string())])
     }
 
     /// Convert raw USDC amount (6 decimals) to micro-USD.
@@ -8031,7 +8034,7 @@ impl SerenMcpServer {
             .seren_db_delete_project(&params.project_id)
             .into_mcp_result()
             .await?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "Project {} deleted successfully",
             params.project_id
         ))]))
@@ -8086,7 +8089,7 @@ impl SerenMcpServer {
             .seren_db_delete_branch(&params.project_id, &params.branch_id)
             .into_mcp_result()
             .await?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "Branch {} deleted successfully",
             params.branch_id
         ))]))
@@ -8797,7 +8800,7 @@ impl SerenMcpServer {
             .seren_db_delete_endpoint(&params.project_id, &params.branch_id, &params.endpoint_id)
             .into_mcp_result()
             .await?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "Endpoint {} deleted successfully",
             params.endpoint_id
         ))]))
@@ -8847,7 +8850,7 @@ impl SerenMcpServer {
             .seren_db_stop_endpoint(&params.project_id, &params.branch_id, &params.endpoint_id)
             .into_mcp_result()
             .await?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "Endpoint {} suspended successfully",
             params.endpoint_id
         ))]))
@@ -8948,7 +8951,7 @@ impl SerenMcpServer {
             .revoke_org_api_key(&params.organization_id, &params.key_id)
             .into_mcp_result()
             .await?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "API key {} revoked successfully",
             params.key_id
         ))]))
@@ -9842,7 +9845,7 @@ impl SerenMcpServer {
             .delete_org_oauth_provider(&params.organization_id, &params.provider_id)
             .into_mcp_result()
             .await?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "OAuth provider {} deleted successfully",
             params.provider_id
         ))]))
@@ -10853,7 +10856,7 @@ Examples:
                         None,
                     )
                     .await?;
-                return Ok(CallToolResult::success(vec![Content::text(text)]));
+                return Ok(CallToolResult::success(vec![ContentBlock::text(text)]));
             } else {
                 let result = self
                     .execute_with_proxy_payment_json(
@@ -10906,7 +10909,7 @@ Examples:
                             .await
                             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
                         return Ok(call_result_with_response_meta(
-                            vec![Content::text(text)],
+                            vec![ContentBlock::text(text)],
                             &response_headers,
                         ));
                     }
@@ -11046,7 +11049,7 @@ Examples:
                         None,
                     )
                     .await?;
-                return Ok(CallToolResult::success(vec![Content::text(text)]));
+                return Ok(CallToolResult::success(vec![ContentBlock::text(text)]));
             } else {
                 let result = self
                     .execute_with_proxy_payment_json(
@@ -11110,7 +11113,7 @@ Examples:
                         }
                         let text = String::from_utf8_lossy(&collected).to_string();
                         return Ok(call_result_with_response_meta(
-                            vec![Content::text(text)],
+                            vec![ContentBlock::text(text)],
                             &response_headers,
                         ));
                     } else {
@@ -11224,7 +11227,7 @@ Examples:
                         None,
                     )
                     .await?;
-                return Ok(CallToolResult::success(vec![Content::text(text)]));
+                return Ok(CallToolResult::success(vec![ContentBlock::text(text)]));
             } else {
                 let result = self
                     .execute_with_proxy_payment_json(
@@ -11275,7 +11278,7 @@ Examples:
                             .await
                             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
                         return Ok(call_result_with_response_meta(
-                            vec![Content::text(text)],
+                            vec![ContentBlock::text(text)],
                             &response_headers,
                         ));
                     } else {
@@ -11409,7 +11412,7 @@ Examples:
                         Some(&query_string),
                     )
                     .await?;
-                return Ok(CallToolResult::success(vec![Content::text(text)]));
+                return Ok(CallToolResult::success(vec![ContentBlock::text(text)]));
             } else {
                 let result = self
                     .execute_with_proxy_payment_json::<serde_json::Value>(
@@ -11460,7 +11463,7 @@ Examples:
                             .await
                             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
                         return Ok(call_result_with_response_meta(
-                            vec![Content::text(text)],
+                            vec![ContentBlock::text(text)],
                             &response_headers,
                         ));
                     } else {
@@ -11581,7 +11584,7 @@ Examples:
                                     ctx.query_string,
                                 )
                                 .await?;
-                            return Ok(CallToolResult::success(vec![Content::text(text)]));
+                            return Ok(CallToolResult::success(vec![ContentBlock::text(text)]));
                         } else {
                             let result = self
                                 .execute_x402_roundtrip_json(
@@ -11787,7 +11790,7 @@ API endpoint: {endpoint}",
         })?;
 
         let address = wallet.address().to_string();
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "Local wallet address: {}",
             address
         ))]))
@@ -12873,7 +12876,7 @@ API endpoint: {endpoint}",
             .seren_db_delete_role(&params.project_id, &params.branch_id, &params.role_id)
             .into_mcp_result()
             .await?;
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             "Role deleted successfully".to_string(),
         )]))
     }
@@ -13020,7 +13023,7 @@ API endpoint: {endpoint}",
             .seren_db_delete_database(&params.project_id, &params.branch_id, &params.database_id)
             .into_mcp_result()
             .await?;
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             "Database deleted successfully".to_string(),
         )]))
     }
@@ -13298,7 +13301,7 @@ API endpoint: {endpoint}",
         let skill_md = self
             .execute_api_text(&extensions, url, "text/markdown")
             .await?;
-        Ok(CallToolResult::success(vec![Content::text(skill_md)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(skill_md)]))
     }
 
     #[tool(
@@ -13313,7 +13316,7 @@ API endpoint: {endpoint}",
         let skill_md = self
             .execute_api_text(&extensions, url, "text/markdown")
             .await?;
-        Ok(CallToolResult::success(vec![Content::text(skill_md)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(skill_md)]))
     }
 
     #[tool(
@@ -14440,7 +14443,7 @@ API endpoint: {endpoint}",
             .seren_cloud_start(&params.deployment_id)
             .into_mcp_result()
             .await?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "Deployment {} started.",
             params.deployment_id
         ))]))
@@ -14460,7 +14463,7 @@ API endpoint: {endpoint}",
             .seren_cloud_stop(&params.deployment_id)
             .into_mcp_result()
             .await?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "Deployment {} stopped.",
             params.deployment_id
         ))]))
@@ -14510,17 +14513,17 @@ API endpoint: {endpoint}",
 
         let mut content = Vec::new();
         if let (Some(run_id), Some(execution_id)) = (run_id, execution_id) {
-            content.push(Content::text(format!(
+            content.push(ContentBlock::text(format!(
                 "Run accepted for deployment {}.\nrun_id: {}\nexecution_id: {}",
                 params.deployment_id, run_id, execution_id
             )));
         } else if let Some(run_id) = run_id {
-            content.push(Content::text(format!(
+            content.push(ContentBlock::text(format!(
                 "Run triggered for deployment {} (run_id: {}).",
                 params.deployment_id, run_id
             )));
         } else {
-            content.push(Content::text(format!(
+            content.push(ContentBlock::text(format!(
                 "Run triggered for deployment {}.",
                 params.deployment_id
             )));
@@ -14547,7 +14550,7 @@ API endpoint: {endpoint}",
             .seren_cloud_delete(&params.deployment_id)
             .into_mcp_result()
             .await?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "Deployment {} destroyed successfully.",
             params.deployment_id
         ))]))
@@ -15714,7 +15717,7 @@ API endpoint: {endpoint}",
             .seren_cloud_update_config(&params.deployment_id, &request)
             .into_mcp_result()
             .await?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "Deployment settings updated for {}.",
             params.deployment_id
         ))]))
@@ -15822,7 +15825,7 @@ impl ServerHandler for SerenMcpServer {
         &self,
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
+    ) -> Result<CallToolResponse, McpError> {
         #[cfg(feature = "telemetry")]
         let tool_name = request.name.clone().into_owned();
         #[cfg(feature = "telemetry")]
@@ -15835,7 +15838,7 @@ impl ServerHandler for SerenMcpServer {
         {
             let duration = start.elapsed();
             let outcome = match &result {
-                Ok(res) if res.is_error.unwrap_or(false) => "error",
+                Ok(CallToolResponse::Complete(res)) if res.is_error.unwrap_or(false) => "error",
                 Ok(_) => "ok",
                 Err(_) => "error",
             };

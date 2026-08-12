@@ -41,7 +41,7 @@ progenitor-client = "0.14"
 prettyplease = "0.2"
 rand = "0.10"
 regress = "0.11"
-rmcp = { version = "1.7", features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }
+rmcp = { version = "3.1.2", features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }
 schemars = { version = "1", features = ["uuid1", "jiff02"] }
 tokio-util = "0.7"
 reqwest = { version = "0.13", default-features = false, features = ["form", "json", "rustls"] }

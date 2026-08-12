@@ -401,8 +401,7 @@ fn generate_docs_html() -> String {
             </p>
             <div class="endpoints">
                 <code><span class="method">POST</span> /mcp — Send JSON-RPC messages</code>
-                <code><span class="method">GET</span> /mcp — Establish SSE stream (with session)</code>
-                <code><span class="method">DELETE</span> /mcp — Close session</code>
+                <code><span class="method">GET</span> /mcp — Not supported (405 Method Not Allowed)</code>
             </div>
             <div class="meta">
                 <div class="pill">{total_tools} tools in this build</div>
