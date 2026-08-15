@@ -4444,7 +4444,6 @@
                     "data": {
                         "type": "object",
                         "required": [
-                            "schema_version",
                             "generated_at",
                             "memories",
                             "memory_total",
@@ -4483,11 +4482,6 @@
                                 ],
                                 "format": "int64",
                                 "description": "Next shared offset while either exported collection has more rows."
-                            },
-                            "schema_version": {
-                                "type": "integer",
-                                "format": "int32",
-                                "minimum": 0
                             }
                         }
                     }
@@ -6701,7 +6695,6 @@
             "MemoryExportResponse": {
                 "type": "object",
                 "required": [
-                    "schema_version",
                     "generated_at",
                     "memories",
                     "memory_total",
@@ -6740,11 +6733,6 @@
                         ],
                         "format": "int64",
                         "description": "Next shared offset while either exported collection has more rows."
-                    },
-                    "schema_version": {
-                        "type": "integer",
-                        "format": "int32",
-                        "minimum": 0
                     }
                 }
             },
