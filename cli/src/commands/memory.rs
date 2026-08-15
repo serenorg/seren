@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
 use uuid::Uuid;
 
-use crate::commands::memory_gateway::memory_gateway_data;
+use crate::commands::memory_gateway::{memory_gateway_data, memory_gateway_post};
 use crate::{CommandContext, OutputFormat, output};
 
 pub struct RecallOptions {
@@ -228,32 +228,34 @@ pub async fn capture(options: CaptureOptions, ctx: &CommandContext) -> Result<()
         .map(serde_json::from_str::<serde_json::Value>)
         .transpose()
         .map_err(|error| anyhow::anyhow!("--source-metadata must be valid JSON: {error}"))?;
-    let result = ctx
-        .client()
-        .await?
-        .seren_memory_capture_agent_turn(&seren::SerenMemoryCaptureAgentTurnParams {
-            agent_platform: options.agent_platform,
-            assistant_response: options.assistant_response,
-            external_parent_session_id: options.external_parent_session_id,
-            external_session_id: options.external_session_id,
-            external_turn_id: options.external_turn_id,
-            observed_at: options.observed_at,
-            org_id: options.org_id,
-            policy_version: options.policy_version,
-            project_context: options.project_context,
-            project_id: options.project_id,
-            retain_source: Some(options.retain_source),
-            session_id: options.session_id,
-            source_external_id: options.source_external_id,
-            source_metadata,
-            source_revision: options.source_revision,
-            source_uri: options.source_uri,
-            user_prompt: options.user_prompt,
-            workspace_key: options.workspace_key,
-            workspace_uri: options.workspace_uri,
-        })
-        .await;
-    let response = memory_gateway_data(result, "Failed to capture Seren Memory agent turn")?;
+    let params = seren::SerenMemoryCaptureAgentTurnParams {
+        agent_platform: options.agent_platform,
+        assistant_response: options.assistant_response,
+        external_parent_session_id: options.external_parent_session_id,
+        external_session_id: options.external_session_id,
+        external_turn_id: options.external_turn_id,
+        observed_at: options.observed_at,
+        org_id: options.org_id,
+        policy_version: options.policy_version,
+        project_context: options.project_context,
+        project_id: options.project_id,
+        retain_source: Some(options.retain_source),
+        session_id: options.session_id,
+        source_external_id: options.source_external_id,
+        source_metadata,
+        source_revision: options.source_revision,
+        source_uri: options.source_uri,
+        user_prompt: options.user_prompt,
+        workspace_key: options.workspace_key,
+        workspace_uri: options.workspace_uri,
+    };
+    let response: serde_json::Value = memory_gateway_post(
+        ctx,
+        "capture_agent_turn",
+        &params,
+        "Failed to capture Seren Memory agent turn",
+    )
+    .await?;
     output::print_json(&response)?;
     Ok(())
 }

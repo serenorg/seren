@@ -1,6 +1,11 @@
 use std::fmt;
 
+use serde::Serialize;
 use serde::de::DeserializeOwned;
+
+use crate::command_context::CommandContext;
+
+const MEMORY_GATEWAY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 #[derive(Debug)]
 pub(crate) struct MemoryGatewayError {
@@ -75,6 +80,46 @@ where
             "unexpected client error",
         )),
     }
+}
+
+pub(crate) async fn memory_gateway_post<T, B>(
+    ctx: &CommandContext,
+    publisher_path: &str,
+    body: &B,
+    context: &'static str,
+) -> Result<T, MemoryGatewayError>
+where
+    T: DeserializeOwned,
+    B: Serialize + ?Sized,
+{
+    let client = ctx
+        .http_client()
+        .await
+        .map_err(|_| MemoryGatewayError::new(context, None, "communication error"))?;
+    let response = client
+        .post(format!(
+            "{}/publishers/seren-memory/{}",
+            ctx.api_base().trim_end_matches('/'),
+            publisher_path.trim_start_matches('/')
+        ))
+        .json(body)
+        .timeout(MEMORY_GATEWAY_TIMEOUT)
+        .send()
+        .await
+        .map_err(|_| MemoryGatewayError::new(context, None, "communication error"))?;
+    let status = response.status();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|_| MemoryGatewayError::new(context, None, "communication error"))?;
+    if !status.is_success() {
+        return Err(MemoryGatewayError::new(
+            context,
+            Some(status.as_u16()),
+            "gateway error",
+        ));
+    }
+    decode_memory_gateway_body(&bytes, context)
 }
 
 fn decode_memory_gateway_body<T>(
