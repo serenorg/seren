@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
 use uuid::Uuid;
 
+use crate::commands::memory_gateway::memory_gateway_data;
 use crate::{CommandContext, OutputFormat, output};
 
 pub struct RecallOptions {
@@ -80,13 +81,12 @@ pub struct CaptureOptions {
 
 pub async fn health(detailed: bool, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
-    let response = if detailed {
+    let result = if detailed {
         client.seren_memory_health_detailed().await
     } else {
         client.seren_memory_health().await
-    }
-    .map_err(|error| anyhow::anyhow!("Failed to get Seren Memory health: {error}"))?
-    .into_inner();
+    };
+    let response = memory_gateway_data(result, "Failed to get Seren Memory health")?;
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&response)?,
@@ -108,7 +108,7 @@ pub async fn bootstrap(
     reviewed_only: bool,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_session_bootstrap(&seren::SerenMemorySessionBootstrapParams {
@@ -119,15 +119,14 @@ pub async fn bootstrap(
             reviewed_only: Some(reviewed_only),
             token_budget,
         })
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to bootstrap Seren Memory: {error}"))?
-        .into_inner();
+        .await;
+    let response = memory_gateway_data(result, "Failed to bootstrap Seren Memory")?;
     output::print_json(&response)?;
     Ok(())
 }
 
 pub async fn recall(options: RecallOptions, ctx: &CommandContext) -> Result<()> {
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_recall(&seren::SerenMemoryRecallParams {
@@ -141,9 +140,8 @@ pub async fn recall(options: RecallOptions, ctx: &CommandContext) -> Result<()> 
             query: options.query,
             search_mode: options.search_mode,
         })
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to recall Seren Memory: {error}"))?
-        .into_inner();
+        .await;
+    let response = memory_gateway_data(result, "Failed to recall Seren Memory")?;
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&response)?,
@@ -175,7 +173,7 @@ pub async fn remember(options: RememberOptions, ctx: &CommandContext) -> Result<
         .map(serde_json::from_str)
         .transpose()
         .context("Memory metadata must be valid JSON")?;
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_remember(&seren::SerenMemoryRememberParams {
@@ -191,9 +189,8 @@ pub async fn remember(options: RememberOptions, ctx: &CommandContext) -> Result<
             skip_conflict_check: None,
             skip_enrichment: None,
         })
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to remember Seren Memory: {error}"))?
-        .into_inner();
+        .await;
+    let response = memory_gateway_data(result, "Failed to remember Seren Memory")?;
 
     output::print_json(&response)?;
     Ok(())
@@ -204,7 +201,7 @@ pub async fn process(options: ProcessOptions, ctx: &CommandContext) -> Result<()
         anyhow::bail!("--source-external-id is required with --retain-source");
     }
     let retain_source = options.retain_source || options.source_external_id.is_some();
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_process_conversation(&seren::SerenMemoryProcessConversationParams {
@@ -218,9 +215,8 @@ pub async fn process(options: ProcessOptions, ctx: &CommandContext) -> Result<()
             source_uri: options.source_uri,
             transcript: options.transcript,
         })
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to process Seren Memory conversation: {error}"))?
-        .into_inner();
+        .await;
+    let response = memory_gateway_data(result, "Failed to process Seren Memory conversation")?;
     output::print_json(&response)?;
     Ok(())
 }
@@ -232,7 +228,7 @@ pub async fn capture(options: CaptureOptions, ctx: &CommandContext) -> Result<()
         .map(serde_json::from_str::<serde_json::Value>)
         .transpose()
         .map_err(|error| anyhow::anyhow!("--source-metadata must be valid JSON: {error}"))?;
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_capture_agent_turn(&seren::SerenMemoryCaptureAgentTurnParams {
@@ -256,9 +252,8 @@ pub async fn capture(options: CaptureOptions, ctx: &CommandContext) -> Result<()
             workspace_key: options.workspace_key,
             workspace_uri: options.workspace_uri,
         })
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to capture Seren Memory agent turn: {error}"))?
-        .into_inner();
+        .await;
+    let response = memory_gateway_data(result, "Failed to capture Seren Memory agent turn")?;
     output::print_json(&response)?;
     Ok(())
 }
@@ -269,7 +264,7 @@ pub async fn list(options: ListOptions, ctx: &CommandContext) -> Result<()> {
         .as_deref()
         .map(parse_lifecycle)
         .transpose()?;
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_list_memories(
@@ -282,9 +277,8 @@ pub async fn list(options: ListOptions, ctx: &CommandContext) -> Result<()> {
             options.org_id.as_ref(),
             options.project_id.as_ref(),
         )
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to list Seren Memory entries: {error}"))?
-        .into_inner();
+        .await;
+    let response = memory_gateway_data(result, "Failed to list Seren Memory entries")?;
 
     match ctx.format {
         OutputFormat::Json => output::print_json(&response)?,
@@ -310,25 +304,19 @@ pub async fn export(
     offset: Option<i64>,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_export_memories(limit, offset, project_id.as_ref())
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to export Seren Memory: {error}"))?
-        .into_inner();
+        .await;
+    let response = memory_gateway_data(result, "Failed to export Seren Memory")?;
     output::print_json(&response)?;
     Ok(())
 }
 
 pub async fn get(id: Uuid, ctx: &CommandContext) -> Result<()> {
-    let response = ctx
-        .client()
-        .await?
-        .seren_memory_get_memory(&id)
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to get Seren Memory entry: {error}"))?
-        .into_inner();
+    let result = ctx.client().await?.seren_memory_get_memory(&id).await;
+    let response = memory_gateway_data(result, "Failed to get Seren Memory entry")?;
     output::print_json(&response)?;
     Ok(())
 }
@@ -338,13 +326,12 @@ pub async fn timeline(
     as_of: Option<jiff::Timestamp>,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_memory_timeline(&id, as_of.as_ref())
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to get Seren Memory timeline: {error}"))?
-        .into_inner();
+        .await;
+    let response = memory_gateway_data(result, "Failed to get Seren Memory timeline")?;
     output::print_json(&response)?;
     Ok(())
 }
@@ -357,7 +344,7 @@ pub async fn link(
     valid_to: Option<jiff::Timestamp>,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_link_memories(&seren::SerenMemoryMemoryConnectionRequest {
@@ -367,9 +354,8 @@ pub async fn link(
             valid_from,
             valid_to,
         })
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to connect Seren Memory entries: {error}"))?
-        .into_inner();
+        .await;
+    let response = memory_gateway_data(result, "Failed to connect Seren Memory entries")?;
     output::print_json(&response)?;
     Ok(())
 }
@@ -382,7 +368,7 @@ pub async fn unlink(
     valid_to: Option<jiff::Timestamp>,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_unlink_memories(&seren::SerenMemoryMemoryConnectionRequest {
@@ -392,33 +378,26 @@ pub async fn unlink(
             valid_from,
             valid_to,
         })
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to disconnect Seren Memory entries: {error}"))?
-        .into_inner();
+        .await;
+    let response = memory_gateway_data(result, "Failed to disconnect Seren Memory entries")?;
     output::print_json(&response)?;
     Ok(())
 }
 
 pub async fn forget(id: Uuid, ctx: &CommandContext) -> Result<()> {
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_forget_memory(&seren::SerenMemoryForgetParams { memory_id: id })
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to forget Seren Memory entry: {error}"))?
-        .into_inner();
+        .await;
+    let response = memory_gateway_data(result, "Failed to forget Seren Memory entry")?;
     output::print_json(&response)?;
     Ok(())
 }
 
 pub async fn delete(id: Uuid, ctx: &CommandContext) -> Result<()> {
-    let response = ctx
-        .client()
-        .await?
-        .seren_memory_delete_memory(&id)
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to delete Seren Memory entry: {error}"))?
-        .into_inner();
+    let result = ctx.client().await?.seren_memory_delete_memory(&id).await;
+    let response = memory_gateway_data(result, "Failed to delete Seren Memory entry")?;
     output::print_json(&response)?;
     Ok(())
 }
@@ -436,7 +415,7 @@ pub async fn delete_by_source(options: DeleteBySourceOptions, ctx: &CommandConte
         anyhow::bail!("At least one of --source-external-id or --source-uri is required");
     }
 
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_delete_memories_by_source(&seren::SerenMemoryDeleteMemoriesBySourceParams {
@@ -445,23 +424,22 @@ pub async fn delete_by_source(options: DeleteBySourceOptions, ctx: &CommandConte
             source_external_id: options.source_external_id,
             source_uri: options.source_uri,
         })
-        .await
-        .map_err(|error| {
-            anyhow::anyhow!("Failed to delete Seren Memory sources and derived memories: {error}")
-        })?
-        .into_inner();
+        .await;
+    let response = memory_gateway_data(
+        result,
+        "Failed to delete Seren Memory sources and derived memories",
+    )?;
     output::print_json(&response)?;
     Ok(())
 }
 
 pub async fn list_knowledge_domains(ctx: &CommandContext) -> Result<()> {
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_list_knowledge_domains()
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to list Seren Memory knowledge domains: {error}"))?
-        .into_inner();
+        .await;
+    let response = memory_gateway_data(result, "Failed to list Seren Memory knowledge domains")?;
     output::print_json(&response)?;
     Ok(())
 }
@@ -471,16 +449,15 @@ pub async fn search_knowledge(
     domain_id: Option<Uuid>,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_search_knowledge(&seren::SerenMemorySearchKnowledgeRequest {
             domain_id,
             query,
         })
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to search Seren Memory knowledge: {error}"))?
-        .into_inner();
+        .await;
+    let response = memory_gateway_data(result, "Failed to search Seren Memory knowledge")?;
     output::print_json(&response)?;
     Ok(())
 }
@@ -490,16 +467,15 @@ pub async fn open_knowledge_entity(
     domain_id: Option<Uuid>,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_open_knowledge_entity(&seren::SerenMemoryOpenKnowledgeEntityRequest {
             domain_id,
             entity_id,
         })
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to open Seren Memory knowledge entity: {error}"))?
-        .into_inner();
+        .await;
+    let response = memory_gateway_data(result, "Failed to open Seren Memory knowledge entity")?;
     output::print_json(&response)?;
     Ok(())
 }

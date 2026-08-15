@@ -3,6 +3,7 @@
 
 use anyhow::Result;
 
+use crate::commands::memory_gateway::memory_gateway_data;
 use crate::{CommandContext, output};
 
 pub async fn preview(
@@ -10,18 +11,15 @@ pub async fn preview(
     target_workspace_key: String,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_preview_workspace_merge(&seren::SerenMemoryPreviewWorkspaceMergeRequest {
             source_workspace_key,
             target_workspace_key,
         })
-        .await
-        .map_err(|error| {
-            anyhow::anyhow!("Failed to preview Seren Memory workspace merge: {error}")
-        })?
-        .into_inner();
+        .await;
+    let response = memory_gateway_data(result, "Failed to preview Seren Memory workspace merge")?;
     output::print_json(&response)?;
     Ok(())
 }
@@ -32,7 +30,7 @@ pub async fn merge(
     plan_hash: String,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_execute_workspace_merge(&seren::SerenMemoryExecuteWorkspaceMergeRequest {
@@ -40,11 +38,8 @@ pub async fn merge(
             source_workspace_key,
             target_workspace_key,
         })
-        .await
-        .map_err(|error| {
-            anyhow::anyhow!("Failed to execute Seren Memory workspace merge: {error}")
-        })?
-        .into_inner();
+        .await;
+    let response = memory_gateway_data(result, "Failed to execute Seren Memory workspace merge")?;
     output::print_json(&response)?;
     Ok(())
 }

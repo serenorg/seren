@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use crate::commands::memory_gateway::memory_gateway_data;
 use crate::commands::memory_hooks::redact_secrets;
 use crate::{CommandContext, config};
 
@@ -2036,16 +2037,15 @@ async fn transition(
     state: seren::SerenMemoryMigrationTransitionState,
     ctx: &CommandContext,
 ) -> Result<seren::SerenMemoryMemoryMigration> {
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_set_migration_state(
             &migration_id,
             &seren::SerenMemorySetMigrationStateRequest { state },
         )
-        .await
-        .map_err(|error| anyhow::anyhow!("could not transition migration: {error}"))?
-        .into_inner();
+        .await;
+    let response = memory_gateway_data(result, "could not transition migration")?;
     Ok(response.data)
 }
 
@@ -2112,14 +2112,12 @@ async fn send_batch(
     let request = seren::SerenMemoryImportRecordsRequest {
         records: batch.into_iter().map(|record| record.api).collect(),
     };
-    let response = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_import_migration_records(&migration_id, &request)
-        .await
-        .map_err(|error| anyhow::anyhow!("migration batch failed: {error}"))?
-        .into_inner()
-        .data;
+        .await;
+    let response = memory_gateway_data(result, "migration batch failed")?.data;
     let returned_ids = response
         .records
         .iter()
@@ -2168,16 +2166,16 @@ async fn embed_imported_records(migration_id: Uuid, ctx: &CommandContext) -> Res
     loop {
         let mut attempt = 1;
         let counts = loop {
-            match client
+            let result = client
                 .seren_memory_embed_migration_records(
                     &migration_id,
                     &seren::SerenMemoryEmbedMigrationRecordsRequest {
                         limit: std::num::NonZeroU64::new(100),
                     },
                 )
-                .await
-            {
-                Ok(response) => break response.into_inner().data,
+                .await;
+            match memory_gateway_data(result, "migration embedding batch failed") {
+                Ok(response) => break response.data,
                 Err(error) if error.is_retryable() && attempt < EMBEDDING_RETRY_ATTEMPTS => {
                     let delay = embedding_retry_delay(attempt);
                     let reason = error.status().map_or_else(
@@ -2442,8 +2440,9 @@ pub async fn run(
             source_type: "claude-mem".to_string(),
         })
         .await;
+    let create_result = memory_gateway_data(create_result, "could not create migration");
     let migration = match create_result {
-        Ok(response) => response.into_inner().data,
+        Ok(response) => response.data,
         Err(error) => {
             return Err(anyhow::anyhow!(
                 "could not create migration: {error}; the fixed snapshot and pending intent were retained for an idempotent retry"
@@ -2521,14 +2520,12 @@ pub async fn run(
 }
 
 pub async fn status(migration_id: Uuid, ctx: &CommandContext) -> Result<()> {
-    let remote = ctx
+    let result = ctx
         .client()
         .await?
         .seren_memory_get_migration(&migration_id)
-        .await
-        .map_err(|error| anyhow::anyhow!("could not get migration: {error}"))?
-        .into_inner()
-        .data;
+        .await;
+    let remote = memory_gateway_data(result, "could not get migration")?.data;
     let local = load_run_state(migration_id).ok();
     println!(
         "{}",
@@ -2609,12 +2606,8 @@ pub async fn verify(migration_id: Uuid, ctx: &CommandContext) -> Result<()> {
         anyhow::bail!("local migration state and reconciliation report do not match");
     }
     let client = ctx.client().await?;
-    let remote = client
-        .seren_memory_get_migration(&migration_id)
-        .await
-        .map_err(|error| anyhow::anyhow!("could not get migration: {error}"))?
-        .into_inner()
-        .data;
+    let result = client.seren_memory_get_migration(&migration_id).await;
+    let remote = memory_gateway_data(result, "could not get migration")?.data;
     if !matches!(
         remote.migration.state,
         seren::SerenMemoryMigrationState::Completed
@@ -2629,11 +2622,8 @@ pub async fn verify(migration_id: Uuid, ctx: &CommandContext) -> Result<()> {
     let mut sampled_hash_matches = 0usize;
     for record in &sample {
         let memory_id = record.memory_id.expect("sample requires memory ID");
-        let memory = client
-            .seren_memory_get_memory(&memory_id)
-            .await
-            .map_err(|error| anyhow::anyhow!("could not verify memory {memory_id}: {error}"))?
-            .into_inner()
+        let result = client.seren_memory_get_memory(&memory_id).await;
+        let memory = memory_gateway_data(result, "could not verify migration memory")?
             .data
             .with_context(|| format!("memory {memory_id} was not found during verification"))?;
         let actual = hex::encode(Sha256::digest(memory.content.as_bytes()));
@@ -2770,29 +2760,26 @@ pub async fn rollback(
     let client = ctx.client().await?;
     let series_id = if series {
         Some(
-            client
-                .seren_memory_get_migration(&migration_id)
-                .await
-                .map_err(|error| anyhow::anyhow!("could not get migration: {error}"))?
-                .into_inner()
-                .data
-                .migration
-                .series_id,
+            memory_gateway_data(
+                client.seren_memory_get_migration(&migration_id).await,
+                "could not get migration",
+            )?
+            .data
+            .migration
+            .series_id,
         )
     } else {
         None
     };
-    let result = client
+    let response = client
         .seren_memory_rollback_migration(
             &migration_id,
             &seren::SerenMemoryRollbackMigrationRequest {
                 series: Some(series),
             },
         )
-        .await
-        .map_err(|error| anyhow::anyhow!("could not roll back migration: {error}"))?
-        .into_inner()
-        .data;
+        .await;
+    let result = memory_gateway_data(response, "could not roll back migration")?.data;
     cleanup_local_snapshots(migration_id, series_id)?;
     println!(
         "{}",

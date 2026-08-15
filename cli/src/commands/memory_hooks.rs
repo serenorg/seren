@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
 use crate::command_context::CommandContext;
+use crate::commands::memory_gateway::memory_gateway_data;
 
 const CLAUDE_PLATFORM: &str = "claude";
 const CODEX_PLATFORM: &str = "codex";
@@ -2048,17 +2049,14 @@ async fn deliver_turn(
         workspace_key: turn.workspace_key.clone(),
         workspace_uri: turn.workspace_uri.clone(),
     };
-    let response = client.seren_memory_capture_agent_turn(&params);
-    let response = response.await;
-    if response
-        .as_ref()
-        .err()
-        .and_then(|error| error.status())
-        .is_some_and(|status| status.as_u16() == 409)
-    {
+    let response = memory_gateway_data(
+        client.seren_memory_capture_agent_turn(&params).await,
+        "capture request failed",
+    );
+    if response.as_ref().err().and_then(|error| error.status()) == Some(409) {
         record_policy_rejection(outbox_dir, &turn.agent_platform);
     }
-    response.map_err(|error| anyhow::anyhow!("capture request failed: {error}"))?;
+    response?;
     Ok(DeliveryOutcome::Delivered)
 }
 
@@ -2445,7 +2443,7 @@ fn capture_codex_prompt(
 async fn bootstrap_context(ctx: &CommandContext, _cwd: Option<&Path>) -> Result<String> {
     let response = tokio::time::timeout(BOOTSTRAP_TIMEOUT, async {
         let client = ctx.client().await?;
-        client
+        let result = client
             .seren_memory_session_bootstrap(&seren::SerenMemorySessionBootstrapParams {
                 include_git: Some(false),
                 include_time: Some(true),
@@ -2454,12 +2452,11 @@ async fn bootstrap_context(ctx: &CommandContext, _cwd: Option<&Path>) -> Result<
                 reviewed_only: Some(true),
                 token_budget: Some(SESSION_CONTEXT_TOKEN_BUDGET),
             })
-            .await
-            .map_err(|error| anyhow::anyhow!("bootstrap failed: {error}"))
+            .await;
+        Ok::<_, anyhow::Error>(memory_gateway_data(result, "bootstrap failed")?)
     })
     .await
-    .context("bootstrap timed out")??
-    .into_inner();
+    .context("bootstrap timed out")??;
     let context = response.data;
     if context.total_memories == 0 {
         return Ok(String::new());

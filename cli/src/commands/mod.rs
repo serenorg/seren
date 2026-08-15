@@ -12,6 +12,7 @@ pub mod env;
 pub mod ip_allow_list;
 pub mod memory;
 pub mod memory_agent;
+pub(crate) mod memory_gateway;
 pub mod memory_hooks;
 #[cfg(feature = "claude-mem")]
 pub mod memory_migrate;
