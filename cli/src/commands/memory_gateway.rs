@@ -193,4 +193,119 @@ mod tests {
         assert_eq!(error.to_string(), "memory request failed: API error 401");
         assert!(!error.to_string().contains("secret detail"));
     }
+
+    /// Serve one canned HTTP response and return the raw request head that
+    /// the client sent, so tests can assert the path and headers.
+    fn serve_one_response(
+        status_line: &'static str,
+        body: &'static str,
+    ) -> (String, std::sync::mpsc::Receiver<String>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind test listener");
+        let base = format!(
+            "http://{}/",
+            listener.local_addr().expect("listener address")
+        );
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            let (mut stream, _) = listener.accept().expect("accept test request");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = stream.read(&mut buffer).expect("read test request");
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..read]);
+            }
+            sender
+                .send(String::from_utf8_lossy(&request).to_string())
+                .ok();
+            let response = format!(
+                "{status_line}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("write test response");
+        });
+        (base, receiver)
+    }
+
+    fn test_context(base: String) -> CommandContext {
+        CommandContext::new(
+            Some(base),
+            Some("test-key".to_string()),
+            crate::OutputFormat::Json,
+        )
+    }
+
+    #[tokio::test]
+    async fn posts_authenticated_requests_to_the_publisher_path() {
+        let (base, request) = serve_one_response(
+            "HTTP/1.1 200 OK",
+            r#"{"data":{"status":200,"body":{"value":"ok"}}}"#,
+        );
+        let response: TestResponse = memory_gateway_post(
+            &test_context(base),
+            "/capture_agent_turn",
+            &serde_json::json!({"agent_platform": "claude"}),
+            "capture request failed",
+        )
+        .await
+        .expect("delivered capture");
+        assert_eq!(response.value, "ok");
+
+        let request = request.recv().expect("request head");
+        assert!(
+            request.starts_with("POST /publishers/seren-memory/capture_agent_turn HTTP/1.1"),
+            "unexpected request line in: {request}"
+        );
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer test-key"),
+            "request must carry the CLI bearer credential"
+        );
+    }
+
+    #[cfg(feature = "claude-mem")]
+    #[tokio::test]
+    async fn outer_gateway_errors_keep_their_status_and_stay_opaque() {
+        let (base, _request) = serve_one_response(
+            "HTTP/1.1 503 Service Unavailable",
+            r#"{"secret":"internal"}"#,
+        );
+        let error = memory_gateway_post::<TestResponse, _>(
+            &test_context(base),
+            "capture_agent_turn",
+            &serde_json::json!({}),
+            "capture request failed",
+        )
+        .await
+        .expect_err("gateway failure must surface");
+        assert_eq!(error.status(), Some(503));
+        assert!(error.is_retryable());
+        assert!(!error.to_string().contains("internal"));
+    }
+
+    #[cfg(feature = "claude-mem")]
+    #[tokio::test]
+    async fn inner_publisher_errors_surface_as_delivery_failures() {
+        let (base, _request) = serve_one_response(
+            "HTTP/1.1 200 OK",
+            r#"{"data":{"status":402,"body":{"message":"payment detail"}}}"#,
+        );
+        let error = memory_gateway_post::<TestResponse, _>(
+            &test_context(base),
+            "capture_agent_turn",
+            &serde_json::json!({}),
+            "capture request failed",
+        )
+        .await
+        .expect_err("inner publisher failure must surface");
+        assert_eq!(error.status(), Some(402));
+        assert!(!error.is_retryable());
+        assert!(!error.to_string().contains("payment detail"));
+    }
 }
