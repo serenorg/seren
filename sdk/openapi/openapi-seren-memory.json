@@ -1662,6 +1662,15 @@
                 "operationId": "list_memories",
                 "parameters": [
                     {
+                        "name": "ids",
+                        "in": "query",
+                        "description": "Comma-separated memory IDs, at most 25. Selects exact collection\nmembers in request order and cannot be combined with memory_type,\npin, consolidation, lifecycle, project, limit, or offset. Whitespace\naround IDs is ignored; duplicates keep first-seen order.",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
                         "name": "memory_type",
                         "in": "query",
                         "required": false,
@@ -2008,6 +2017,63 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/DataResponse_MemoryExportResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/memories/search": {
+            "post": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Search private memories and return compact previews",
+                "description": "Progressive-retrieval entry point: returns compact previews (id, type, preview, score, review state) for cheap scanning. Filter the hits, then fetch full content with GET /memories?ids=. Accepts the same filters as /recall; limit is capped at 50.",
+                "operationId": "search_memories",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RecallParams"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Compact search hits",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_CompactSearchResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
                                 }
                             }
                         }
@@ -3512,6 +3578,71 @@
                     "policy_version": "baseline"
                 }
             },
+            "CompactMemoryOutput": {
+                "type": "object",
+                "description": "One compact search hit: enough to rank and filter without full content.",
+                "required": [
+                    "id",
+                    "memory_type",
+                    "preview",
+                    "combined_score",
+                    "review_status",
+                    "lifecycle_status",
+                    "is_pinned",
+                    "source_kind",
+                    "created_at"
+                ],
+                "properties": {
+                    "combined_score": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "is_pinned": {
+                        "type": "boolean"
+                    },
+                    "lifecycle_status": {
+                        "type": "string"
+                    },
+                    "memory_type": {
+                        "type": "string"
+                    },
+                    "preview": {
+                        "type": "string"
+                    },
+                    "review_status": {
+                        "type": "string"
+                    },
+                    "source_kind": {
+                        "type": "string"
+                    }
+                }
+            },
+            "CompactSearchResponse": {
+                "type": "object",
+                "required": [
+                    "memories",
+                    "signals"
+                ],
+                "properties": {
+                    "memories": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CompactMemoryOutput"
+                        }
+                    },
+                    "signals": {
+                        "$ref": "#/components/schemas/RecallSignalsResponse"
+                    }
+                }
+            },
             "ConflictAction": {
                 "type": "string",
                 "description": "Action determined by the conflict resolution pipeline.",
@@ -3788,6 +3919,32 @@
                     },
                     "source_type": {
                         "type": "string"
+                    }
+                }
+            },
+            "DataResponse_CompactSearchResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "memories",
+                            "signals"
+                        ],
+                        "properties": {
+                            "memories": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/CompactMemoryOutput"
+                                }
+                            },
+                            "signals": {
+                                "$ref": "#/components/schemas/RecallSignalsResponse"
+                            }
+                        }
                     }
                 }
             },
