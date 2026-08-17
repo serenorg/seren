@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
 use crate::command_context::CommandContext;
-use crate::commands::memory_gateway::{memory_gateway_data, memory_gateway_post};
+use crate::commands::memory_gateway::memory_gateway_data;
 
 const CLAUDE_PLATFORM: &str = "claude";
 const CODEX_PLATFORM: &str = "codex";
@@ -2048,13 +2048,11 @@ async fn deliver_turn(
         workspace_key: turn.workspace_key.clone(),
         workspace_uri: turn.workspace_uri.clone(),
     };
-    let response = memory_gateway_post::<serde_json::Value, _>(
-        ctx,
-        "capture_agent_turn",
-        &params,
+    let client = ctx.client().await?;
+    let response = memory_gateway_data(
+        client.seren_memory_capture_agent_turn(&params).await,
         "capture request failed",
-    )
-    .await;
+    );
     if response.as_ref().err().and_then(|error| error.status()) == Some(409) {
         record_policy_rejection(outbox_dir, &turn.agent_platform);
     }

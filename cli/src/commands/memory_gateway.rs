@@ -1,11 +1,6 @@
 use std::fmt;
 
-use serde::Serialize;
 use serde::de::DeserializeOwned;
-
-use crate::command_context::CommandContext;
-
-const MEMORY_GATEWAY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 #[derive(Debug)]
 pub(crate) struct MemoryGatewayError {
@@ -82,46 +77,6 @@ where
     }
 }
 
-pub(crate) async fn memory_gateway_post<T, B>(
-    ctx: &CommandContext,
-    publisher_path: &str,
-    body: &B,
-    context: &'static str,
-) -> Result<T, MemoryGatewayError>
-where
-    T: DeserializeOwned,
-    B: Serialize + ?Sized,
-{
-    let client = ctx
-        .http_client()
-        .await
-        .map_err(|_| MemoryGatewayError::new(context, None, "communication error"))?;
-    let response = client
-        .post(format!(
-            "{}/publishers/seren-memory/{}",
-            ctx.api_base().trim_end_matches('/'),
-            publisher_path.trim_start_matches('/')
-        ))
-        .json(body)
-        .timeout(MEMORY_GATEWAY_TIMEOUT)
-        .send()
-        .await
-        .map_err(|_| MemoryGatewayError::new(context, None, "communication error"))?;
-    let status = response.status();
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|_| MemoryGatewayError::new(context, None, "communication error"))?;
-    if !status.is_success() {
-        return Err(MemoryGatewayError::new(
-            context,
-            Some(status.as_u16()),
-            "gateway error",
-        ));
-    }
-    decode_memory_gateway_body(&bytes, context)
-}
-
 fn decode_memory_gateway_body<T>(
     bytes: &[u8],
     context: &'static str,
@@ -194,118 +149,52 @@ mod tests {
         assert!(!error.to_string().contains("secret detail"));
     }
 
-    /// Serve one canned HTTP response and return the raw request head that
-    /// the client sent, so tests can assert the path and headers.
-    fn serve_one_response(
-        status_line: &'static str,
-        body: &'static str,
-    ) -> (String, std::sync::mpsc::Receiver<String>) {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind test listener");
-        let base = format!(
-            "http://{}/",
-            listener.local_addr().expect("listener address")
-        );
-        let (sender, receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            use std::io::{Read, Write};
-            let (mut stream, _) = listener.accept().expect("accept test request");
-            let mut request = Vec::new();
-            let mut buffer = [0_u8; 1024];
-            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
-                let read = stream.read(&mut buffer).expect("read test request");
-                if read == 0 {
-                    break;
-                }
-                request.extend_from_slice(&buffer[..read]);
-            }
-            sender
-                .send(String::from_utf8_lossy(&request).to_string())
-                .ok();
-            let response = format!(
-                "{status_line}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                body.len()
-            );
-            stream
-                .write_all(response.as_bytes())
-                .expect("write test response");
+    /// The metered gateway wraps every publisher reply as
+    /// `{"data":{"status":N,"body":B}}`. Recovery relies on that envelope
+    /// failing to deserialize into the publisher's own response type, so a
+    /// type permissive enough to accept the envelope would turn a rejected
+    /// request into an empty success and let the caller drop queued work.
+    #[test]
+    fn gateway_envelopes_never_deserialize_as_publisher_responses() {
+        let envelope = serde_json::json!({
+            "status": 402,
+            "body": {"message": "payment required"},
+            "cost": "0"
         });
-        (base, receiver)
-    }
 
-    fn test_context(base: String) -> CommandContext {
-        CommandContext::new(
-            Some(base),
-            Some("test-key".to_string()),
-            crate::OutputFormat::Json,
-        )
-    }
+        macro_rules! assert_rejects_envelope {
+            ($($response:ty),+ $(,)?) => {
+                $(
+                    assert!(
+                        serde_json::from_value::<$response>(envelope.clone()).is_err(),
+                        concat!(
+                            stringify!($response),
+                            " must not deserialize from a gateway error envelope",
+                        )
+                    );
+                )+
+            };
+        }
 
-    #[tokio::test]
-    async fn posts_authenticated_requests_to_the_publisher_path() {
-        let (base, request) = serve_one_response(
-            "HTTP/1.1 200 OK",
-            r#"{"data":{"status":200,"body":{"value":"ok"}}}"#,
+        assert_rejects_envelope!(
+            seren::SerenMemoryExtractionResult,
+            seren::SerenMemoryRecallResponse,
+            seren::SerenMemorySessionContext,
+            seren::SerenMemoryRememberOutput,
+            seren::SerenMemoryListMemoriesResponse,
         );
-        let response: TestResponse = memory_gateway_post(
-            &test_context(base),
-            "/capture_agent_turn",
-            &serde_json::json!({"agent_platform": "claude"}),
+    }
+
+    /// A capture reply carrying every grouped field the schema requires.
+    const SUCCESSFUL_CAPTURE_ENVELOPE: &[u8] = br#"{"data":{"status":200,"body":{"episodic":[],"semantic":[],"procedural":[],"error_fixes":[],"preferences":[],"stored_memory_ids":[]},"cost":"0"}}"#;
+
+    #[test]
+    fn capture_responses_still_decode_from_a_successful_envelope() {
+        let response = decode_memory_gateway_body::<seren::SerenMemoryExtractionResult>(
+            SUCCESSFUL_CAPTURE_ENVELOPE,
             "capture request failed",
         )
-        .await
-        .expect("delivered capture");
-        assert_eq!(response.value, "ok");
-
-        let request = request.recv().expect("request head");
-        assert!(
-            request.starts_with("POST /publishers/seren-memory/capture_agent_turn HTTP/1.1"),
-            "unexpected request line in: {request}"
-        );
-        assert!(
-            request
-                .to_ascii_lowercase()
-                .contains("authorization: bearer test-key"),
-            "request must carry the CLI bearer credential"
-        );
-    }
-
-    #[cfg(feature = "claude-mem")]
-    #[tokio::test]
-    async fn outer_gateway_errors_keep_their_status_and_stay_opaque() {
-        let (base, _request) = serve_one_response(
-            "HTTP/1.1 503 Service Unavailable",
-            r#"{"secret":"internal"}"#,
-        );
-        let error = memory_gateway_post::<TestResponse, _>(
-            &test_context(base),
-            "capture_agent_turn",
-            &serde_json::json!({}),
-            "capture request failed",
-        )
-        .await
-        .expect_err("gateway failure must surface");
-        assert_eq!(error.status(), Some(503));
-        assert!(error.is_retryable());
-        assert!(!error.to_string().contains("internal"));
-    }
-
-    #[cfg(feature = "claude-mem")]
-    #[tokio::test]
-    async fn inner_publisher_errors_surface_as_delivery_failures() {
-        let (base, _request) = serve_one_response(
-            "HTTP/1.1 200 OK",
-            r#"{"data":{"status":402,"body":{"message":"payment detail"}}}"#,
-        );
-        let error = memory_gateway_post::<TestResponse, _>(
-            &test_context(base),
-            "capture_agent_turn",
-            &serde_json::json!({}),
-            "capture request failed",
-        )
-        .await
-        .expect_err("inner publisher failure must surface");
-        assert_eq!(error.status(), Some(402));
-        assert!(!error.is_retryable());
-        assert!(!error.to_string().contains("payment detail"));
+        .expect("a successful capture envelope must still decode");
+        assert!(response.stored_memory_ids.is_empty());
     }
 }

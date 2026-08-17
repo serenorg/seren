@@ -4101,7 +4101,14 @@
                 "properties": {
                     "data": {
                         "type": "object",
-                        "description": "Structured extraction output grouped by memory type.",
+                        "description": "Structured extraction output grouped by memory type.\n\nThe `serde` defaults keep extraction-model output parseable when a\ncategory is omitted. The grouped fields are always serialized, so the\npublished schema declares them required: a client that receives an\nunrelated object, such as a gateway error envelope, must fail to decode\nit rather than silently produce an empty result.",
+                        "required": [
+                            "episodic",
+                            "semantic",
+                            "procedural",
+                            "error_fixes",
+                            "preferences"
+                        ],
                         "properties": {
                             "conversation_source_id": {
                                 "type": [
@@ -5709,7 +5716,14 @@
             },
             "ExtractionResult": {
                 "type": "object",
-                "description": "Structured extraction output grouped by memory type.",
+                "description": "Structured extraction output grouped by memory type.\n\nThe `serde` defaults keep extraction-model output parseable when a\ncategory is omitted. The grouped fields are always serialized, so the\npublished schema declares them required: a client that receives an\nunrelated object, such as a gateway error envelope, must fail to decode\nit rather than silently produce an empty result.",
+                "required": [
+                    "episodic",
+                    "semantic",
+                    "procedural",
+                    "error_fixes",
+                    "preferences"
+                ],
                 "properties": {
                     "conversation_source_id": {
                         "type": [

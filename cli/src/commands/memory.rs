@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
 use uuid::Uuid;
 
-use crate::commands::memory_gateway::{memory_gateway_data, memory_gateway_post};
+use crate::commands::memory_gateway::memory_gateway_data;
 use crate::{CommandContext, OutputFormat, output};
 
 pub struct RecallOptions {
@@ -249,13 +249,13 @@ pub async fn capture(options: CaptureOptions, ctx: &CommandContext) -> Result<()
         workspace_key: options.workspace_key,
         workspace_uri: options.workspace_uri,
     };
-    let response: serde_json::Value = memory_gateway_post(
-        ctx,
-        "capture_agent_turn",
-        &params,
+    let response = memory_gateway_data(
+        ctx.client()
+            .await?
+            .seren_memory_capture_agent_turn(&params)
+            .await,
         "Failed to capture Seren Memory agent turn",
-    )
-    .await?;
+    )?;
     output::print_json(&response)?;
     Ok(())
 }
