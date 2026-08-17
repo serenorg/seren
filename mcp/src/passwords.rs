@@ -861,11 +861,10 @@ impl SerenMcpServer {
                 }
                 PendingHostedAccessAction::ReturnConsent => {
                     let consent_url = hosted_passwords_consent_url(
-                        pending.request_id,
                         pending
                             .consent_capability
-                            .as_ref()
-                            .map(|capability| capability.as_str()),
+                            .as_deref()
+                            .ok_or_else(hosted_passwords_missing_capability_error)?,
                     )?;
                     return Ok(CallToolResult::success(vec![crate::server::json_content(
                         &serde_json::json!({
@@ -968,8 +967,7 @@ impl SerenMcpServer {
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let consent_url =
-            hosted_passwords_consent_url(request_id, Some(&created.consent_capability))?;
+        let consent_url = hosted_passwords_consent_url(&created.consent_capability)?;
         Ok(CallToolResult::success(vec![crate::server::json_content(
             &serde_json::json!({
                 "status": "pending",
@@ -1037,11 +1035,10 @@ impl SerenMcpServer {
         match record.status {
             HostedDelegationStatus::Pending => {
                 let consent_url = hosted_passwords_consent_url(
-                    params.request_id,
                     pending
                         .consent_capability
-                        .as_ref()
-                        .map(|capability| capability.as_str()),
+                        .as_deref()
+                        .ok_or_else(hosted_passwords_missing_capability_error)?,
                 )?;
                 Ok(CallToolResult::success(vec![crate::server::json_content(
                     &serde_json::json!({
@@ -3728,15 +3725,36 @@ async fn hosted_passwords_destination_organization(
         })
 }
 
-fn hosted_passwords_consent_url(
-    request_id: Uuid,
-    consent_capability: Option<&str>,
-) -> Result<String, McpError> {
-    let base = hosted_seren_passwords_url()?;
-    match consent_capability {
-        Some(capability) => Ok(format!("{base}/grant#consent={capability}")),
-        None => Ok(format!("{base}/grant?request={request_id}")),
+/// Fragment key the grant page reads. Desktop's `agentDelegationApprovalUrl`
+/// uses the same key via `URLSearchParams({ capability })`.
+const GRANT_CAPABILITY_FRAGMENT_KEY: &str = "capability";
+
+/// Build the browser handoff URL for a hosted participant capability.
+///
+/// The capability travels in the URL fragment under
+/// `GRANT_CAPABILITY_FRAGMENT_KEY`. Fragments are not sent to the server, so
+/// the bearer value stays out of request logs, referrers, and analytics. The
+/// value is percent-encoded so reserved characters cannot be read as extra
+/// fragment parameters. A capability is required: the policy grant route
+/// cannot resolve a request id alone.
+fn hosted_passwords_consent_url(consent_capability: &str) -> Result<String, McpError> {
+    if consent_capability.is_empty() {
+        return Err(hosted_passwords_missing_capability_error());
     }
+    let base = hosted_seren_passwords_url()?;
+    Ok(format!(
+        "{base}/grant#{GRANT_CAPABILITY_FRAGMENT_KEY}={}",
+        urlencoding::encode(consent_capability)
+    ))
+}
+
+/// Error for a pending hosted record whose participant capability was never
+/// stored. Recovery is a fresh request.
+fn hosted_passwords_missing_capability_error() -> McpError {
+    McpError::invalid_request(
+        "This hosted access request has no usable approval capability. Call passwords_request_access with force=true to open a new consent URL.",
+        None,
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -5134,15 +5152,28 @@ mod tests {
     #[test]
     fn passwords_consent_url_requires_https_except_loopback() {
         temp_env::with_var_unset(PASSWORDS_URL_ENV, || {
-            let request_id = Uuid::nil();
+            let url = hosted_passwords_consent_url("opaque-capability").unwrap();
+            // Pin the literal key. Using the producer constant here would
+            // let a rename of GRANT_CAPABILITY_FRAGMENT_KEY pass this test.
             assert_eq!(
-                hosted_passwords_consent_url(request_id, None).unwrap(),
-                format!("{DEFAULT_SEREN_PASSWORDS_URL}/grant?request={request_id}")
+                url,
+                format!("{DEFAULT_SEREN_PASSWORDS_URL}/grant#capability=opaque-capability")
             );
+            assert!(!url.contains("#consent="));
+            assert!(!url.contains("?request="));
+            assert!(!url.contains('?'));
+
+            // Same reserved-character fixture the grant-page parser decodes
+            // in seren-passwords-ui participantCapabilityFromFragment.
             assert_eq!(
-                hosted_passwords_consent_url(request_id, Some("opaque-capability")).unwrap(),
-                format!("{DEFAULT_SEREN_PASSWORDS_URL}/grant#consent=opaque-capability")
+                hosted_passwords_consent_url("a+b/c").unwrap(),
+                format!("{DEFAULT_SEREN_PASSWORDS_URL}/grant#capability=a%2Bb%2Fc")
             );
+            assert!(hosted_passwords_consent_url("").is_err());
+            let missing = hosted_passwords_missing_capability_error();
+            assert!(missing.message.contains("force=true"));
+            assert!(!missing.message.contains('#'));
+            assert!(!missing.message.contains("capability="));
         });
 
         temp_env::with_var(
