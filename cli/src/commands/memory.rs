@@ -270,6 +270,7 @@ pub async fn list(options: ListOptions, ctx: &CommandContext) -> Result<()> {
         .client()
         .await?
         .seren_memory_list_memories(
+            None,
             options.is_consolidated,
             options.is_pinned,
             lifecycle_status,

@@ -10,7 +10,7 @@
 //! agents to make crypto payments without relying on the managed wallet API.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -351,6 +351,64 @@ pub struct SerenMemoryListParams {
     pub offset: Option<i64>,
     pub org_id: Option<Uuid>,
     pub project_id: Option<Uuid>,
+}
+
+/// Seren Memory compact-search selector.
+///
+/// Declared here rather than aliasing the generated recall request type:
+/// progenitor attaches a rendered JSON schema to each type's doc comment,
+/// and schemars would otherwise omit per-field documentation.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenMemorySearchParams {
+    /// Hybrid search query
+    pub query: String,
+    /// Optional project scope
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<Uuid>,
+    /// Must match the authenticated organization when present
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub org_id: Option<Uuid>,
+    /// Optional memory type filters
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_types: Option<Vec<String>>,
+    /// Maximum hits to return; the service caps this at 50
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+    /// Minimum combined score; omit to use the service default
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_relevance: Option<f64>,
+    /// hybrid, vector, keyword, or graph
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search_mode: Option<String>,
+    /// Inclusive lower bound on created_at
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_after: Option<jiff::Timestamp>,
+    /// Inclusive upper bound on created_at
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_before: Option<jiff::Timestamp>,
+}
+
+impl From<SerenMemorySearchParams> for seren::SerenMemoryRecallParams {
+    fn from(params: SerenMemorySearchParams) -> Self {
+        Self {
+            query: params.query,
+            project_id: params.project_id,
+            org_id: params.org_id,
+            memory_types: params.memory_types,
+            limit: params.limit,
+            min_relevance: params.min_relevance,
+            search_mode: params.search_mode,
+            created_after: params.created_after,
+            created_before: params.created_before,
+        }
+    }
+}
+
+/// Seren Memory batch-retrieval selector.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenMemoryGetMemoriesParams {
+    /// Memory IDs to hydrate, at most 25, in the order you want them returned
+    pub memory_ids: Vec<Uuid>,
 }
 
 /// Seren Memory export selector.
@@ -8995,6 +9053,74 @@ impl SerenMcpServer {
     }
 
     #[tool(
+        description = "Search private memories and return compact previews (id, type, preview, score, review state) for cheap scanning. Previews may contain private content and should be handled accordingly. Filter the hits, then call seren_memory_get_memories with the selected IDs for full content. Accepts the same filters as seren_memory_recall; limit is capped at 50.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_memory_search_memories(
+        &self,
+        Parameters(params): Parameters<SerenMemorySearchParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let request = seren::SerenMemoryRecallParams::from(params);
+        let response = match api_client.seren_memory_search_memories(&request).await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Fetch up to 25 private memories by ID with full content in one call. Use after seren_memory_search_memories to hydrate selected hits. Results may contain private content and should be handled accordingly.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_memory_get_memories(
+        &self,
+        Parameters(params): Parameters<SerenMemoryGetMemoriesParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        if params.memory_ids.is_empty() {
+            return Err(McpError::invalid_params(
+                "memory_ids must contain at least one ID",
+                None,
+            ));
+        }
+        if params.memory_ids.len() > 25 {
+            return Err(McpError::invalid_params(
+                "memory_ids must contain at most 25 IDs",
+                None,
+            ));
+        }
+        let mut seen = HashSet::new();
+        let ids = params
+            .memory_ids
+            .iter()
+            .filter(|id| seen.insert(**id))
+            .map(Uuid::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_memory_list_memories(
+                Some(ids.as_str()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
         description = "Recall relevant private memories. Results may contain private content and should be handled accordingly.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
@@ -9045,6 +9171,7 @@ impl SerenMcpServer {
         let api_client = self.api_client(&extensions)?;
         let response = match api_client
             .seren_memory_list_memories(
+                None,
                 params.is_consolidated,
                 params.is_pinned,
                 params.lifecycle_status,
@@ -16394,6 +16521,57 @@ mod tests {
     }
 
     #[test]
+    fn progressive_memory_tools_are_read_only_and_document_their_workflow() {
+        let server = server_with_http_client(reqwest::Client::new());
+        let tools = server.tool_router.list_all();
+
+        for name in ["seren_memory_search_memories", "seren_memory_get_memories"] {
+            let tool = tools
+                .iter()
+                .find(|tool| tool.name == name)
+                .unwrap_or_else(|| panic!("missing MCP tool {name}"));
+            assert_eq!(
+                tool.annotations
+                    .as_ref()
+                    .and_then(|annotations| annotations.read_only_hint),
+                Some(true),
+                "{name}",
+            );
+        }
+
+        let description = |name: &str| {
+            tools
+                .iter()
+                .find(|tool| tool.name == name)
+                .unwrap_or_else(|| panic!("missing MCP tool {name}"))
+                .description
+                .clone()
+                .expect("tool description")
+        };
+        assert!(description("seren_memory_search_memories").contains("seren_memory_get_memories"));
+        assert!(description("seren_memory_get_memories").contains("25"));
+
+        let search_schema = tools
+            .iter()
+            .find(|tool| tool.name == "seren_memory_search_memories")
+            .expect("missing MCP tool seren_memory_search_memories")
+            .input_schema
+            .clone();
+        let rendered = serde_json::to_string(&search_schema).expect("serialize search schema");
+        assert!(
+            !rendered.contains("JSON schema"),
+            "generated type docs leaked into the search tool schema: {rendered}",
+        );
+        assert!(
+            search_schema["properties"]["query"]
+                .get("description")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|description| !description.trim().is_empty()),
+            "query needs a description in the search tool schema",
+        );
+    }
+
+    #[test]
     fn account_mutations_are_annotated_as_writes() {
         let server = server_with_http_client(reqwest::Client::new());
         let tools = server.tool_router.list_all();
@@ -16620,6 +16798,8 @@ mod tests {
         for expected in [
             "seren_memory_health",
             "seren_memory_session_bootstrap",
+            "seren_memory_search_memories",
+            "seren_memory_get_memories",
             "seren_memory_recall",
             "seren_memory_remember",
             "seren_memory_list_memories",

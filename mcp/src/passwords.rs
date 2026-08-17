@@ -22,7 +22,7 @@ use rmcp::model::{CallToolResult, Extensions};
 use rmcp::{tool, tool_router};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use seren::DelegationStatus;
+use seren::DelegationPolicyRequestStatus;
 use seren_secrets_crypto::keys::{
     IdentityKemKeypair, IdentityKemPrivateKey, IdentityKemPublicKey, IdentitySigningKeypair,
     IdentitySigningPrivateKey, VaultKey,
@@ -828,6 +828,7 @@ impl SerenMcpServer {
             .delete_expired_pending_hosted_passwords_agents()
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let mut supersedes_request_id = None;
         if let Some(pending) = store
             .get_pending_hosted_passwords_agent_for_subject(user_id, &credential_subject_key)
             .await
@@ -844,7 +845,7 @@ impl SerenMcpServer {
             }
             match pending_hosted_access_action(
                 params.force == Some(true),
-                &record.status,
+                record.status,
                 pending.consent_capability.is_some(),
             ) {
                 PendingHostedAccessAction::Delete => {
@@ -856,6 +857,7 @@ impl SerenMcpServer {
                         )
                         .await
                         .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                    supersedes_request_id = Some(pending.request_id);
                 }
                 PendingHostedAccessAction::ReturnConsent => {
                     let consent_url = hosted_passwords_consent_url(
@@ -915,10 +917,14 @@ impl SerenMcpServer {
         let created = match self
             .create_passwords_delegation_request(
                 &extensions,
-                request_id,
-                display_name,
-                &kem_public,
-                &signing_public,
+                HostedVaultAccessCreate {
+                    request_id,
+                    user_id,
+                    display_name,
+                    kem_public: &kem_public,
+                    signing_public: &signing_public,
+                    supersedes_request_id,
+                },
             )
             .await
         {
@@ -1028,8 +1034,8 @@ impl SerenMcpServer {
             ));
         }
 
-        match &record.status {
-            DelegationStatus::Pending => {
+        match record.status {
+            HostedDelegationStatus::Pending => {
                 let consent_url = hosted_passwords_consent_url(
                     params.request_id,
                     pending
@@ -1046,7 +1052,7 @@ impl SerenMcpServer {
                     }),
                 )?]))
             }
-            DelegationStatus::Denied | DelegationStatus::Expired => {
+            HostedDelegationStatus::Denied | HostedDelegationStatus::Expired => {
                 store
                     .delete_pending_hosted_passwords_agent(
                         user_id,
@@ -1062,7 +1068,7 @@ impl SerenMcpServer {
                     }),
                 )?]))
             }
-            DelegationStatus::Approved => {
+            HostedDelegationStatus::Approved => {
                 let identity_id = record.identity_id.ok_or_else(|| {
                     McpError::internal_error("Approved delegation is missing identity id", None)
                 })?;
@@ -1142,27 +1148,32 @@ impl SerenMcpServer {
     async fn create_passwords_delegation_request(
         &self,
         extensions: &Extensions,
-        request_id: Uuid,
-        display_name: &str,
-        kem_public: &str,
-        signing_public: &str,
-    ) -> Result<seren::DelegationRequestCreatedResponse, McpError> {
+        create: HostedVaultAccessCreate<'_>,
+    ) -> Result<CreatedHostedDelegation, McpError> {
         let client = self.api_client(extensions)?;
-        let response = match client
-            .delegation_request_create(&seren::CreateDelegationRequest {
-                request_id: Some(request_id),
-                agent_kem_public: kem_public.to_owned(),
-                agent_signing_public: signing_public.to_owned(),
-                display_name: display_name.to_owned(),
-            })
-            .await
-        {
+        let organization_id = hosted_passwords_destination_organization(&client).await?;
+        let expires_at = jiff::Timestamp::now()
+            .checked_add(jiff::SignedDuration::from_hours(1))
+            .map_err(|error| {
+                McpError::internal_error(format!("hosted access expiry overflow: {error}"), None)
+            })?;
+        let body = hosted_vault_access_create_request(HostedVaultAccessCreateRequest {
+            organization_id,
+            request_id: create.request_id,
+            user_id: create.user_id,
+            display_name: create.display_name,
+            kem_public: create.kem_public,
+            signing_public: create.signing_public,
+            expires_at,
+            supersedes_request_id: create.supersedes_request_id,
+        });
+        let response = match client.delegation_create(&body).await {
             Ok(response) => response,
             Err(seren::Error::InvalidResponsePayload(bytes, e)) => {
                 return crate::server::decode_publisher_gateway_body::<
-                    seren::DataResponseDelegationRequestCreated,
+                    seren::DataResponseDelegationPolicyRequestCreated,
                 >(&bytes)
-                .map(|response| response.data)
+                .and_then(created_hosted_delegation)
                 .map_err(|fallback| {
                     McpError::internal_error(
                         format!(
@@ -1174,22 +1185,23 @@ impl SerenMcpServer {
             }
             Err(e) => return Err(crate::server::seren_error_to_mcp_error(e).await),
         };
-        Ok(response.into_inner().data)
+        created_hosted_delegation(response.into_inner())
+            .map_err(|error| McpError::internal_error(error, None))
     }
 
     async fn get_passwords_delegation_request(
         &self,
         extensions: &Extensions,
         request_id: Uuid,
-    ) -> Result<seren::DelegationRequestRecord, McpError> {
+    ) -> Result<HostedDelegationSnapshot, McpError> {
         let client = self.api_client(extensions)?;
-        let response = match client.delegation_request_get(&request_id).await {
+        let response = match client.delegation_get(&request_id).await {
             Ok(response) => response,
             Err(seren::Error::InvalidResponsePayload(bytes, e)) => {
                 return crate::server::decode_publisher_gateway_body::<
-                    seren::DataResponseDelegationRequestRecord,
+                    seren::DataResponseDelegationPolicyRequest,
                 >(&bytes)
-                .map(|response| response.data)
+                .map(|response| hosted_delegation_snapshot(response.data))
                 .map_err(|fallback| {
                     McpError::internal_error(
                         format!(
@@ -1201,7 +1213,7 @@ impl SerenMcpServer {
             }
             Err(e) => return Err(crate::server::seren_error_to_mcp_error(e).await),
         };
-        Ok(response.into_inner().data)
+        Ok(hosted_delegation_snapshot(response.into_inner().data))
     }
 
     async fn mint_hosted_passwords_agent_key(
@@ -3547,6 +3559,175 @@ fn hosted_membership_update_handoff_unavailable(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum HostedDelegationStatus {
+    Pending,
+    Approved,
+    Denied,
+    Expired,
+}
+
+#[derive(Debug, Clone)]
+struct HostedDelegationSnapshot {
+    request_id: Uuid,
+    user_id: Uuid,
+    agent_kem_public: String,
+    agent_signing_public: String,
+    display_name: String,
+    status: HostedDelegationStatus,
+    granted_vault_ids: Vec<Uuid>,
+    identity_id: Option<Uuid>,
+    expires_at: jiff::Timestamp,
+}
+
+#[derive(Debug, Clone)]
+struct CreatedHostedDelegation {
+    request_id: Uuid,
+    expires_at: jiff::Timestamp,
+    consent_capability: String,
+}
+
+struct HostedVaultAccessCreate<'a> {
+    request_id: Uuid,
+    user_id: Uuid,
+    display_name: &'a str,
+    kem_public: &'a str,
+    signing_public: &'a str,
+    supersedes_request_id: Option<Uuid>,
+}
+
+struct HostedVaultAccessCreateRequest<'a> {
+    organization_id: Uuid,
+    request_id: Uuid,
+    user_id: Uuid,
+    display_name: &'a str,
+    kem_public: &'a str,
+    signing_public: &'a str,
+    expires_at: jiff::Timestamp,
+    supersedes_request_id: Option<Uuid>,
+}
+
+fn hosted_status_from_policy(status: DelegationPolicyRequestStatus) -> HostedDelegationStatus {
+    match status {
+        DelegationPolicyRequestStatus::Pending
+        | DelegationPolicyRequestStatus::PartiallyApproved => HostedDelegationStatus::Pending,
+        DelegationPolicyRequestStatus::Approved | DelegationPolicyRequestStatus::Applied => {
+            HostedDelegationStatus::Approved
+        }
+        DelegationPolicyRequestStatus::Declined => HostedDelegationStatus::Denied,
+        DelegationPolicyRequestStatus::Expired
+        | DelegationPolicyRequestStatus::Cancelled
+        | DelegationPolicyRequestStatus::Superseded
+        | DelegationPolicyRequestStatus::Conflicted => HostedDelegationStatus::Expired,
+    }
+}
+
+fn hosted_delegation_snapshot(
+    request: seren::DelegationPolicyRequestView,
+) -> HostedDelegationSnapshot {
+    HostedDelegationSnapshot {
+        request_id: request.request_id,
+        user_id: request.requester_user_id,
+        agent_kem_public: request.agent_kem_public,
+        agent_signing_public: request.agent_signing_public,
+        display_name: request.agent_display_name,
+        status: hosted_status_from_policy(request.status),
+        granted_vault_ids: request
+            .effective_vault_access
+            .into_iter()
+            .map(|access| access.vault_id)
+            .collect(),
+        identity_id: Some(request.agent_identity_id),
+        expires_at: request.expires_at,
+    }
+}
+
+fn created_hosted_delegation(
+    response: seren::DataResponseDelegationPolicyRequestCreated,
+) -> Result<CreatedHostedDelegation, String> {
+    let consent_capability = response
+        .data
+        .participant_capabilities
+        .into_iter()
+        .next()
+        .map(|capability| capability.participant_capability)
+        .ok_or_else(|| "delegation create returned no participant capability".to_string())?;
+    Ok(CreatedHostedDelegation {
+        request_id: response.data.request.request_id,
+        expires_at: response.data.request.expires_at,
+        consent_capability,
+    })
+}
+
+fn hosted_vault_access_create_request(
+    create: HostedVaultAccessCreateRequest<'_>,
+) -> seren::CreateDelegationPolicyRequest {
+    seren::CreateDelegationPolicyRequest {
+        agent_display_name: Some(create.display_name.to_owned()),
+        agent_identity_id: None,
+        agent_kem_public: Some(create.kem_public.to_owned()),
+        agent_signing_public: Some(create.signing_public.to_owned()),
+        agent_target_kind: seren::DelegationAgentTargetKind::Bootstrap,
+        allowed_access_levels: vec![seren::AccessLevel::Read, seren::AccessLevel::Write],
+        deployment_id: None,
+        deployment_revision_id: None,
+        destination_organization_id: create.organization_id,
+        expires_at: create.expires_at,
+        nonce: create.request_id.to_string(),
+        participants: vec![seren::DelegationPolicyParticipantInput {
+            allowed_vault_ids: Vec::new(),
+            can_revoke: None,
+            environment_names: Vec::new(),
+            expected_identity_id: None,
+            expected_organization_id: Some(create.organization_id),
+            expected_user_id: Some(create.user_id),
+            field_groups: Vec::new(),
+            metadata_only: Some(false),
+            participant_id: None,
+            role: "owner".to_string(),
+            stage: 1,
+        }],
+        policy: seren::DelegationApprovalPolicy {
+            allow_cross_organization: Some(false),
+            allow_same_principal_across_roles: None,
+            stages: vec![seren::DelegationPolicyStage {
+                execution: seren::DelegationStageExecution::Sequential,
+                requirements: vec![seren::DelegationRoleRequirement {
+                    approval: seren::DelegationApprovalRule::AllOf,
+                    metadata_only: false,
+                    role: "owner".to_string(),
+                }],
+                stage: 1,
+            }],
+        },
+        request_id: Some(create.request_id),
+        requested_fields: Vec::new(),
+        result_id: None,
+        scope_kind: seren::DelegationPolicyScopeKind::VaultAccess,
+        supersedes_request_id: create.supersedes_request_id,
+    }
+}
+
+async fn hosted_passwords_destination_organization(
+    client: &seren::Client,
+) -> Result<Uuid, McpError> {
+    let organizations = match client.list_organizations().await {
+        Ok(response) => response.into_inner(),
+        Err(error) => return Err(crate::server::seren_error_to_mcp_error(error).await),
+    };
+    organizations
+        .data
+        .first()
+        .map(|organization| organization.id)
+        .ok_or_else(|| {
+            McpError::invalid_request(
+                "No organization found for this credential. Cannot start hosted vault access.",
+                None,
+            )
+        })
+}
+
 fn hosted_passwords_consent_url(
     request_id: Uuid,
     consent_capability: Option<&str>,
@@ -3566,13 +3747,13 @@ enum PendingHostedAccessAction {
 
 fn pending_hosted_access_action(
     force: bool,
-    status: &DelegationStatus,
+    status: HostedDelegationStatus,
     has_consent_capability: bool,
 ) -> PendingHostedAccessAction {
     if force
-        || status == &DelegationStatus::Denied
-        || status == &DelegationStatus::Expired
-        || status == &DelegationStatus::Pending && !has_consent_capability
+        || status == HostedDelegationStatus::Denied
+        || status == HostedDelegationStatus::Expired
+        || status == HostedDelegationStatus::Pending && !has_consent_capability
     {
         PendingHostedAccessAction::Delete
     } else {
@@ -5143,14 +5324,14 @@ mod tests {
         let timestamp: jiff::Timestamp = "2030-01-01T18:19:00.123456789Z".parse().unwrap();
         let value = serde_json::json!({
             "expires_at": timestamp,
-            "status": &seren::DelegationStatus::Denied,
+            "status": &seren::DelegationPolicyRequestStatus::Declined,
         });
 
         assert_eq!(
             value,
             serde_json::json!({
                 "expires_at": "2030-01-01T18:19:00.123456789Z",
-                "status": "denied",
+                "status": "declined",
             })
         );
     }
@@ -5343,23 +5524,114 @@ mod tests {
         assert!(validate_passwords_import_metadata(&params).is_err());
     }
 
-    fn sample_delegation_record() -> seren::DelegationRequestRecord {
+    fn sample_policy_request() -> seren::DelegationPolicyRequestView {
         let timestamp: jiff::Timestamp = "2030-01-01T18:19:00Z".parse().unwrap();
-        seren::DelegationRequestRecord {
+        seren::DelegationPolicyRequestView {
+            agent_display_name: "Hosted MCP".to_string(),
+            agent_identity_id: Uuid::new_v4(),
+            agent_kem_fingerprint: "kem-fp".to_string(),
             agent_kem_public: "kem-public".to_string(),
+            agent_signing_fingerprint: "sig-fp".to_string(),
             agent_signing_public: "signing-public".to_string(),
-            api_key_id: None,
+            agent_target_kind: seren::DelegationAgentTargetKind::Bootstrap,
+            allowed_access_levels: vec![seren::AccessLevel::Read],
+            applied_at: None,
+            applied_deployment_revision_id: None,
             created_at: timestamp,
-            credential_kind: None,
             decided_at: None,
-            display_name: "Hosted MCP".to_string(),
+            deployment_id: None,
+            deployment_revision_id: None,
+            destination_organization_id: Uuid::new_v4(),
+            effective_mapping: Vec::new(),
+            effective_vault_access: vec![seren::DelegationEffectiveVaultAccess {
+                access_level: seren::AccessLevel::Read,
+                vault_id: Uuid::new_v4(),
+            }],
+            events: Vec::new(),
             expires_at: timestamp,
-            granted_vault_ids: vec![Uuid::new_v4()],
-            identity_id: None,
+            nonce: "n".repeat(16),
+            participants: Vec::new(),
+            policy: seren::DelegationApprovalPolicy {
+                allow_cross_organization: None,
+                allow_same_principal_across_roles: None,
+                stages: Vec::new(),
+            },
+            progress: seren::DelegationPolicyProgress {
+                active_participants: 0,
+                approved_participants: 0,
+                granted_vaults: 0,
+                mapped_fields: 0,
+                requested_fields: 0,
+                stages: Vec::new(),
+            },
             request_id: Uuid::new_v4(),
-            status: seren::DelegationStatus::Pending,
-            user_id: Uuid::new_v4(),
+            requested_fields: Vec::new(),
+            requester_identity_id: Uuid::new_v4(),
+            requester_user_id: Uuid::new_v4(),
+            result_id: Uuid::new_v4(),
+            scope_kind: seren::DelegationPolicyScopeKind::VaultAccess,
+            status: seren::DelegationPolicyRequestStatus::Pending,
+            supersedes_request_id: None,
         }
+    }
+
+    #[test]
+    fn policy_statuses_map_onto_the_hosted_grant_phases() {
+        assert_eq!(
+            hosted_status_from_policy(DelegationPolicyRequestStatus::Pending),
+            HostedDelegationStatus::Pending
+        );
+        assert_eq!(
+            hosted_status_from_policy(DelegationPolicyRequestStatus::PartiallyApproved),
+            HostedDelegationStatus::Pending
+        );
+        assert_eq!(
+            hosted_status_from_policy(DelegationPolicyRequestStatus::Approved),
+            HostedDelegationStatus::Approved
+        );
+        assert_eq!(
+            hosted_status_from_policy(DelegationPolicyRequestStatus::Applied),
+            HostedDelegationStatus::Approved
+        );
+        assert_eq!(
+            hosted_status_from_policy(DelegationPolicyRequestStatus::Declined),
+            HostedDelegationStatus::Denied
+        );
+        assert_eq!(
+            hosted_status_from_policy(DelegationPolicyRequestStatus::Cancelled),
+            HostedDelegationStatus::Expired
+        );
+    }
+
+    #[test]
+    fn hosted_vault_access_create_request_is_bootstrap_scoped() {
+        let organization_id = Uuid::from_u128(1);
+        let request_id = Uuid::from_u128(2);
+        let user_id = Uuid::from_u128(3);
+        let expires_at: jiff::Timestamp = "2030-01-01T00:00:00Z".parse().unwrap();
+        let body = hosted_vault_access_create_request(HostedVaultAccessCreateRequest {
+            organization_id,
+            request_id,
+            user_id,
+            display_name: "Hosted MCP",
+            kem_public: "kem",
+            signing_public: "sig",
+            expires_at,
+            supersedes_request_id: Some(Uuid::from_u128(4)),
+        });
+        assert_eq!(
+            body.scope_kind,
+            seren::DelegationPolicyScopeKind::VaultAccess
+        );
+        assert_eq!(
+            body.agent_target_kind,
+            seren::DelegationAgentTargetKind::Bootstrap
+        );
+        assert!(body.requested_fields.is_empty());
+        assert_eq!(body.destination_organization_id, organization_id);
+        assert_eq!(body.request_id, Some(request_id));
+        assert_eq!(body.supersedes_request_id, Some(Uuid::from_u128(4)));
+        assert_eq!(body.participants[0].expected_user_id, Some(user_id));
     }
 
     #[test]
@@ -5377,41 +5649,41 @@ mod tests {
     #[test]
     fn force_reconsent_replaces_an_existing_pending_request() {
         assert_eq!(
-            pending_hosted_access_action(true, &DelegationStatus::Pending, true),
+            pending_hosted_access_action(true, HostedDelegationStatus::Pending, true),
             PendingHostedAccessAction::Delete
         );
         assert_eq!(
-            pending_hosted_access_action(false, &DelegationStatus::Pending, false),
+            pending_hosted_access_action(false, HostedDelegationStatus::Pending, false),
             PendingHostedAccessAction::Delete
         );
         assert_eq!(
-            pending_hosted_access_action(false, &DelegationStatus::Pending, true),
+            pending_hosted_access_action(false, HostedDelegationStatus::Pending, true),
             PendingHostedAccessAction::ReturnConsent
         );
         assert_eq!(
-            pending_hosted_access_action(false, &DelegationStatus::Approved, true),
+            pending_hosted_access_action(false, HostedDelegationStatus::Approved, true),
             PendingHostedAccessAction::ReturnConsent
         );
         assert_eq!(
-            pending_hosted_access_action(false, &DelegationStatus::Denied, true),
+            pending_hosted_access_action(false, HostedDelegationStatus::Denied, true),
             PendingHostedAccessAction::Delete
         );
         assert_eq!(
-            pending_hosted_access_action(false, &DelegationStatus::Expired, true),
+            pending_hosted_access_action(false, HostedDelegationStatus::Expired, true),
             PendingHostedAccessAction::Delete
         );
     }
 
     #[test]
     fn hosted_delegation_parser_accepts_direct_sdk_response() {
-        let record = sample_delegation_record();
-        let body = serde_json::to_vec(&seren::DataResponseDelegationRequestRecord {
+        let record = sample_policy_request();
+        let body = serde_json::to_vec(&seren::DataResponseDelegationPolicyRequest {
             data: record.clone(),
         })
         .unwrap();
 
         let parsed = crate::server::decode_publisher_gateway_body::<
-            seren::DataResponseDelegationRequestRecord,
+            seren::DataResponseDelegationPolicyRequest,
         >(&body)
         .unwrap()
         .data;
@@ -5422,7 +5694,7 @@ mod tests {
 
     #[test]
     fn hosted_delegation_parser_accepts_gateway_envelope() {
-        let record = sample_delegation_record();
+        let record = sample_policy_request();
         let upstream = serde_json::json!({
             "data": record,
         });
@@ -5438,13 +5710,13 @@ mod tests {
             }
         });
         let parsed = crate::server::decode_publisher_gateway_body::<
-            seren::DataResponseDelegationRequestRecord,
+            seren::DataResponseDelegationPolicyRequest,
         >(serde_json::to_string(&gateway).unwrap().as_bytes())
         .unwrap()
         .data;
 
-        assert_eq!(parsed.display_name, "Hosted MCP");
-        assert_eq!(parsed.status, seren::DelegationStatus::Pending);
+        assert_eq!(parsed.agent_display_name, "Hosted MCP");
+        assert_eq!(parsed.status, seren::DelegationPolicyRequestStatus::Pending);
     }
 
     #[test]
@@ -5464,7 +5736,7 @@ mod tests {
             }
         });
         let err = crate::server::decode_publisher_gateway_body::<
-            seren::DataResponseDelegationRequestRecord,
+            seren::DataResponseDelegationPolicyRequest,
         >(serde_json::to_string(&gateway).unwrap().as_bytes())
         .unwrap_err();
 
@@ -5486,7 +5758,7 @@ mod tests {
             }
         });
         let err = crate::server::decode_publisher_gateway_body::<
-            seren::DataResponseDelegationRequestRecord,
+            seren::DataResponseDelegationPolicyRequest,
         >(serde_json::to_string(&gateway).unwrap().as_bytes())
         .unwrap_err();
 
@@ -5507,7 +5779,7 @@ mod tests {
             }
         });
         let err = crate::server::decode_publisher_gateway_body::<
-            seren::DataResponseDelegationRequestRecord,
+            seren::DataResponseDelegationPolicyRequest,
         >(serde_json::to_string(&gateway).unwrap().as_bytes())
         .unwrap_err();
 
@@ -5549,7 +5821,7 @@ mod tests {
 
     #[test]
     fn hosted_delegation_parser_accepts_string_gateway_body() {
-        let record = sample_delegation_record();
+        let record = sample_policy_request();
         let upstream = serde_json::json!({
             "data": record,
         });
@@ -5565,13 +5837,13 @@ mod tests {
             }
         });
         let parsed = crate::server::decode_publisher_gateway_body::<
-            seren::DataResponseDelegationRequestRecord,
+            seren::DataResponseDelegationPolicyRequest,
         >(serde_json::to_string(&gateway).unwrap().as_bytes())
         .unwrap()
         .data;
 
-        assert_eq!(parsed.display_name, "Hosted MCP");
-        assert_eq!(parsed.status, seren::DelegationStatus::Pending);
+        assert_eq!(parsed.agent_display_name, "Hosted MCP");
+        assert_eq!(parsed.status, seren::DelegationPolicyRequestStatus::Pending);
     }
 
     #[tokio::test]
