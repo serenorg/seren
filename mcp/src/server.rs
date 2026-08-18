@@ -23,8 +23,9 @@ use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::{router::tool::ToolRouter, tool::ToolCallContext, wrapper::Parameters},
     model::{
-        CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Extensions,
-        ListToolsResult, MetaObject, PaginatedRequestParams, ServerCapabilities, ServerInfo,
+        CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
+        Extensions, ListToolsResult, MetaObject, PaginatedRequestParams, ServerCapabilities,
+        ServerInfo,
     },
     service::{RequestContext, RoleServer},
     tool, tool_router,
@@ -15943,6 +15944,20 @@ fn normalize_tool_input_schema(mut tool: rmcp::model::Tool) -> rmcp::model::Tool
     tool
 }
 
+/// Freshness window for `tools/list` (SEP-2549). The catalog is compile-time
+/// static; five minutes keeps clients from holding a list across a deploy.
+const TOOLS_LIST_TTL_MS: u64 = 300_000;
+
+/// Build a `tools/list` result with the SEP-2549 cache hints some clients
+/// treat as required. Scope is private because the catalog is served in an
+/// authenticated session even when the advertised set is the same for all
+/// callers.
+fn tools_list_result(items: Vec<rmcp::model::Tool>) -> ListToolsResult {
+    ListToolsResult::with_all_items(items)
+        .with_ttl_ms(TOOLS_LIST_TTL_MS)
+        .with_cache_scope(CacheScope::Private)
+}
+
 // ============================================================================
 // Server Handler Implementation
 // ============================================================================
@@ -15992,7 +16007,7 @@ impl ServerHandler for SerenMcpServer {
             .into_iter()
             .map(normalize_tool_input_schema)
             .collect::<Vec<_>>();
-        Ok(ListToolsResult::with_all_items(items))
+        Ok(tools_list_result(items))
     }
 
     fn get_info(&self) -> ServerInfo {
@@ -17637,6 +17652,23 @@ mod tests {
         } else {
             collect_schema_slot_booleans(node, path, out);
         }
+    }
+
+    #[test]
+    fn list_tools_serializes_required_cache_hints() {
+        let json = serde_json::to_value(super::tools_list_result(Vec::new()))
+            .expect("serialize tools/list result");
+
+        assert_eq!(
+            json.get("ttlMs").and_then(|value| value.as_u64()),
+            Some(super::TOOLS_LIST_TTL_MS),
+            "tools/list must include ttlMs as a number; Claude Code rejects omitted SEP-2549 cache hints: {json}"
+        );
+        assert_eq!(
+            json.get("cacheScope"),
+            Some(&serde_json::json!("private")),
+            "tools/list must include cacheScope private; Claude Code rejects omitted SEP-2549 cache hints: {json}"
+        );
     }
 
     #[test]
