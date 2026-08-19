@@ -943,11 +943,11 @@ fn encode_turn(outbox_dir: &Path, turn: &OutboxTurn) -> Result<Vec<u8>> {
         content_omitted: turn.content_omitted,
         attempts: turn.attempts,
         next_attempt_at: turn.next_attempt_at,
-        last_error: if turn.content_omitted {
-            turn.last_error.clone()
-        } else {
-            None
-        },
+        // The delivery error is secret-redacted and bounded before it is
+        // stored, and it never contains captured content, so it stays
+        // readable even when the turn content is sealed: a stranded outbox
+        // must be diagnosable from its own records.
+        last_error: turn.last_error.clone(),
         observed_at: turn.observed_at,
         nonce: None,
         ciphertext: None,
@@ -3501,7 +3501,11 @@ mod tests {
 
         requeue_turn(dir.path(), &claimed, loaded, "boom").unwrap();
         let queued_raw = std::fs::read_to_string(queued_turn_path(dir.path(), &turn)).unwrap();
-        assert!(!queued_raw.contains("boom"));
+        // The bounded, secret-redacted delivery error stays readable so a
+        // stranded outbox can be diagnosed without the sealing key; the
+        // captured content itself must remain sealed.
+        assert!(queued_raw.contains("boom"));
+        assert!(!queued_raw.contains(&turn.assistant_text));
         assert_eq!(
             decode_turn(dir.path(), &queued_raw)
                 .unwrap()
