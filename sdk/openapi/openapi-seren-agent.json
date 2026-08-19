@@ -2306,7 +2306,8 @@
       "AgentRealtimeSessionsProvider": {
         "type": "string",
         "enum": [
-          "open_ai"
+          "openai",
+          "seren"
         ]
       },
       "AgentRemoteAgentAuth": {

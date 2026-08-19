@@ -2707,7 +2707,7 @@ fn default_employee_capability_policy() -> Result<seren::AgentCapabilityPolicy, 
         },
         "realtime_sessions": {
             "enabled": false,
-            "provider": "open_ai",
+            "provider": "openai",
             "voice_activity_detection": true,
             "input_transcription": true,
             "persist_transcripts": true,
@@ -16429,7 +16429,7 @@ mod tests {
             },
             "realtime_sessions": {
                 "enabled": true,
-                "provider": "open_ai",
+                "provider": "openai",
                 "voice_activity_detection": true,
                 "input_transcription": true,
                 "persist_transcripts": true,
