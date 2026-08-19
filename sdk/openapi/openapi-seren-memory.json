@@ -403,6 +403,63 @@
                 ]
             }
         },
+        "/jobs/reconcile": {
+            "post": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Reconcile similar stored memories",
+                "description": "Judges high-similarity memory pairs that write-time conflict resolution never compared, marking contradictions and adjusting relevance. Each pair is judged at most once. Normally runs on a schedule via seren-cron.",
+                "operationId": "reconcile_job",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReconcileJobRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Reconciliation result",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ReconcileJobResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Unexpected service error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
         "/knowledge/domains": {
             "get": {
                 "tags": [
@@ -5134,6 +5191,46 @@
                     }
                 }
             },
+            "DataResponse_ReconcileJobResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "pairs_examined",
+                            "reinforced",
+                            "contradicted",
+                            "weakened",
+                            "neutral"
+                        ],
+                        "properties": {
+                            "contradicted": {
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "neutral": {
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "pairs_examined": {
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "reinforced": {
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "weakened": {
+                                "type": "integer",
+                                "minimum": 0
+                            }
+                        }
+                    }
+                }
+            },
             "DataResponse_RememberOutput": {
                 "type": "object",
                 "required": [
@@ -7497,6 +7594,13 @@
                         "type": "integer",
                         "minimum": 0
                     },
+                    "cutoff_reason": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "Why the result set size was chosen: `limit` or `score_cliff`. MMR may\nstill fill those slots from past the cliff."
+                    },
                     "graph_hits": {
                         "type": "integer",
                         "minimum": 0
@@ -7505,17 +7609,58 @@
                         "type": "integer",
                         "minimum": 0
                     },
-                    "cutoff_reason": {
-                        "type": [
-                            "string",
-                            "null"
-                        ],
-                        "description": "Why the result set ended where it did: `limit` or `score_cliff`."
-                    },
                     "semantic_available": {
                         "type": "boolean"
                     },
                     "vector_hits": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                }
+            },
+            "ReconcileJobRequest": {
+                "type": "object",
+                "properties": {
+                    "max_pairs": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int64",
+                        "description": "Ceiling on pairs judged this run; each pair costs one model call."
+                    }
+                },
+                "example": {
+                    "max_pairs": 20
+                }
+            },
+            "ReconcileJobResponse": {
+                "type": "object",
+                "required": [
+                    "pairs_examined",
+                    "reinforced",
+                    "contradicted",
+                    "weakened",
+                    "neutral"
+                ],
+                "properties": {
+                    "contradicted": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "neutral": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "pairs_examined": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "reinforced": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "weakened": {
                         "type": "integer",
                         "minimum": 0
                     }
