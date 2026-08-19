@@ -2325,6 +2325,7 @@ pub struct UpdateSerenAgentDeploymentParams {
     pub dashboard_config: Option<serde_json::Value>,
     /// Updated runtime capability policy
     #[serde(default)]
+    #[schemars(with = "Option<JsonObjectSchema>")]
     pub capability_policy: Option<serde_json::Value>,
     /// Clear any existing capability policy
     #[serde(default)]
@@ -2721,10 +2722,37 @@ fn default_employee_capability_policy() -> Result<seren::AgentCapabilityPolicy, 
     })
 }
 
+/// Schema stand-in for a free-form JSON object parameter.
+///
+/// `serde_json::Value` derives a schema with no `type`. Declaring the object
+/// shape keeps schema-aware clients sending a nested object rather than a JSON
+/// string literal.
+type JsonObjectSchema = std::collections::BTreeMap<String, serde_json::Value>;
+
+/// Parse a nested JSON argument that arrived pre-stringified.
+///
+/// Returns `None` unless the text parses as a JSON object or array, so declared
+/// string values stay untouched.
+fn parse_stringified_json_document(raw: &str) -> Option<serde_json::Value> {
+    let trimmed = raw.trim();
+    if !matches!(trimmed.chars().next(), Some('{') | Some('[')) {
+        return None;
+    }
+
+    match serde_json::from_str::<serde_json::Value>(trimmed) {
+        Ok(parsed @ (serde_json::Value::Object(_) | serde_json::Value::Array(_))) => Some(parsed),
+        _ => None,
+    }
+}
+
 fn parse_capability_policy(
     value: Option<serde_json::Value>,
 ) -> Result<Option<seren::AgentCapabilityPolicy>, McpError> {
     value
+        .map(|value| match &value {
+            serde_json::Value::String(raw) => parse_stringified_json_document(raw).unwrap_or(value),
+            _ => value,
+        })
         .map(serde_json::from_value)
         .transpose()
         .map_err(|error| {
@@ -2825,6 +2853,7 @@ pub struct DeploySerenAgentParams {
     pub dashboard_config: Option<serde_json::Value>,
     /// Optional runtime capability policy for browser, audio, skills, realtime, and code execution
     #[serde(default)]
+    #[schemars(with = "Option<JsonObjectSchema>")]
     pub capability_policy: Option<serde_json::Value>,
     /// Optional visibility mode ("open" or "opaque")
     #[serde(default)]
@@ -5771,21 +5800,12 @@ fn normalize_api_request_body(
     let body = body?;
 
     match body {
-        // Some MCP clients hand nested JSON arguments to us as a pre-stringified
-        // object/array. Forward the parsed document so upstream API publishers
-        // receive JSON, not a JSON string literal.
-        serde_json::Value::String(raw) => {
-            let trimmed = raw.trim();
-            if !matches!(trimmed.chars().next(), Some('{') | Some('[')) {
-                return Some(Cow::Borrowed(body));
-            }
-
-            match serde_json::from_str::<serde_json::Value>(trimmed) {
-                Ok(parsed @ serde_json::Value::Object(_))
-                | Ok(parsed @ serde_json::Value::Array(_)) => Some(Cow::Owned(parsed)),
-                _ => Some(Cow::Borrowed(body)),
-            }
-        }
+        // Forward the parsed document so upstream API publishers receive JSON,
+        // not a JSON string literal.
+        serde_json::Value::String(raw) => match parse_stringified_json_document(raw) {
+            Some(parsed) => Some(Cow::Owned(parsed)),
+            None => Some(Cow::Borrowed(body)),
+        },
         _ => Some(Cow::Borrowed(body)),
     }
 }
@@ -16386,6 +16406,98 @@ mod tests {
     }
 
     #[test]
+    fn deploy_agent_accepts_a_string_wrapped_capability_policy() {
+        let policy = serde_json::json!({
+            "tool_error_recovery": {
+                "enabled": true,
+                "max_attempts": 3,
+                "global_limit": 12,
+                "backoff": {
+                    "kind": "exponential",
+                    "base_delay_ms": 100,
+                    "max_delay_ms": 2000
+                },
+                "allow_tools": [],
+                "deny_tools": []
+            },
+            "browser": { "enabled": false, "profile": "minimal" },
+            "audio": {
+                "enabled": true,
+                "speech_to_text": true,
+                "text_to_speech": true,
+                "voice_activity_detection": true
+            },
+            "realtime_sessions": {
+                "enabled": true,
+                "provider": "open_ai",
+                "voice_activity_detection": true,
+                "input_transcription": true,
+                "persist_transcripts": true,
+                "store_to_memory": true
+            }
+        });
+        let params: DeploySerenAgentParams = serde_json::from_value(serde_json::json!({
+            "name": "Realtime Employee",
+            "mode": "job",
+            "prompt": "Answer questions over voice.",
+            "capability_policy": policy.to_string()
+        }))
+        .expect("MCP deploy parameters should decode");
+
+        let request = build_deploy_seren_agent_request(params)
+            .expect("a string-wrapped capability policy should build an AgentSpec");
+        let payload = serde_json::to_value(request).expect("AgentSpec should serialize");
+
+        assert_eq!(
+            payload.pointer("/capability_policy/realtime_sessions/enabled"),
+            Some(&serde_json::json!(true))
+        );
+        assert_eq!(
+            payload.pointer("/capability_policy/audio/speech_to_text"),
+            Some(&serde_json::json!(true))
+        );
+    }
+
+    #[test]
+    fn deploy_agent_schema_declares_capability_policy_as_an_object() {
+        let schema = serde_json::to_value(schemars::schema_for!(DeploySerenAgentParams))
+            .expect("deploy schema should serialize");
+        let field = schema
+            .pointer("/properties/capability_policy")
+            .expect("capability_policy should be advertised");
+
+        assert_eq!(
+            field.get("type"),
+            Some(&serde_json::json!(["object", "null"])),
+            "capability_policy schema should declare an object type: {field}"
+        );
+        assert_eq!(
+            field.get("additionalProperties"),
+            Some(&serde_json::json!(true)),
+            "capability_policy should accept the full policy shape: {field}"
+        );
+    }
+
+    #[test]
+    fn deploy_agent_rejects_a_capability_policy_that_is_not_a_policy() {
+        let params: DeploySerenAgentParams = serde_json::from_value(serde_json::json!({
+            "name": "Realtime Employee",
+            "mode": "job",
+            "prompt": "Answer questions over voice.",
+            "capability_policy": "{\"browser\":{\"enabled\":\"yes\"}}"
+        }))
+        .expect("MCP deploy parameters should decode");
+
+        let error = build_deploy_seren_agent_request(params)
+            .expect_err("a malformed capability policy should be rejected");
+        assert!(
+            error.message.contains("Invalid capability_policy payload"),
+            "unexpected error: {}",
+            error.message
+        );
+    }
+
+    #[test]
     fn deploy_cloud_agent_rejects_platform_managed_api_key() {
         let secrets = serde_json::json!({
             "SEREN_API_KEY": "must-not-be-reported"
@@ -19903,6 +20015,31 @@ mod tests {
             request_body
                 .get("workload")
                 .is_none_or(serde_json::Value::is_null)
+        );
+    }
+
+    #[tokio::test]
+    async fn update_agent_accepts_a_string_wrapped_capability_policy() {
+        let api_client =
+            seren::Client::new_with_client("https://api.serendb.com", reqwest::Client::new());
+        let mut params = base_update_agent_params();
+        params.capability_policy = Some(serde_json::Value::String(
+            serde_json::json!({ "browser": { "enabled": true, "profile": "minimal" } }).to_string(),
+        ));
+
+        let request = build_update_seren_agent_deployment_request(&api_client, &params)
+            .await
+            .expect("a string-wrapped capability policy should build an update");
+        let payload = serde_json::to_value(
+            request
+                .capability_policy
+                .expect("the update should carry a capability policy"),
+        )
+        .expect("capability policy should serialize");
+
+        assert_eq!(
+            payload.pointer("/browser/enabled"),
+            Some(&serde_json::json!(true))
         );
     }
 
