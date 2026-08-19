@@ -947,7 +947,7 @@ fn encode_turn(outbox_dir: &Path, turn: &OutboxTurn) -> Result<Vec<u8>> {
         // stored, and it never contains captured content, so it stays
         // readable even when the turn content is sealed: a stranded outbox
         // must be diagnosable from its own records.
-        last_error: turn.last_error.clone(),
+        last_error: turn.last_error.as_deref().map(bounded_delivery_error),
         observed_at: turn.observed_at,
         nonce: None,
         ciphertext: None,
@@ -3513,6 +3513,25 @@ mod tests {
                 .as_deref(),
             Some("boom")
         );
+
+        let mut leaky = sample_turn("turn-secret");
+        leaky.last_error = Some(format!(
+            "capture failed: github ghp_{} {}",
+            "0123456789abcdef0123456789abcdef0123",
+            "x".repeat(1_200)
+        ));
+        let leaky_raw = String::from_utf8(encode_turn(dir.path(), &leaky).unwrap()).unwrap();
+        assert!(
+            !leaky_raw.contains("ghp_"),
+            "encode_turn must redact secret-shaped last_error on the plaintext envelope"
+        );
+        assert!(leaky_raw.contains("\"last_error\""));
+        assert!(leaky_raw.contains(REDACTED));
+        let decoded_error = decode_turn(dir.path(), &leaky_raw)
+            .unwrap()
+            .last_error
+            .expect("redacted last_error should survive encode");
+        assert!(decoded_error.chars().count() <= MAX_ERROR_CHARS);
         let status = outbox_status(dir.path());
         assert_eq!(status.queued, 1);
         assert_eq!(status.in_flight, 0);
