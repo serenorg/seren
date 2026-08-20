@@ -363,7 +363,9 @@ seren agent private-models chat --model <model-id> --message "Summarize this inc
 
 Managed prompt-based agents run through the first-class `seren-agent` publisher. Use them when you want a hosted agent with prompt-defined behavior, publisher-backed tool presets, approval controls, revision history, and optional remote A2A delegation without shipping a code bundle. Seren Employees is the product name for managed `seren-agent` deployments that run on Seren Cloud with a stable role, instructions, tools, approvals, and lifecycle.
 
-See [docs/managed-agents.md](../docs/managed-agents.md) for the full guide.
+See the [Seren Employee configuration guide](https://docs.serendb.com/guides/configure-a-managed-employee) for the full workflow.
+
+Managed-agent Seren Passwords setup requires browser-login OAuth authentication. API keys and agent identities cannot approve or mint their own persistent credential binding.
 
 ```bash
 # Deploy a read-oriented managed agent
@@ -379,6 +381,11 @@ seren agent deploy-prompt \
 # Inspect the resolved managed deployment
 seren agent managed-get <deployment-id>
 seren agent managed-revisions <deployment-id>
+
+# Attach Seren Passwords fields through the human-authorized setup flow
+seren agent managed-passwords-setup <deployment-id>
+seren agent managed-passwords-status <setup-id>
+seren agent managed-passwords-apply <setup-id>
 
 # Manage the deployment lifecycle through seren-agent
 seren agent managed-start <deployment-id>
@@ -404,6 +411,18 @@ seren agent managed-update <deployment-id> \
   --eval-gate-max-age-seconds 86400
 
 seren agent managed-update <deployment-id> --clear-eval-gate
+
+# Clear Python package requirements without replacing custom tool definitions
+seren agent managed-update <deployment-id> --clear-requirements-txt
+
+# Roll back with revision and credential-binding preconditions
+seren agent managed-rollback-preview <deployment-id> <revision-id> \
+  --expected-active-revision-id <active-revision-id> \
+  --secret-resolution-result-id <result-id>
+
+seren agent managed-rollback <deployment-id> <revision-id> \
+  --expected-active-revision-id <active-revision-id> \
+  --secret-resolution-result-id <result-id>
 
 # Invoke the deployment
 seren agent cloud run start --deployment-id <deployment-id> \

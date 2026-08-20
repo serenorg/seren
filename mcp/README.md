@@ -248,16 +248,21 @@ Seren Memory tools let assistants recall and store private context, retain conve
 
 The MCP server also exposes first-class tools for managed `seren-agent` deployments. Use these when you want prompt-defined cloud agents without uploading a code bundle. Seren Employees is the product name for managed `seren-agent` deployments that run on Seren Cloud with a stable role, instructions, tools, approvals, and lifecycle.
 
-See [docs/managed-agents.md](../docs/managed-agents.md) for the full model and CLI equivalents.
+See the [Seren Employee configuration guide](https://docs.serendb.com/guides/configure-a-managed-employee) for the full model and CLI equivalents.
+
+Managed-agent Seren Passwords setup remains human-authorized. Its setup, status, and apply tools require a signed-in OAuth user session; API keys and agent identities cannot approve or mint their own persistent credential binding.
 
 - `deploy_seren_agent` deploys a managed prompt-based agent
 - `get_seren_agent_deployment` returns the resolved deployment detail
+- `start_seren_agent_passwords_setup` starts the human-authorized Seren Passwords field-mapping flow and returns its browser launch URL
+- `get_seren_agent_passwords_setup_status` checks whether that setup is pending, approved, applied, or terminal
+- `apply_seren_agent_passwords_setup` attaches the approved identity, policy result, and exact field mapping through the revision-CAS update path
 - `list_seren_agent_deployment_revisions` shows immutable revision history
 - `start_seren_agent_deployment` starts a managed deployment through the seren-agent lifecycle API
 - `stop_seren_agent_deployment` stops a managed deployment through the seren-agent lifecycle API
 - `delete_seren_agent_deployment` deletes a managed deployment through the seren-agent lifecycle API
 - `preview_seren_agent_deployment_update` returns a resolved diff before mutation
-- `update_seren_agent_deployment` applies the managed update
+- `update_seren_agent_deployment` applies the managed update, including explicit credential and Python-requirements replacement or clearing with revision preconditions
 - `preview_seren_agent_deployment_rollback` previews a rollback diff
 - `rollback_seren_agent_deployment` reverts to a prior revision
 

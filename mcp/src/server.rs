@@ -2207,6 +2207,54 @@ pub struct GetSerenAgentDeploymentParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct StartSerenAgentPasswordsSetupParams {
+    /// Managed agent deployment UUID
+    pub deployment_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenAgentPasswordsSetupParams {
+    /// Setup UUID returned by start_seren_agent_passwords_setup
+    pub setup_id: Uuid,
+}
+
+fn managed_agent_secrets_setup_status(
+    request: &seren::DelegationPolicyRequestView,
+) -> serde_json::Value {
+    let next_step = match request.status {
+        seren::DelegationPolicyRequestStatus::Pending
+        | seren::DelegationPolicyRequestStatus::PartiallyApproved => {
+            "Complete the approval in Seren Passwords, then check this setup again."
+        }
+        seren::DelegationPolicyRequestStatus::Approved => {
+            "Call apply_seren_agent_passwords_setup with setup_id."
+        }
+        seren::DelegationPolicyRequestStatus::Applied => {
+            "The approved Seren Passwords binding has been applied."
+        }
+        seren::DelegationPolicyRequestStatus::Declined
+        | seren::DelegationPolicyRequestStatus::Expired
+        | seren::DelegationPolicyRequestStatus::Cancelled
+        | seren::DelegationPolicyRequestStatus::Superseded
+        | seren::DelegationPolicyRequestStatus::Conflicted => {
+            "Start a new managed agent Seren Passwords setup if access is still required."
+        }
+    };
+    serde_json::json!({
+        "status": request.status,
+        "setup_id": request.request_id,
+        "deployment_id": request.deployment_id,
+        "deployment_revision_id": request.deployment_revision_id,
+        "result_id": request.result_id,
+        "expires_at": request.expires_at,
+        "grant_expires_at": request.grant_expires_at,
+        "requested_field_count": request.requested_fields.len(),
+        "approved_mapping_count": request.effective_mapping.len(),
+        "next_step": next_step,
+    })
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ListSerenAgentDeploymentToolsParams {
     /// Deployment UUID
     pub deployment_id: Uuid,
@@ -2314,6 +2362,9 @@ pub struct UpdateSerenAgentDeploymentParams {
     /// Updated Python requirements.txt content
     #[serde(default)]
     pub requirements_txt: Option<String>,
+    /// Clear the Python requirements.txt content
+    #[serde(default)]
+    pub clear_requirements_txt: bool,
     /// Updated optional maximum wall-clock timeout per run in seconds
     #[serde(default)]
     pub max_timeout_seconds: Option<i32>,
@@ -2336,6 +2387,24 @@ pub struct UpdateSerenAgentDeploymentParams {
     /// Updated optional visibility mode ("open" or "opaque")
     #[serde(default)]
     pub visibility: Option<String>,
+    /// Replacement credential-reference list
+    #[serde(default)]
+    pub credentials: Option<Vec<seren::AgentCredentialRef>>,
+    /// Clear every credential reference
+    #[serde(default)]
+    pub clear_credentials: bool,
+    /// Seren Passwords agent identity for the approved credential mapping
+    #[serde(default)]
+    pub agent_identity_id: Option<Uuid>,
+    /// Approved Seren Passwords policy result for the credential mapping
+    #[serde(default)]
+    pub secret_resolution_result_id: Option<Uuid>,
+    /// Clear the current Seren Passwords policy result
+    #[serde(default)]
+    pub clear_secret_resolution_result_id: bool,
+    /// Current active revision against which the credential change was approved
+    #[serde(default)]
+    pub expected_active_revision_id: Option<Uuid>,
 }
 
 fn resolve_guided_string_alias(
@@ -2425,6 +2494,24 @@ async fn build_update_seren_agent_deployment_request(
             None,
         ));
     }
+    if params.requirements_txt.is_some() && params.clear_requirements_txt {
+        return Err(McpError::invalid_params(
+            "Provide either requirements_txt or clear_requirements_txt, not both.",
+            None,
+        ));
+    }
+    if params.credentials.is_some() && params.clear_credentials {
+        return Err(McpError::invalid_params(
+            "Provide either credentials or clear_credentials, not both.",
+            None,
+        ));
+    }
+    if params.secret_resolution_result_id.is_some() && params.clear_secret_resolution_result_id {
+        return Err(McpError::invalid_params(
+            "Provide either secret_resolution_result_id or clear_secret_resolution_result_id, not both.",
+            None,
+        ));
+    }
     let eval_gate = match (
         params.eval_gate_set_id,
         params.eval_gate_max_age_seconds,
@@ -2483,7 +2570,7 @@ async fn build_update_seren_agent_deployment_request(
     };
 
     Ok(seren::AgentSpecUpdate {
-        agent_identity_id: None,
+        agent_identity_id: params.agent_identity_id,
         agent_slug: params.agent_slug.clone(),
         alert_policy: None,
         allowed_remote_agent_origins: params.allowed_remote_agent_origins.clone(),
@@ -2491,28 +2578,28 @@ async fn build_update_seren_agent_deployment_request(
         capability_policy,
         clear_alert_policy: None,
         clear_capability_policy: params.clear_capability_policy.then_some(true),
-        clear_credentials: None,
+        clear_credentials: params.clear_credentials.then_some(true),
         clear_dashboard_config: None,
         clear_eval_gate: params.clear_eval_gate.then_some(true),
         clear_guardrails: None,
         clear_memory_policy: None,
         clear_runtime_policy: None,
-        clear_secret_resolution_result_id: None,
+        clear_secret_resolution_result_id: params.clear_secret_resolution_result_id.then_some(true),
         clear_session_database: None,
         clear_tool_refs: params.clear_tool_refs.then_some(true),
-        credentials: None,
+        credentials: params.credentials.clone(),
         cron_schedule: params.cron_schedule.clone(),
         cron_timezone: params.cron_timezone.clone(),
         dashboard_config: params.dashboard_config.clone(),
         eval_gate,
-        expected_active_revision_id: None,
+        expected_active_revision_id: params.expected_active_revision_id,
         guardrails: None,
         memory_policy: None,
         model_policy,
         name: params.name.clone(),
         private_output_policy: None,
         runtime_policy: None,
-        secret_resolution_result_id: None,
+        secret_resolution_result_id: params.secret_resolution_result_id,
         session_database: None,
         template,
         tool_presets,
@@ -2531,6 +2618,7 @@ fn update_requires_workload_replacement(params: &UpdateSerenAgentDeploymentParam
         || params.model_config.is_some()
         || params.fallback_models.is_some()
         || params.requirements_txt.is_some()
+        || params.clear_requirements_txt
         || params.requirements.is_some()
         || params.external_databases.is_some()
 }
@@ -2582,8 +2670,13 @@ async fn build_replacement_workload(
             llm_connection: detail.llm_connection,
             model_config: Some(params.model_config.clone().unwrap_or(detail.model_config)),
             model_id: Some(params.model_id.clone().unwrap_or(detail.model_id)),
-            requirements_txt: params.requirements_txt.clone().or(detail.requirements_txt),
-            tool_definitions: None,
+            requirements_txt: if params.clear_requirements_txt {
+                None
+            } else {
+                params.requirements_txt.clone().or(detail.requirements_txt)
+            },
+            tool_definitions: (!detail.tool_definitions.is_empty())
+                .then_some(detail.tool_definitions),
         },
         external_databases: resolve_updated_external_databases(
             params.external_databases.clone(),
@@ -13827,6 +13920,176 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "Start the human-authorized Seren Passwords setup for a managed seren-agent deployment and return the browser launch URL. Requires a signed-in OAuth user session; API keys and agent identities cannot authorize this setup.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn start_seren_agent_passwords_setup(
+        &self,
+        Parameters(params): Parameters<StartSerenAgentPasswordsSetupParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_account_user_session(&extensions)?;
+        ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Update)?;
+        let api_client = self.api_client(&extensions)?;
+        let deployments = api_client
+            .seren_agent_list_deployments()
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        let deployment = deployments
+            .iter()
+            .find(|deployment| deployment.id == params.deployment_id)
+            .ok_or_else(|| McpError::invalid_params("Managed agent deployment not found", None))?;
+        if deployment.managed_agent.is_none() {
+            return Err(McpError::invalid_params(
+                "Seren Passwords setup is only available for managed agent deployments",
+                None,
+            ));
+        }
+        let setup = api_client
+            .managed_agent_secrets_setup_initiate(
+                &deployment.organization_id,
+                &seren::InitiateManagedAgentSecretsSetupRequest {
+                    deployment_id: params.deployment_id,
+                    redirect_origin: seren::MANAGED_AGENT_SECRETS_REDIRECT_ORIGIN.to_string(),
+                },
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        Ok(CallToolResult::success(vec![json_content(
+            &serde_json::json!({
+                "status": "pending",
+                "setup_id": setup.setup_id,
+                "deployment_id": params.deployment_id,
+                "launch_url": setup.launch_url,
+                "expires_at": setup.expires_at,
+                "requested_fields": setup.requirements.requested_fields,
+                "next_step": "Open launch_url, unlock Seren Passwords, and approve the exact field mapping. Then call get_seren_agent_passwords_setup_status with setup_id.",
+            }),
+        )?]))
+    }
+
+    #[tool(
+        description = "Check the human-authorized Seren Passwords setup for a managed seren-agent deployment. Requires the same signed-in OAuth user session that initiated the setup.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn get_seren_agent_passwords_setup_status(
+        &self,
+        Parameters(params): Parameters<SerenAgentPasswordsSetupParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_account_user_session(&extensions)?;
+        let request = self
+            .get_passwords_policy_request(&extensions, params.setup_id)
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(
+            &managed_agent_secrets_setup_status(&request),
+        )?]))
+    }
+
+    #[tool(
+        description = "Apply an approved Seren Passwords setup to its managed seren-agent deployment using the server-returned identity and exact field mapping. Requires a signed-in OAuth user session.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn apply_seren_agent_passwords_setup(
+        &self,
+        Parameters(params): Parameters<SerenAgentPasswordsSetupParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_account_user_session(&extensions)?;
+        ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Update)?;
+        let request = self
+            .get_passwords_policy_request(&extensions, params.setup_id)
+            .await?;
+        let deployment_id = request.deployment_id.ok_or_else(|| {
+            McpError::invalid_params(
+                "Seren Passwords setup is not bound to a managed agent deployment",
+                None,
+            )
+        })?;
+        let api_client = self.api_client(&extensions)?;
+        let deployments = api_client
+            .seren_agent_list_deployments()
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        let organization_id = deployments
+            .iter()
+            .find(|deployment| deployment.id == deployment_id)
+            .map(|deployment| deployment.organization_id)
+            .ok_or_else(|| McpError::invalid_params("Managed agent deployment not found", None))?;
+        let detail = api_client
+            .seren_agent_get_managed_deployment(&deployment_id)
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        match seren::managed_agent_secrets_application(organization_id, &detail, &request)
+            .map_err(|error| McpError::invalid_request(error.to_string(), None))?
+        {
+            seren::ManagedAgentSecretsApplication::AlreadyApplied => {
+                return Ok(CallToolResult::success(vec![json_content(
+                    &serde_json::json!({
+                        "status": "applied",
+                        "setup_id": request.request_id,
+                        "deployment_id": deployment_id,
+                        "result_id": request.result_id,
+                        "active_revision_id": detail.active_revision_id,
+                        "already_applied": true,
+                    }),
+                )?]));
+            }
+            seren::ManagedAgentSecretsApplication::Update(update) => {
+                api_client
+                    .seren_agent_update_managed_deployment(&deployment_id, &update)
+                    .into_mcp_result()
+                    .await?;
+            }
+        }
+        let after = api_client
+            .seren_agent_get_managed_deployment(&deployment_id)
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        if !matches!(
+            seren::managed_agent_secrets_application(organization_id, &after, &request),
+            Ok(seren::ManagedAgentSecretsApplication::AlreadyApplied)
+        ) {
+            return Err(McpError::internal_error(
+                "The managed agent update completed but the Seren Passwords binding could not be verified",
+                None,
+            ));
+        }
+        Ok(CallToolResult::success(vec![json_content(
+            &serde_json::json!({
+                "status": "applied",
+                "setup_id": request.request_id,
+                "deployment_id": deployment_id,
+                "result_id": request.result_id,
+                "active_revision_id": after.active_revision_id,
+                "already_applied": false,
+            }),
+        )?]))
+    }
+
+    #[tool(
         description = "Get health for a single managed seren-agent deployment.",
         annotations(
             read_only_hint = true,
@@ -16217,6 +16480,10 @@ mod tests {
                 "tool_presets": [],
                 "allowed_publisher_operations": [],
                 "resolved_tools": [],
+                "tool_definitions": [{
+                    "name": "lookup",
+                    "description": "Look up a record."
+                }],
                 "approval_policy": "read_only",
                 "model_policy": "balanced",
                 "runtime_adapter": "seren_agent",
@@ -19485,6 +19752,54 @@ mod tests {
         assert!(run_error.message.contains("Hosted MCP with OAuth"));
     }
 
+    #[tokio::test]
+    async fn managed_agent_passwords_setup_rejects_api_keys_before_dispatch() {
+        let server = SerenMcpServer::new("restricted-key", "http://127.0.0.1:9").unwrap();
+        let api_key_extensions = || {
+            extensions_with_auth_context(crate::SerenRequestAuthContext {
+                user_id: Uuid::new_v4(),
+                email: None,
+                credential: crate::SerenRequestCredential::UserApiKey {
+                    api_key_id: Some(Uuid::new_v4()),
+                    api_key_scopes: Some(vec!["managed-deployment:*".to_string()]),
+                },
+            })
+        };
+
+        let start_error = server
+            .start_seren_agent_passwords_setup(
+                Parameters(StartSerenAgentPasswordsSetupParams {
+                    deployment_id: Uuid::new_v4(),
+                }),
+                api_key_extensions(),
+            )
+            .await
+            .expect_err("API key must not initiate managed agent Seren Passwords setup");
+        assert!(start_error.message.contains("Hosted MCP with OAuth"));
+
+        let apply_error = server
+            .apply_seren_agent_passwords_setup(
+                Parameters(SerenAgentPasswordsSetupParams {
+                    setup_id: Uuid::new_v4(),
+                }),
+                api_key_extensions(),
+            )
+            .await
+            .expect_err("API key must not apply managed agent Seren Passwords setup");
+        assert!(apply_error.message.contains("Hosted MCP with OAuth"));
+
+        let status_error = server
+            .get_seren_agent_passwords_setup_status(
+                Parameters(SerenAgentPasswordsSetupParams {
+                    setup_id: Uuid::new_v4(),
+                }),
+                api_key_extensions(),
+            )
+            .await
+            .expect_err("API key must not inspect managed agent Seren Passwords setup");
+        assert!(status_error.message.contains("Hosted MCP with OAuth"));
+    }
+
     #[test]
     fn extract_agent_metadata_includes_all_agent_headers() {
         let extensions = extensions_with_headers(&[
@@ -19721,6 +20036,7 @@ mod tests {
             model_config: None,
             fallback_models: None,
             requirements_txt: None,
+            clear_requirements_txt: false,
             max_timeout_seconds: None,
             requirements: None,
             external_databases: None,
@@ -19728,6 +20044,12 @@ mod tests {
             capability_policy: None,
             clear_capability_policy: false,
             visibility: None,
+            credentials: None,
+            clear_credentials: false,
+            agent_identity_id: None,
+            secret_resolution_result_id: None,
+            clear_secret_resolution_result_id: false,
+            expected_active_revision_id: None,
         };
 
         let err = build_update_seren_agent_deployment_request(&api_client, &params)
@@ -19769,6 +20091,7 @@ mod tests {
             model_config: None,
             fallback_models: None,
             requirements_txt: None,
+            clear_requirements_txt: false,
             max_timeout_seconds: None,
             requirements: None,
             external_databases: None,
@@ -19776,6 +20099,12 @@ mod tests {
             capability_policy: None,
             clear_capability_policy: false,
             visibility: None,
+            credentials: None,
+            clear_credentials: false,
+            agent_identity_id: None,
+            secret_resolution_result_id: None,
+            clear_secret_resolution_result_id: false,
+            expected_active_revision_id: None,
         }
     }
 
@@ -19801,6 +20130,10 @@ mod tests {
         assert_eq!(
             decoded_json.pointer("/data/credentials/0/publisher_slug"),
             Some(&serde_json::json!("slack-byok"))
+        );
+        assert_eq!(
+            decoded_json.pointer("/data/tool_definitions/0/name"),
+            Some(&serde_json::json!("lookup"))
         );
 
         let proxy = MockServer::start().await;
@@ -20070,6 +20403,72 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn update_agent_rejects_conflicting_clear_operations() {
+        let api_client =
+            seren::Client::new_with_client("https://api.serendb.com", reqwest::Client::new());
+
+        let mut requirements = base_update_agent_params();
+        requirements.requirements_txt = Some("httpx==0.28.1".to_string());
+        requirements.clear_requirements_txt = true;
+        let error = build_update_seren_agent_deployment_request(&api_client, &requirements)
+            .await
+            .expect_err("requirements content and clearing must be mutually exclusive");
+        assert!(error.message.contains("clear_requirements_txt"));
+
+        let mut credentials = base_update_agent_params();
+        credentials.credentials = Some(Vec::new());
+        credentials.clear_credentials = true;
+        let error = build_update_seren_agent_deployment_request(&api_client, &credentials)
+            .await
+            .expect_err("credential replacement and clearing must be mutually exclusive");
+        assert!(error.message.contains("clear_credentials"));
+
+        let mut result = base_update_agent_params();
+        result.secret_resolution_result_id = Some(Uuid::new_v4());
+        result.clear_secret_resolution_result_id = true;
+        let error = build_update_seren_agent_deployment_request(&api_client, &result)
+            .await
+            .expect_err("result replacement and clearing must be mutually exclusive");
+        assert!(error.message.contains("clear_secret_resolution_result_id"));
+    }
+
+    #[tokio::test]
+    async fn update_agent_passes_credential_binding_preconditions_through() {
+        let api_client =
+            seren::Client::new_with_client("https://api.serendb.com", reqwest::Client::new());
+        let credential = serde_json::from_value::<seren::AgentCredentialRef>(serde_json::json!({
+            "name": "slack_authorization",
+            "ref_uri": "seren-secrets://vault/item/password",
+            "kind": "api_key",
+            "binding": "header",
+            "binding_target": "Authorization",
+            "publisher_slug": "slack",
+            "rotation": null
+        }))
+        .expect("credential fixture");
+        let agent_identity_id = Uuid::new_v4();
+        let result_id = Uuid::new_v4();
+        let active_revision_id = Uuid::new_v4();
+        let mut params = base_update_agent_params();
+        params.credentials = Some(vec![credential]);
+        params.agent_identity_id = Some(agent_identity_id);
+        params.secret_resolution_result_id = Some(result_id);
+        params.expected_active_revision_id = Some(active_revision_id);
+
+        let request = build_update_seren_agent_deployment_request(&api_client, &params)
+            .await
+            .expect("credential binding update");
+
+        assert_eq!(request.agent_identity_id, Some(agent_identity_id));
+        assert_eq!(request.secret_resolution_result_id, Some(result_id));
+        assert_eq!(
+            request.expected_active_revision_id,
+            Some(active_revision_id)
+        );
+        assert_eq!(request.credentials.as_ref().map(Vec::len), Some(1));
+    }
+
     #[test]
     fn update_agent_external_databases_require_workload_replacement() {
         let mut params = base_update_agent_params();
@@ -20086,6 +20485,60 @@ mod tests {
 
         params.requirements_txt = Some("httpx==0.28.1".to_string());
         assert!(update_requires_workload_replacement(&params));
+
+        params.requirements_txt = None;
+        params.clear_requirements_txt = true;
+        assert!(update_requires_workload_replacement(&params));
+    }
+
+    #[tokio::test]
+    async fn update_agent_clear_requirements_preserves_custom_tools() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let deployment_id = Uuid::new_v4();
+        let proxy = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(managed_agent_detail_fixture(deployment_id)),
+            )
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let api_client = seren::Client::new_with_client(&proxy.uri(), reqwest::Client::new());
+        let mut params = base_update_agent_params();
+        params.deployment_id = deployment_id;
+        params.clear_requirements_txt = true;
+        params.secrets = Some(serde_json::json!({
+            "SEREN_AGENT_SESSION_DATABASE_URL": "preserved"
+        }));
+
+        let request = build_update_seren_agent_deployment_request(&api_client, &params)
+            .await
+            .expect("requirements clear update");
+        let workload = request.workload.expect("replacement workload");
+
+        match workload.execution {
+            seren::WorkloadExecution::Llm {
+                requirements_txt,
+                tool_definitions,
+                ..
+            } => {
+                assert!(requirements_txt.is_none());
+                assert_eq!(
+                    tool_definitions
+                        .as_ref()
+                        .and_then(|tools| tools.first())
+                        .map(|tool| tool.name.as_str()),
+                    Some("lookup")
+                );
+            }
+            other => panic!("expected LLM workload, got {other:?}"),
+        }
     }
 
     #[tokio::test]

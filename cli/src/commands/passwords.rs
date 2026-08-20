@@ -4095,7 +4095,7 @@ async fn passwords_api_client(ctx: &CommandContext) -> Result<seren::Client> {
 /// deserialize the direct `DataResponse<T>` shape, so the gateway envelope must
 /// be unwrapped here when present. Upstream response bodies are never surfaced
 /// in the error: a genuine failure maps to a status/generic message only.
-fn passwords_gateway_data<T>(
+pub(crate) fn passwords_gateway_data<T>(
     result: Result<seren::ResponseValue<T>, seren::Error<()>>,
     context: &'static str,
 ) -> Result<T>

@@ -43,6 +43,16 @@ impl CommandContext {
             .map_err(|e| anyhow::anyhow!("Failed to create API client: {}", e))
     }
 
+    pub async fn require_user_session(&self, operation: &str) -> Result<()> {
+        let bearer_token = get_bearer_token(self.api_key.clone()).await?;
+        if bearer_token.starts_with("seren_") {
+            anyhow::bail!(
+                "{operation} requires an interactive OAuth user session. Run `seren auth login` and choose browser login; API keys cannot carry user approval authority."
+            );
+        }
+        Ok(())
+    }
+
     /// Get the API base URL for raw HTTP requests.
     pub fn api_base(&self) -> String {
         match self.api_host.as_deref() {

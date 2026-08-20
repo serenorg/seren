@@ -2091,6 +2091,7 @@ pub struct ManagedAgentUpdateOptions<'a> {
     pub capability_policy_json: Option<&'a str>,
     pub capability_policy_path: Option<&'a str>,
     pub clear_capability_policy: bool,
+    pub clear_requirements_txt: bool,
     pub prompt: Option<&'a str>,
     pub model_id: Option<&'a str>,
     pub visibility: Option<&'a str>,
@@ -2105,6 +2106,7 @@ const ORCHESTRATION_CONFIG_FIELDS: &[&str] = &[
     "max_timeout_seconds",
     "max_tool_output_chars",
     "model_config",
+    "requirements_txt",
     "model_id",
     "requirements",
     "system_prompt",
@@ -2131,6 +2133,7 @@ const MANAGED_AGENT_CONFIG_FIELDS: &[&str] = &[
     "model_policy",
     "allowed_remote_agent_origins",
     "requirements",
+    "requirements_txt",
     "runtime_policy",
     "visibility",
 ];
@@ -2405,22 +2408,22 @@ const LLM_EXECUTION_FIELDS: &[&str] = &[
 ];
 
 /// Workload execution fields that distinguish deployment-bundle code workloads.
-const CODE_EXECUTION_FIELDS: &[&str] =
-    &["deployment_bundle_id", "requirements_txt", "runtime_kind"];
+const CODE_EXECUTION_FIELDS: &[&str] = &["deployment_bundle_id", "runtime_kind"];
 
 /// Reshape a flat deploy/update body into the SDK-shaped JSON object.
 ///
-/// The legacy CLI builds a flat `Map<String, Value>` of agent/cloud fields. The
-/// regenerated SDK nests workload-level fields under `workload`, splits the
+/// The CLI collects flags into a flat `Map<String, Value>`. The SDK contract
+/// nests workload-level fields under `workload`, splits the
 /// LLM/code execution into a tagged `WorkloadExecution`, bundles `eval_gate_*`
 /// into a typed `EvalGate`, and folds resource limits under `workload.limits`.
 fn reshape_body_for_sdk(
     body: serde_json::Map<String, serde_json::Value>,
     expect_code_workload: bool,
-) -> serde_json::Map<String, serde_json::Value> {
+) -> Result<serde_json::Map<String, serde_json::Value>> {
     let mut envelope = body;
 
     let prompt = envelope.remove("prompt");
+    let requirements_txt = envelope.remove("requirements_txt");
 
     let mut workload = serde_json::Map::new();
     let mut limits = serde_json::Map::new();
@@ -2467,8 +2470,15 @@ fn reshape_body_for_sdk(
     }
 
     let has_code = !code_execution.is_empty() || expect_code_workload;
-    let has_llm = !llm_execution.is_empty();
+    if has_code && !llm_execution.is_empty() {
+        anyhow::bail!(
+            "A deployment cannot combine code execution fields with LLM execution fields."
+        );
+    }
     if has_code {
+        if let Some(requirements_txt) = requirements_txt {
+            code_execution.insert("requirements_txt".to_string(), requirements_txt);
+        }
         code_execution.insert(
             "type".to_string(),
             serde_json::Value::String("code".to_string()),
@@ -2477,15 +2487,21 @@ fn reshape_body_for_sdk(
             "execution".to_string(),
             serde_json::Value::Object(code_execution),
         );
-    } else if has_llm {
-        llm_execution.insert(
-            "type".to_string(),
-            serde_json::Value::String("llm".to_string()),
-        );
-        workload.insert(
-            "execution".to_string(),
-            serde_json::Value::Object(llm_execution),
-        );
+    } else {
+        if let Some(requirements_txt) = requirements_txt {
+            llm_execution.insert("requirements_txt".to_string(), requirements_txt);
+        }
+        let has_llm = !llm_execution.is_empty();
+        if has_llm {
+            llm_execution.insert(
+                "type".to_string(),
+                serde_json::Value::String("llm".to_string()),
+            );
+            workload.insert(
+                "execution".to_string(),
+                serde_json::Value::Object(llm_execution),
+            );
+        }
     }
     if !limits.is_empty() {
         workload.insert("limits".to_string(), serde_json::Value::Object(limits));
@@ -2504,7 +2520,7 @@ fn reshape_body_for_sdk(
         envelope.insert("eval_gate".to_string(), serde_json::Value::Object(gate));
     }
 
-    envelope
+    Ok(envelope)
 }
 
 fn bundle_value_for_prompt(prompt: serde_json::Value) -> serde_json::Value {
@@ -2622,7 +2638,7 @@ async fn submit_cloud_deploy_request(
     let client = ctx.client().await?;
     let result = match deploy_publisher {
         SEREN_CLOUD_SLUG => {
-            let reshaped = reshape_body_for_sdk(body, true);
+            let reshaped = reshape_body_for_sdk(body, true)?;
             let request: seren::CreateCloudDeploymentRequest =
                 serde_json::from_value(serde_json::Value::Object(reshaped))
                     .map_err(|e| anyhow::anyhow!("Failed to build cloud deploy request: {}", e))?;
@@ -2632,7 +2648,7 @@ async fn submit_cloud_deploy_request(
             }
         }
         SEREN_AGENT_SLUG => {
-            let reshaped = reshape_body_for_sdk(body, false);
+            let reshaped = reshape_body_for_sdk(body, false)?;
             let request: seren::AgentSpec =
                 serde_json::from_value(serde_json::Value::Object(reshaped)).map_err(|e| {
                     anyhow::anyhow!("Failed to build managed deploy request: {}", e)
@@ -4231,6 +4247,204 @@ pub async fn managed_agent_get(deployment_id: Uuid, ctx: &CommandContext) -> Res
     Ok(())
 }
 
+async fn managed_agent_deployment_summary(
+    client: &seren::Client,
+    deployment_id: Uuid,
+) -> Result<seren::CloudDeploymentSummary> {
+    client
+        .seren_agent_list_deployments()
+        .await
+        .map_err(|error| anyhow::anyhow!("Failed to list managed agent deployments: {error}"))?
+        .into_inner()
+        .data
+        .into_iter()
+        .find(|deployment| deployment.id == deployment_id)
+        .ok_or_else(|| anyhow::anyhow!("Managed agent deployment not found: {deployment_id}"))
+}
+
+async fn managed_agent_secrets_policy_request(
+    client: &seren::Client,
+    setup_id: Uuid,
+) -> Result<seren::DelegationPolicyRequestView> {
+    let response: seren::DataResponseDelegationPolicyRequest =
+        crate::commands::passwords::passwords_gateway_data(
+            client.delegation_get(&setup_id).await,
+            "Failed to load managed agent Seren Passwords setup",
+        )?;
+    Ok(response.data)
+}
+
+fn managed_agent_secrets_status_json(
+    request: &seren::DelegationPolicyRequestView,
+) -> serde_json::Value {
+    let next_step = match request.status {
+        seren::DelegationPolicyRequestStatus::Pending
+        | seren::DelegationPolicyRequestStatus::PartiallyApproved => {
+            "Complete the approval in Seren Passwords, then check this setup again."
+        }
+        seren::DelegationPolicyRequestStatus::Approved => {
+            "Run `seren agent managed-passwords-apply <setup-id>`."
+        }
+        seren::DelegationPolicyRequestStatus::Applied => {
+            "The approved Seren Passwords binding has been applied."
+        }
+        seren::DelegationPolicyRequestStatus::Declined
+        | seren::DelegationPolicyRequestStatus::Expired
+        | seren::DelegationPolicyRequestStatus::Cancelled
+        | seren::DelegationPolicyRequestStatus::Superseded
+        | seren::DelegationPolicyRequestStatus::Conflicted => {
+            "Start a new managed agent Seren Passwords setup if access is still required."
+        }
+    };
+    serde_json::json!({
+        "status": request.status,
+        "setup_id": request.request_id,
+        "deployment_id": request.deployment_id,
+        "deployment_revision_id": request.deployment_revision_id,
+        "result_id": request.result_id,
+        "expires_at": request.expires_at,
+        "grant_expires_at": request.grant_expires_at,
+        "requested_field_count": request.requested_fields.len(),
+        "approved_mapping_count": request.effective_mapping.len(),
+        "next_step": next_step,
+    })
+}
+
+pub async fn managed_agent_secrets_setup(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    ctx.require_user_session("Managed agent Seren Passwords setup")
+        .await?;
+    let client = ctx.client().await?;
+    let deployment = managed_agent_deployment_summary(&client, deployment_id).await?;
+    if deployment.managed_agent.is_none() {
+        anyhow::bail!("Seren Passwords setup is only available for managed agent deployments");
+    }
+    let setup = match client
+        .managed_agent_secrets_setup_initiate(
+            &deployment.organization_id,
+            &seren::InitiateManagedAgentSecretsSetupRequest {
+                deployment_id,
+                redirect_origin: seren::MANAGED_AGENT_SECRETS_REDIRECT_ORIGIN.to_string(),
+            },
+        )
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to start managed agent Seren Passwords setup",
+                error,
+            )
+            .await);
+        }
+    };
+    let payload = serde_json::json!({
+        "status": "pending",
+        "setup_id": setup.setup_id,
+        "deployment_id": deployment_id,
+        "launch_url": setup.launch_url,
+        "expires_at": setup.expires_at,
+        "requested_fields": setup.requirements.requested_fields,
+    });
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&payload)?,
+        OutputFormat::Table => {
+            println!("Setup ID: {}", setup.setup_id);
+            println!("Expires: {}", setup.expires_at);
+            println!(
+                "Requested fields: {}",
+                setup.requirements.requested_fields.len()
+            );
+            println!("Open this URL to approve the exact Passwords field mapping:");
+            println!("{}", setup.launch_url);
+            println!();
+            println!(
+                "After approval, run `seren agent managed-passwords-status {}` and then `seren agent managed-passwords-apply {}`.",
+                setup.setup_id, setup.setup_id
+            );
+        }
+    }
+    Ok(())
+}
+
+pub async fn managed_agent_secrets_status(setup_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    ctx.require_user_session("Managed agent Seren Passwords setup status")
+        .await?;
+    let client = ctx.client().await?;
+    let request = managed_agent_secrets_policy_request(&client, setup_id).await?;
+    output::print_json(&managed_agent_secrets_status_json(&request))?;
+    Ok(())
+}
+
+pub async fn managed_agent_secrets_apply(setup_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    ctx.require_user_session("Managed agent Seren Passwords setup apply")
+        .await?;
+    let client = ctx.client().await?;
+    let request = managed_agent_secrets_policy_request(&client, setup_id).await?;
+    let deployment_id = request.deployment_id.ok_or_else(|| {
+        anyhow::anyhow!("Seren Passwords setup is not bound to a managed agent deployment")
+    })?;
+    let deployment = managed_agent_deployment_summary(&client, deployment_id).await?;
+    let detail = client
+        .seren_agent_get_managed_deployment(&deployment_id)
+        .await
+        .map_err(|error| anyhow::anyhow!("Failed to load managed agent detail: {error}"))?
+        .into_inner()
+        .data;
+    match seren::managed_agent_secrets_application(deployment.organization_id, &detail, &request)? {
+        seren::ManagedAgentSecretsApplication::AlreadyApplied => {
+            output::print_json(&serde_json::json!({
+                "status": "applied",
+                "setup_id": setup_id,
+                "deployment_id": deployment_id,
+                "result_id": request.result_id,
+                "active_revision_id": detail.active_revision_id,
+                "already_applied": true,
+            }))?;
+            return Ok(());
+        }
+        seren::ManagedAgentSecretsApplication::Update(update) => {
+            match client
+                .seren_agent_update_managed_deployment(&deployment_id, &update)
+                .await
+            {
+                Ok(_) => {}
+                Err(error) => {
+                    return Err(anyhow_from_seren_error(
+                        "Failed to apply managed agent Seren Passwords setup",
+                        error,
+                    )
+                    .await);
+                }
+            }
+        }
+    }
+    let after = client
+        .seren_agent_get_managed_deployment(&deployment_id)
+        .await
+        .map_err(|error| {
+            anyhow::anyhow!("Failed to verify managed agent Seren Passwords setup: {error}")
+        })?
+        .into_inner()
+        .data;
+    if !matches!(
+        seren::managed_agent_secrets_application(deployment.organization_id, &after, &request),
+        Ok(seren::ManagedAgentSecretsApplication::AlreadyApplied)
+    ) {
+        anyhow::bail!(
+            "The managed agent update completed but the Seren Passwords binding could not be verified"
+        );
+    }
+    output::print_json(&serde_json::json!({
+        "status": "applied",
+        "setup_id": setup_id,
+        "deployment_id": deployment_id,
+        "result_id": request.result_id,
+        "active_revision_id": after.active_revision_id,
+        "already_applied": false,
+    }))?;
+    Ok(())
+}
+
 /// List immutable revision snapshots for a managed seren-agent deployment.
 pub async fn managed_agent_revisions(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
@@ -4412,17 +4626,18 @@ async fn build_replacement_workload_for_managed_agent(
         .cloned()
         .map(serde_json::from_value)
         .transpose()
-        .map_err(|e| anyhow::anyhow!("Invalid tool_definitions payload: {}", e))?;
-    let requirements_txt = body
-        .get("requirements_txt")
-        .map(|value| {
+        .map_err(|e| anyhow::anyhow!("Invalid tool_definitions payload: {}", e))?
+        .or_else(|| (!detail.tool_definitions.is_empty()).then_some(detail.tool_definitions));
+    let requirements_txt = match body.get("requirements_txt") {
+        Some(serde_json::Value::Null) => None,
+        Some(value) => Some(
             value
                 .as_str()
                 .map(str::to_owned)
-                .ok_or_else(|| anyhow::anyhow!("requirements_txt must be a string"))
-        })
-        .transpose()?
-        .or(detail.requirements_txt);
+                .ok_or_else(|| anyhow::anyhow!("requirements_txt must be a string or null"))?,
+        ),
+        None => detail.requirements_txt,
+    };
 
     let config = body.get("config").cloned().or(detail.config);
     let secrets = body.get("secrets").cloned();
@@ -4542,6 +4757,7 @@ async fn build_managed_agent_update_request(
         capability_policy_json,
         capability_policy_path,
         clear_capability_policy,
+        clear_requirements_txt,
         prompt,
         model_id,
         visibility,
@@ -4644,6 +4860,14 @@ async fn build_managed_agent_update_request(
     if let Some(agent_config) = agent_config {
         merge_managed_agent_config(&mut body, agent_config)?;
     }
+    if clear_requirements_txt && body.contains_key("requirements_txt") {
+        return Err(anyhow::anyhow!(
+            "Provide either requirements_txt in --agent-config or --clear-requirements-txt, not both."
+        ));
+    }
+    if clear_requirements_txt {
+        body.insert("requirements_txt".to_string(), serde_json::Value::Null);
+    }
     if capability_policy.is_some() && clear_capability_policy {
         return Err(anyhow::anyhow!(
             "Provide either --capability-policy/--capability-policy-file or --clear-capability-policy, not both."
@@ -4710,11 +4934,13 @@ async fn build_managed_agent_update_request(
 
 fn build_managed_agent_rollback_request(
     revision_id: Uuid,
+    expected_active_revision_id: Option<Uuid>,
+    secret_resolution_result_id: Option<Uuid>,
 ) -> seren::RollbackSerenAgentDeploymentRequest {
     seren::RollbackSerenAgentDeploymentRequest {
-        expected_active_revision_id: None,
+        expected_active_revision_id,
         revision_id,
-        secret_resolution_result_id: None,
+        secret_resolution_result_id,
     }
 }
 
@@ -4770,10 +4996,16 @@ pub async fn managed_agent_update(
 pub async fn managed_agent_rollback_preview(
     deployment_id: Uuid,
     revision_id: Uuid,
+    expected_active_revision_id: Option<Uuid>,
+    secret_resolution_result_id: Option<Uuid>,
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
-    let body = build_managed_agent_rollback_request(revision_id);
+    let body = build_managed_agent_rollback_request(
+        revision_id,
+        expected_active_revision_id,
+        secret_resolution_result_id,
+    );
     let response = match client
         .seren_agent_preview_managed_deployment_rollback(&deployment_id, &body)
         .await
@@ -4793,10 +5025,16 @@ pub async fn managed_agent_rollback_preview(
 pub async fn managed_agent_rollback(
     deployment_id: Uuid,
     revision_id: Uuid,
+    expected_active_revision_id: Option<Uuid>,
+    secret_resolution_result_id: Option<Uuid>,
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
-    let body = build_managed_agent_rollback_request(revision_id);
+    let body = build_managed_agent_rollback_request(
+        revision_id,
+        expected_active_revision_id,
+        secret_resolution_result_id,
+    );
     let response = match client
         .seren_agent_rollback_managed_deployment(&deployment_id, &body)
         .await
@@ -9385,6 +9623,43 @@ mod tests {
     }
 
     #[test]
+    fn merge_managed_agent_config_accepts_requirements_txt() {
+        let mut body = serde_json::Map::new();
+        let requirements_txt = serde_json::json!("httpx==0.28.1");
+        let agent_config = serde_json::Map::from_iter([(
+            "requirements_txt".to_string(),
+            requirements_txt.clone(),
+        )]);
+
+        merge_managed_agent_config(&mut body, agent_config).unwrap();
+
+        assert_eq!(body.get("requirements_txt"), Some(&requirements_txt));
+    }
+
+    #[test]
+    fn managed_agent_rollback_request_preserves_security_preconditions() {
+        let revision_id = Uuid::new_v4();
+        let expected_active_revision_id = Uuid::new_v4();
+        let secret_resolution_result_id = Uuid::new_v4();
+
+        let request = build_managed_agent_rollback_request(
+            revision_id,
+            Some(expected_active_revision_id),
+            Some(secret_resolution_result_id),
+        );
+
+        assert_eq!(request.revision_id, revision_id);
+        assert_eq!(
+            request.expected_active_revision_id,
+            Some(expected_active_revision_id)
+        );
+        assert_eq!(
+            request.secret_resolution_result_id,
+            Some(secret_resolution_result_id)
+        );
+    }
+
+    #[test]
     fn build_deployment_name_map_prefers_name_then_skill_slug() {
         let deployments = vec![
             serde_json::json!({
@@ -9828,7 +10103,7 @@ mod tests {
             ),
         ]);
 
-        let reshaped = reshape_body_for_sdk(body, false);
+        let reshaped = reshape_body_for_sdk(body, false).unwrap();
         let request: seren::AgentSpec =
             serde_json::from_value(serde_json::Value::Object(reshaped)).unwrap();
 
@@ -9848,6 +10123,48 @@ mod tests {
             }
             other => panic!("expected llm workload, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn reshape_managed_requirements_stays_with_llm_execution() {
+        let body = serde_json::Map::from_iter([
+            ("name".to_string(), serde_json::json!("Research Agent")),
+            ("mode".to_string(), serde_json::json!("always_on")),
+            ("prompt".to_string(), serde_json::json!("watch the price")),
+            (
+                "requirements_txt".to_string(),
+                serde_json::json!("httpx==0.28.1"),
+            ),
+        ]);
+
+        let reshaped = reshape_body_for_sdk(body, false).unwrap();
+        let request: seren::AgentSpec =
+            serde_json::from_value(serde_json::Value::Object(reshaped)).unwrap();
+
+        match request.workload.execution {
+            seren::WorkloadExecution::Llm {
+                requirements_txt, ..
+            } => assert_eq!(requirements_txt.as_deref(), Some("httpx==0.28.1")),
+            other => panic!("expected llm workload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reshape_rejects_mixed_execution_fields() {
+        let body = serde_json::Map::from_iter([
+            (
+                "deployment_bundle_id".to_string(),
+                serde_json::json!(Uuid::new_v4()),
+            ),
+            (
+                "tool_definitions".to_string(),
+                serde_json::json!([{"name": "lookup", "description": "Look up a record."}]),
+            ),
+        ]);
+
+        let error = reshape_body_for_sdk(body, false).unwrap_err();
+
+        assert!(error.to_string().contains("cannot combine"));
     }
 
     #[test]

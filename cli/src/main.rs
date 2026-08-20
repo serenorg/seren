@@ -1458,6 +1458,21 @@ enum AgentAction {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
     },
+    /// Start human-authorized Seren Passwords setup for a managed agent
+    ManagedPasswordsSetup {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+    /// Check a managed agent Seren Passwords setup
+    ManagedPasswordsStatus {
+        /// Setup ID returned by managed-passwords-setup
+        setup_id: Uuid,
+    },
+    /// Apply an approved Seren Passwords setup to its managed agent
+    ManagedPasswordsApply {
+        /// Setup ID returned by managed-passwords-setup
+        setup_id: Uuid,
+    },
     /// Get a managed-agent resource summary for a deployment
     ManagedDeploymentResources {
         /// Deployment ID (UUID)
@@ -1525,6 +1540,12 @@ enum AgentAction {
         deployment_id: Uuid,
         /// Revision ID (UUID)
         revision_id: Uuid,
+        /// Current active revision against which the rollback was prepared
+        #[arg(long)]
+        expected_active_revision_id: Option<Uuid>,
+        /// Fresh Seren Passwords policy result when the target revision uses vault credentials
+        #[arg(long)]
+        secret_resolution_result_id: Option<Uuid>,
     },
     /// Roll a managed seren-agent deployment back to a prior revision
     ManagedRollback {
@@ -1532,6 +1553,12 @@ enum AgentAction {
         deployment_id: Uuid,
         /// Revision ID (UUID)
         revision_id: Uuid,
+        /// Current active revision against which the rollback was prepared
+        #[arg(long)]
+        expected_active_revision_id: Option<Uuid>,
+        /// Fresh Seren Passwords policy result when the target revision uses vault credentials
+        #[arg(long)]
+        secret_resolution_result_id: Option<Uuid>,
     },
     /// Preview runtime-policy reconciliation for a managed seren-agent deployment
     ManagedRuntimePolicyReconciliationPreview {
@@ -1614,6 +1641,9 @@ enum AgentAction {
         /// Clear the capability policy entirely
         #[arg(long)]
         clear_capability_policy: bool,
+        /// Clear the Python requirements.txt content
+        #[arg(long)]
+        clear_requirements_txt: bool,
     },
     /// Update an existing managed seren-agent deployment
     ManagedUpdate {
@@ -1686,6 +1716,9 @@ enum AgentAction {
         /// Clear the capability policy entirely
         #[arg(long)]
         clear_capability_policy: bool,
+        /// Clear the Python requirements.txt content
+        #[arg(long)]
+        clear_requirements_txt: bool,
     },
     /// Manage cloud deployments, environments, runs, approvals, and evals
     Cloud {
@@ -7391,6 +7424,15 @@ async fn main() -> anyhow::Result<()> {
             AgentAction::ManagedGet { deployment_id } => {
                 commands::agent::managed_agent_get(deployment_id, &ctx).await?
             }
+            AgentAction::ManagedPasswordsSetup { deployment_id } => {
+                commands::agent::managed_agent_secrets_setup(deployment_id, &ctx).await?
+            }
+            AgentAction::ManagedPasswordsStatus { setup_id } => {
+                commands::agent::managed_agent_secrets_status(setup_id, &ctx).await?
+            }
+            AgentAction::ManagedPasswordsApply { setup_id } => {
+                commands::agent::managed_agent_secrets_apply(setup_id, &ctx).await?
+            }
             AgentAction::ManagedDeploymentResources { deployment_id } => {
                 commands::agent::managed_agent_deployment_resources(deployment_id, &ctx).await?
             }
@@ -7443,14 +7485,33 @@ async fn main() -> anyhow::Result<()> {
             AgentAction::ManagedRollbackPreview {
                 deployment_id,
                 revision_id,
+                expected_active_revision_id,
+                secret_resolution_result_id,
             } => {
-                commands::agent::managed_agent_rollback_preview(deployment_id, revision_id, &ctx)
-                    .await?
+                commands::agent::managed_agent_rollback_preview(
+                    deployment_id,
+                    revision_id,
+                    expected_active_revision_id,
+                    secret_resolution_result_id,
+                    &ctx,
+                )
+                .await?
             }
             AgentAction::ManagedRollback {
                 deployment_id,
                 revision_id,
-            } => commands::agent::managed_agent_rollback(deployment_id, revision_id, &ctx).await?,
+                expected_active_revision_id,
+                secret_resolution_result_id,
+            } => {
+                commands::agent::managed_agent_rollback(
+                    deployment_id,
+                    revision_id,
+                    expected_active_revision_id,
+                    secret_resolution_result_id,
+                    &ctx,
+                )
+                .await?
+            }
             AgentAction::ManagedRuntimePolicyReconciliationPreview { deployment_id } => {
                 commands::agent::managed_agent_runtime_policy_reconciliation_preview(
                     deployment_id,
@@ -7485,6 +7546,7 @@ async fn main() -> anyhow::Result<()> {
                 capability_policy,
                 capability_policy_file,
                 clear_capability_policy,
+                clear_requirements_txt,
             } => {
                 commands::agent::managed_agent_preview(
                     deployment_id,
@@ -7507,6 +7569,7 @@ async fn main() -> anyhow::Result<()> {
                         capability_policy_json: capability_policy.as_deref(),
                         capability_policy_path: capability_policy_file.as_deref(),
                         clear_capability_policy,
+                        clear_requirements_txt,
                         prompt: prompt.as_deref(),
                         model_id: model_id.as_deref(),
                         visibility: visibility.as_deref(),
@@ -7538,6 +7601,7 @@ async fn main() -> anyhow::Result<()> {
                 capability_policy,
                 capability_policy_file,
                 clear_capability_policy,
+                clear_requirements_txt,
             } => {
                 commands::agent::managed_agent_update(
                     deployment_id,
@@ -7560,6 +7624,7 @@ async fn main() -> anyhow::Result<()> {
                         capability_policy_json: capability_policy.as_deref(),
                         capability_policy_path: capability_policy_file.as_deref(),
                         clear_capability_policy,
+                        clear_requirements_txt,
                         prompt: prompt.as_deref(),
                         model_id: model_id.as_deref(),
                         visibility: visibility.as_deref(),
@@ -7668,6 +7733,105 @@ mod tests {
                 _ => panic!("unexpected agent action parsed"),
             },
             _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn managed_passwords_commands_parse_setup_identifiers() {
+        let deployment_id = "550e8400-e29b-41d4-a716-446655440000";
+        let setup_id = "c2f579ec-3e8a-4a52-a969-203d2a80c98d";
+
+        let setup = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-passwords-setup",
+            deployment_id,
+        ]);
+        match setup.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedPasswordsSetup {
+                    deployment_id: parsed,
+                } => assert_eq!(parsed.to_string(), deployment_id),
+                _ => panic!("unexpected managed Passwords setup action"),
+            },
+            _ => panic!("unexpected command"),
+        }
+
+        for command in ["managed-passwords-status", "managed-passwords-apply"] {
+            let parsed = parse_cli_with_large_stack(vec!["seren", "agent", command, setup_id]);
+            match parsed.command {
+                Commands::Agent { action } => match (command, *action) {
+                    (
+                        "managed-passwords-status",
+                        AgentAction::ManagedPasswordsStatus { setup_id },
+                    )
+                    | (
+                        "managed-passwords-apply",
+                        AgentAction::ManagedPasswordsApply { setup_id },
+                    ) => {
+                        assert_eq!(setup_id.to_string(), "c2f579ec-3e8a-4a52-a969-203d2a80c98d");
+                    }
+                    _ => panic!("unexpected managed Passwords follow-up action"),
+                },
+                _ => panic!("unexpected command"),
+            }
+        }
+    }
+
+    #[test]
+    fn managed_update_and_rollback_parse_security_preconditions() {
+        let deployment_id = "550e8400-e29b-41d4-a716-446655440000";
+        let revision_id = "6f9619ff-8b86-d011-b42d-00cf4fc964ff";
+        let result_id = "c2f579ec-3e8a-4a52-a969-203d2a80c98d";
+
+        let update = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-update",
+            deployment_id,
+            "--clear-requirements-txt",
+        ]);
+        match update.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedUpdate {
+                    clear_requirements_txt,
+                    ..
+                } => assert!(clear_requirements_txt),
+                _ => panic!("unexpected managed update action"),
+            },
+            _ => panic!("unexpected command"),
+        }
+
+        let rollback = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-rollback",
+            deployment_id,
+            revision_id,
+            "--expected-active-revision-id",
+            revision_id,
+            "--secret-resolution-result-id",
+            result_id,
+        ]);
+        match rollback.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedRollback {
+                    expected_active_revision_id,
+                    secret_resolution_result_id,
+                    ..
+                } => {
+                    assert_eq!(
+                        expected_active_revision_id.map(|id| id.to_string()),
+                        Some(revision_id.to_string())
+                    );
+                    assert_eq!(
+                        secret_resolution_result_id.map(|id| id.to_string()),
+                        Some(result_id.to_string())
+                    );
+                }
+                _ => panic!("unexpected managed rollback action"),
+            },
+            _ => panic!("unexpected command"),
         }
     }
 

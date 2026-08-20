@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+pub const MANAGED_AGENT_SECRETS_REDIRECT_ORIGIN: &str = "https://passwords.serendb.com";
+
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 #[error("{0}")]
 pub struct ValidationError(pub String);
@@ -8,6 +10,171 @@ impl ValidationError {
     fn new(message: impl Into<String>) -> Self {
         Self(message.into())
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum ManagedAgentSecretsApplication {
+    AlreadyApplied,
+    Update(Box<crate::AgentSpecUpdate>),
+}
+
+fn valid_environment_name(value: &str) -> bool {
+    let mut chars = value.chars();
+    matches!(chars.next(), Some('_' | 'A'..='Z'))
+        && chars.all(|character| matches!(character, '_' | 'A'..='Z' | '0'..='9'))
+}
+
+fn compose_managed_agent_secrets_credentials(
+    current: &[crate::AgentCredentialRef],
+    mapping: &[crate::DelegationEffectiveMapping],
+) -> Result<Vec<crate::AgentCredentialRef>, ValidationError> {
+    let mut replacements = std::collections::BTreeMap::new();
+    for entry in mapping {
+        if !valid_environment_name(&entry.environment_name) {
+            return Err(ValidationError::new(format!(
+                "The approved mapping contains invalid environment name '{}'.",
+                entry.environment_name
+            )));
+        }
+        if !entry.ref_uri.starts_with("seren-secrets://") {
+            return Err(ValidationError::new(format!(
+                "The approved mapping for '{}' is not a Seren Passwords reference.",
+                entry.environment_name
+            )));
+        }
+        let credential = crate::AgentCredentialRef {
+            binding: crate::AgentCredentialBinding::ReferenceEnv,
+            binding_target: None,
+            kind: crate::AgentCredentialKind::ApiKey,
+            name: entry.environment_name.clone(),
+            publisher_slug: None,
+            ref_uri: entry.ref_uri.clone(),
+            rotation: None,
+        };
+        if replacements
+            .insert(entry.environment_name.clone(), credential)
+            .is_some()
+        {
+            return Err(ValidationError::new(format!(
+                "The approved mapping contains duplicate environment name '{}'.",
+                entry.environment_name
+            )));
+        }
+    }
+
+    let mut credentials = current
+        .iter()
+        .filter(|credential| {
+            !credential.ref_uri.starts_with("seren-secrets://")
+                && !replacements.contains_key(&credential.name)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    credentials.extend(replacements.into_values());
+    Ok(credentials)
+}
+
+fn credential_set_key(credential: &crate::AgentCredentialRef) -> Result<String, ValidationError> {
+    serde_json::to_string(credential).map_err(|error| {
+        ValidationError::new(format!("Could not compare credential references: {error}"))
+    })
+}
+
+fn same_credential_set(
+    left: &[crate::AgentCredentialRef],
+    right: &[crate::AgentCredentialRef],
+) -> Result<bool, ValidationError> {
+    if left.len() != right.len() {
+        return Ok(false);
+    }
+    let mut left = left
+        .iter()
+        .map(credential_set_key)
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut right = right
+        .iter()
+        .map(credential_set_key)
+        .collect::<Result<Vec<_>, _>>()?;
+    left.sort_unstable();
+    right.sort_unstable();
+    Ok(left == right)
+}
+
+pub fn managed_agent_secrets_application(
+    organization_id: uuid::Uuid,
+    detail: &crate::ManagedAgentDeploymentDetail,
+    request: &crate::DelegationPolicyRequestView,
+) -> Result<ManagedAgentSecretsApplication, ValidationError> {
+    if !matches!(
+        request.status,
+        crate::DelegationPolicyRequestStatus::Approved
+            | crate::DelegationPolicyRequestStatus::Applied
+    ) {
+        return Err(ValidationError::new(format!(
+            "The Seren Passwords setup is {} and cannot be applied.",
+            request.status
+        )));
+    }
+    if request.scope_kind != crate::DelegationPolicyScopeKind::SecretFields {
+        return Err(ValidationError::new(
+            "The setup request is not a secret-fields policy.",
+        ));
+    }
+    if request.deployment_id != Some(detail.deployment_id) {
+        return Err(ValidationError::new(
+            "The setup request belongs to another managed agent deployment.",
+        ));
+    }
+    if request.destination_organization_id != organization_id {
+        return Err(ValidationError::new(
+            "The setup request belongs to another organization.",
+        ));
+    }
+    if request.effective_mapping.is_empty() {
+        return Err(ValidationError::new(
+            "The approved Seren Passwords setup has no credential mapping.",
+        ));
+    }
+    if detail
+        .agent_identity_id
+        .is_some_and(|identity_id| identity_id != request.agent_identity_id)
+    {
+        return Err(ValidationError::new(
+            "The setup request names a different Seren Passwords agent identity than the managed agent.",
+        ));
+    }
+
+    let credentials =
+        compose_managed_agent_secrets_credentials(&detail.credentials, &request.effective_mapping)?;
+    if detail.secret_resolution_result_id == Some(request.result_id) {
+        if detail.agent_identity_id == Some(request.agent_identity_id)
+            && same_credential_set(&detail.credentials, &credentials)?
+        {
+            return Ok(ManagedAgentSecretsApplication::AlreadyApplied);
+        }
+        return Err(ValidationError::new(
+            "The managed agent names this policy result but its Seren Passwords binding does not match.",
+        ));
+    }
+
+    let active_revision_id = detail
+        .active_revision_id
+        .ok_or_else(|| ValidationError::new("The managed agent has no active revision to bind."))?;
+    if request.deployment_revision_id != Some(active_revision_id) {
+        return Err(ValidationError::new(
+            "The setup request does not match the managed agent's active revision.",
+        ));
+    }
+
+    Ok(ManagedAgentSecretsApplication::Update(Box::new(
+        crate::AgentSpecUpdate {
+            agent_identity_id: Some(request.agent_identity_id),
+            credentials: Some(credentials),
+            expected_active_revision_id: Some(active_revision_id),
+            secret_resolution_result_id: Some(request.result_id),
+            ..Default::default()
+        },
+    )))
 }
 
 pub fn normalize_optional_string(
@@ -398,6 +565,247 @@ pub fn validate_cloud_approval_resume_identity(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn credential(name: &str, ref_uri: &str) -> crate::AgentCredentialRef {
+        crate::AgentCredentialRef {
+            binding: crate::AgentCredentialBinding::ReferenceEnv,
+            binding_target: None,
+            kind: crate::AgentCredentialKind::ApiKey,
+            name: name.to_string(),
+            publisher_slug: None,
+            ref_uri: ref_uri.to_string(),
+            rotation: None,
+        }
+    }
+
+    fn mapping(name: &str, ref_uri: &str) -> crate::DelegationEffectiveMapping {
+        crate::DelegationEffectiveMapping {
+            environment_name: name.to_string(),
+            field: "password".to_string(),
+            field_group: None,
+            item_id: uuid::Uuid::new_v4(),
+            ref_uri: ref_uri.to_string(),
+            vault_id: uuid::Uuid::new_v4(),
+        }
+    }
+
+    fn managed_detail(
+        deployment_id: uuid::Uuid,
+        active_revision_id: uuid::Uuid,
+    ) -> crate::ManagedAgentDeploymentDetail {
+        serde_json::from_value(serde_json::json!({
+            "deployment_id": deployment_id,
+            "active_revision_id": active_revision_id,
+            "name": "Secrets Test",
+            "agent_slug": "secrets-test",
+            "mode": "job",
+            "compute_backend": "aws_container",
+            "runtime_kind": "python",
+            "status": "running",
+            "bundle": {},
+            "model_id": "openai/gpt-5",
+            "model_config": {},
+            "template": "research_monitor",
+            "tool_presets": [],
+            "allowed_publisher_operations": [],
+            "resolved_tools": [],
+            "approval_policy": "read_only",
+            "model_policy": "balanced",
+            "runtime_adapter": "seren_agent",
+            "private_output_policy": "private_session_database",
+            "secret_keys": [],
+            "credentials": [{
+                "name": "DIRECT",
+                "ref_uri": "org-secret://direct",
+                "kind": "api_key",
+                "binding": "reference_env"
+            }],
+            "requirements": [],
+            "visibility": "opaque",
+            "routing_reason": "test"
+        }))
+        .unwrap()
+    }
+
+    fn managed_secrets_policy_request(
+        organization_id: uuid::Uuid,
+        deployment_id: uuid::Uuid,
+        deployment_revision_id: uuid::Uuid,
+    ) -> crate::DelegationPolicyRequestView {
+        let timestamp: jiff::Timestamp = "2030-01-01T18:19:00Z".parse().unwrap();
+        crate::DelegationPolicyRequestView {
+            agent_display_name: "Managed agent".to_string(),
+            agent_identity_id: uuid::Uuid::new_v4(),
+            agent_kem_fingerprint: "kem-fp".to_string(),
+            agent_kem_public: "kem-public".to_string(),
+            agent_signing_fingerprint: "sig-fp".to_string(),
+            agent_signing_public: "signing-public".to_string(),
+            agent_target_kind: crate::DelegationAgentTargetKind::Existing,
+            allowed_access_levels: vec![crate::AccessLevel::Read],
+            applied_at: None,
+            applied_deployment_revision_id: None,
+            created_at: timestamp,
+            decided_at: Some(timestamp),
+            deployment_id: Some(deployment_id),
+            deployment_revision_id: Some(deployment_revision_id),
+            destination_organization_id: organization_id,
+            effective_mapping: vec![mapping("PASSWORD", "seren-secrets://vault/item/password")],
+            effective_vault_access: Vec::new(),
+            events: Vec::new(),
+            expires_at: timestamp,
+            grant_expires_at: None,
+            nonce: "n".repeat(16),
+            participants: Vec::new(),
+            policy: crate::DelegationApprovalPolicy {
+                allow_cross_organization: None,
+                allow_same_principal_across_roles: None,
+                stages: Vec::new(),
+            },
+            progress: crate::DelegationPolicyProgress {
+                active_participants: 0,
+                approved_participants: 1,
+                granted_vaults: 0,
+                mapped_fields: 1,
+                requested_fields: 1,
+                stages: Vec::new(),
+            },
+            request_id: uuid::Uuid::new_v4(),
+            requested_fields: Vec::new(),
+            requester_identity_id: uuid::Uuid::new_v4(),
+            requester_user_id: uuid::Uuid::new_v4(),
+            result_id: uuid::Uuid::new_v4(),
+            scope_kind: crate::DelegationPolicyScopeKind::SecretFields,
+            status: crate::DelegationPolicyRequestStatus::Approved,
+            supersedes_request_id: None,
+        }
+    }
+
+    #[test]
+    fn managed_agent_secrets_mapping_replaces_owned_names_and_old_secrets_refs() {
+        let current = vec![
+            credential("DIRECT", "org-secret://direct"),
+            credential("PASSWORD", "org-secret://shadowing-value"),
+            credential("OLD_PASSWORD", "seren-secrets://vault/item/old"),
+        ];
+        let mapping = vec![mapping("PASSWORD", "seren-secrets://vault/item/password")];
+
+        let credentials = compose_managed_agent_secrets_credentials(&current, &mapping).unwrap();
+
+        assert_eq!(credentials.len(), 2);
+        assert!(credentials.iter().any(|credential| {
+            credential.name == "DIRECT" && credential.ref_uri == "org-secret://direct"
+        }));
+        assert!(credentials.iter().any(|credential| {
+            credential.name == "PASSWORD"
+                && credential.ref_uri == "seren-secrets://vault/item/password"
+        }));
+    }
+
+    #[test]
+    fn managed_agent_secrets_mapping_rejects_invalid_or_duplicate_entries() {
+        assert!(
+            compose_managed_agent_secrets_credentials(
+                &[],
+                &[mapping("lowercase", "seren-secrets://vault/item/password")],
+            )
+            .is_err()
+        );
+        assert!(
+            compose_managed_agent_secrets_credentials(
+                &[],
+                &[mapping("PASSWORD", "org-secret://password")],
+            )
+            .is_err()
+        );
+        assert!(
+            compose_managed_agent_secrets_credentials(
+                &[],
+                &[
+                    mapping("PASSWORD", "seren-secrets://vault/item/password"),
+                    mapping("PASSWORD", "seren-secrets://vault/item/other"),
+                ],
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn managed_agent_secrets_application_binds_the_approved_revision_and_mapping() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+
+        let ManagedAgentSecretsApplication::Update(update) =
+            managed_agent_secrets_application(organization_id, &detail, &request).unwrap()
+        else {
+            panic!("approved setup must produce an update");
+        };
+
+        assert_eq!(update.agent_identity_id, Some(request.agent_identity_id));
+        assert_eq!(update.secret_resolution_result_id, Some(request.result_id));
+        assert_eq!(update.expected_active_revision_id, Some(revision_id));
+        let credentials = update.credentials.unwrap();
+        assert_eq!(credentials.len(), 2);
+        assert!(credentials.iter().any(|credential| {
+            credential.name == "PASSWORD"
+                && credential.ref_uri == "seren-secrets://vault/item/password"
+        }));
+    }
+
+    #[test]
+    fn managed_agent_secrets_application_rejects_stale_and_false_applied_bindings() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let mut detail = managed_detail(deployment_id, revision_id);
+        let request =
+            managed_secrets_policy_request(organization_id, deployment_id, uuid::Uuid::new_v4());
+        assert!(managed_agent_secrets_application(organization_id, &detail, &request).is_err());
+
+        detail.secret_resolution_result_id = Some(request.result_id);
+        detail.agent_identity_id = Some(request.agent_identity_id);
+        assert!(managed_agent_secrets_application(organization_id, &detail, &request).is_err());
+    }
+
+    #[test]
+    fn managed_agent_secrets_application_recognizes_an_exact_applied_binding() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let mut detail = managed_detail(deployment_id, revision_id);
+        let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+        let ManagedAgentSecretsApplication::Update(update) =
+            managed_agent_secrets_application(organization_id, &detail, &request).unwrap()
+        else {
+            panic!("approved setup must produce an update");
+        };
+        detail.credentials = update.credentials.unwrap();
+        detail.agent_identity_id = Some(request.agent_identity_id);
+        detail.secret_resolution_result_id = Some(request.result_id);
+        detail.active_revision_id = Some(uuid::Uuid::new_v4());
+
+        assert!(matches!(
+            managed_agent_secrets_application(organization_id, &detail, &request),
+            Ok(ManagedAgentSecretsApplication::AlreadyApplied)
+        ));
+    }
+
+    #[test]
+    fn managed_agent_secrets_application_rejects_wrong_org_and_identity() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let mut detail = managed_detail(deployment_id, revision_id);
+        let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+
+        assert!(
+            managed_agent_secrets_application(uuid::Uuid::new_v4(), &detail, &request).is_err()
+        );
+        detail.agent_identity_id = Some(uuid::Uuid::new_v4());
+        assert!(managed_agent_secrets_application(organization_id, &detail, &request).is_err());
+    }
 
     #[test]
     fn build_cloud_approval_resume_request_returns_none_without_pending_approvals() {

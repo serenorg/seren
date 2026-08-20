@@ -4537,6 +4537,13 @@
               "template": {
                 "$ref": "#/components/schemas/ManagedAgentTemplate"
               },
+              "tool_definitions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ToolDefinition"
+                },
+                "description": "Custom orchestration tool definitions declared by this deployment."
+              },
               "tool_presets": {
                 "type": "array",
                 "items": {
@@ -6398,6 +6405,13 @@
           },
           "template": {
             "$ref": "#/components/schemas/ManagedAgentTemplate"
+          },
+          "tool_definitions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolDefinition"
+            },
+            "description": "Custom orchestration tool definitions declared by this deployment."
           },
           "tool_presets": {
             "type": "array",

@@ -27,6 +27,7 @@ pub const DEV_NAMESPACE_PREFIX: &str = "dev-";
 pub const MAX_BUNDLE_TOTAL_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_INSTRUCTION_BYTES: usize = 1024 * 1024;
 pub const MAX_ASSET_BYTES: usize = 8 * 1024 * 1024;
+const MAX_REQUIREMENTS_TXT_BYTES: usize = 64 * 1024;
 
 /// File name -> AgentInstructionKind mapping for recognized instruction files.
 ///
@@ -139,9 +140,28 @@ pub fn package_agent_directory(options: &DevAgentOptions) -> Result<AgentSpecDra
 
     let mut instructions: Vec<seren::AgentInstructionFile> = Vec::new();
     let mut assets: Vec<seren::AgentAssetFile> = Vec::new();
+    let mut requirements_txt = None;
     let mut total_bytes: usize = 0;
 
     for (rel_path, path) in &entries {
+        if rel_path == "requirements.txt" {
+            let content = std::fs::read_to_string(path).with_context(|| {
+                format!("Could not read requirements file '{}'", path.display())
+            })?;
+            if content.len() > MAX_REQUIREMENTS_TXT_BYTES {
+                anyhow::bail!(
+                    "Requirements file '{}' is {} bytes, exceeds the limit of {} bytes.",
+                    rel_path,
+                    content.len(),
+                    MAX_REQUIREMENTS_TXT_BYTES
+                );
+            }
+            total_bytes = total_bytes.saturating_add(content.len());
+            ensure_total_under_limit(total_bytes, rel_path)?;
+            requirements_txt = Some(content);
+            continue;
+        }
+
         // Instruction recognition is intentionally limited to top-level files.
         // A nested SKILL.md at arbitrary depth would otherwise either silently
         // override the top-level one or fail unpredictably; treating nested
@@ -218,7 +238,7 @@ pub fn package_agent_directory(options: &DevAgentOptions) -> Result<AgentSpecDra
             llm_connection: None,
             model_config: None,
             model_id: None,
-            requirements_txt: None,
+            requirements_txt,
             tool_definitions: None,
         },
         external_databases: Vec::new(),
@@ -815,6 +835,35 @@ mod tests {
                     .decode(bundle.assets[0].content_base64.as_bytes())
                     .unwrap();
                 assert_eq!(decoded, b"some bytes");
+            }
+            other => panic!("expected LLM workload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn package_agent_directory_installs_top_level_requirements() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("SKILL.md"), "follow the skill").unwrap();
+        std::fs::write(dir.path().join("requirements.txt"), "httpx==0.28.1\n").unwrap();
+
+        let draft = package_agent_directory(&DevAgentOptions {
+            directory: dir.path().to_path_buf(),
+            name: None,
+            agent_slug: Some("requirements".to_string()),
+            user_discriminator: None,
+            dry_run: true,
+        })
+        .unwrap();
+
+        assert_eq!(draft.asset_count, 0);
+        match &draft.spec.workload.execution {
+            seren::WorkloadExecution::Llm {
+                bundle,
+                requirements_txt,
+                ..
+            } => {
+                assert!(bundle.assets.is_empty());
+                assert_eq!(requirements_txt.as_deref(), Some("httpx==0.28.1\n"));
             }
             other => panic!("expected LLM workload, got {other:?}"),
         }

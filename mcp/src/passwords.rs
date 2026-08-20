@@ -1191,6 +1191,16 @@ impl SerenMcpServer {
         extensions: &Extensions,
         request_id: Uuid,
     ) -> Result<HostedDelegationSnapshot, McpError> {
+        self.get_passwords_policy_request(extensions, request_id)
+            .await
+            .map(hosted_delegation_snapshot)
+    }
+
+    pub(crate) async fn get_passwords_policy_request(
+        &self,
+        extensions: &Extensions,
+        request_id: Uuid,
+    ) -> Result<seren::DelegationPolicyRequestView, McpError> {
         let client = self.api_client(extensions)?;
         let response = match client.delegation_get(&request_id).await {
             Ok(response) => response,
@@ -1198,7 +1208,7 @@ impl SerenMcpServer {
                 return crate::server::decode_publisher_gateway_body::<
                     seren::DataResponseDelegationPolicyRequest,
                 >(&bytes)
-                .map(|response| hosted_delegation_snapshot(response.data))
+                .map(|response| response.data)
                 .map_err(|fallback| {
                     McpError::internal_error(
                         format!(
@@ -1210,7 +1220,7 @@ impl SerenMcpServer {
             }
             Err(e) => return Err(crate::server::seren_error_to_mcp_error(e).await),
         };
-        Ok(hosted_delegation_snapshot(response.into_inner().data))
+        Ok(response.into_inner().data)
     }
 
     async fn mint_hosted_passwords_agent_key(
@@ -3636,7 +3646,7 @@ fn hosted_delegation_snapshot(
             .map(|access| access.vault_id)
             .collect(),
         identity_id: Some(request.agent_identity_id),
-        expires_at: request.expires_at,
+        expires_at: request.grant_expires_at.unwrap_or(request.expires_at),
     }
 }
 
@@ -5580,7 +5590,7 @@ mod tests {
             }],
             events: Vec::new(),
             expires_at: timestamp,
-            grant_expires_at: None,
+            grant_expires_at: Some(timestamp),
             nonce: "n".repeat(16),
             participants: Vec::new(),
             policy: seren::DelegationApprovalPolicy {
