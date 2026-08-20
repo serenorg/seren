@@ -1365,6 +1365,14 @@
         "type": "object",
         "description": "Partial agent-bundle update for an existing managed deployment.",
         "properties": {
+          "expected_active_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Current active revision the file update was approved against."
+          },
           "remove_assets": {
             "type": "array",
             "items": {
@@ -1378,6 +1386,14 @@
               "$ref": "#/components/schemas/AgentInstructionFileSelector"
             },
             "description": "Instruction files to remove before applying upserts."
+          },
+          "secret_resolution_result_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Fresh Passwords policy result required when this deployment uses\n`seren-secrets://` references."
           },
           "upsert_assets": {
             "type": "array",
@@ -2683,7 +2699,7 @@
             "items": {
               "$ref": "#/components/schemas/AgentCredentialRef"
             },
-            "description": "Optional credential references resolved by the control plane at runtime.\nAccepts `seren-secrets://{vault_id}/{item_id}/{field}` for vault-held\ncredentials, `control-plane://providers/{id-or-slug}` for control-plane\nprovider credentials, and `org-secret://{key}` / `user-secret://{key}`\nfor reusable credential-secret records managed through\n`/organizations/{organization_id}/agent-credential-secrets`.\n`seren-secrets://` references additionally require\n`secret_resolution_delegation`, which is signed client-side in the\nEmployees UI and cannot be produced by an API key."
+            "description": "Optional credential references resolved by the control plane at runtime.\nAccepts `seren-secrets://{vault_id}/{item_id}/{field}` for vault-held\ncredentials, `control-plane://providers/{id-or-slug}` for control-plane\nprovider credentials, and `org-secret://{key}` / `user-secret://{key}`\nfor reusable credential-secret records managed through\n`/organizations/{organization_id}/agent-credential-secrets`.\n`seren-secrets://` references additionally require\nan approved multi-principal `secret_resolution_result_id` created in the\nEmployees UI."
           },
           "cron_schedule": {
             "type": [
@@ -2778,12 +2794,13 @@
               }
             ]
           },
-          "secret_resolution_delegation": {
+          "secret_resolution_result_id": {
             "type": [
               "string",
               "null"
             ],
-            "description": "User-authorized Seren Secrets delegation used by the runtime to renew\ndeployment-scoped secret grants."
+            "format": "uuid",
+            "description": "Passwords policy result used by the runtime to renew deployment-scoped\nsecret grants."
           },
           "session_database": {
             "oneOf": [
@@ -2935,9 +2952,9 @@
             "type": "boolean",
             "description": "Clear any existing runtime policy."
           },
-          "clear_secret_resolution_delegation": {
+          "clear_secret_resolution_result_id": {
             "type": "boolean",
-            "description": "Clear any existing Seren Secrets delegation."
+            "description": "Clear any existing Seren Passwords policy result."
           },
           "clear_session_database": {
             "type": "boolean",
@@ -2955,7 +2972,7 @@
             "items": {
               "$ref": "#/components/schemas/AgentCredentialRef"
             },
-            "description": "Updated credential references. Replaces the entire previous list when\npresent. Accepts `seren-secrets://{vault_id}/{item_id}/{field}`,\n`control-plane://providers/{id-or-slug}`, `org-secret://{key}`, and\n`user-secret://{key}`. `seren-secrets://` references require a client-signed\n`secret_resolution_delegation` created in the Employees UI."
+            "description": "Updated credential references. Replaces the entire previous list when\npresent. Accepts `seren-secrets://{vault_id}/{item_id}/{field}`,\n`control-plane://providers/{id-or-slug}`, `org-secret://{key}`, and\n`user-secret://{key}`. `seren-secrets://` references require an approved\n`secret_resolution_result_id` created in the Employees UI."
           },
           "cron_schedule": {
             "type": [
@@ -2984,6 +3001,14 @@
                 "description": "Updated eval gate configuration."
               }
             ]
+          },
+          "expected_active_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Active revision against which the policy result was approved. Required\nwhen replacing Seren Secrets credentials, Employee identity, or result."
           },
           "guardrails": {
             "type": [
@@ -3046,12 +3071,13 @@
               }
             ]
           },
-          "secret_resolution_delegation": {
+          "secret_resolution_result_id": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Updated user-authorized Seren Secrets delegation."
+            "format": "uuid",
+            "description": "Updated approved Seren Passwords policy result."
           },
           "session_database": {
             "oneOf": [
@@ -4354,6 +4380,16 @@
                   }
                 ]
               },
+              "managed_agent_secret_requirements": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedAgentSecretRequirements"
+                  }
+                ]
+              },
               "max_iterations": {
                 "type": [
                   "integer",
@@ -4460,6 +4496,14 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "secret_resolution_result_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Delegation result the active binding was applied from. Clients use\nthis to tell an applied binding apart from an approved delegation\nthat has not been applied yet."
               },
               "session_database": {
                 "oneOf": [
@@ -6192,6 +6236,16 @@
               }
             ]
           },
+          "managed_agent_secret_requirements": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentSecretRequirements"
+              }
+            ]
+          },
           "max_iterations": {
             "type": [
               "integer",
@@ -6298,6 +6352,14 @@
             "items": {
               "type": "string"
             }
+          },
+          "secret_resolution_result_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Delegation result the active binding was applied from. Clients use\nthis to tell an applied binding apart from an approved delegation\nthat has not been applied yet."
           },
           "session_database": {
             "oneOf": [
@@ -6917,6 +6979,7 @@
         "oneOf": [
           {
             "type": "object",
+            "description": "Use the organization's private-model routing through seren-private-models.",
             "required": [
               "provider"
             ],
@@ -6928,6 +6991,29 @@
                 ]
               }
             }
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ManagedCodexConnection",
+                "description": "Run the Employee on the deployment owner's own OpenAI Codex access."
+              },
+              {
+                "type": "object",
+                "required": [
+                  "provider"
+                ],
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "enum": [
+                      "codex"
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "Run the Employee on the deployment owner's own OpenAI Codex access."
           }
         ]
       },
@@ -7376,6 +7462,227 @@
             "$ref": "#/components/schemas/CloudDeploymentMode"
           }
         }
+      },
+      "ManagedAgentSecretFieldRequirement": {
+        "type": "object",
+        "required": [
+          "environment_name",
+          "display_label",
+          "source"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "display_label": {
+            "type": "string"
+          },
+          "environment_name": {
+            "type": "string"
+          },
+          "field_group": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/ManagedAgentSecretRequirementSource"
+          }
+        }
+      },
+      "ManagedAgentSecretRequirementSource": {
+        "type": "string",
+        "enum": [
+          "manifest_env",
+          "manifest_secret",
+          "connector_catalog"
+        ]
+      },
+      "ManagedAgentSecretRequirements": {
+        "type": "object",
+        "required": [
+          "deployment_id",
+          "active_revision_id",
+          "requirements_fingerprint",
+          "requested_fields",
+          "allowed_access_levels",
+          "participants",
+          "policy",
+          "approval_request_ttl_seconds",
+          "applied_grant_lifecycle"
+        ],
+        "properties": {
+          "active_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "allowed_access_levels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "applied_grant_lifecycle": {
+            "$ref": "#/components/schemas/ManagedAgentSecretsGrantLifecycle"
+          },
+          "approval_request_ttl_seconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentSecretsParticipant"
+            }
+          },
+          "policy": {
+            "$ref": "#/components/schemas/ManagedAgentSecretsPolicy"
+          },
+          "requested_fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentSecretFieldRequirement"
+            }
+          },
+          "requirements_fingerprint": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentSecretsApprovalRule": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "all_of"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ManagedAgentSecretsGrantLifecycle": {
+        "type": "string",
+        "enum": [
+          "deployment_revision"
+        ]
+      },
+      "ManagedAgentSecretsParticipant": {
+        "type": "object",
+        "required": [
+          "role",
+          "stage",
+          "can_revoke",
+          "expected_user_id",
+          "expected_organization_id"
+        ],
+        "properties": {
+          "can_revoke": {
+            "type": "boolean"
+          },
+          "expected_organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ManagedAgentSecretsPolicy": {
+        "type": "object",
+        "required": [
+          "allow_cross_organization",
+          "allow_same_principal_across_roles",
+          "stages"
+        ],
+        "properties": {
+          "allow_cross_organization": {
+            "type": "boolean"
+          },
+          "allow_same_principal_across_roles": {
+            "type": "boolean"
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentSecretsPolicyStage"
+            }
+          }
+        }
+      },
+      "ManagedAgentSecretsPolicyStage": {
+        "type": "object",
+        "required": [
+          "stage",
+          "execution",
+          "requirements"
+        ],
+        "properties": {
+          "execution": {
+            "$ref": "#/components/schemas/ManagedAgentSecretsStageExecution"
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentSecretsRoleRequirement"
+            }
+          },
+          "stage": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ManagedAgentSecretsRoleRequirement": {
+        "type": "object",
+        "required": [
+          "role",
+          "metadata_only",
+          "approval"
+        ],
+        "properties": {
+          "approval": {
+            "$ref": "#/components/schemas/ManagedAgentSecretsApprovalRule"
+          },
+          "metadata_only": {
+            "type": "boolean"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentSecretsStageExecution": {
+        "type": "string",
+        "enum": [
+          "parallel",
+          "sequential"
+        ]
       },
       "ManagedAgentSessionDatabase": {
         "type": "object",
@@ -7832,6 +8139,63 @@
           "custom"
         ]
       },
+      "ManagedCodexAuth": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Bill inference to an OpenAI platform API key.",
+            "required": [
+              "secret_ref",
+              "method"
+            ],
+            "properties": {
+              "method": {
+                "type": "string",
+                "enum": [
+                  "api_key"
+                ]
+              },
+              "secret_ref": {
+                "type": "string",
+                "description": "`seren-secrets://{vault_id}/{item_id}/{field}` reference whose field\nvalue is the OpenAI API key. Resolved at invocation time."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Bill inference to the owner's ChatGPT subscription through a Codex\nsign-in credential.",
+            "required": [
+              "secret_ref",
+              "method"
+            ],
+            "properties": {
+              "method": {
+                "type": "string",
+                "enum": [
+                  "chatgpt_subscription"
+                ]
+              },
+              "secret_ref": {
+                "type": "string",
+                "description": "`seren-secrets://{vault_id}/{item_id}/{field}` reference whose field\nvalue is the Codex credential cache (`auth.json` contents). Resolved\nat invocation time into an invocation-scoped Codex home."
+              }
+            }
+          }
+        ],
+        "description": "Codex authentication for a managed deployment. The credential is always a\nreference to a Seren Secrets field that the deployment is already granted;\nplaintext credentials are never accepted, stored, or returned."
+      },
+      "ManagedCodexConnection": {
+        "type": "object",
+        "required": [
+          "auth"
+        ],
+        "properties": {
+          "auth": {
+            "$ref": "#/components/schemas/ManagedCodexAuth",
+            "description": "How the Codex runtime authenticates for this deployment."
+          }
+        }
+      },
       "ManagedDeploymentCondition": {
         "type": "object",
         "description": "Structured condition reported on a managed deployment's status. Mirrors the\nshape of `metav1.Condition` (Kubernetes) in our own DTOs without importing\nthe Kubernetes types into the public API. Each condition has a typed\n`type`, a tri-state `status`, and human-readable `reason`/`message` fields.",
@@ -8068,9 +8432,25 @@
           "revision_id"
         ],
         "properties": {
+          "expected_active_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Current active revision the rollback was approved against."
+          },
           "revision_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "secret_resolution_result_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Fresh Passwords policy result required when the target revision uses\n`seren-secrets://` references."
           }
         },
         "additionalProperties": false

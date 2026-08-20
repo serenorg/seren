@@ -5037,6 +5037,128 @@
         ]
       }
     },
+    "/organizations/{organization_id}/managed-agent-secrets/setups": {
+      "post": {
+        "tags": [
+          "Organizations"
+        ],
+        "operationId": "managed_agent_secrets_setup_initiate",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InitiateManagedAgentSecretsSetupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Short-lived Secrets setup handoff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_InitiateManagedAgentSecretsSetupResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Managed agent has no eligible secret requirements"
+          },
+          "403": {
+            "description": "Signed-in user session and organization access required"
+          },
+          "409": {
+            "description": "Managed agent has no active revision"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/organizations/{organization_id}/managed-agent-secrets/setups/{setup_id}": {
+      "post": {
+        "tags": [
+          "Organizations"
+        ],
+        "operationId": "managed_agent_secrets_setup_context",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "setup_id",
+            "in": "path",
+            "description": "Secrets setup ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessManagedAgentSecretsSetupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Current revision-bound Secrets setup contract",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentSecretsSetupContext"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Setup credential invalid or expired"
+          },
+          "403": {
+            "description": "Setup belongs to another principal"
+          },
+          "409": {
+            "description": "Deployment revision or requirements changed"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/organizations/{organization_id}/members": {
       "get": {
         "tags": [
@@ -10493,6 +10615,18 @@
           }
         }
       },
+      "AccessManagedAgentSecretsSetupRequest": {
+        "type": "object",
+        "required": [
+          "setup_token"
+        ],
+        "properties": {
+          "setup_token": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "AccountSecurity": {
         "type": "object",
         "description": "Response for GET /auth/account-security - account-level auth state for Settings.",
@@ -14656,6 +14790,51 @@
           }
         }
       },
+      "DataResponse_InitiateManagedAgentSecretsSetupResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "setup_id",
+              "launch_url",
+              "expires_at",
+              "requirements"
+            ],
+            "properties": {
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "launch_url": {
+                "type": "string"
+              },
+              "requirements": {
+                "$ref": "#/components/schemas/ManagedAgentSecretRequirements"
+              },
+              "setup_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_Invoice": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -14930,6 +15109,56 @@
             "properties": {
               "message": {
                 "type": "string"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedAgentSecretsSetupContext": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "setup_id",
+              "organization_id",
+              "deployment_id",
+              "deployment_name",
+              "requirements"
+            ],
+            "properties": {
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "deployment_name": {
+                "type": "string"
+              },
+              "organization_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "requirements": {
+                "$ref": "#/components/schemas/ManagedAgentSecretRequirements"
+              },
+              "setup_id": {
+                "type": "string",
+                "format": "uuid"
               }
             }
           },
@@ -23081,6 +23310,48 @@
           "PATCH"
         ]
       },
+      "InitiateManagedAgentSecretsSetupRequest": {
+        "type": "object",
+        "required": [
+          "deployment_id",
+          "redirect_origin"
+        ],
+        "properties": {
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "redirect_origin": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "InitiateManagedAgentSecretsSetupResponse": {
+        "type": "object",
+        "required": [
+          "setup_id",
+          "launch_url",
+          "expires_at",
+          "requirements"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "launch_url": {
+            "type": "string"
+          },
+          "requirements": {
+            "$ref": "#/components/schemas/ManagedAgentSecretRequirements"
+          },
+          "setup_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "IntegrationType": {
         "type": "string",
         "description": "Primary interface for an integration publisher.\n\nREST and native MCP interfaces are enabled independently by `api_url` and `mcp_endpoint`, so an integration publisher may expose both.",
@@ -23409,6 +23680,257 @@
         "enum": [
           "control_plane",
           "private_session_database"
+        ]
+      },
+      "ManagedAgentSecretFieldRequirement": {
+        "type": "object",
+        "required": [
+          "environment_name",
+          "display_label",
+          "source"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "display_label": {
+            "type": "string"
+          },
+          "environment_name": {
+            "type": "string"
+          },
+          "field_group": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/ManagedAgentSecretRequirementSource"
+          }
+        }
+      },
+      "ManagedAgentSecretRequirementSource": {
+        "type": "string",
+        "enum": [
+          "manifest_env",
+          "manifest_secret",
+          "connector_catalog"
+        ]
+      },
+      "ManagedAgentSecretRequirements": {
+        "type": "object",
+        "required": [
+          "deployment_id",
+          "active_revision_id",
+          "requirements_fingerprint",
+          "requested_fields",
+          "allowed_access_levels",
+          "participants",
+          "policy",
+          "approval_request_ttl_seconds",
+          "applied_grant_lifecycle"
+        ],
+        "properties": {
+          "active_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "allowed_access_levels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "applied_grant_lifecycle": {
+            "$ref": "#/components/schemas/ManagedAgentSecretsGrantLifecycle"
+          },
+          "approval_request_ttl_seconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentSecretsParticipant"
+            }
+          },
+          "policy": {
+            "$ref": "#/components/schemas/ManagedAgentSecretsPolicy"
+          },
+          "requested_fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentSecretFieldRequirement"
+            }
+          },
+          "requirements_fingerprint": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentSecretsApprovalRule": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "all_of"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ManagedAgentSecretsGrantLifecycle": {
+        "type": "string",
+        "enum": [
+          "deployment_revision"
+        ]
+      },
+      "ManagedAgentSecretsParticipant": {
+        "type": "object",
+        "required": [
+          "role",
+          "stage",
+          "can_revoke",
+          "expected_user_id",
+          "expected_organization_id"
+        ],
+        "properties": {
+          "can_revoke": {
+            "type": "boolean"
+          },
+          "expected_organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ManagedAgentSecretsPolicy": {
+        "type": "object",
+        "required": [
+          "allow_cross_organization",
+          "allow_same_principal_across_roles",
+          "stages"
+        ],
+        "properties": {
+          "allow_cross_organization": {
+            "type": "boolean"
+          },
+          "allow_same_principal_across_roles": {
+            "type": "boolean"
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentSecretsPolicyStage"
+            }
+          }
+        }
+      },
+      "ManagedAgentSecretsPolicyStage": {
+        "type": "object",
+        "required": [
+          "stage",
+          "execution",
+          "requirements"
+        ],
+        "properties": {
+          "execution": {
+            "$ref": "#/components/schemas/ManagedAgentSecretsStageExecution"
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentSecretsRoleRequirement"
+            }
+          },
+          "stage": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ManagedAgentSecretsRoleRequirement": {
+        "type": "object",
+        "required": [
+          "role",
+          "metadata_only",
+          "approval"
+        ],
+        "properties": {
+          "approval": {
+            "$ref": "#/components/schemas/ManagedAgentSecretsApprovalRule"
+          },
+          "metadata_only": {
+            "type": "boolean"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "ManagedAgentSecretsSetupContext": {
+        "type": "object",
+        "required": [
+          "setup_id",
+          "organization_id",
+          "deployment_id",
+          "deployment_name",
+          "requirements"
+        ],
+        "properties": {
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deployment_name": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requirements": {
+            "$ref": "#/components/schemas/ManagedAgentSecretRequirements"
+          },
+          "setup_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ManagedAgentSecretsStageExecution": {
+        "type": "string",
+        "enum": [
+          "parallel",
+          "sequential"
         ]
       },
       "ManagedAgentSessionDatabase": {
