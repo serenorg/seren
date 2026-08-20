@@ -5646,6 +5646,19 @@ mod tests {
     }
 
     #[test]
+    fn hosted_snapshot_uses_the_grant_deadline_after_approval() {
+        let mut request = sample_policy_request();
+        let approval_deadline = request.expires_at;
+        let grant_deadline: jiff::Timestamp = "2031-01-01T18:19:00Z".parse().unwrap();
+        request.grant_expires_at = Some(grant_deadline);
+
+        let snapshot = hosted_delegation_snapshot(request);
+
+        assert_eq!(snapshot.expires_at, grant_deadline);
+        assert_ne!(snapshot.expires_at, approval_deadline);
+    }
+
+    #[test]
     fn hosted_vault_access_create_request_is_bootstrap_scoped() {
         let organization_id = Uuid::from_u128(1);
         let request_id = Uuid::from_u128(2);

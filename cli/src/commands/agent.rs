@@ -4356,6 +4356,7 @@ pub async fn managed_agent_secrets_setup(deployment_id: Uuid, ctx: &CommandConte
             );
             println!("Open this URL to approve the exact Passwords field mapping:");
             println!("{}", setup.launch_url);
+            println!("Keep this short-lived bearer URL private.");
             println!();
             println!(
                 "After approval, run `seren agent managed-passwords-status {}` and then `seren agent managed-passwords-apply {}`.",
@@ -4564,6 +4565,18 @@ fn resolve_updated_external_databases(
     }
 }
 
+fn require_explicit_replacement_secrets(
+    secret_keys: &[String],
+    body: &serde_json::Map<String, serde_json::Value>,
+) -> Result<()> {
+    if !secret_keys.is_empty() && !body.contains_key("secrets") {
+        return Err(anyhow::anyhow!(
+            "This deployment has existing secrets. Workload-level updates require a full replacement; pass --env or include `secrets` in --agent-config so the new secret bundle is explicit."
+        ));
+    }
+    Ok(())
+}
+
 async fn build_replacement_workload_for_managed_agent(
     client: &seren::Client,
     deployment_id: &Uuid,
@@ -4583,11 +4596,7 @@ async fn build_replacement_workload_for_managed_agent(
         }
     };
 
-    if !detail.secret_keys.is_empty() && !body.contains_key("secrets") {
-        return Err(anyhow::anyhow!(
-            "This deployment has existing secrets. Workload-level updates require a full replacement; pass --env or include `secrets` in --agent-config so the new secret bundle is explicit."
-        ));
-    }
+    require_explicit_replacement_secrets(&detail.secret_keys, body)?;
 
     let prompt_override = body
         .get("prompt")
@@ -4733,6 +4742,21 @@ fn bundle_with_prompt_override(
     bundle
 }
 
+fn apply_requirements_txt_clear(
+    body: &mut serde_json::Map<String, serde_json::Value>,
+    clear_requirements_txt: bool,
+) -> Result<()> {
+    if clear_requirements_txt && body.contains_key("requirements_txt") {
+        return Err(anyhow::anyhow!(
+            "Provide either requirements_txt in --agent-config or --clear-requirements-txt, not both."
+        ));
+    }
+    if clear_requirements_txt {
+        body.insert("requirements_txt".to_string(), serde_json::Value::Null);
+    }
+    Ok(())
+}
+
 async fn build_managed_agent_update_request(
     client: &seren::Client,
     deployment_id: &Uuid,
@@ -4860,14 +4884,7 @@ async fn build_managed_agent_update_request(
     if let Some(agent_config) = agent_config {
         merge_managed_agent_config(&mut body, agent_config)?;
     }
-    if clear_requirements_txt && body.contains_key("requirements_txt") {
-        return Err(anyhow::anyhow!(
-            "Provide either requirements_txt in --agent-config or --clear-requirements-txt, not both."
-        ));
-    }
-    if clear_requirements_txt {
-        body.insert("requirements_txt".to_string(), serde_json::Value::Null);
-    }
+    apply_requirements_txt_clear(&mut body, clear_requirements_txt)?;
     if capability_policy.is_some() && clear_capability_policy {
         return Err(anyhow::anyhow!(
             "Provide either --capability-policy/--capability-policy-file or --clear-capability-policy, not both."
@@ -9634,6 +9651,29 @@ mod tests {
         merge_managed_agent_config(&mut body, agent_config).unwrap();
 
         assert_eq!(body.get("requirements_txt"), Some(&requirements_txt));
+    }
+
+    #[test]
+    fn clear_requirements_txt_conflicts_with_replacement_content() {
+        let mut body = serde_json::Map::from_iter([(
+            "requirements_txt".to_string(),
+            serde_json::json!("httpx==0.28.1"),
+        )]);
+
+        let error = apply_requirements_txt_clear(&mut body, true)
+            .expect_err("requirements content and clearing must be mutually exclusive");
+
+        assert!(error.to_string().contains("--clear-requirements-txt"));
+    }
+
+    #[test]
+    fn workload_replacement_requires_existing_secrets_to_be_explicit() {
+        let secret_keys = vec!["DATABASE_URL".to_string()];
+        let mut body = serde_json::Map::new();
+        assert!(require_explicit_replacement_secrets(&secret_keys, &body).is_err());
+
+        body.insert("secrets".to_string(), serde_json::json!({}));
+        assert!(require_explicit_replacement_secrets(&secret_keys, &body).is_ok());
     }
 
     #[test]

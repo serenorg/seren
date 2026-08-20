@@ -20,8 +20,78 @@ pub enum ManagedAgentSecretsApplication {
 
 fn valid_environment_name(value: &str) -> bool {
     let mut chars = value.chars();
-    matches!(chars.next(), Some('_' | 'A'..='Z'))
-        && chars.all(|character| matches!(character, '_' | 'A'..='Z' | '0'..='9'))
+    chars
+        .next()
+        .is_some_and(|character| character == '_' || character.is_ascii_alphabetic())
+        && chars.all(|character| character == '_' || character.is_ascii_alphanumeric())
+        && !reserved_environment_name(value)
+}
+
+fn reserved_environment_name(value: &str) -> bool {
+    const NAMES: &[&str] = &[
+        "BASH_ENV",
+        "DYLD_FALLBACK_LIBRARY_PATH",
+        "DYLD_FRAMEWORK_PATH",
+        "DYLD_INSERT_LIBRARIES",
+        "DYLD_LIBRARY_PATH",
+        "ENV",
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "LD_AUDIT",
+        "LD_LIBRARY_PATH",
+        "LD_PRELOAD",
+        "LOGNAME",
+        "NODE_OPTIONS",
+        "NODE_PATH",
+        "OLDPWD",
+        "PATH",
+        "PWD",
+        "PYTHONHOME",
+        "PYTHONPATH",
+        "RUSTFLAGS",
+        "RUST_LOG",
+        "SHELL",
+        "SYSTEMROOT",
+        "TEMP",
+        "TERM",
+        "TMP",
+        "TMPDIR",
+        "USER",
+    ];
+    const PREFIXES: &[&str] = &["AWS_", "GCP_", "GOOGLE_", "KUBERNETES_", "SEREN_"];
+    const SUFFIXES: &[&str] = &["_SERVICE_HOST", "_SERVICE_PORT"];
+
+    NAMES.iter().any(|name| value.eq_ignore_ascii_case(name))
+        || PREFIXES.iter().any(|prefix| {
+            value
+                .get(..prefix.len())
+                .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+        })
+        || SUFFIXES.iter().any(|suffix| {
+            value.len() > suffix.len()
+                && value
+                    .get(value.len() - suffix.len()..)
+                    .is_some_and(|tail| tail.eq_ignore_ascii_case(suffix))
+        })
+}
+
+fn valid_seren_secrets_reference(value: &str) -> bool {
+    let Some(path) = value.strip_prefix("seren-secrets://") else {
+        return false;
+    };
+    let mut parts = path.split('/');
+    let (Some(vault_id), Some(item_id), Some(field), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return false;
+    };
+    uuid::Uuid::parse_str(vault_id).is_ok()
+        && uuid::Uuid::parse_str(item_id).is_ok()
+        && !field.is_empty()
+        && !field
+            .bytes()
+            .any(|byte| byte <= b' ' || byte == b'?' || byte == b'#' || byte == 0x7f)
 }
 
 fn compose_managed_agent_secrets_credentials(
@@ -36,9 +106,10 @@ fn compose_managed_agent_secrets_credentials(
                 entry.environment_name
             )));
         }
-        if !entry.ref_uri.starts_with("seren-secrets://") {
+        let ref_uri = entry.ref_uri.trim();
+        if !valid_seren_secrets_reference(ref_uri) {
             return Err(ValidationError::new(format!(
-                "The approved mapping for '{}' is not a Seren Passwords reference.",
+                "The approved mapping for '{}' is not a valid Seren Passwords reference.",
                 entry.environment_name
             )));
         }
@@ -48,7 +119,7 @@ fn compose_managed_agent_secrets_credentials(
             kind: crate::AgentCredentialKind::ApiKey,
             name: entry.environment_name.clone(),
             publisher_slug: None,
-            ref_uri: entry.ref_uri.clone(),
+            ref_uri: ref_uri.to_string(),
             rotation: None,
         };
         if replacements
@@ -65,8 +136,13 @@ fn compose_managed_agent_secrets_credentials(
     let mut credentials = current
         .iter()
         .filter(|credential| {
-            !credential.ref_uri.starts_with("seren-secrets://")
-                && !replacements.contains_key(&credential.name)
+            // Only environment-reference Secrets bindings are owned by the
+            // approved mapping. Header, body, and proxy-inject credentials may
+            // legitimately carry a seren-secrets:// reference and must survive.
+            let superseded_reference = credential.binding
+                == crate::AgentCredentialBinding::ReferenceEnv
+                && credential.ref_uri.trim().starts_with("seren-secrets://");
+            !superseded_reference && !replacements.contains_key(&credential.name)
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -75,7 +151,17 @@ fn compose_managed_agent_secrets_credentials(
 }
 
 fn credential_set_key(credential: &crate::AgentCredentialRef) -> Result<String, ValidationError> {
-    serde_json::to_string(credential).map_err(|error| {
+    // Compare a canonical shape: reference URIs are trimmed, and for an
+    // environment-reference binding a target equal to the credential name is
+    // the same contract as no target, which other clients write explicitly.
+    let mut canonical = credential.clone();
+    canonical.ref_uri = canonical.ref_uri.trim().to_string();
+    if canonical.binding == crate::AgentCredentialBinding::ReferenceEnv
+        && canonical.binding_target.as_deref() == Some(canonical.name.as_str())
+    {
+        canonical.binding_target = None;
+    }
+    serde_json::to_string(&canonical).map_err(|error| {
         ValidationError::new(format!("Could not compare credential references: {error}"))
     })
 }
@@ -115,6 +201,19 @@ pub fn managed_agent_secrets_application(
             request.status
         )));
     }
+    let now = jiff::Timestamp::now();
+    let expired = match request.status {
+        crate::DelegationPolicyRequestStatus::Approved => request.expires_at <= now,
+        crate::DelegationPolicyRequestStatus::Applied => request
+            .grant_expires_at
+            .is_some_and(|expires_at| expires_at <= now),
+        _ => false,
+    };
+    if expired {
+        return Err(ValidationError::new(
+            "The Seren Passwords setup has expired and cannot be applied.",
+        ));
+    }
     if request.scope_kind != crate::DelegationPolicyScopeKind::SecretFields {
         return Err(ValidationError::new(
             "The setup request is not a secret-fields policy.",
@@ -133,6 +232,26 @@ pub fn managed_agent_secrets_application(
     if request.effective_mapping.is_empty() {
         return Err(ValidationError::new(
             "The approved Seren Passwords setup has no credential mapping.",
+        ));
+    }
+    let requested_names = request
+        .requested_fields
+        .iter()
+        .map(|field| field.environment_name.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    if requested_names.len() != request.requested_fields.len() {
+        return Err(ValidationError::new(
+            "The Seren Passwords setup contains duplicate requested environment names.",
+        ));
+    }
+    let mapped_names = request
+        .effective_mapping
+        .iter()
+        .map(|mapping| mapping.environment_name.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    if requested_names != mapped_names {
+        return Err(ValidationError::new(
+            "The approved Seren Passwords mapping does not cover the exact requested fields.",
         ));
     }
     if detail
@@ -566,6 +685,27 @@ pub fn validate_cloud_approval_resume_identity(
 mod tests {
     use super::*;
 
+    #[test]
+    fn header_bound_secrets_credentials_survive_the_approved_mapping() {
+        let mut header = credential("slack_authorization", "seren-secrets://vault/item/password");
+        header.binding = crate::AgentCredentialBinding::Header;
+        header.binding_target = Some("Authorization".to_string());
+        let mapping = vec![mapping("API_TOKEN", "token")];
+        let composed = compose_managed_agent_secrets_credentials(&[header.clone()], &mapping)
+            .expect("compose");
+        assert!(composed.iter().any(|entry| entry.name == header.name));
+        assert!(composed.iter().any(|entry| entry.name == "API_TOKEN"));
+    }
+
+    #[test]
+    fn explicit_reference_binding_target_compares_equal() {
+        let ours = credential("API_TOKEN", &secrets_ref("token"));
+        let mut theirs = ours.clone();
+        theirs.binding_target = Some("API_TOKEN".to_string());
+        theirs.ref_uri = format!(" {} ", theirs.ref_uri);
+        assert!(same_credential_set(&[ours], &[theirs]).expect("compare"));
+    }
+
     fn credential(name: &str, ref_uri: &str) -> crate::AgentCredentialRef {
         crate::AgentCredentialRef {
             binding: crate::AgentCredentialBinding::ReferenceEnv,
@@ -578,14 +718,20 @@ mod tests {
         }
     }
 
-    fn mapping(name: &str, ref_uri: &str) -> crate::DelegationEffectiveMapping {
+    fn secrets_ref(field: &str) -> String {
+        format!(
+            "seren-secrets://11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/{field}"
+        )
+    }
+
+    fn mapping(name: &str, field: &str) -> crate::DelegationEffectiveMapping {
         crate::DelegationEffectiveMapping {
             environment_name: name.to_string(),
-            field: "password".to_string(),
+            field: field.to_string(),
             field_group: None,
-            item_id: uuid::Uuid::new_v4(),
-            ref_uri: ref_uri.to_string(),
-            vault_id: uuid::Uuid::new_v4(),
+            item_id: "22222222-2222-2222-2222-222222222222".parse().unwrap(),
+            ref_uri: secrets_ref(field),
+            vault_id: "11111111-1111-1111-1111-111111111111".parse().unwrap(),
         }
     }
 
@@ -649,7 +795,7 @@ mod tests {
             deployment_id: Some(deployment_id),
             deployment_revision_id: Some(deployment_revision_id),
             destination_organization_id: organization_id,
-            effective_mapping: vec![mapping("PASSWORD", "seren-secrets://vault/item/password")],
+            effective_mapping: vec![mapping("PASSWORD", "password")],
             effective_vault_access: Vec::new(),
             events: Vec::new(),
             expires_at: timestamp,
@@ -670,7 +816,10 @@ mod tests {
                 stages: Vec::new(),
             },
             request_id: uuid::Uuid::new_v4(),
-            requested_fields: Vec::new(),
+            requested_fields: vec![crate::DelegationRequestedField {
+                environment_name: "PASSWORD".to_string(),
+                field_group: None,
+            }],
             requester_identity_id: uuid::Uuid::new_v4(),
             requester_user_id: uuid::Uuid::new_v4(),
             result_id: uuid::Uuid::new_v4(),
@@ -687,7 +836,7 @@ mod tests {
             credential("PASSWORD", "org-secret://shadowing-value"),
             credential("OLD_PASSWORD", "seren-secrets://vault/item/old"),
         ];
-        let mapping = vec![mapping("PASSWORD", "seren-secrets://vault/item/password")];
+        let mapping = vec![mapping("PASSWORD", "password")];
 
         let credentials = compose_managed_agent_secrets_credentials(&current, &mapping).unwrap();
 
@@ -696,37 +845,97 @@ mod tests {
             credential.name == "DIRECT" && credential.ref_uri == "org-secret://direct"
         }));
         assert!(credentials.iter().any(|credential| {
-            credential.name == "PASSWORD"
-                && credential.ref_uri == "seren-secrets://vault/item/password"
+            credential.name == "PASSWORD" && credential.ref_uri == secrets_ref("password")
         }));
     }
 
     #[test]
     fn managed_agent_secrets_mapping_rejects_invalid_or_duplicate_entries() {
         assert!(
-            compose_managed_agent_secrets_credentials(
-                &[],
-                &[mapping("lowercase", "seren-secrets://vault/item/password")],
-            )
-            .is_err()
+            compose_managed_agent_secrets_credentials(&[], &[mapping("SEREN_TOKEN", "password")],)
+                .is_err()
         );
-        assert!(
-            compose_managed_agent_secrets_credentials(
-                &[],
-                &[mapping("PASSWORD", "org-secret://password")],
-            )
-            .is_err()
-        );
+        let mut malformed = mapping("PASSWORD", "password");
+        malformed.ref_uri = "seren-secrets://vault/item/password".to_string();
+        assert!(compose_managed_agent_secrets_credentials(&[], &[malformed]).is_err());
         assert!(
             compose_managed_agent_secrets_credentials(
                 &[],
                 &[
-                    mapping("PASSWORD", "seren-secrets://vault/item/password"),
-                    mapping("PASSWORD", "seren-secrets://vault/item/other"),
+                    mapping("PASSWORD", "password"),
+                    mapping("PASSWORD", "other"),
                 ],
             )
             .is_err()
         );
+        assert!(
+            compose_managed_agent_secrets_credentials(&[], &[mapping("lowercase", "password")])
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn managed_agent_secrets_mapping_matches_runtime_name_and_uri_rules() {
+        for name in [
+            "PATH",
+            "tmp",
+            "SEREN_API_KEY",
+            "aws_access_key_id",
+            "KUBERNETES_SERVICE_HOST",
+            "redis_service_port",
+        ] {
+            assert!(!valid_environment_name(name), "{name}");
+        }
+        assert!(valid_environment_name("slack_bot_token"));
+
+        let valid = secrets_ref("password");
+        assert!(valid_seren_secrets_reference(&valid));
+        for invalid in [
+            "seren-secrets://vault/item/password".to_string(),
+            format!("{valid}/extra"),
+            format!("{valid}?raw=1"),
+            format!("{valid}#fragment"),
+        ] {
+            assert!(!valid_seren_secrets_reference(&invalid), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn managed_agent_secrets_mapping_requires_exact_requested_fields() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let mut request =
+            managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+        request
+            .requested_fields
+            .push(crate::DelegationRequestedField {
+                environment_name: "USERNAME".to_string(),
+                field_group: None,
+            });
+
+        let error = managed_agent_secrets_application(organization_id, &detail, &request)
+            .expect_err("partial mapping must be rejected");
+        assert!(error.0.contains("exact requested fields"));
+    }
+
+    #[test]
+    fn managed_agent_secrets_application_uses_the_status_specific_deadline() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let mut request =
+            managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+        request.expires_at = "2020-01-01T00:00:00Z".parse().unwrap();
+        assert!(managed_agent_secrets_application(organization_id, &detail, &request).is_err());
+
+        request.status = crate::DelegationPolicyRequestStatus::Applied;
+        assert!(managed_agent_secrets_application(organization_id, &detail, &request).is_ok());
+
+        request.grant_expires_at = Some("2021-01-01T00:00:00Z".parse().unwrap());
+        assert!(managed_agent_secrets_application(organization_id, &detail, &request).is_err());
     }
 
     #[test]
@@ -749,8 +958,7 @@ mod tests {
         let credentials = update.credentials.unwrap();
         assert_eq!(credentials.len(), 2);
         assert!(credentials.iter().any(|credential| {
-            credential.name == "PASSWORD"
-                && credential.ref_uri == "seren-secrets://vault/item/password"
+            credential.name == "PASSWORD" && credential.ref_uri == secrets_ref("password")
         }));
     }
 

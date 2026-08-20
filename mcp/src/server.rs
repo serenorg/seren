@@ -13920,7 +13920,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Start the human-authorized Seren Passwords setup for a managed seren-agent deployment and return the browser launch URL. Requires a signed-in OAuth user session; API keys and agent identities cannot authorize this setup.",
+        description = "Start the human-authorized Seren Passwords setup for a managed seren-agent deployment and return the browser launch URL. Requires a signed-in OAuth user session; API keys and agent identities cannot authorize this setup. The launch URL is a live, short-lived bearer credential: show it only to the signed-in user and never send it to another tool or third party.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -13971,6 +13971,7 @@ API endpoint: {endpoint}",
                 "launch_url": setup.launch_url,
                 "expires_at": setup.expires_at,
                 "requested_fields": setup.requirements.requested_fields,
+                "security_notice": "launch_url is a live, short-lived bearer credential. Show it only to the signed-in user and do not send it to another tool or third party.",
                 "next_step": "Open launch_url, unlock Seren Passwords, and approve the exact field mapping. Then call get_seren_agent_passwords_setup_status with setup_id.",
             }),
         )?]))
