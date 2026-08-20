@@ -2311,6 +2311,9 @@ pub struct UpdateSerenAgentDeploymentParams {
     /// Updated optional fallback model list
     #[serde(default)]
     pub fallback_models: Option<Vec<String>>,
+    /// Updated Python requirements.txt content
+    #[serde(default)]
+    pub requirements_txt: Option<String>,
     /// Updated optional maximum wall-clock timeout per run in seconds
     #[serde(default)]
     pub max_timeout_seconds: Option<i32>,
@@ -2494,7 +2497,7 @@ async fn build_update_seren_agent_deployment_request(
         clear_guardrails: None,
         clear_memory_policy: None,
         clear_runtime_policy: None,
-        clear_secret_resolution_delegation: None,
+        clear_secret_resolution_result_id: None,
         clear_session_database: None,
         clear_tool_refs: params.clear_tool_refs.then_some(true),
         credentials: None,
@@ -2502,13 +2505,14 @@ async fn build_update_seren_agent_deployment_request(
         cron_timezone: params.cron_timezone.clone(),
         dashboard_config: params.dashboard_config.clone(),
         eval_gate,
+        expected_active_revision_id: None,
         guardrails: None,
         memory_policy: None,
         model_policy,
         name: params.name.clone(),
         private_output_policy: None,
         runtime_policy: None,
-        secret_resolution_delegation: None,
+        secret_resolution_result_id: None,
         session_database: None,
         template,
         tool_presets,
@@ -2526,6 +2530,7 @@ fn update_requires_workload_replacement(params: &UpdateSerenAgentDeploymentParam
         || params.secrets.is_some()
         || params.model_config.is_some()
         || params.fallback_models.is_some()
+        || params.requirements_txt.is_some()
         || params.requirements.is_some()
         || params.external_databases.is_some()
 }
@@ -2577,6 +2582,7 @@ async fn build_replacement_workload(
             llm_connection: detail.llm_connection,
             model_config: Some(params.model_config.clone().unwrap_or(detail.model_config)),
             model_id: Some(params.model_id.clone().unwrap_or(detail.model_id)),
+            requirements_txt: params.requirements_txt.clone().or(detail.requirements_txt),
             tool_definitions: None,
         },
         external_databases: resolve_updated_external_databases(
@@ -2766,6 +2772,12 @@ pub struct RollbackSerenAgentDeploymentParams {
     pub deployment_id: uuid::Uuid,
     /// Revision to preview or restore
     pub revision_id: uuid::Uuid,
+    /// Current active revision against which the rollback was prepared
+    #[serde(default)]
+    pub expected_active_revision_id: Option<uuid::Uuid>,
+    /// Fresh Passwords policy result when the target revision uses Seren Secrets
+    #[serde(default)]
+    pub secret_resolution_result_id: Option<uuid::Uuid>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -2839,6 +2851,9 @@ pub struct DeploySerenAgentParams {
     /// Optional fallback model list for transient failures
     #[serde(default)]
     pub fallback_models: Option<Vec<String>>,
+    /// Optional Python requirements.txt content installed before the managed runtime starts
+    #[serde(default)]
+    pub requirements_txt: Option<String>,
     /// Optional maximum wall-clock timeout per run in seconds
     #[serde(default)]
     pub max_timeout_seconds: Option<i32>,
@@ -2957,7 +2972,7 @@ fn build_deploy_seren_agent_request(
         name: Some(params.name),
         private_output_policy: None,
         runtime_policy: None,
-        secret_resolution_delegation: None,
+        secret_resolution_result_id: None,
         session_database: None,
         template,
         tool_presets,
@@ -2973,6 +2988,7 @@ fn build_deploy_seren_agent_request(
                 llm_connection: None,
                 model_config: params.model_config,
                 model_id: params.model_id,
+                requirements_txt: params.requirements_txt,
                 tool_definitions: None,
             },
             external_databases: params.external_databases,
@@ -14118,7 +14134,9 @@ API endpoint: {endpoint}",
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let body = seren::RollbackSerenAgentDeploymentRequest {
+            expected_active_revision_id: params.expected_active_revision_id,
             revision_id: params.revision_id,
+            secret_resolution_result_id: params.secret_resolution_result_id,
         };
         let api_client = self.api_client(&extensions)?;
         let response = api_client
@@ -14168,7 +14186,9 @@ API endpoint: {endpoint}",
     ) -> Result<CallToolResult, McpError> {
         ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Update)?;
         let body = seren::RollbackSerenAgentDeploymentRequest {
+            expected_active_revision_id: params.expected_active_revision_id,
             revision_id: params.revision_id,
+            secret_resolution_result_id: params.secret_resolution_result_id,
         };
         let api_client = self.api_client(&extensions)?;
         let response = api_client
@@ -16212,6 +16232,7 @@ mod tests {
                     "rotation": null
                 }],
                 "requirements": [],
+                "requirements_txt": "httpx==0.28.1",
                 "visibility": "opaque",
                 "routing_reason": "Explicit model policy",
                 "max_timeout_seconds": 900,
@@ -19699,6 +19720,7 @@ mod tests {
             secrets: None,
             model_config: None,
             fallback_models: None,
+            requirements_txt: None,
             max_timeout_seconds: None,
             requirements: None,
             external_databases: None,
@@ -19746,6 +19768,7 @@ mod tests {
             secrets: None,
             model_config: None,
             fallback_models: None,
+            requirements_txt: None,
             max_timeout_seconds: None,
             requirements: None,
             external_databases: None,
@@ -19891,6 +19914,8 @@ mod tests {
         let params = RollbackSerenAgentDeploymentParams {
             deployment_id,
             revision_id,
+            expected_active_revision_id: None,
+            secret_resolution_result_id: None,
         };
         let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
         let preview_result = server
@@ -19898,6 +19923,8 @@ mod tests {
                 Parameters(RollbackSerenAgentDeploymentParams {
                     deployment_id: params.deployment_id,
                     revision_id: params.revision_id,
+                    expected_active_revision_id: None,
+                    secret_resolution_result_id: None,
                 }),
                 extensions_with_headers(&[]),
             )
@@ -20049,6 +20076,15 @@ mod tests {
         assert!(!update_requires_workload_replacement(&params));
 
         params.external_databases = Some(Vec::new());
+        assert!(update_requires_workload_replacement(&params));
+    }
+
+    #[test]
+    fn update_agent_requirements_txt_requires_workload_replacement() {
+        let mut params = base_update_agent_params();
+        assert!(!update_requires_workload_replacement(&params));
+
+        params.requirements_txt = Some("httpx==0.28.1".to_string());
         assert!(update_requires_workload_replacement(&params));
     }
 

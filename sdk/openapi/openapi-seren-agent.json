@@ -4465,6 +4465,12 @@
                   "$ref": "#/components/schemas/RequirementSpec"
                 }
               },
+              "requirements_txt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "resolved_tools": {
                 "type": "array",
                 "items": {
@@ -6320,6 +6326,12 @@
             "items": {
               "$ref": "#/components/schemas/RequirementSpec"
             }
+          },
+          "requirements_txt": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "resolved_tools": {
             "type": "array",

@@ -5580,6 +5580,7 @@ mod tests {
             }],
             events: Vec::new(),
             expires_at: timestamp,
+            grant_expires_at: None,
             nonce: "n".repeat(16),
             participants: Vec::new(),
             policy: seren::DelegationApprovalPolicy {

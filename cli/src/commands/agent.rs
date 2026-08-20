@@ -4413,6 +4413,16 @@ async fn build_replacement_workload_for_managed_agent(
         .map(serde_json::from_value)
         .transpose()
         .map_err(|e| anyhow::anyhow!("Invalid tool_definitions payload: {}", e))?;
+    let requirements_txt = body
+        .get("requirements_txt")
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| anyhow::anyhow!("requirements_txt must be a string"))
+        })
+        .transpose()?
+        .or(detail.requirements_txt);
 
     let config = body.get("config").cloned().or(detail.config);
     let secrets = body.get("secrets").cloned();
@@ -4460,6 +4470,7 @@ async fn build_replacement_workload_for_managed_agent(
             llm_connection: detail.llm_connection,
             model_config: Some(model_config),
             model_id: Some(model_id),
+            requirements_txt,
             tool_definitions,
         },
         external_databases,
@@ -4700,7 +4711,11 @@ async fn build_managed_agent_update_request(
 fn build_managed_agent_rollback_request(
     revision_id: Uuid,
 ) -> seren::RollbackSerenAgentDeploymentRequest {
-    seren::RollbackSerenAgentDeploymentRequest { revision_id }
+    seren::RollbackSerenAgentDeploymentRequest {
+        expected_active_revision_id: None,
+        revision_id,
+        secret_resolution_result_id: None,
+    }
 }
 
 /// Preview an update to an existing managed seren-agent deployment.

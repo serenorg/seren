@@ -2161,66 +2161,6 @@
         ]
       }
     },
-    "/deployments/{id}/secret-refs/preview": {
-      "post": {
-        "tags": [
-          "seren-cloud"
-        ],
-        "summary": "Preview the complete employee secret reference set without mutating the deployment.",
-        "operationId": "seren_cloud_preview_managed_employee_secret_refs",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Deployment ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PreviewManagedEmployeeSecretRefsRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Complete secret reference set for delegation signing",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DataResponse_ManagedEmployeeSecretRefsPreview"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid employee secret references"
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "404": {
-            "description": "Deployment not found"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
     "/deployments/{id}/sessions": {
       "get": {
         "tags": [
@@ -5318,7 +5258,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Complete opaque reference set the client must cover with the next\nuser-signed secret resolution delegation."
+            "description": "Complete opaque reference set covered by the next managed-agent Secrets policy."
           }
         }
       },
@@ -5465,6 +5405,16 @@
           "source": {
             "type": "string"
           },
+          "unavailable": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloudConversationMessageUnavailable"
+              }
+            ]
+          },
           "updated_at": {
             "type": "string",
             "format": "date-time"
@@ -5517,6 +5467,28 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "CloudConversationMessageUnavailable": {
+        "type": "object",
+        "required": [
+          "error_code",
+          "fields",
+          "retryable"
+        ],
+        "properties": {
+          "error_code": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "retryable": {
+            "type": "boolean"
           }
         }
       },
@@ -9596,7 +9568,7 @@
                 "items": {
                   "type": "string"
                 },
-                "description": "Complete opaque reference set the client must cover with the next\nuser-signed secret resolution delegation."
+                "description": "Complete opaque reference set covered by the next managed-agent Secrets policy."
               }
             }
           },
@@ -11763,46 +11735,6 @@
           }
         }
       },
-      "DataResponse_ManagedEmployeeSecretRefsPreview": {
-        "type": "object",
-        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
-        "required": [
-          "data"
-        ],
-        "properties": {
-          "data": {
-            "type": "object",
-            "required": [
-              "deployment_id",
-              "secret_refs"
-            ],
-            "properties": {
-              "deployment_id": {
-                "type": "string",
-                "format": "uuid"
-              },
-              "secret_refs": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "Complete reference set the client must cover with the next user-signed delegation."
-              }
-            }
-          },
-          "pagination": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/PaginationMeta",
-                "description": "Optional pagination metadata"
-              }
-            ]
-          }
-        }
-      },
       "DataResponse_ManagedStorageAttachment": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -13808,6 +13740,7 @@
         "oneOf": [
           {
             "type": "object",
+            "description": "Use the organization's private-model routing through seren-private-models.",
             "required": [
               "provider"
             ],
@@ -13819,6 +13752,29 @@
                 ]
               }
             }
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ManagedCodexConnection",
+                "description": "Run the Employee on the deployment owner's own OpenAI Codex access."
+              },
+              {
+                "type": "object",
+                "required": [
+                  "provider"
+                ],
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "enum": [
+                      "codex"
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "Run the Employee on the deployment owner's own OpenAI Codex access."
           }
         ]
       },
@@ -13917,23 +13873,60 @@
           "database"
         ]
       },
-      "ManagedEmployeeSecretRefsPreview": {
+      "ManagedCodexAuth": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Bill inference to an OpenAI platform API key.",
+            "required": [
+              "secret_ref",
+              "method"
+            ],
+            "properties": {
+              "method": {
+                "type": "string",
+                "enum": [
+                  "api_key"
+                ]
+              },
+              "secret_ref": {
+                "type": "string",
+                "description": "`seren-secrets://{vault_id}/{item_id}/{field}` reference whose field\nvalue is the OpenAI API key. Resolved at invocation time."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Bill inference to the owner's ChatGPT subscription through a Codex\nsign-in credential.",
+            "required": [
+              "secret_ref",
+              "method"
+            ],
+            "properties": {
+              "method": {
+                "type": "string",
+                "enum": [
+                  "chatgpt_subscription"
+                ]
+              },
+              "secret_ref": {
+                "type": "string",
+                "description": "`seren-secrets://{vault_id}/{item_id}/{field}` reference whose field\nvalue is the Codex credential cache (`auth.json` contents). Resolved\nat invocation time into an invocation-scoped Codex home."
+              }
+            }
+          }
+        ],
+        "description": "Codex authentication for a managed deployment. The credential is always a\nreference to a Seren Secrets field that the deployment is already granted;\nplaintext credentials are never accepted, stored, or returned."
+      },
+      "ManagedCodexConnection": {
         "type": "object",
         "required": [
-          "deployment_id",
-          "secret_refs"
+          "auth"
         ],
         "properties": {
-          "deployment_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "secret_refs": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Complete reference set the client must cover with the next user-signed delegation."
+          "auth": {
+            "$ref": "#/components/schemas/ManagedCodexAuth",
+            "description": "How the Codex runtime authenticates for this deployment."
           }
         }
       },
@@ -14132,22 +14125,6 @@
             "description": "Total number of items across all pages"
           }
         }
-      },
-      "PreviewManagedEmployeeSecretRefsRequest": {
-        "type": "object",
-        "required": [
-          "additional_refs"
-        ],
-        "properties": {
-          "additional_refs": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Opaque references proposed for the next employee configuration."
-          }
-        },
-        "additionalProperties": false
       },
       "PromoteRunToCloudEvalCaseRequest": {
         "type": "object",
@@ -14755,6 +14732,13 @@
                   "null"
                 ],
                 "description": "Model identifier override (e.g. `\"anthropic/claude-sonnet-4.6\"`)."
+              },
+              "requirements_txt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Python requirements.txt contents installed before the managed runtime starts. Installer directives and environment expansion are rejected; SHA-256 hash continuations are supported."
               },
               "tool_definitions": {
                 "type": [
