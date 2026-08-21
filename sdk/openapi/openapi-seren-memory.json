@@ -102,7 +102,7 @@
                     "Memory"
                 ],
                 "summary": "Capture a completed agent turn from a lifecycle hook",
-                "description": "Dedicated ingestion operation for automatic agent capture. Accepts prompt and assistant-response content as separate fields so the current organization policy can independently permit each content class before the service assembles an extraction transcript. Requires a stable source_external_id in the reserved hook: namespace and the current server-issued organization policy_version. Stale callers must refresh the policy and re-sanitize queued content. The operation always stores a metadata source envelope for idempotent retries and stores the assembled raw payload only when both retain_source is requested and organization policy permits it. Source metadata is provenance validated against a separate 16,000-byte serialized bound and does not count against max_transcript_bytes.",
+                "description": "Dedicated ingestion operation for automatic agent capture. Accepts prompt and assistant-response content as separate fields so the current organization policy can independently permit each content class before the service assembles an extraction transcript. Requires a stable source_external_id in the reserved hook: namespace and the current server-issued organization policy_version. Stale callers must refresh the policy and re-sanitize queued content. Acceptance atomically stores the encrypted provenance envelope and an encrypted short-lived extraction job, then returns processing_status=queued without waiting for a model or embedding call. The background worker extracts session-sized batches, commits the complete source-owned derived-memory set under a content compare-and-swap, and removes the transient job payload. retain_source controls whether the raw prompt and response remain in the long-lived source payload after processing; it does not control the temporary encrypted job required for durable asynchronous extraction. Source metadata is provenance validated against a separate 16,000-byte serialized bound and does not count against max_transcript_bytes.",
                 "operationId": "capture_agent_turn",
                 "requestBody": {
                     "content": {
@@ -116,7 +116,7 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "Extracted memory candidates",
+                        "description": "Durably accepted capture with queued or completed processing status",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -4198,6 +4198,9 @@
                                     "$ref": "#/components/schemas/ExtractedMemory"
                                 }
                             },
+                            "processing_status": {
+                                "$ref": "#/components/schemas/ExtractionProcessingStatus"
+                            },
                             "semantic": {
                                 "type": "array",
                                 "items": {
@@ -5811,6 +5814,14 @@
                     "metadata": {}
                 }
             },
+            "ExtractionProcessingStatus": {
+                "type": "string",
+                "description": "Delivery state for conversation extraction. Agent-hook captures are\naccepted into a durable encrypted queue; interactive processing remains\nsynchronous.",
+                "enum": [
+                    "completed",
+                    "queued"
+                ]
+            },
             "ExtractionResult": {
                 "type": "object",
                 "description": "Structured extraction output grouped by memory type.\n\nThe `serde` defaults keep extraction-model output parseable when a\ncategory is omitted. The grouped fields are always serialized, so the\npublished schema declares them required: a client that receives an\nunrelated object, such as a gateway error envelope, must fail to decode\nit rather than silently produce an empty result.",
@@ -5852,6 +5863,9 @@
                         "items": {
                             "$ref": "#/components/schemas/ExtractedMemory"
                         }
+                    },
+                    "processing_status": {
+                        "$ref": "#/components/schemas/ExtractionProcessingStatus"
                     },
                     "semantic": {
                         "type": "array",
