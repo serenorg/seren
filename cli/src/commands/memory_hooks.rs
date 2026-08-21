@@ -1626,7 +1626,7 @@ fn record_policy_rejection(outbox_dir: &Path, platform: &str) {
 fn record_delivery_outcome(outbox_dir: &Path, platform: &str, outcome: &str) {
     if update_hook_health(outbox_dir, |health| {
         increment_counter(&mut health.delivery_outcomes, outcome);
-        if outcome == "delivered" {
+        if matches!(outcome, "completed" | "delivered" | "queued") {
             health.last_successful_delivery_at = Some(jiff::Timestamp::now());
         } else if matches!(
             outcome,
@@ -1927,8 +1927,20 @@ enum CapturePolicyDecision {
 
 #[derive(Debug, PartialEq, Eq)]
 enum DeliveryOutcome {
-    Delivered,
+    Completed,
+    Queued,
     DroppedByPolicy(&'static str),
+}
+
+fn accepted_delivery_outcome(
+    response: &seren::SerenMemoryDataResponseExtractionResult,
+) -> DeliveryOutcome {
+    match response.data.processing_status {
+        Some(seren::SerenMemoryExtractionProcessingStatus::Queued) => DeliveryOutcome::Queued,
+        Some(seren::SerenMemoryExtractionProcessingStatus::Completed) | None => {
+            DeliveryOutcome::Completed
+        }
+    }
 }
 
 fn clear_turn_content(turn: &mut OutboxTurn, reason: impl Into<String>) {
@@ -2056,8 +2068,7 @@ async fn deliver_turn(
     if response.as_ref().err().and_then(|error| error.status()) == Some(409) {
         record_policy_rejection(outbox_dir, &turn.agent_platform);
     }
-    response?;
-    Ok(DeliveryOutcome::Delivered)
+    Ok(accepted_delivery_outcome(&response?))
 }
 
 fn configured_organization_id() -> Option<uuid::Uuid> {
@@ -2196,9 +2207,14 @@ async fn deliver_due(
             }
             Ok(Ok(outcome)) => match acknowledge_turn(&claimed) {
                 Ok(()) => match outcome {
-                    DeliveryOutcome::Delivered => {
-                        record_delivery_outcome(outbox_dir, &agent_platform, "delivered");
-                        emit_hook_event(&agent_platform, "delivery", "delivered");
+                    DeliveryOutcome::Completed => {
+                        record_delivery_outcome(outbox_dir, &agent_platform, "completed");
+                        emit_hook_event(&agent_platform, "delivery", "completed");
+                        delivered += 1;
+                    }
+                    DeliveryOutcome::Queued => {
+                        record_delivery_outcome(outbox_dir, &agent_platform, "queued");
+                        emit_hook_event(&agent_platform, "delivery", "queued");
                         delivered += 1;
                     }
                     DeliveryOutcome::DroppedByPolicy(reason) => {
@@ -2770,6 +2786,41 @@ pub async fn status() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accepted_capture_status_distinguishes_queued_from_completed() {
+        let response = |processing_status: Option<&str>| {
+            let mut value = serde_json::json!({
+                "episodic": [],
+                "semantic": [],
+                "procedural": [],
+                "error_fixes": [],
+                "preferences": [],
+                "stored_memory_ids": []
+            });
+            if let Some(status) = processing_status {
+                value["processing_status"] = serde_json::Value::String(status.to_string());
+            }
+            serde_json::from_value::<seren::SerenMemoryDataResponseExtractionResult>(
+                serde_json::json!({"data": value}),
+            )
+            .unwrap()
+        };
+
+        assert_eq!(
+            accepted_delivery_outcome(&response(Some("queued"))),
+            DeliveryOutcome::Queued
+        );
+        assert_eq!(
+            accepted_delivery_outcome(&response(Some("completed"))),
+            DeliveryOutcome::Completed
+        );
+        assert_eq!(
+            accepted_delivery_outcome(&response(None)),
+            DeliveryOutcome::Completed,
+            "an older service response remains an accepted synchronous delivery"
+        );
+    }
 
     fn transcript_line(kind: &str, uuid: &str, content: serde_json::Value) -> String {
         serde_json::json!({
