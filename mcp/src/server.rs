@@ -2036,9 +2036,11 @@ pub struct DeployCloudAgentParams {
     pub requirements_txt: Option<String>,
     /// JSON config object
     #[serde(default)]
+    #[schemars(with = "Option<JsonObjectSchema>")]
     pub config: Option<serde_json::Value>,
     /// JSON secrets object (key-value pairs for .env)
     #[serde(default)]
+    #[schemars(with = "Option<JsonObjectSchema>")]
     pub secrets: Option<serde_json::Value>,
     /// Optional maximum LLM loop iterations
     #[serde(default)]
@@ -2060,6 +2062,7 @@ pub struct DeployCloudAgentParams {
     pub external_databases: Vec<seren::ManagedExternalDatabaseAttachment>,
     /// Optional dashboard rendering config
     #[serde(default)]
+    #[schemars(with = "Option<JsonObjectSchema>")]
     pub dashboard_config: Option<serde_json::Value>,
     /// Optional visibility mode ("open" or "opaque")
     #[serde(default)]
@@ -2097,6 +2100,11 @@ fn build_deploy_cloud_agent_request(
     params: DeployCloudAgentParams,
     deployment_bundle_id: Uuid,
 ) -> Result<seren::CreateCloudDeploymentRequest, McpError> {
+    let config = normalize_json_object_argument(params.config.clone(), "config")?;
+    let secrets = normalize_json_object_argument(params.secrets.clone(), "secrets")?;
+    let dashboard_config =
+        normalize_json_object_argument(params.dashboard_config.clone(), "dashboard_config")?;
+    validate_deploy_cloud_secrets(secrets.as_ref())?;
     let mode = parse_cloud_enum::<seren::CloudDeploymentMode>("mode", &params.mode)?;
     let compute_backend = match params.compute_backend.as_deref() {
         Some("auto") | None => None,
@@ -2159,7 +2167,7 @@ fn build_deploy_cloud_agent_request(
         alert_policy: None,
         cron_schedule: params.cron_schedule,
         cron_timezone: params.cron_timezone,
-        dashboard_config: params.dashboard_config,
+        dashboard_config,
         environment_id: params.environment_id,
         eval_gate,
         mode,
@@ -2168,7 +2176,7 @@ fn build_deploy_cloud_agent_request(
         visibility: params.visibility,
         workload: seren::WorkloadSpec {
             compute_backend,
-            config: params.config,
+            config,
             execution: seren::WorkloadExecution::Code {
                 deployment_bundle_id,
                 requirements_txt: params.requirements_txt,
@@ -2179,7 +2187,7 @@ fn build_deploy_cloud_agent_request(
             network_policy: None,
             publisher_only: None,
             requirements,
-            secrets: params.secrets,
+            secrets,
             side_effect_policy: None,
         },
     })
@@ -2349,12 +2357,15 @@ pub struct UpdateSerenAgentDeploymentParams {
     pub allowed_remote_agent_origins: Option<Vec<String>>,
     /// Updated JSON config object
     #[serde(default)]
+    #[schemars(with = "Option<JsonObjectSchema>")]
     pub config: Option<serde_json::Value>,
     /// Updated JSON secrets object
     #[serde(default)]
+    #[schemars(with = "Option<JsonObjectSchema>")]
     pub secrets: Option<serde_json::Value>,
     /// Updated optional model configuration
     #[serde(default)]
+    #[schemars(with = "Option<JsonObjectSchema>")]
     pub model_config: Option<serde_json::Value>,
     /// Updated optional fallback model list
     #[serde(default)]
@@ -2376,6 +2387,7 @@ pub struct UpdateSerenAgentDeploymentParams {
     pub external_databases: Option<Vec<seren::ManagedExternalDatabaseAttachment>>,
     /// Updated optional dashboard rendering config
     #[serde(default)]
+    #[schemars(with = "Option<JsonObjectSchema>")]
     pub dashboard_config: Option<serde_json::Value>,
     /// Updated runtime capability policy
     #[serde(default)]
@@ -2590,7 +2602,10 @@ async fn build_update_seren_agent_deployment_request(
         credentials: params.credentials.clone(),
         cron_schedule: params.cron_schedule.clone(),
         cron_timezone: params.cron_timezone.clone(),
-        dashboard_config: params.dashboard_config.clone(),
+        dashboard_config: normalize_json_object_argument(
+            params.dashboard_config.clone(),
+            "dashboard_config",
+        )?,
         eval_gate,
         expected_active_revision_id: params.expected_active_revision_id,
         guardrails: None,
@@ -2638,6 +2653,9 @@ async fn build_replacement_workload(
     api_client: &seren::Client,
     params: &UpdateSerenAgentDeploymentParams,
 ) -> Result<seren::WorkloadSpec, McpError> {
+    let config = normalize_json_object_argument(params.config.clone(), "config")?;
+    let secrets = normalize_json_object_argument(params.secrets.clone(), "secrets")?;
+    let model_config = normalize_json_object_argument(params.model_config.clone(), "model_config")?;
     let detail = api_client
         .seren_agent_get_managed_deployment(&params.deployment_id)
         .into_mcp_result()
@@ -2662,13 +2680,13 @@ async fn build_replacement_workload(
 
     Ok(seren::WorkloadSpec {
         compute_backend: Some(detail.compute_backend),
-        config: params.config.clone().or(detail.config),
+        config: config.or(detail.config),
         execution: seren::WorkloadExecution::Llm {
             adapter: Some(detail.runtime_adapter),
             bundle: bundle_with_prompt_override(detail.bundle, params.prompt.clone()),
             fallback_models: params.fallback_models.clone().or(detail.fallback_models),
             llm_connection: detail.llm_connection,
-            model_config: Some(params.model_config.clone().unwrap_or(detail.model_config)),
+            model_config: Some(model_config.unwrap_or(detail.model_config)),
             model_id: Some(params.model_id.clone().unwrap_or(detail.model_id)),
             requirements_txt: if params.clear_requirements_txt {
                 None
@@ -2692,7 +2710,7 @@ async fn build_replacement_workload(
         network_policy: detail.network_policy,
         publisher_only: None,
         requirements: Some(requirements),
-        secrets: params.secrets.clone(),
+        secrets,
         side_effect_policy: detail.side_effect_policy,
     })
 }
@@ -2844,6 +2862,30 @@ fn parse_stringified_json_document(raw: &str) -> Option<serde_json::Value> {
     }
 }
 
+fn normalize_json_object_argument(
+    value: Option<serde_json::Value>,
+    field: &str,
+) -> Result<Option<serde_json::Value>, McpError> {
+    value
+        .map(|value| {
+            let value = match value {
+                serde_json::Value::String(raw) => {
+                    parse_stringified_json_document(&raw).unwrap_or(serde_json::Value::String(raw))
+                }
+                value => value,
+            };
+            if value.is_object() {
+                Ok(value)
+            } else {
+                Err(McpError::invalid_params(
+                    format!("{field} must be a JSON object."),
+                    None,
+                ))
+            }
+        })
+        .transpose()
+}
+
 fn parse_capability_policy(
     value: Option<serde_json::Value>,
 ) -> Result<Option<seren::AgentCapabilityPolicy>, McpError> {
@@ -2934,12 +2976,15 @@ pub struct DeploySerenAgentParams {
     pub allowed_remote_agent_origins: Option<Vec<String>>,
     /// JSON config object
     #[serde(default)]
+    #[schemars(with = "Option<JsonObjectSchema>")]
     pub config: Option<serde_json::Value>,
     /// JSON secrets object (key-value pairs for .env)
     #[serde(default)]
+    #[schemars(with = "Option<JsonObjectSchema>")]
     pub secrets: Option<serde_json::Value>,
     /// Optional model configuration (temperature, max_tokens, etc.)
     #[serde(default)]
+    #[schemars(with = "Option<JsonObjectSchema>")]
     pub model_config: Option<serde_json::Value>,
     /// Optional fallback model list for transient failures
     #[serde(default)]
@@ -2958,6 +3003,7 @@ pub struct DeploySerenAgentParams {
     pub external_databases: Vec<seren::ManagedExternalDatabaseAttachment>,
     /// Optional dashboard rendering config
     #[serde(default)]
+    #[schemars(with = "Option<JsonObjectSchema>")]
     pub dashboard_config: Option<serde_json::Value>,
     /// Optional runtime capability policy for browser, audio, skills, realtime, and code execution
     #[serde(default)]
@@ -2971,6 +3017,9 @@ pub struct DeploySerenAgentParams {
 fn build_deploy_seren_agent_request(
     params: DeploySerenAgentParams,
 ) -> Result<seren::AgentSpec, McpError> {
+    let config = normalize_json_object_argument(params.config.clone(), "config")?;
+    let secrets = normalize_json_object_argument(params.secrets.clone(), "secrets")?;
+    let model_config = normalize_json_object_argument(params.model_config.clone(), "model_config")?;
     let template = resolve_guided_string_alias(
         params.template.as_ref(),
         params.agent_style.as_ref(),
@@ -3055,7 +3104,10 @@ fn build_deploy_seren_agent_request(
         credentials: None,
         cron_schedule: params.cron_schedule,
         cron_timezone: params.cron_timezone,
-        dashboard_config: params.dashboard_config,
+        dashboard_config: normalize_json_object_argument(
+            params.dashboard_config,
+            "dashboard_config",
+        )?,
         eval_gate,
         guardrails: None,
         memory_policy: Some(default_employee_memory_policy()?),
@@ -3073,13 +3125,13 @@ fn build_deploy_seren_agent_request(
         visibility: params.visibility,
         workload: seren::WorkloadSpec {
             compute_backend,
-            config: params.config,
+            config,
             execution: seren::WorkloadExecution::Llm {
                 adapter: None,
                 bundle: bundle_for_prompt(params.prompt),
                 fallback_models: params.fallback_models,
                 llm_connection: None,
-                model_config: params.model_config,
+                model_config,
                 model_id: params.model_id,
                 requirements_txt: params.requirements_txt,
                 tool_definitions: None,
@@ -3095,7 +3147,7 @@ fn build_deploy_seren_agent_request(
             network_policy: None,
             publisher_only: None,
             requirements: Some(requirements.unwrap_or_default()),
-            secrets: params.secrets,
+            secrets,
             side_effect_policy: None,
         },
     })
@@ -13741,7 +13793,6 @@ API endpoint: {endpoint}",
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
-        validate_deploy_cloud_secrets(params.secrets.as_ref())?;
         let api_client = self.api_client(&extensions)?;
 
         let deployment_bundle_id = match (
@@ -16770,6 +16821,86 @@ mod tests {
     }
 
     #[test]
+    fn managed_agent_tool_schemas_declare_json_object_fields() {
+        let server = server_with_http_client(reqwest::Client::new());
+
+        let object_fields_by_tool: &[(&str, &[&str])] = &[
+            (
+                "deploy_seren_agent",
+                &["config", "secrets", "model_config", "dashboard_config"],
+            ),
+            (
+                "update_seren_agent_deployment",
+                &["config", "secrets", "model_config", "dashboard_config"],
+            ),
+            (
+                "deploy_cloud_agent",
+                &["config", "secrets", "dashboard_config"],
+            ),
+        ];
+        for (tool_name, object_fields) in object_fields_by_tool {
+            let tool = server
+                .tool_router
+                .list_all()
+                .into_iter()
+                .find(|tool| tool.name == *tool_name)
+                .unwrap_or_else(|| panic!("missing MCP tool {tool_name}"));
+            let schema = serde_json::Value::Object((*tool.input_schema).clone());
+
+            for field_name in object_fields.iter().copied() {
+                let field = schema
+                    .pointer(&format!("/properties/{field_name}"))
+                    .unwrap_or_else(|| panic!("{tool_name} should advertise {field_name}"));
+                assert_eq!(
+                    field.get("type"),
+                    Some(&serde_json::json!(["object", "null"])),
+                    "{tool_name}.{field_name} should declare an object type: {field}"
+                );
+                assert_eq!(
+                    field.get("additionalProperties"),
+                    Some(&serde_json::json!(true)),
+                    "{tool_name}.{field_name} should accept free-form object fields: {field}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn deploy_agent_normalizes_string_wrapped_json_objects() {
+        let params: DeploySerenAgentParams = serde_json::from_value(serde_json::json!({
+            "name": "String Wrapped Employee",
+            "mode": "job",
+            "prompt": "Report connector health.",
+            "config": "{\"region\":\"us-east-1\"}",
+            "secrets": "{\"DISCORD_BOT_TOKEN\":\"test-token\"}",
+            "model_config": "{\"temperature\":0.2}",
+            "dashboard_config": "{\"title\":\"Connector Health\"}"
+        }))
+        .expect("MCP deploy parameters should decode");
+
+        let request = build_deploy_seren_agent_request(params)
+            .expect("string-wrapped JSON objects should be normalized");
+        let payload = serde_json::to_value(request).expect("AgentSpec should serialize");
+
+        assert_eq!(
+            payload.pointer("/workload/config/region"),
+            Some(&serde_json::json!("us-east-1"))
+        );
+        assert_eq!(
+            payload.pointer("/workload/secrets/DISCORD_BOT_TOKEN"),
+            Some(&serde_json::json!("test-token"))
+        );
+        assert_eq!(
+            payload.pointer("/workload/execution/model_config/temperature"),
+            Some(&serde_json::json!(0.2))
+        );
+        assert_eq!(
+            payload.pointer("/dashboard_config/title"),
+            Some(&serde_json::json!("Connector Health"))
+        );
+    }
+
+    #[test]
     fn deploy_agent_rejects_a_capability_policy_that_is_not_a_policy() {
         let params: DeploySerenAgentParams = serde_json::from_value(serde_json::json!({
             "name": "Realtime Employee",
@@ -16803,6 +16934,59 @@ mod tests {
                 .message
                 .contains("generated and injected automatically")
         );
+        assert!(!error.message.contains("must-not-be-reported"));
+    }
+
+    #[test]
+    fn deploy_cloud_agent_normalizes_string_wrapped_objects_before_secret_validation() {
+        let deployment_bundle_id = Uuid::new_v4();
+        let params: DeployCloudAgentParams = serde_json::from_value(serde_json::json!({
+            "skill_slug": "external-service-worker",
+            "name": "External Service Worker",
+            "mode": "job",
+            "runtime_kind": "python",
+            "deployment_bundle_id": deployment_bundle_id,
+            "config": "{\"region\":\"us-east-1\"}",
+            "secrets": "{\"EXTERNAL_SERVICE_TOKEN\":\"test-token\"}",
+            "dashboard_config": "{\"title\":\"External Service Worker\"}"
+        }))
+        .expect("cloud deployment parameters should decode");
+
+        let request = build_deploy_cloud_agent_request(params, deployment_bundle_id)
+            .expect("string-wrapped objects should normalize before validation");
+        let payload = serde_json::to_value(request).expect("cloud request should serialize");
+
+        assert_eq!(
+            payload.pointer("/workload/config/region"),
+            Some(&serde_json::json!("us-east-1"))
+        );
+        assert_eq!(
+            payload.pointer("/workload/secrets/EXTERNAL_SERVICE_TOKEN"),
+            Some(&serde_json::json!("test-token"))
+        );
+        assert_eq!(
+            payload.pointer("/dashboard_config/title"),
+            Some(&serde_json::json!("External Service Worker"))
+        );
+    }
+
+    #[test]
+    fn deploy_cloud_agent_rejects_reserved_string_wrapped_secrets_without_disclosure() {
+        let deployment_bundle_id = Uuid::new_v4();
+        let params: DeployCloudAgentParams = serde_json::from_value(serde_json::json!({
+            "skill_slug": "reserved-secret-worker",
+            "name": "Reserved Secret Worker",
+            "mode": "job",
+            "runtime_kind": "python",
+            "deployment_bundle_id": deployment_bundle_id,
+            "secrets": "{\"SEREN_API_KEY\":\"must-not-be-reported\"}"
+        }))
+        .expect("cloud deployment parameters should decode");
+
+        let error = build_deploy_cloud_agent_request(params, deployment_bundle_id)
+            .expect_err("reserved secrets should remain rejected after normalization");
+
+        assert!(error.message.contains("reserved SEREN_ runtime namespace"));
         assert!(!error.message.contains("must-not-be-reported"));
     }
 
@@ -20404,6 +20588,88 @@ mod tests {
             payload.pointer("/browser/enabled"),
             Some(&serde_json::json!(true))
         );
+    }
+
+    #[tokio::test]
+    async fn update_agent_normalizes_string_wrapped_secrets_and_merges_the_workload() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let deployment_id = Uuid::new_v4();
+        let mut detail = managed_agent_detail_fixture(deployment_id);
+        detail["data"]["secret_keys"] = serde_json::json!([]);
+        let proxy = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(detail))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let api_client = seren::Client::new_with_client(&proxy.uri(), reqwest::Client::new());
+        let mut params = base_update_agent_params();
+        params.deployment_id = deployment_id;
+        params.secrets = Some(serde_json::Value::String(
+            serde_json::json!({ "DISCORD_BOT_TOKEN": "test-token" }).to_string(),
+        ));
+
+        let request = build_update_seren_agent_deployment_request(&api_client, &params)
+            .await
+            .expect("a secrets-only update should merge the existing workload");
+        let workload = serde_json::to_value(request.workload.expect("replacement workload"))
+            .expect("workload should serialize");
+
+        assert_eq!(
+            workload.pointer("/secrets/DISCORD_BOT_TOKEN"),
+            Some(&serde_json::json!("test-token"))
+        );
+        assert_eq!(
+            workload.pointer("/execution/model_id"),
+            Some(&serde_json::json!("openai/gpt-5"))
+        );
+        assert_eq!(
+            workload.pointer("/execution/tool_definitions/0/name"),
+            Some(&serde_json::json!("lookup"))
+        );
+    }
+
+    #[tokio::test]
+    async fn update_agent_rejects_non_object_secrets_before_reading_the_deployment() {
+        let api_client =
+            seren::Client::new_with_client("https://api.invalid", reqwest::Client::new());
+        let mut params = base_update_agent_params();
+        params.secrets = Some(serde_json::json!(["not", "an", "object"]));
+
+        let error = build_update_seren_agent_deployment_request(&api_client, &params)
+            .await
+            .expect_err("non-object secrets should fail at the MCP boundary");
+
+        assert_eq!(error.message, "secrets must be a JSON object.");
+    }
+
+    #[tokio::test]
+    async fn update_agent_normalizes_string_wrapped_dashboard_config() {
+        let api_client =
+            seren::Client::new_with_client("https://api.invalid", reqwest::Client::new());
+        let mut params = base_update_agent_params();
+        params.dashboard_config = Some(serde_json::Value::String(
+            serde_json::json!({ "title": "Connector Health" }).to_string(),
+        ));
+
+        let request = build_update_seren_agent_deployment_request(&api_client, &params)
+            .await
+            .expect("dashboard-only updates should not read the workload");
+
+        assert_eq!(
+            request
+                .dashboard_config
+                .as_ref()
+                .and_then(|value| value.pointer("/title")),
+            Some(&serde_json::json!("Connector Health"))
+        );
+        assert!(request.workload.is_none());
     }
 
     #[tokio::test]
