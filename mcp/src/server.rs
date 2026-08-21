@@ -6890,7 +6890,9 @@ impl SerenMcpServer {
         Ok(CallToolResult::success(content))
     }
 
-    #[allow(clippy::too_many_arguments)]
+    // Returns `seren::Error` by value so proxy failures flow into the same
+    // handling as the generated SDK operations.
+    #[allow(clippy::too_many_arguments, clippy::result_large_err)]
     async fn execute_publisher_proxy_raw<T: Serialize>(
         &self,
         extensions: &Extensions,

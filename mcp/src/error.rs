@@ -5,9 +5,6 @@ pub enum McpError {
     #[error("Configuration error: {0}")]
     Config(String),
 
-    #[error("API error: {0}")]
-    Api(#[from] seren::Error),
-
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 

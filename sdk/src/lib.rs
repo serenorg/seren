@@ -79,6 +79,9 @@ impl Client {
     ///
     /// This method is implemented manually because Progenitor does not
     /// currently generate multipart request bodies.
+    // Returns `progenitor_client::Error` by value to keep the signature
+    // identical to the generated operations, which allow the same lint.
+    #[allow(clippy::result_large_err)]
     pub async fn upload_current_user_avatar(
         &self,
         file_name: &str,
