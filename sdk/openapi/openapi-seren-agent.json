@@ -2860,7 +2860,7 @@
       },
       "AgentSpecUpdate": {
         "type": "object",
-        "description": "Partial update request for an existing managed `seren-agent` deployment.\n\nMirrors the agent-level fields of `AgentSpec` as `Option<...>` for partial\nupdate. `workload_limits` patches only run limits while preserving the\nauthoritative server-side workload, including encrypted secrets. The\n`workload` field remains a full replacement for callers changing other\nworkload fields.",
+        "description": "Partial update request for an existing managed `seren-agent` deployment.\n\n`workload_limits` and `workload_patch` update caller-authored fields while\npreserving the authoritative workload.",
         "properties": {
           "agent_identity_id": {
             "type": [
@@ -3128,17 +3128,6 @@
             ],
             "description": "Updated visibility mode (`open` or `opaque`)."
           },
-          "workload": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/WorkloadSpec",
-                "description": "Replaces the entire workload when present. Use the managed files endpoint\nfor targeted bundle file changes."
-              }
-            ]
-          },
           "workload_limits": {
             "oneOf": [
               {
@@ -3146,7 +3135,18 @@
               },
               {
                 "$ref": "#/components/schemas/WorkloadLimitsPatch",
-                "description": "Partially update workload limits without replacing or round-tripping\nthe full workload. Cannot be combined with `workload`."
+                "description": "Partially update workload limits without replacing or round-tripping\nthe full workload."
+              }
+            ]
+          },
+          "workload_patch": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentWorkloadPatch",
+                "description": "Partially updates caller-authored workload fields without replaying the\nresolved deployment detail."
               }
             ]
           }
@@ -4542,7 +4542,7 @@
                 "items": {
                   "$ref": "#/components/schemas/ToolDefinition"
                 },
-                "description": "Custom orchestration tool definitions declared by this deployment."
+                "description": "Resolved orchestration tool definitions derived from tool presets and\ntyped tool references. This deployment detail field is read-only."
               },
               "tool_presets": {
                 "type": "array",
@@ -6411,7 +6411,7 @@
             "items": {
               "$ref": "#/components/schemas/ToolDefinition"
             },
-            "description": "Custom orchestration tool definitions declared by this deployment."
+            "description": "Resolved orchestration tool definitions derived from tool presets and\ntyped tool references. This deployment detail field is read-only."
           },
           "tool_presets": {
             "type": "array",
@@ -8164,6 +8164,81 @@
           "database",
           "custom"
         ]
+      },
+      "ManagedAgentWorkloadPatch": {
+        "type": "object",
+        "description": "Partial update for caller-authored managed workload fields.\n\nThe control plane applies this patch to the authoritative stored workload so\nclients do not need to round-trip resolved runtime fields or encrypted\nsecrets through deployment detail responses.",
+        "properties": {
+          "clear_fallback_models": {
+            "type": "boolean",
+            "description": "Remove the explicit fallback list and resolve provider defaults."
+          },
+          "clear_requirements_txt": {
+            "type": "boolean",
+            "description": "Remove the Python requirements.txt content."
+          },
+          "config": {
+            "description": "Updated non-secret operator configuration. Replaces the current object."
+          },
+          "external_databases": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ManagedExternalDatabaseAttachment"
+            },
+            "description": "Updated existing SerenDB attachments. Replaces the current list; an\nempty list clears every attachment."
+          },
+          "fallback_models": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Updated ordered fallback model list."
+          },
+          "model_config": {
+            "description": "Updated model configuration. Replaces the current object."
+          },
+          "model_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Updated model identifier."
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Updated main Skill instruction. Other bundle files are preserved."
+          },
+          "requirements": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/RequirementSpec"
+            },
+            "description": "Updated deploy-time requirements. Replaces the current list."
+          },
+          "requirements_txt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Updated Python requirements.txt content."
+          },
+          "secrets": {
+            "description": "Updated secret object. Replaces caller-authored secrets while the control\nplane preserves and regenerates platform-owned runtime secrets."
+          }
+        },
+        "additionalProperties": false
       },
       "ManagedCodexAuth": {
         "oneOf": [

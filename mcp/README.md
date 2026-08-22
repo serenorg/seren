@@ -317,10 +317,7 @@ Example `deploy_seren_agent` parameters:
 
 `allowed_remote_agent_origins` is optional. Leave it unset to disable remote A2A delegation entirely.
 
-Advanced managed-agent deploys can also pass raw `tool_definitions`. Each tool definition may include:
-
-- `timeout_override_seconds`
-- `max_output_bytes`
+Managed deployments derive runtime tools from `tool_presets` and typed `tool_refs`. The `tool_definitions` returned by deployment detail are resolved read-only output and are not accepted in deploy or update requests.
 
 Example `update_seren_agent_deployment` parameters for an eval gate:
 

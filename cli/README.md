@@ -412,7 +412,7 @@ seren agent managed-update <deployment-id> \
 
 seren agent managed-update <deployment-id> --clear-eval-gate
 
-# Clear Python package requirements without replacing custom tool definitions
+# Clear Python package requirements without replaying resolved runtime fields
 seren agent managed-update <deployment-id> --clear-requirements-txt
 
 # Roll back with revision and credential-binding preconditions
@@ -442,10 +442,7 @@ seren -o json agent cloud runs list --limit 20
 seren -o json agent cloud approvals list --limit 20
 ```
 
-Advanced managed-agent deploys can also use `--agent-config <path>` to supply fields such as `tool_definitions`, `capability_policy`, and `runtime_policy`. Browser-enabled employees use `capability_policy.browser` to select the managed browser profile and `runtime_policy.network` to declare the hostnames the browser may reach. Each tool definition may include:
-
-- `timeout_override_seconds`
-- `max_output_bytes`
+Advanced managed-agent deploys can also use `--agent-config <path>` to supply fields such as `capability_policy` and `runtime_policy`. Managed deployments derive runtime tools from `tool_presets` and typed `tool_refs`; resolved `tool_definitions` are read-only deployment detail and are not accepted in deploy or update requests. Browser-enabled employees use `capability_policy.browser` to select the managed browser profile and `runtime_policy.network` to declare the hostnames the browser may reach.
 
 To attach an existing SerenDB database, add `external_databases` to the skill's `orchestration.json` for `agent deploy`, or to the JSON supplied through `--agent-config` for managed-agent deploys and updates. Omit `access` for read-only access, or request `read_write` when the deployment's approval policy permits mutations.
 

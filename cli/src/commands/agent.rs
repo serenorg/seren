@@ -4538,208 +4538,98 @@ pub async fn managed_agent_delete(deployment_id: Uuid, ctx: &CommandContext) -> 
     Ok(())
 }
 
-/// Workload-level keys that, when present in the patch body, force a full
-/// `WorkloadSpec` replacement against the current managed deployment.
-fn body_touches_workload(body: &serde_json::Map<String, serde_json::Value>) -> bool {
-    body.keys().any(|key| {
-        WORKLOAD_LEVEL_FIELDS.contains(&key.as_str())
-            || WORKLOAD_LIMITS_FIELDS.contains(&key.as_str())
-            || LLM_EXECUTION_FIELDS.contains(&key.as_str())
-            || CODE_EXECUTION_FIELDS.contains(&key.as_str())
-            || key == "prompt"
-    })
-}
-
-/// Resolve external-database attachments for a managed-agent workload replacement.
-///
-/// Omitting `external_databases` preserves the deployment's current attachments;
-/// an explicit list replaces them, and an explicit empty list clears them.
-fn resolve_updated_external_databases(
+fn build_managed_agent_workload_patch(
     body: &serde_json::Map<String, serde_json::Value>,
-    current: Vec<seren::ManagedExternalDatabaseAttachment>,
-) -> Result<Vec<seren::ManagedExternalDatabaseAttachment>> {
-    match body.get("external_databases").cloned() {
-        Some(value) => serde_json::from_value(value)
-            .map_err(|e| anyhow::anyhow!("Invalid external_databases payload: {}", e)),
-        None => Ok(current),
-    }
-}
-
-fn require_explicit_replacement_secrets(
-    secret_keys: &[String],
-    body: &serde_json::Map<String, serde_json::Value>,
-) -> Result<()> {
-    if !secret_keys.is_empty() && !body.contains_key("secrets") {
+) -> Result<Option<seren::ManagedAgentWorkloadPatch>> {
+    if body.contains_key("bundle") {
         return Err(anyhow::anyhow!(
-            "This deployment has existing secrets. Workload-level updates require a full replacement; pass --env or include `secrets` in --agent-config so the new secret bundle is explicit."
+            "Managed bundle updates must use the managed files command; `bundle` cannot be included in an agent update."
         ));
     }
-    Ok(())
-}
-
-async fn build_replacement_workload_for_managed_agent(
-    client: &seren::Client,
-    deployment_id: &Uuid,
-    body: &serde_json::Map<String, serde_json::Value>,
-) -> Result<seren::WorkloadSpec> {
-    let detail = match client
-        .seren_agent_get_managed_deployment(deployment_id)
-        .await
-    {
-        Ok(response) => response.into_inner().data,
-        Err(err) => {
-            return Err(anyhow_from_seren_error(
-                "Failed to fetch managed deployment for workload replacement",
-                err,
-            )
-            .await);
-        }
-    };
-
-    require_explicit_replacement_secrets(&detail.secret_keys, body)?;
-
-    let prompt_override = body
-        .get("prompt")
-        .and_then(|v| v.as_str())
-        .map(str::to_owned);
-    let base_bundle = body
-        .get("bundle")
-        .cloned()
-        .map(serde_json::from_value)
-        .transpose()
-        .map_err(|e| anyhow::anyhow!("Invalid bundle payload: {}", e))?
-        .unwrap_or(detail.bundle);
-    let bundle = bundle_with_prompt_override(base_bundle, prompt_override);
-
-    let model_id = body
-        .get("model_id")
-        .and_then(|v| v.as_str())
-        .map(str::to_owned)
-        .unwrap_or(detail.model_id);
-
-    let model_config = body
-        .get("model_config")
-        .cloned()
-        .unwrap_or(detail.model_config);
-
-    let fallback_models = body
-        .get("fallback_models")
-        .cloned()
-        .map(serde_json::from_value)
-        .transpose()
-        .map_err(|e| anyhow::anyhow!("Invalid fallback_models payload: {}", e))?
-        .or(detail.fallback_models);
-
-    let tool_definitions = body
-        .get("tool_definitions")
-        .cloned()
-        .map(serde_json::from_value)
-        .transpose()
-        .map_err(|e| anyhow::anyhow!("Invalid tool_definitions payload: {}", e))?
-        .or_else(|| (!detail.tool_definitions.is_empty()).then_some(detail.tool_definitions));
-    let requirements_txt = match body.get("requirements_txt") {
-        Some(serde_json::Value::Null) => None,
-        Some(value) => Some(
-            value
-                .as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| anyhow::anyhow!("requirements_txt must be a string or null"))?,
-        ),
-        None => detail.requirements_txt,
-    };
-
-    let config = body.get("config").cloned().or(detail.config);
-    let secrets = body.get("secrets").cloned();
-
-    let requirements = match body.get("requirements").cloned() {
-        Some(value) => serde_json::from_value(value)
-            .map_err(|e| anyhow::anyhow!("Invalid requirements payload: {}", e))?,
-        None => detail.requirements,
-    };
-    let external_databases = resolve_updated_external_databases(body, detail.external_databases)?;
-
-    let max_timeout_seconds = body
-        .get("max_timeout_seconds")
-        .and_then(|v| v.as_i64())
-        .map(|v| v as i32)
-        .or(detail.max_timeout_seconds);
-    let context_budget_tokens = body
-        .get("context_budget_tokens")
-        .and_then(|v| v.as_i64())
-        .map(|v| v as i32)
-        .or(detail.context_budget_tokens);
-    let max_iterations = body
-        .get("max_iterations")
-        .and_then(|v| v.as_i64())
-        .map(|v| v as i32)
-        .or(detail.max_iterations);
-    let max_tool_calls_per_run = body
-        .get("max_tool_calls_per_run")
-        .and_then(|v| v.as_i64())
-        .map(|v| v as i32)
-        .or(detail.max_tool_calls_per_run);
-    let max_tool_output_chars = body
-        .get("max_tool_output_chars")
-        .and_then(|v| v.as_i64())
-        .map(|v| v as i32)
-        .or(detail.max_tool_output_chars);
-
-    Ok(seren::WorkloadSpec {
-        compute_backend: Some(detail.compute_backend),
-        config,
-        execution: seren::WorkloadExecution::Llm {
-            adapter: Some(detail.runtime_adapter),
-            bundle,
-            fallback_models,
-            llm_connection: detail.llm_connection,
-            model_config: Some(model_config),
-            model_id: Some(model_id),
-            requirements_txt,
-            tool_definitions,
-        },
-        external_databases,
-        limits: Some(seren::WorkloadLimits {
-            context_budget_tokens,
-            max_iterations,
-            max_timeout_seconds,
-            max_tool_calls_per_run,
-            max_tool_output_chars,
-        }),
-        network_policy: detail.network_policy,
-        publisher_only: None,
-        requirements: Some(requirements),
-        secrets,
-        side_effect_policy: detail.side_effect_policy,
-    })
-}
-
-fn bundle_with_prompt_override(
-    mut bundle: seren::AgentBundle,
-    prompt_override: Option<String>,
-) -> seren::AgentBundle {
-    let Some(prompt) = prompt_override else {
-        return bundle;
-    };
-
-    if let Some(instruction) = bundle
-        .instructions
-        .iter_mut()
-        .find(|instruction| instruction.kind == seren::AgentInstructionKind::Skill)
-    {
-        instruction.content = prompt;
-        instruction.sha256 = None;
-    } else {
-        bundle.instructions.push(seren::AgentInstructionFile {
-            allowed_tools: None,
-            content: prompt,
-            kind: seren::AgentInstructionKind::Skill,
-            path: Some("SKILL.md".to_string()),
-            sha256: None,
-            skill_name: None,
-        });
+    if body.contains_key("tool_definitions") {
+        return Err(anyhow::anyhow!(
+            "Managed deployments derive tools from tool_presets and tool_refs; `tool_definitions` cannot be included in an agent update."
+        ));
     }
+    for key in [
+        "compute_backend",
+        "deployment_bundle_id",
+        "network_policy",
+        "publisher_only",
+        "runtime_kind",
+        "side_effect_policy",
+        "system_prompt",
+    ] {
+        if body.contains_key(key) {
+            return Err(anyhow::anyhow!(
+                "`{key}` cannot be changed through a managed agent workload patch."
+            ));
+        }
+    }
+    let mut patch = serde_json::Map::new();
+    for key in [
+        "config",
+        "external_databases",
+        "model_config",
+        "model_id",
+        "prompt",
+        "requirements",
+        "secrets",
+    ] {
+        if let Some(value) = body.get(key) {
+            patch.insert(key.to_string(), value.clone());
+        }
+    }
+    match body.get("fallback_models") {
+        Some(serde_json::Value::Null) => {
+            patch.insert("clear_fallback_models".to_string(), serde_json::json!(true));
+        }
+        Some(value) => {
+            patch.insert("fallback_models".to_string(), value.clone());
+        }
+        None => {}
+    }
+    match body.get("requirements_txt") {
+        Some(serde_json::Value::Null) => {
+            patch.insert(
+                "clear_requirements_txt".to_string(),
+                serde_json::json!(true),
+            );
+        }
+        Some(value) => {
+            patch.insert("requirements_txt".to_string(), value.clone());
+        }
+        None => {}
+    }
+    if patch.is_empty() {
+        return Ok(None);
+    }
+    serde_json::from_value(serde_json::Value::Object(patch))
+        .map(Some)
+        .map_err(|error| anyhow::anyhow!("Failed to build managed workload patch: {error}"))
+}
 
-    bundle
+fn build_managed_agent_limits_patch(
+    body: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Option<seren::WorkloadLimitsPatch>> {
+    let mut patch = serde_json::Map::new();
+    for key in WORKLOAD_LIMITS_FIELDS {
+        match body.get(*key) {
+            Some(serde_json::Value::Null) => {
+                patch.insert(format!("clear_{key}"), serde_json::json!(true));
+            }
+            Some(value) => {
+                patch.insert((*key).to_string(), value.clone());
+            }
+            None => {}
+        }
+    }
+    if patch.is_empty() {
+        return Ok(None);
+    }
+    serde_json::from_value(serde_json::Value::Object(patch))
+        .map(Some)
+        .map_err(|error| anyhow::anyhow!("Failed to build managed workload limits patch: {error}"))
 }
 
 fn apply_requirements_txt_clear(
@@ -4757,9 +4647,7 @@ fn apply_requirements_txt_clear(
     Ok(())
 }
 
-async fn build_managed_agent_update_request(
-    client: &seren::Client,
-    deployment_id: &Uuid,
+fn build_managed_agent_update_request(
     options: ManagedAgentUpdateOptions<'_>,
 ) -> Result<seren::AgentSpecUpdate> {
     let ManagedAgentUpdateOptions {
@@ -4915,14 +4803,11 @@ async fn build_managed_agent_update_request(
         ));
     }
 
-    let workload = if body_touches_workload(&body) {
-        Some(build_replacement_workload_for_managed_agent(client, deployment_id, &body).await?)
-    } else {
-        None
-    };
+    let workload_patch = build_managed_agent_workload_patch(&body)?;
+    let workload_limits = build_managed_agent_limits_patch(&body)?;
 
-    // Strip workload-level fields out of the envelope; they are now embedded
-    // in `workload` (or carried implicitly via the existing deployment).
+    // Strip workload-level fields out of the envelope; authored fields and
+    // limits are carried by their partial patch objects.
     for key in WORKLOAD_LEVEL_FIELDS
         .iter()
         .chain(WORKLOAD_LIMITS_FIELDS.iter())
@@ -4945,7 +4830,8 @@ async fn build_managed_agent_update_request(
     let mut request: seren::AgentSpecUpdate =
         serde_json::from_value(serde_json::Value::Object(body))
             .map_err(|e| anyhow::anyhow!("Failed to build managed update request: {}", e))?;
-    request.workload = workload;
+    request.workload_limits = workload_limits;
+    request.workload_patch = workload_patch;
     Ok(request)
 }
 
@@ -4968,7 +4854,7 @@ pub async fn managed_agent_preview(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
-    let body = build_managed_agent_update_request(&client, &deployment_id, options).await?;
+    let body = build_managed_agent_update_request(options)?;
     let response = match client
         .seren_agent_preview_managed_deployment_update(&deployment_id, &body)
         .await
@@ -4993,7 +4879,7 @@ pub async fn managed_agent_update(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
-    let body = build_managed_agent_update_request(&client, &deployment_id, options).await?;
+    let body = build_managed_agent_update_request(options)?;
     let response = match client
         .seren_agent_update_managed_deployment(&deployment_id, &body)
         .await
@@ -9667,13 +9553,21 @@ mod tests {
     }
 
     #[test]
-    fn workload_replacement_requires_existing_secrets_to_be_explicit() {
-        let secret_keys = vec!["DATABASE_URL".to_string()];
-        let mut body = serde_json::Map::new();
-        assert!(require_explicit_replacement_secrets(&secret_keys, &body).is_err());
+    fn managed_secrets_update_builds_a_partial_workload_patch() {
+        let body = serde_json::Map::from_iter([(
+            "secrets".to_string(),
+            serde_json::json!({"DISCORD_BOT_TOKEN": "replacement"}),
+        )]);
 
-        body.insert("secrets".to_string(), serde_json::json!({}));
-        assert!(require_explicit_replacement_secrets(&secret_keys, &body).is_ok());
+        let patch = build_managed_agent_workload_patch(&body)
+            .expect("valid secrets patch")
+            .expect("workload patch");
+        let value = serde_json::to_value(patch).expect("serialized workload patch");
+        assert_eq!(
+            value.pointer("/secrets/DISCORD_BOT_TOKEN"),
+            Some(&serde_json::json!("replacement"))
+        );
+        assert!(value.get("tool_definitions").is_none());
     }
 
     #[test]
@@ -10077,34 +9971,26 @@ mod tests {
     }
 
     #[test]
-    fn resolve_updated_external_databases_preserves_clears_and_replaces() {
-        let current: Vec<seren::ManagedExternalDatabaseAttachment> =
-            serde_json::from_value(serde_json::json!([{
-                "project_id": "24dc59b5-52f8-4a95-bff3-d0b8bab84423",
-                "branch_id": "4be7f967-fd9c-4587-bb7d-b45ee4eb2c8f",
-                "database": "chief_lending_officer_borrower_sourcing",
-                "access": "read_only"
-            }]))
-            .unwrap();
-
-        // An absent key preserves the current attachments.
-        let preserved =
-            resolve_updated_external_databases(&serde_json::Map::new(), current.clone()).unwrap();
-        assert_eq!(
-            serde_json::to_value(&preserved).unwrap(),
-            serde_json::to_value(&current).unwrap(),
+    fn managed_workload_patch_preserves_omission_and_sends_database_replacements() {
+        assert!(
+            build_managed_agent_workload_patch(&serde_json::Map::new())
+                .unwrap()
+                .is_none()
         );
 
-        // An explicit empty list clears the attachments.
         let cleared_body =
             serde_json::Map::from_iter([("external_databases".to_string(), serde_json::json!([]))]);
-        assert!(
-            resolve_updated_external_databases(&cleared_body, current.clone())
+        let cleared = serde_json::to_value(
+            build_managed_agent_workload_patch(&cleared_body)
                 .unwrap()
-                .is_empty()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            cleared.get("external_databases"),
+            Some(&serde_json::json!([]))
         );
 
-        // An explicit list replaces the attachments.
         let replace_body = serde_json::Map::from_iter([(
             "external_databases".to_string(),
             serde_json::json!([{
@@ -10114,16 +10000,22 @@ mod tests {
                 "access": "read_write"
             }]),
         )]);
-        let replaced = resolve_updated_external_databases(&replace_body, current.clone()).unwrap();
-        assert_eq!(replaced.len(), 1);
-        assert_eq!(replaced[0].database, "bat_sales_coach");
+        let replaced = serde_json::to_value(
+            build_managed_agent_workload_patch(&replace_body)
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            replaced.pointer("/external_databases/0/database"),
+            Some(&serde_json::json!("bat_sales_coach"))
+        );
 
-        // A malformed payload is a clear error, not a silent preserve.
         let invalid_body = serde_json::Map::from_iter([(
             "external_databases".to_string(),
             serde_json::json!("not-an-array"),
         )]);
-        assert!(resolve_updated_external_databases(&invalid_body, current).is_err());
+        assert!(build_managed_agent_workload_patch(&invalid_body).is_err());
     }
 
     #[test]
@@ -10208,88 +10100,61 @@ mod tests {
     }
 
     #[test]
-    fn bundle_prompt_override_preserves_assets_and_clears_sha() {
-        let bundle = seren::AgentBundle {
-            assets: vec![seren::AgentAssetFile {
-                content_base64: "Zm9v".to_string(),
-                content_type: None,
-                path: "notes.txt".to_string(),
-                purpose: None,
-                sha256: Some("asset-sha".to_string()),
-            }],
-            instructions: vec![seren::AgentInstructionFile {
-                allowed_tools: None,
-                content: "old prompt".to_string(),
-                kind: seren::AgentInstructionKind::Skill,
-                path: Some("SKILL.md".to_string()),
-                sha256: Some("old-sha".to_string()),
-                skill_name: None,
-            }],
-        };
+    fn managed_workload_patch_rejects_full_bundle_updates() {
+        let body = serde_json::Map::from_iter([(
+            "bundle".to_string(),
+            serde_json::json!({"instructions": []}),
+        )]);
 
-        let bundle = bundle_with_prompt_override(bundle, Some("new prompt".to_string()));
-
-        assert_eq!(bundle.assets.len(), 1);
-        assert_eq!(bundle.instructions.len(), 1);
-        assert_eq!(bundle.instructions[0].content, "new prompt");
-        assert!(bundle.instructions[0].sha256.is_none());
+        let error = build_managed_agent_workload_patch(&body).unwrap_err();
+        assert!(error.to_string().contains("managed files"));
     }
 
     #[test]
-    fn bundle_prompt_override_preserves_non_skill_instructions() {
-        let bundle = seren::AgentBundle {
-            assets: vec![],
-            instructions: vec![
-                seren::AgentInstructionFile {
-                    allowed_tools: None,
-                    content: "be careful".to_string(),
-                    kind: seren::AgentInstructionKind::Identity,
-                    path: Some("IDENTITY.md".to_string()),
-                    sha256: Some("identity-sha".to_string()),
-                    skill_name: None,
-                },
-                seren::AgentInstructionFile {
-                    allowed_tools: None,
-                    content: "old prompt".to_string(),
-                    kind: seren::AgentInstructionKind::Skill,
-                    path: Some("SKILL.md".to_string()),
-                    sha256: Some("old-sha".to_string()),
-                    skill_name: None,
-                },
-                seren::AgentInstructionFile {
-                    allowed_tools: None,
-                    content: "tail logs".to_string(),
-                    kind: seren::AgentInstructionKind::Tools,
-                    path: Some("TOOLS.md".to_string()),
-                    sha256: Some("tools-sha".to_string()),
-                    skill_name: None,
-                },
-            ],
-        };
+    fn managed_workload_patch_rejects_resolved_tool_definitions() {
+        let body = serde_json::Map::from_iter([(
+            "tool_definitions".to_string(),
+            serde_json::json!([{"name": "lookup", "description": "Look up data"}]),
+        )]);
 
-        let bundle = bundle_with_prompt_override(bundle, Some("new prompt".to_string()));
+        let error = build_managed_agent_workload_patch(&body).unwrap_err();
+        assert!(error.to_string().contains("derive tools"));
+    }
 
-        assert_eq!(bundle.instructions.len(), 3);
-        let identity = bundle
-            .instructions
-            .iter()
-            .find(|i| i.kind == seren::AgentInstructionKind::Identity)
-            .expect("identity instruction preserved");
-        assert_eq!(identity.content, "be careful");
-        assert_eq!(identity.sha256.as_deref(), Some("identity-sha"));
-        let tools = bundle
-            .instructions
-            .iter()
-            .find(|i| i.kind == seren::AgentInstructionKind::Tools)
-            .expect("tools instruction preserved");
-        assert_eq!(tools.content, "tail logs");
-        assert_eq!(tools.sha256.as_deref(), Some("tools-sha"));
-        let skill = bundle
-            .instructions
-            .iter()
-            .find(|i| i.kind == seren::AgentInstructionKind::Skill)
-            .expect("skill instruction present");
-        assert_eq!(skill.content, "new prompt");
-        assert!(skill.sha256.is_none());
+    #[test]
+    fn managed_workload_patch_rejects_unsupported_workload_fields() {
+        for key in [
+            "compute_backend",
+            "deployment_bundle_id",
+            "network_policy",
+            "publisher_only",
+            "runtime_kind",
+            "side_effect_policy",
+            "system_prompt",
+        ] {
+            let body = serde_json::Map::from_iter([(key.to_string(), serde_json::Value::Null)]);
+            let error = build_managed_agent_workload_patch(&body).unwrap_err();
+            assert!(error.to_string().contains("cannot be changed"));
+        }
+    }
+
+    #[test]
+    fn managed_limits_patch_can_coexist_with_an_authored_workload_patch() {
+        let body = serde_json::Map::from_iter([
+            ("secrets".to_string(), serde_json::json!({"TOKEN": "new"})),
+            ("max_timeout_seconds".to_string(), serde_json::json!(900)),
+        ]);
+
+        assert!(build_managed_agent_workload_patch(&body).unwrap().is_some());
+        let limits = serde_json::to_value(
+            build_managed_agent_limits_patch(&body)
+                .unwrap()
+                .expect("limits patch"),
+        )
+        .unwrap();
+        assert_eq!(
+            limits.get("max_timeout_seconds"),
+            Some(&serde_json::json!(900))
+        );
     }
 }

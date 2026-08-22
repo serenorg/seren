@@ -2359,7 +2359,7 @@ pub struct UpdateSerenAgentDeploymentParams {
     #[serde(default)]
     #[schemars(with = "Option<JsonObjectSchema>")]
     pub config: Option<serde_json::Value>,
-    /// Updated JSON secrets object
+    /// Complete replacement for the caller-authored JSON secrets object
     #[serde(default)]
     #[schemars(with = "Option<JsonObjectSchema>")]
     pub secrets: Option<serde_json::Value>,
@@ -2370,6 +2370,9 @@ pub struct UpdateSerenAgentDeploymentParams {
     /// Updated optional fallback model list
     #[serde(default)]
     pub fallback_models: Option<Vec<String>>,
+    /// Clear the configured fallback model list and restore server defaults
+    #[serde(default)]
+    pub clear_fallback_models: bool,
     /// Updated Python requirements.txt content
     #[serde(default)]
     pub requirements_txt: Option<String>,
@@ -2453,8 +2456,7 @@ fn resolve_guided_list_alias(
     }
 }
 
-async fn build_update_seren_agent_deployment_request(
-    api_client: &seren::Client,
+fn build_update_seren_agent_deployment_request(
     params: &UpdateSerenAgentDeploymentParams,
 ) -> Result<seren::AgentSpecUpdate, McpError> {
     let template = resolve_guided_string_alias(
@@ -2512,6 +2514,12 @@ async fn build_update_seren_agent_deployment_request(
             None,
         ));
     }
+    if params.fallback_models.is_some() && params.clear_fallback_models {
+        return Err(McpError::invalid_params(
+            "Provide either fallback_models or clear_fallback_models, not both.",
+            None,
+        ));
+    }
     if params.credentials.is_some() && params.clear_credentials {
         return Err(McpError::invalid_params(
             "Provide either credentials or clear_credentials, not both.",
@@ -2556,15 +2564,12 @@ async fn build_update_seren_agent_deployment_request(
             ));
         }
     };
-    let workload_replacement = update_requires_workload_replacement(params);
-    let workload = if workload_replacement {
-        Some(build_replacement_workload(api_client, params).await?)
+    let workload_patch = if update_requires_workload_patch(params) {
+        Some(build_managed_workload_patch(params)?)
     } else {
         None
     };
-    let workload_limits = if workload_replacement {
-        None
-    } else {
+    let workload_limits =
         params
             .max_timeout_seconds
             .map(|max_timeout_seconds| seren::WorkloadLimitsPatch {
@@ -2578,8 +2583,7 @@ async fn build_update_seren_agent_deployment_request(
                 max_timeout_seconds: Some(max_timeout_seconds),
                 max_tool_calls_per_run: None,
                 max_tool_output_chars: None,
-            })
-    };
+            });
 
     Ok(seren::AgentSpecUpdate {
         agent_identity_id: params.agent_identity_id,
@@ -2620,128 +2624,53 @@ async fn build_update_seren_agent_deployment_request(
         tool_presets,
         tool_refs: params.tool_refs.clone(),
         visibility: params.visibility.clone(),
-        workload,
         workload_limits,
+        workload_patch,
     })
 }
 
-fn update_requires_workload_replacement(params: &UpdateSerenAgentDeploymentParams) -> bool {
+fn update_requires_workload_patch(params: &UpdateSerenAgentDeploymentParams) -> bool {
     params.prompt.is_some()
         || params.model_id.is_some()
         || params.config.is_some()
         || params.secrets.is_some()
         || params.model_config.is_some()
         || params.fallback_models.is_some()
+        || params.clear_fallback_models
         || params.requirements_txt.is_some()
         || params.clear_requirements_txt
         || params.requirements.is_some()
         || params.external_databases.is_some()
 }
 
-/// Resolve the external-database attachments for a workload replacement.
-///
-/// Omitting the field (`None`) preserves the deployment's current attachments;
-/// an explicit list replaces them, and an explicit empty list clears them.
-fn resolve_updated_external_databases(
-    requested: Option<Vec<seren::ManagedExternalDatabaseAttachment>>,
-    current: Vec<seren::ManagedExternalDatabaseAttachment>,
-) -> Vec<seren::ManagedExternalDatabaseAttachment> {
-    requested.unwrap_or(current)
-}
-
-async fn build_replacement_workload(
-    api_client: &seren::Client,
+fn build_managed_workload_patch(
     params: &UpdateSerenAgentDeploymentParams,
-) -> Result<seren::WorkloadSpec, McpError> {
+) -> Result<seren::ManagedAgentWorkloadPatch, McpError> {
     let config = normalize_json_object_argument(params.config.clone(), "config")?;
     let secrets = normalize_json_object_argument(params.secrets.clone(), "secrets")?;
     let model_config = normalize_json_object_argument(params.model_config.clone(), "model_config")?;
-    let detail = api_client
-        .seren_agent_get_managed_deployment(&params.deployment_id)
-        .into_mcp_result()
-        .await?
-        .into_inner()
-        .data;
-
-    if !detail.secret_keys.is_empty() && params.secrets.is_none() {
-        return Err(McpError::invalid_params(
-            "This deployment has existing secrets. Because managed-agent workload updates are full replacements, provide the complete replacement secrets object when changing workload-level fields.",
-            None,
-        ));
-    }
-
     let requirements = params
         .requirements
         .clone()
         .map(serde_json::from_value)
         .transpose()
-        .map_err(|e| McpError::invalid_params(format!("Invalid requirements payload: {e}"), None))?
-        .unwrap_or(detail.requirements);
+        .map_err(|e| {
+            McpError::invalid_params(format!("Invalid requirements payload: {e}"), None)
+        })?;
 
-    Ok(seren::WorkloadSpec {
-        compute_backend: Some(detail.compute_backend),
-        config: config.or(detail.config),
-        execution: seren::WorkloadExecution::Llm {
-            adapter: Some(detail.runtime_adapter),
-            bundle: bundle_with_prompt_override(detail.bundle, params.prompt.clone()),
-            fallback_models: params.fallback_models.clone().or(detail.fallback_models),
-            llm_connection: detail.llm_connection,
-            model_config: Some(model_config.unwrap_or(detail.model_config)),
-            model_id: Some(params.model_id.clone().unwrap_or(detail.model_id)),
-            requirements_txt: if params.clear_requirements_txt {
-                None
-            } else {
-                params.requirements_txt.clone().or(detail.requirements_txt)
-            },
-            tool_definitions: (!detail.tool_definitions.is_empty())
-                .then_some(detail.tool_definitions),
-        },
-        external_databases: resolve_updated_external_databases(
-            params.external_databases.clone(),
-            detail.external_databases,
-        ),
-        limits: Some(seren::WorkloadLimits {
-            context_budget_tokens: detail.context_budget_tokens,
-            max_iterations: detail.max_iterations,
-            max_timeout_seconds: params.max_timeout_seconds.or(detail.max_timeout_seconds),
-            max_tool_calls_per_run: detail.max_tool_calls_per_run,
-            max_tool_output_chars: detail.max_tool_output_chars,
-        }),
-        network_policy: detail.network_policy,
-        publisher_only: None,
-        requirements: Some(requirements),
+    Ok(seren::ManagedAgentWorkloadPatch {
+        clear_fallback_models: params.clear_fallback_models.then_some(true),
+        clear_requirements_txt: params.clear_requirements_txt.then_some(true),
+        config,
+        external_databases: params.external_databases.clone(),
+        fallback_models: params.fallback_models.clone(),
+        model_config,
+        model_id: params.model_id.clone(),
+        prompt: params.prompt.clone(),
+        requirements,
+        requirements_txt: params.requirements_txt.clone(),
         secrets,
-        side_effect_policy: detail.side_effect_policy,
     })
-}
-
-fn bundle_with_prompt_override(
-    mut bundle: seren::AgentBundle,
-    prompt_override: Option<String>,
-) -> seren::AgentBundle {
-    let Some(prompt) = prompt_override else {
-        return bundle;
-    };
-
-    if let Some(instruction) = bundle
-        .instructions
-        .iter_mut()
-        .find(|instruction| instruction.kind == seren::AgentInstructionKind::Skill)
-    {
-        instruction.content = prompt;
-        instruction.sha256 = None;
-    } else {
-        bundle.instructions.push(seren::AgentInstructionFile {
-            allowed_tools: None,
-            content: prompt,
-            kind: seren::AgentInstructionKind::Skill,
-            path: Some("SKILL.md".to_string()),
-            sha256: None,
-            skill_name: None,
-        });
-    }
-
-    bundle
 }
 
 fn bundle_for_prompt(prompt: String) -> seren::AgentBundle {
@@ -14383,7 +14312,7 @@ API endpoint: {endpoint}",
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        let body = build_update_seren_agent_deployment_request(&api_client, &params).await?;
+        let body = build_update_seren_agent_deployment_request(&params)?;
         let response = api_client
             .seren_agent_preview_managed_deployment_update(&params.deployment_id, &body)
             .into_mcp_result()
@@ -14479,7 +14408,7 @@ API endpoint: {endpoint}",
     ) -> Result<CallToolResult, McpError> {
         ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Update)?;
         let api_client = self.api_client(&extensions)?;
-        let body = build_update_seren_agent_deployment_request(&api_client, &params).await?;
+        let body = build_update_seren_agent_deployment_request(&params)?;
         let response = api_client
             .seren_agent_update_managed_deployment(&params.deployment_id, &body)
             .into_mcp_result()
@@ -16568,6 +16497,28 @@ mod tests {
         })
     }
 
+    fn managed_agent_update_summary_fixture(deployment_id: Uuid) -> serde_json::Value {
+        serde_json::json!({
+            "data": {
+                "id": deployment_id,
+                "organization_id": Uuid::from_u128(2),
+                "user_id": Uuid::from_u128(3),
+                "name": "Runtime Policy Canary",
+                "skill_slug": "runtime-policy-canary",
+                "compute_backend": "aws_container",
+                "runtime_kind": "python",
+                "mode": "job",
+                "status": "running",
+                "code_bundle_hash": "bundle-sha",
+                "orchestration_mode": "llm",
+                "requirements": [],
+                "visibility": "opaque",
+                "created_at": "2026-08-09T11:00:00Z",
+                "updated_at": "2026-08-21T20:30:00Z"
+            }
+        })
+    }
+
     fn managed_agent_resources_fixture(deployment_id: Uuid) -> serde_json::Value {
         serde_json::json!({
             "data": {
@@ -16847,7 +16798,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("missing MCP tool {tool_name}"));
             let schema = serde_json::Value::Object((*tool.input_schema).clone());
 
-            for field_name in object_fields.iter().copied() {
+            for field_name in object_fields.iter() {
                 let field = schema
                     .pointer(&format!("/properties/{field_name}"))
                     .unwrap_or_else(|| panic!("{tool_name} should advertise {field_name}"));
@@ -18628,34 +18579,6 @@ mod tests {
     }
 
     #[test]
-    fn bundle_prompt_override_preserves_assets_and_clears_sha() {
-        let bundle = seren::AgentBundle {
-            assets: vec![seren::AgentAssetFile {
-                content_base64: "Zm9v".to_string(),
-                content_type: None,
-                path: "notes.txt".to_string(),
-                purpose: None,
-                sha256: Some("asset-sha".to_string()),
-            }],
-            instructions: vec![seren::AgentInstructionFile {
-                allowed_tools: None,
-                content: "old prompt".to_string(),
-                kind: seren::AgentInstructionKind::Skill,
-                path: Some("SKILL.md".to_string()),
-                sha256: Some("old-sha".to_string()),
-                skill_name: None,
-            }],
-        };
-
-        let bundle = bundle_with_prompt_override(bundle, Some("new prompt".to_string()));
-
-        assert_eq!(bundle.assets.len(), 1);
-        assert_eq!(bundle.instructions.len(), 1);
-        assert_eq!(bundle.instructions[0].content, "new prompt");
-        assert!(bundle.instructions[0].sha256.is_none());
-    }
-
-    #[test]
     fn extract_bearer_token_from_extensions_is_case_insensitive_and_trims() {
         let extensions = extensions_with_headers(&[("authorization", "bearer   token123  ")]);
         assert_eq!(
@@ -20186,10 +20109,8 @@ mod tests {
         assert!(!handler.contains(".seren_cloud_run(&deployment_id, &body)"));
     }
 
-    #[tokio::test]
-    async fn update_agent_rejects_tool_refs_with_clear_tool_refs() {
-        let api_client =
-            seren::Client::new_with_client("https://api.serendb.com", reqwest::Client::new());
+    #[test]
+    fn update_agent_rejects_tool_refs_with_clear_tool_refs() {
         let tool_ref = serde_json::from_value::<seren::AgentToolRef>(serde_json::json!({
             "kind": "publisher",
             "publisher_slug": "microsoft",
@@ -20222,6 +20143,7 @@ mod tests {
             secrets: None,
             model_config: None,
             fallback_models: None,
+            clear_fallback_models: false,
             requirements_txt: None,
             clear_requirements_txt: false,
             max_timeout_seconds: None,
@@ -20239,9 +20161,7 @@ mod tests {
             expected_active_revision_id: None,
         };
 
-        let err = build_update_seren_agent_deployment_request(&api_client, &params)
-            .await
-            .unwrap_err();
+        let err = build_update_seren_agent_deployment_request(&params).unwrap_err();
 
         assert!(
             err.message.contains("tool_refs or clear_tool_refs"),
@@ -20277,6 +20197,7 @@ mod tests {
             secrets: None,
             model_config: None,
             fallback_models: None,
+            clear_fallback_models: false,
             requirements_txt: None,
             clear_requirements_txt: false,
             max_timeout_seconds: None,
@@ -20565,17 +20486,14 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn update_agent_accepts_a_string_wrapped_capability_policy() {
-        let api_client =
-            seren::Client::new_with_client("https://api.serendb.com", reqwest::Client::new());
+    #[test]
+    fn update_agent_accepts_a_string_wrapped_capability_policy() {
         let mut params = base_update_agent_params();
         params.capability_policy = Some(serde_json::Value::String(
             serde_json::json!({ "browser": { "enabled": true, "profile": "minimal" } }).to_string(),
         ));
 
-        let request = build_update_seren_agent_deployment_request(&api_client, &params)
-            .await
+        let request = build_update_seren_agent_deployment_request(&params)
             .expect("a string-wrapped capability policy should build an update");
         let payload = serde_json::to_value(
             request
@@ -20590,76 +20508,99 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn update_agent_normalizes_string_wrapped_secrets_and_merges_the_workload() {
-        use wiremock::matchers::{method, path};
-        use wiremock::{Mock, MockServer, ResponseTemplate};
-
-        let deployment_id = Uuid::new_v4();
-        let mut detail = managed_agent_detail_fixture(deployment_id);
-        detail["data"]["secret_keys"] = serde_json::json!([]);
-        let proxy = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path(format!(
-                "/publishers/seren-agent/deployments/{deployment_id}/managed"
-            )))
-            .respond_with(ResponseTemplate::new(200).set_body_json(detail))
-            .expect(1)
-            .mount(&proxy)
-            .await;
-
-        let api_client = seren::Client::new_with_client(&proxy.uri(), reqwest::Client::new());
+    #[test]
+    fn update_agent_normalizes_string_wrapped_secrets_into_a_workload_patch() {
         let mut params = base_update_agent_params();
-        params.deployment_id = deployment_id;
         params.secrets = Some(serde_json::Value::String(
             serde_json::json!({ "DISCORD_BOT_TOKEN": "test-token" }).to_string(),
         ));
 
-        let request = build_update_seren_agent_deployment_request(&api_client, &params)
-            .await
-            .expect("a secrets-only update should merge the existing workload");
-        let workload = serde_json::to_value(request.workload.expect("replacement workload"))
-            .expect("workload should serialize");
+        let request = build_update_seren_agent_deployment_request(&params)
+            .expect("a secrets-only update should build a workload patch");
+        let workload_patch = serde_json::to_value(
+            request
+                .workload_patch
+                .expect("caller-authored workload patch"),
+        )
+        .expect("workload patch should serialize");
 
         assert_eq!(
-            workload.pointer("/secrets/DISCORD_BOT_TOKEN"),
+            workload_patch.pointer("/secrets/DISCORD_BOT_TOKEN"),
             Some(&serde_json::json!("test-token"))
         );
-        assert_eq!(
-            workload.pointer("/execution/model_id"),
-            Some(&serde_json::json!("openai/gpt-5"))
-        );
-        assert_eq!(
-            workload.pointer("/execution/tool_definitions/0/name"),
-            Some(&serde_json::json!("lookup"))
-        );
+        assert!(workload_patch.get("tool_definitions").is_none());
     }
 
     #[tokio::test]
-    async fn update_agent_rejects_non_object_secrets_before_reading_the_deployment() {
-        let api_client =
-            seren::Client::new_with_client("https://api.invalid", reqwest::Client::new());
+    async fn update_agent_sends_a_partial_patch_without_reading_resolved_detail() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let deployment_id = Uuid::new_v4();
+        let proxy = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(managed_agent_update_summary_fixture(deployment_id)),
+            )
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let mut params = base_update_agent_params();
+        params.deployment_id = deployment_id;
+        params.secrets = Some(serde_json::json!({
+            "DISCORD_BOT_TOKEN": "test-token"
+        }));
+
+        let result = server
+            .update_seren_agent_deployment(Parameters(params), extensions_with_headers(&[]))
+            .await
+            .expect("partial managed update should reach Core");
+        assert!(!result.is_error.unwrap_or(false));
+
+        let requests = proxy
+            .received_requests()
+            .await
+            .expect("recorded update request");
+        assert_eq!(
+            requests.len(),
+            1,
+            "the update must not perform a detail GET"
+        );
+        let body: serde_json::Value =
+            serde_json::from_slice(&requests[0].body).expect("update request JSON");
+        assert_eq!(
+            body.pointer("/workload_patch/secrets/DISCORD_BOT_TOKEN"),
+            Some(&serde_json::json!("test-token"))
+        );
+        assert!(body.get("workload").is_none());
+        assert!(body.pointer("/workload_patch/tool_definitions").is_none());
+    }
+
+    #[test]
+    fn update_agent_rejects_non_object_secrets_before_reading_the_deployment() {
         let mut params = base_update_agent_params();
         params.secrets = Some(serde_json::json!(["not", "an", "object"]));
 
-        let error = build_update_seren_agent_deployment_request(&api_client, &params)
-            .await
+        let error = build_update_seren_agent_deployment_request(&params)
             .expect_err("non-object secrets should fail at the MCP boundary");
 
         assert_eq!(error.message, "secrets must be a JSON object.");
     }
 
-    #[tokio::test]
-    async fn update_agent_normalizes_string_wrapped_dashboard_config() {
-        let api_client =
-            seren::Client::new_with_client("https://api.invalid", reqwest::Client::new());
+    #[test]
+    fn update_agent_normalizes_string_wrapped_dashboard_config() {
         let mut params = base_update_agent_params();
         params.dashboard_config = Some(serde_json::Value::String(
             serde_json::json!({ "title": "Connector Health" }).to_string(),
         ));
 
-        let request = build_update_seren_agent_deployment_request(&api_client, &params)
-            .await
+        let request = build_update_seren_agent_deployment_request(&params)
             .expect("dashboard-only updates should not read the workload");
 
         assert_eq!(
@@ -20669,43 +20610,34 @@ mod tests {
                 .and_then(|value| value.pointer("/title")),
             Some(&serde_json::json!("Connector Health"))
         );
-        assert!(request.workload.is_none());
     }
 
-    #[tokio::test]
-    async fn update_agent_rejects_conflicting_clear_operations() {
-        let api_client =
-            seren::Client::new_with_client("https://api.serendb.com", reqwest::Client::new());
-
+    #[test]
+    fn update_agent_rejects_conflicting_clear_operations() {
         let mut requirements = base_update_agent_params();
         requirements.requirements_txt = Some("httpx==0.28.1".to_string());
         requirements.clear_requirements_txt = true;
-        let error = build_update_seren_agent_deployment_request(&api_client, &requirements)
-            .await
+        let error = build_update_seren_agent_deployment_request(&requirements)
             .expect_err("requirements content and clearing must be mutually exclusive");
         assert!(error.message.contains("clear_requirements_txt"));
 
         let mut credentials = base_update_agent_params();
         credentials.credentials = Some(Vec::new());
         credentials.clear_credentials = true;
-        let error = build_update_seren_agent_deployment_request(&api_client, &credentials)
-            .await
+        let error = build_update_seren_agent_deployment_request(&credentials)
             .expect_err("credential replacement and clearing must be mutually exclusive");
         assert!(error.message.contains("clear_credentials"));
 
         let mut result = base_update_agent_params();
         result.secret_resolution_result_id = Some(Uuid::new_v4());
         result.clear_secret_resolution_result_id = true;
-        let error = build_update_seren_agent_deployment_request(&api_client, &result)
-            .await
+        let error = build_update_seren_agent_deployment_request(&result)
             .expect_err("result replacement and clearing must be mutually exclusive");
         assert!(error.message.contains("clear_secret_resolution_result_id"));
     }
 
-    #[tokio::test]
-    async fn update_agent_passes_credential_binding_preconditions_through() {
-        let api_client =
-            seren::Client::new_with_client("https://api.serendb.com", reqwest::Client::new());
+    #[test]
+    fn update_agent_passes_credential_binding_preconditions_through() {
         let credential = serde_json::from_value::<seren::AgentCredentialRef>(serde_json::json!({
             "name": "slack_authorization",
             "ref_uri": "seren-secrets://vault/item/password",
@@ -20725,8 +20657,7 @@ mod tests {
         params.secret_resolution_result_id = Some(result_id);
         params.expected_active_revision_id = Some(active_revision_id);
 
-        let request = build_update_seren_agent_deployment_request(&api_client, &params)
-            .await
+        let request = build_update_seren_agent_deployment_request(&params)
             .expect("credential binding update");
 
         assert_eq!(request.agent_identity_id, Some(agent_identity_id));
@@ -20739,93 +20670,55 @@ mod tests {
     }
 
     #[test]
-    fn update_agent_external_databases_require_workload_replacement() {
+    fn update_agent_external_databases_require_a_workload_patch() {
         let mut params = base_update_agent_params();
-        assert!(!update_requires_workload_replacement(&params));
+        assert!(!update_requires_workload_patch(&params));
 
         params.external_databases = Some(Vec::new());
-        assert!(update_requires_workload_replacement(&params));
+        assert!(update_requires_workload_patch(&params));
     }
 
     #[test]
-    fn update_agent_requirements_txt_requires_workload_replacement() {
+    fn update_agent_requirements_txt_requires_a_workload_patch() {
         let mut params = base_update_agent_params();
-        assert!(!update_requires_workload_replacement(&params));
+        assert!(!update_requires_workload_patch(&params));
 
         params.requirements_txt = Some("httpx==0.28.1".to_string());
-        assert!(update_requires_workload_replacement(&params));
+        assert!(update_requires_workload_patch(&params));
 
         params.requirements_txt = None;
         params.clear_requirements_txt = true;
-        assert!(update_requires_workload_replacement(&params));
+        assert!(update_requires_workload_patch(&params));
     }
 
-    #[tokio::test]
-    async fn update_agent_clear_requirements_preserves_custom_tools() {
-        use wiremock::matchers::{method, path};
-        use wiremock::{Mock, MockServer, ResponseTemplate};
-
-        let deployment_id = Uuid::new_v4();
-        let proxy = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path(format!(
-                "/publishers/seren-agent/deployments/{deployment_id}/managed"
-            )))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(managed_agent_detail_fixture(deployment_id)),
-            )
-            .expect(1)
-            .mount(&proxy)
-            .await;
-        let api_client = seren::Client::new_with_client(&proxy.uri(), reqwest::Client::new());
+    #[test]
+    fn update_agent_clear_requirements_uses_the_authoritative_workload() {
         let mut params = base_update_agent_params();
-        params.deployment_id = deployment_id;
         params.clear_requirements_txt = true;
         params.secrets = Some(serde_json::json!({
             "SEREN_AGENT_SESSION_DATABASE_URL": "preserved"
         }));
 
-        let request = build_update_seren_agent_deployment_request(&api_client, &params)
-            .await
+        let request = build_update_seren_agent_deployment_request(&params)
             .expect("requirements clear update");
-        let workload = request.workload.expect("replacement workload");
+        let workload_patch = request.workload_patch.expect("workload patch");
 
-        match workload.execution {
-            seren::WorkloadExecution::Llm {
-                requirements_txt,
-                tool_definitions,
-                ..
-            } => {
-                assert!(requirements_txt.is_none());
-                assert_eq!(
-                    tool_definitions
-                        .as_ref()
-                        .and_then(|tools| tools.first())
-                        .map(|tool| tool.name.as_str()),
-                    Some("lookup")
-                );
-            }
-            other => panic!("expected LLM workload, got {other:?}"),
-        }
+        assert_eq!(workload_patch.clear_requirements_txt, Some(true));
+        assert!(workload_patch.requirements_txt.is_none());
     }
 
-    #[tokio::test]
-    async fn update_agent_timeout_uses_the_server_side_limits_patch() {
-        let api_client =
-            seren::Client::new_with_client("https://api.serendb.com", reqwest::Client::new());
+    #[test]
+    fn update_agent_timeout_uses_the_server_side_limits_patch() {
         let mut params = base_update_agent_params();
         params.max_timeout_seconds = Some(900);
 
         assert!(
-            !update_requires_workload_replacement(&params),
-            "a limits-only update must not read and replace the redacted workload"
+            !update_requires_workload_patch(&params),
+            "a limits-only update must not patch unrelated workload fields"
         );
-        let request = build_update_seren_agent_deployment_request(&api_client, &params)
-            .await
-            .expect("limits-only request");
+        let request =
+            build_update_seren_agent_deployment_request(&params).expect("limits-only request");
 
-        assert!(request.workload.is_none());
         assert_eq!(
             request
                 .workload_limits
@@ -20835,15 +20728,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_updated_external_databases_preserves_clears_and_replaces() {
-        let current: Vec<seren::ManagedExternalDatabaseAttachment> =
-            serde_json::from_value(serde_json::json!([{
-                "project_id": "24dc59b5-52f8-4a95-bff3-d0b8bab84423",
-                "branch_id": "4be7f967-fd9c-4587-bb7d-b45ee4eb2c8f",
-                "database": "chief_lending_officer_borrower_sourcing",
-                "access": "read_only"
-            }]))
-            .unwrap();
+    fn managed_workload_patch_preserves_omission_and_sends_explicit_database_replacements() {
         let replacement: Vec<seren::ManagedExternalDatabaseAttachment> =
             serde_json::from_value(serde_json::json!([{
                 "project_id": "3dbd443a-86f6-4120-9b56-b8f61a021838",
@@ -20853,31 +20738,35 @@ mod tests {
             }]))
             .unwrap();
 
-        let as_json = |value: &[seren::ManagedExternalDatabaseAttachment]| {
-            serde_json::to_value(value).unwrap()
-        };
+        let omitted = build_managed_workload_patch(&base_update_agent_params())
+            .expect("omitted database patch");
+        assert!(omitted.external_databases.is_none());
 
-        // Omitting the field preserves the current attachments.
-        assert_eq!(
-            as_json(&resolve_updated_external_databases(None, current.clone())),
-            as_json(&current),
+        let mut clear = base_update_agent_params();
+        clear.external_databases = Some(Vec::new());
+        assert!(
+            build_managed_workload_patch(&clear)
+                .expect("clear database patch")
+                .external_databases
+                .is_some_and(|attachments| attachments.is_empty())
         );
-        // An explicit empty list clears the attachments.
-        assert!(resolve_updated_external_databases(Some(Vec::new()), current.clone()).is_empty());
-        // An explicit list replaces the attachments.
+
+        let mut replace = base_update_agent_params();
+        replace.external_databases = Some(replacement.clone());
         assert_eq!(
-            as_json(&resolve_updated_external_databases(
-                Some(replacement.clone()),
-                current.clone(),
-            )),
-            as_json(&replacement),
+            serde_json::to_value(
+                build_managed_workload_patch(&replace)
+                    .expect("replace database patch")
+                    .external_databases
+                    .expect("replacement attachments")
+            )
+            .unwrap(),
+            serde_json::to_value(replacement).unwrap(),
         );
     }
 
-    #[tokio::test]
-    async fn update_agent_passes_tool_refs_through() {
-        let api_client =
-            seren::Client::new_with_client("https://api.serendb.com", reqwest::Client::new());
+    #[test]
+    fn update_agent_passes_tool_refs_through() {
         let tool_ref = serde_json::from_value::<seren::AgentToolRef>(serde_json::json!({
             "kind": "publisher",
             "publisher_slug": "microsoft",
@@ -20887,9 +20776,7 @@ mod tests {
         let mut params = base_update_agent_params();
         params.tool_refs = Some(vec![tool_ref]);
 
-        let request = build_update_seren_agent_deployment_request(&api_client, &params)
-            .await
-            .unwrap();
+        let request = build_update_seren_agent_deployment_request(&params).unwrap();
 
         assert!(
             request
@@ -20904,16 +20791,12 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn update_agent_clear_tool_refs_sets_flag_without_refs() {
-        let api_client =
-            seren::Client::new_with_client("https://api.serendb.com", reqwest::Client::new());
+    #[test]
+    fn update_agent_clear_tool_refs_sets_flag_without_refs() {
         let mut params = base_update_agent_params();
         params.clear_tool_refs = true;
 
-        let request = build_update_seren_agent_deployment_request(&api_client, &params)
-            .await
-            .unwrap();
+        let request = build_update_seren_agent_deployment_request(&params).unwrap();
 
         assert_eq!(request.clear_tool_refs, Some(true));
         assert!(
