@@ -10,6 +10,10 @@ use openapiv3::{
 };
 use progenitor::{GenerationSettings, InterfaceStyle};
 
+/// Named component the SerenDB query result addresses for a single cell.
+const QUERY_RESULT_CELL_SCHEMA: &str = "QueryResultCell";
+const QUERY_RESULT_CELL_REFERENCE: &str = "#/components/schemas/QueryResultCell";
+
 fn collect_refs(value: &serde_json::Value, acc: &mut HashSet<String>) {
     match value {
         serde_json::Value::Object(map) => {
@@ -645,6 +649,51 @@ fn merge_publisher_spec(
     )
 }
 
+/// Checks the SerenDB query-cell contract before code generation.
+///
+/// The generated client decodes every cell shape the server can emit only while
+/// rows stay positional arrays that address a named cell component with an
+/// unconstrained schema. Checking both halves here turns a server-side
+/// narrowing into a build failure instead of a silently coercing client type.
+fn validate_query_result_cell_schema(spec: &serde_json::Value) -> anyhow::Result<()> {
+    let rows = spec
+        .pointer("/components/schemas/QueryResult/properties/rows")
+        .context("SerenDB OpenAPI document is missing QueryResult.rows")?;
+    if rows
+        .pointer("/items/type")
+        .and_then(serde_json::Value::as_str)
+        != Some("array")
+    {
+        anyhow::bail!("SerenDB QueryResult rows must stay positional arrays of cells");
+    }
+
+    let cell_reference = rows
+        .pointer("/items/items/$ref")
+        .and_then(serde_json::Value::as_str);
+    if cell_reference != Some(QUERY_RESULT_CELL_REFERENCE) {
+        anyhow::bail!(
+            "SerenDB QueryResult rows must reference {QUERY_RESULT_CELL_REFERENCE} before SDK generation"
+        );
+    }
+
+    let cell_schema = spec
+        .pointer("/components/schemas/QueryResultCell")
+        .and_then(serde_json::Value::as_object)
+        .with_context(|| format!("SerenDB OpenAPI is missing {QUERY_RESULT_CELL_SCHEMA}"))?;
+    // Any assertion keyword would let the generator infer a narrower type than
+    // "any JSON", which is what a scalar, null, or array cell needs.
+    let narrowing: Vec<&str> = cell_schema
+        .keys()
+        .map(String::as_str)
+        .filter(|key| !matches!(*key, "description" | "title"))
+        .collect();
+    if !narrowing.is_empty() {
+        anyhow::bail!("SerenDB QueryResultCell must allow every JSON value, found {narrowing:?}");
+    }
+
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let openapi_dir = manifest_dir.join("openapi");
@@ -746,6 +795,12 @@ fn main() -> anyhow::Result<()> {
     normalize_binary_content_schemas(&mut raw_json);
     remove_unsupported_multipart_operations(&mut raw_json)?;
 
+    // Checked on the document the generator consumes, after every normalization
+    // pass. `downconvert_31_to_30` rewrites an empty `items` schema to an
+    // object, so a cell that stopped being a named reference would silently
+    // regenerate as a map.
+    validate_query_result_cell_schema(&raw_json)?;
+
     let mut refs = HashSet::new();
     collect_refs(&raw_json, &mut refs);
 
@@ -802,6 +857,13 @@ fn main() -> anyhow::Result<()> {
     settings.with_replacement(
         "Uuid",
         "::uuid::Uuid",
+        std::iter::empty::<progenitor::TypeImpl>(),
+    );
+    // Query cells are any JSON value. `arbitrary_precision` keeps the server's
+    // exact decimal token intact through this type.
+    settings.with_replacement(
+        QUERY_RESULT_CELL_SCHEMA,
+        "::serde_json::Value",
         std::iter::empty::<progenitor::TypeImpl>(),
     );
 

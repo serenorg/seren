@@ -6235,7 +6235,9 @@
                 "type": "array",
                 "items": {
                   "type": "array",
-                  "items": {}
+                  "items": {
+                    "$ref": "#/components/schemas/QueryResultCell"
+                  }
                 }
               }
             }
@@ -8227,11 +8229,14 @@
             "type": "array",
             "items": {
               "type": "array",
-              "items": {}
+              "items": {
+                "$ref": "#/components/schemas/QueryResultCell"
+              }
             }
           }
         }
       },
+      "QueryResultCell": {},
       "RenameBranchRequest": {
         "type": "object",
         "description": "Request to rename a branch",
