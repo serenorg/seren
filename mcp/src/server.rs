@@ -20658,25 +20658,7 @@ mod tests {
             );
         }
 
-        let rollback = serde_json::json!({
-            "data": {
-                "id": deployment_id,
-                "organization_id": Uuid::from_u128(2),
-                "user_id": Uuid::from_u128(3),
-                "name": "Runtime Policy Canary",
-                "skill_slug": "runtime-policy-canary",
-                "compute_backend": "aws_container",
-                "runtime_kind": "python",
-                "mode": "job",
-                "status": "running",
-                "code_bundle_hash": "bundle-sha",
-                "orchestration_mode": "llm",
-                "requirements": [],
-                "visibility": "opaque",
-                "created_at": "2026-08-09T11:00:00Z",
-                "updated_at": "2026-08-09T12:00:00Z"
-            }
-        });
+        let rollback = managed_agent_update_summary_fixture(deployment_id);
         let proxy = MockServer::start().await;
         let request_body = serde_json::json!({"revision_id": revision_id});
         Mock::given(method("POST"))
