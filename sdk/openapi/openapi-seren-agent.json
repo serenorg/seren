@@ -352,6 +352,16 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Stable mutation request identity",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "requestBody": {
@@ -366,11 +376,21 @@
         },
         "responses": {
           "200": {
-            "description": "Managed deployment updated",
+            "description": "Managed deployment action status",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentSummary"
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentDeploymentMutationResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Managed deployment action accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentDeploymentMutationResponse"
                 }
               }
             }
@@ -383,6 +403,63 @@
           },
           "404": {
             "description": "Deployment not found"
+          },
+          "409": {
+            "description": "Mutation identity or revision conflict"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/managed/actions/{request_id}": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "Read the durable runtime action for one managed deployment mutation.",
+        "operationId": "seren_agent_get_managed_deployment_action",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "request_id",
+            "in": "path",
+            "description": "Mutation request ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed deployment action status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentDeploymentMutationResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Managed deployment is opaque to this caller"
+          },
+          "404": {
+            "description": "Deployment or action not found"
           }
         },
         "security": [
@@ -409,6 +486,16 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Stable mutation request identity",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "requestBody": {
@@ -423,11 +510,21 @@
         },
         "responses": {
           "200": {
-            "description": "Managed deployment files updated",
+            "description": "Managed deployment file action status",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentSummary"
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentDeploymentMutationResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Managed deployment file action accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentDeploymentMutationResponse"
                 }
               }
             }
@@ -440,6 +537,9 @@
           },
           "404": {
             "description": "Deployment not found"
+          },
+          "409": {
+            "description": "Mutation identity or revision conflict"
           }
         },
         "security": [
@@ -567,6 +667,16 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Stable mutation request identity",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "requestBody": {
@@ -581,11 +691,21 @@
         },
         "responses": {
           "200": {
-            "description": "Managed deployment rolled back",
+            "description": "Managed deployment rollback action status",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentSummary"
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentDeploymentMutationResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Managed deployment rollback accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentDeploymentMutationResponse"
                 }
               }
             }
@@ -598,6 +718,9 @@
           },
           "404": {
             "description": "Deployment or revision not found"
+          },
+          "409": {
+            "description": "Mutation identity or revision conflict"
           }
         },
         "security": [
@@ -681,11 +804,31 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Stable reconciliation identity",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
           "200": {
             "description": "Runtime-policy reconciliation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentRuntimePolicyReconciliationResult"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Runtime-policy reconciliation accepted",
             "content": {
               "application/json": {
                 "schema": {
@@ -875,6 +1018,16 @@
         "responses": {
           "200": {
             "description": "Managed deployment stopped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentActionStatusResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Stop latched; compute is draining",
             "content": {
               "application/json": {
                 "schema": {
@@ -3472,9 +3625,28 @@
         "type": "object",
         "description": "Generic status payload used by cloud deployment lifecycle endpoints.",
         "required": [
-          "status"
+          "status",
+          "desired_lifecycle_state",
+          "desired_egress_state",
+          "control_generation"
         ],
         "properties": {
+          "confirmation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "control_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "desired_egress_state": {
+            "$ref": "#/components/schemas/DesiredEgressState"
+          },
+          "desired_lifecycle_state": {
+            "$ref": "#/components/schemas/DesiredLifecycleState"
+          },
           "status": {
             "type": "string"
           }
@@ -3656,6 +3828,9 @@
           "runtime_kind",
           "mode",
           "status",
+          "desired_lifecycle_state",
+          "desired_egress_state",
+          "control_generation",
           "code_bundle_hash",
           "orchestration_mode",
           "requirements",
@@ -3688,6 +3863,11 @@
           "compute_backend": {
             "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
           },
+          "control_generation": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Monotonic operator-control epoch enforced at admission and egress."
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
@@ -3711,6 +3891,14 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "desired_egress_state": {
+            "$ref": "#/components/schemas/DesiredEgressState",
+            "description": "Operator-desired external publication fence."
+          },
+          "desired_lifecycle_state": {
+            "$ref": "#/components/schemas/DesiredLifecycleState",
+            "description": "Operator-desired lifecycle. Independent of observed compute status."
           },
           "endpoint_url": {
             "type": [
@@ -3915,9 +4103,28 @@
             "type": "object",
             "description": "Generic status payload used by cloud deployment lifecycle endpoints.",
             "required": [
-              "status"
+              "status",
+              "desired_lifecycle_state",
+              "desired_egress_state",
+              "control_generation"
             ],
             "properties": {
+              "confirmation": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "control_generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "desired_egress_state": {
+                "$ref": "#/components/schemas/DesiredEgressState"
+              },
+              "desired_lifecycle_state": {
+                "$ref": "#/components/schemas/DesiredLifecycleState"
+              },
               "status": {
                 "type": "string"
               }
@@ -3956,6 +4163,9 @@
               "runtime_kind",
               "mode",
               "status",
+              "desired_lifecycle_state",
+              "desired_egress_state",
+              "control_generation",
               "code_bundle_hash",
               "orchestration_mode",
               "requirements",
@@ -3988,6 +4198,11 @@
               "compute_backend": {
                 "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
               },
+              "control_generation": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Monotonic operator-control epoch enforced at admission and egress."
+              },
               "created_at": {
                 "type": "string",
                 "format": "date-time"
@@ -4011,6 +4226,14 @@
                   "null"
                 ],
                 "format": "uuid"
+              },
+              "desired_egress_state": {
+                "$ref": "#/components/schemas/DesiredEgressState",
+                "description": "Operator-desired external publication fence."
+              },
+              "desired_lifecycle_state": {
+                "$ref": "#/components/schemas/DesiredLifecycleState",
+                "description": "Operator-desired lifecycle. Independent of observed compute status."
               },
               "endpoint_url": {
                 "type": [
@@ -4632,6 +4855,42 @@
           }
         }
       },
+      "DataResponse_ManagedAgentDeploymentMutationResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Result of accepting a managed deployment revision and its runtime action.",
+            "required": [
+              "deployment",
+              "reconciliation"
+            ],
+            "properties": {
+              "deployment": {
+                "$ref": "#/components/schemas/CloudDeploymentSummary"
+              },
+              "reconciliation": {
+                "$ref": "#/components/schemas/ManagedRuntimeReconciliationSummary"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentDeploymentResources": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -4993,6 +5252,16 @@
                   "null"
                 ],
                 "format": "uuid"
+              },
+              "runtime_action": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedRuntimeReconciliationSummary"
+                  }
+                ]
               }
             }
           },
@@ -5350,6 +5619,9 @@
                 "runtime_kind",
                 "mode",
                 "status",
+                "desired_lifecycle_state",
+                "desired_egress_state",
+                "control_generation",
                 "code_bundle_hash",
                 "orchestration_mode",
                 "requirements",
@@ -5382,6 +5654,11 @@
                 "compute_backend": {
                   "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
                 },
+                "control_generation": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Monotonic operator-control epoch enforced at admission and egress."
+                },
                 "created_at": {
                   "type": "string",
                   "format": "date-time"
@@ -5405,6 +5682,14 @@
                     "null"
                   ],
                   "format": "uuid"
+                },
+                "desired_egress_state": {
+                  "$ref": "#/components/schemas/DesiredEgressState",
+                  "description": "Operator-desired external publication fence."
+                },
+                "desired_lifecycle_state": {
+                  "$ref": "#/components/schemas/DesiredLifecycleState",
+                  "description": "Operator-desired lifecycle. Independent of observed compute status."
                 },
                 "endpoint_url": {
                   "type": [
@@ -5636,6 +5921,23 @@
             ]
           }
         }
+      },
+      "DesiredEgressState": {
+        "type": "string",
+        "description": "Operator-desired external publication for a cloud deployment.",
+        "enum": [
+          "enabled",
+          "muted"
+        ]
+      },
+      "DesiredLifecycleState": {
+        "type": "string",
+        "description": "Operator-desired lifecycle for a cloud deployment.\n\nObserved compute status stays on `CloudDeploymentStatus`. This value is the\nadmission fence: only `running` accepts new work.",
+        "enum": [
+          "running",
+          "stopping",
+          "stopped"
+        ]
       },
       "ErrorResponse": {
         "type": "object",
@@ -6439,6 +6741,9 @@
           "name",
           "agent_slug",
           "status",
+          "desired_lifecycle_state",
+          "desired_egress_state",
+          "control_generation",
           "mode",
           "compute_backend",
           "runtime_kind",
@@ -6469,6 +6774,10 @@
           "compute_backend": {
             "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
           },
+          "control_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
@@ -6476,6 +6785,19 @@
           "deployment_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "desired_egress_state": {
+            "$ref": "#/components/schemas/DesiredEgressState"
+          },
+          "desired_lifecycle_state": {
+            "$ref": "#/components/schemas/DesiredLifecycleState"
+          },
+          "failed_schedule_occurrences": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedAgentScheduleOccurrenceHealth"
+            },
+            "description": "Schedules whose most recent occurrence exhausted its retry budget. A\ncron schedule stays active after that, so the failure is only visible\nhere and clears once a later occurrence succeeds."
           },
           "last_error": {
             "type": [
@@ -6560,6 +6882,22 @@
           },
           "summary": {
             "$ref": "#/components/schemas/ManagedAgentHealthSummary"
+          }
+        }
+      },
+      "ManagedAgentDeploymentMutationResponse": {
+        "type": "object",
+        "description": "Result of accepting a managed deployment revision and its runtime action.",
+        "required": [
+          "deployment",
+          "reconciliation"
+        ],
+        "properties": {
+          "deployment": {
+            "$ref": "#/components/schemas/CloudDeploymentSummary"
+          },
+          "reconciliation": {
+            "$ref": "#/components/schemas/ManagedRuntimeReconciliationSummary"
           }
         }
       },
@@ -7285,6 +7623,16 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "runtime_action": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedRuntimeReconciliationSummary"
+              }
+            ]
           }
         }
       },
@@ -7458,6 +7806,58 @@
           }
         }
       },
+      "ManagedAgentScheduleOccurrenceHealth": {
+        "type": "object",
+        "required": [
+          "schedule_id",
+          "deployment_id",
+          "schedule_key",
+          "schedule_kind",
+          "occurrence_due_at",
+          "attempts",
+          "recurrence_active",
+          "next_run_at"
+        ],
+        "properties": {
+          "attempts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "next_run_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "occurrence_due_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Due time of the occurrence that failed, not the schedule's next run."
+          },
+          "recurrence_active": {
+            "type": "boolean",
+            "description": "False once the schedule itself is terminal, which only happens for\none-time schedules."
+          },
+          "schedule_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "schedule_key": {
+            "type": "string"
+          },
+          "schedule_kind": {
+            "type": "string"
+          }
+        }
+      },
       "ManagedAgentScheduleResources": {
         "type": "object",
         "required": [
@@ -7510,6 +7910,12 @@
             "type": "string"
           },
           "field_group": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "format_hint": {
             "type": [
               "string",
               "null"
@@ -8169,9 +8575,32 @@
         "type": "object",
         "description": "Partial update for caller-authored managed workload fields.\n\nThe control plane applies this patch to the authoritative stored workload so\nclients do not need to round-trip resolved runtime fields or encrypted\nsecrets through deployment detail responses.",
         "properties": {
+          "bundle": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentBundle",
+                "description": "Replaces the authored instruction and asset bundle."
+              }
+            ]
+          },
           "clear_fallback_models": {
             "type": "boolean",
             "description": "Remove the explicit fallback list and resolve provider defaults."
+          },
+          "clear_llm_connection": {
+            "type": "boolean",
+            "description": "Remove the explicit LLM provider connection."
+          },
+          "clear_model_config": {
+            "type": "boolean",
+            "description": "Remove the explicit model configuration."
+          },
+          "clear_model_id": {
+            "type": "boolean",
+            "description": "Remove the explicit model identifier and resolve the provider default."
           },
           "clear_requirements_txt": {
             "type": "boolean",
@@ -8199,6 +8628,17 @@
               "type": "string"
             },
             "description": "Updated ordered fallback model list."
+          },
+          "llm_connection": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentLlmConnection",
+                "description": "Updated LLM provider connection."
+              }
+            ]
           },
           "model_config": {
             "description": "Updated model configuration. Replaces the current object."
@@ -8391,6 +8831,122 @@
           }
         },
         "additionalProperties": false
+      },
+      "ManagedRuntimeReconciliationFailure": {
+        "type": "string",
+        "description": "Stable redacted reason for the latest managed runtime reconciliation failure.",
+        "enum": [
+          "runtime_unavailable",
+          "runtime_rejected",
+          "runtime_evidence_invalid",
+          "revision_superseded",
+          "deadline_exceeded"
+        ]
+      },
+      "ManagedRuntimeReconciliationState": {
+        "type": "string",
+        "description": "Durable progress for applying one managed revision to its runtime.",
+        "enum": [
+          "pending",
+          "applied",
+          "failed",
+          "superseded"
+        ]
+      },
+      "ManagedRuntimeReconciliationSummary": {
+        "type": "object",
+        "description": "Public status for the exact runtime action created with a managed revision.",
+        "required": [
+          "id",
+          "request_id",
+          "deployment_id",
+          "revision_id",
+          "state",
+          "target",
+          "control_generation",
+          "desired_runtime_fingerprint",
+          "attempt_count",
+          "status_path",
+          "accepted_at",
+          "updated_at"
+        ],
+        "properties": {
+          "accepted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "attempt_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "control_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "desired_runtime_fingerprint": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "observed_runtime_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedRuntimeReconciliationFailure"
+              }
+            ]
+          },
+          "release_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ManagedRuntimeReconciliationState"
+          },
+          "status_path": {
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/ManagedRuntimeReconciliationTarget"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ManagedRuntimeReconciliationTarget": {
+        "type": "string",
+        "description": "Runtime boundary that owns completion of one managed revision.",
+        "enum": [
+          "controller",
+          "synchronous",
+          "next_start"
+        ]
       },
       "OrchestrationMode": {
         "type": "string",

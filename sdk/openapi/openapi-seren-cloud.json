@@ -880,6 +880,276 @@
         ]
       }
     },
+    "/deployments/{id}/connectors/{connector_ref}/proposals": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_get_connector_binding_proposal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "connector_ref",
+            "in": "path",
+            "description": "Connector catalog reference",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current connector binding proposal progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedConnectorBindingProposal"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Connector binding proposal is still progressing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedConnectorBindingProposal"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Connector binding proposal not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_create_connector_binding_proposal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "connector_ref",
+            "in": "path",
+            "description": "Connector catalog reference",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorBindingProposalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Revision-bound connector binding proposal awaiting review",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedConnectorBindingProposal"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another proposal is active or the deployment changed"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/connectors/{connector_ref}/proposals/preview": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_preview_connector_binding_proposal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "connector_ref",
+            "in": "path",
+            "description": "Connector catalog reference",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorBindingProposalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Immutable connector binding proposal preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ConnectorBindingProposalPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid connector binding proposal"
+          },
+          "409": {
+            "description": "Active revision or connector binding changed"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/connectors/{connector_ref}/proposals/{proposal_id}/apply": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_apply_connector_binding_proposal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "connector_ref",
+            "in": "path",
+            "description": "Connector catalog reference",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "description": "Connector binding proposal ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Stable proposal apply identity",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyConnectorBindingProposalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Applied connector binding proposal progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedConnectorBindingProposal"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Connector binding proposal apply accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedConnectorBindingProposal"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid idempotency identity or request"
+          },
+          "409": {
+            "description": "Approval, revision, or proposal no longer matches"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/conversations": {
       "get": {
         "tags": [
@@ -2570,6 +2840,16 @@
               }
             }
           },
+          "202": {
+            "description": "Stop latched; compute is draining",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentActionStatusResponse"
+                }
+              }
+            }
+          },
           "400": {
             "description": "Bad request (not always_on)"
           }
@@ -2643,6 +2923,16 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Stable storage attachment identity",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "requestBody": {
@@ -2658,6 +2948,16 @@
         "responses": {
           "200": {
             "description": "Storage attached to the managed agent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedStorageAttachment"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Storage attachment accepted",
             "content": {
               "application/json": {
                 "schema": {
@@ -2698,6 +2998,16 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Stable storage detachment identity",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
@@ -2706,7 +3016,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DataResponse_Value"
+                  "$ref": "#/components/schemas/DataResponse_ManagedStorageDetachment"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Storage detachment accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedStorageDetachment"
                 }
               }
             }
@@ -4773,6 +5093,19 @@
           "eval"
         ]
       },
+      "ApplyConnectorBindingProposalRequest": {
+        "type": "object",
+        "required": [
+          "secret_resolution_result_id"
+        ],
+        "properties": {
+          "secret_resolution_result_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
       "ApprovalDecisionState": {
         "type": "string",
         "description": "Lifecycle state of a single inbox entry.\n\nThe state machine is `pending -> approved | denied | expired`. Decisions are\nterminal; an entry can never transition from a terminal state back to\npending. `expired` is a passive transition driven by `expires_at`.",
@@ -5218,6 +5551,17 @@
           "secret_refs"
         ],
         "properties": {
+          "channel_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedChannelPolicy",
+                "description": "Deployment-scoped channel authorization surface. Required for\nconnectors that open a persistent ingress session."
+              }
+            ]
+          },
           "secret_refs": {
             "type": "object",
             "description": "Connector credential field names mapped to opaque Seren Secrets references.",
@@ -5240,6 +5584,17 @@
           "secret_refs"
         ],
         "properties": {
+          "channel_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedChannelPolicy",
+                "description": "Normalized channel authorization policy persisted for this deployment."
+              }
+            ]
+          },
           "connector_ref": {
             "type": "string"
           },
@@ -5279,6 +5634,23 @@
             "format": "int64"
           }
         }
+      },
+      "ChannelDmPolicy": {
+        "type": "string",
+        "description": "Direct-message authorization for the bot account.",
+        "enum": [
+          "deny",
+          "allowlist",
+          "open"
+        ]
+      },
+      "ChannelReplyDelivery": {
+        "type": "string",
+        "description": "The single owner of reply delivery for one inbound turn.",
+        "enum": [
+          "runtime_owned",
+          "tool_owned"
+        ]
       },
       "CloudConversationListResponse": {
         "type": "object",
@@ -5583,9 +5955,28 @@
         "type": "object",
         "description": "Generic status payload used by cloud deployment lifecycle endpoints.",
         "required": [
-          "status"
+          "status",
+          "desired_lifecycle_state",
+          "desired_egress_state",
+          "control_generation"
         ],
         "properties": {
+          "confirmation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "control_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "desired_egress_state": {
+            "$ref": "#/components/schemas/DesiredEgressState"
+          },
+          "desired_lifecycle_state": {
+            "$ref": "#/components/schemas/DesiredLifecycleState"
+          },
           "status": {
             "type": "string"
           }
@@ -5599,6 +5990,7 @@
           "schedule_key",
           "schedule_kind",
           "next_run_at",
+          "occurrence_due_at",
           "status",
           "attempts",
           "max_attempts",
@@ -5640,6 +6032,39 @@
               "null"
             ]
           },
+          "last_occurrence_attempts": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "last_occurrence_due_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_occurrence_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_occurrence_run_event_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "last_occurrence_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "last_run_at": {
             "type": [
               "string",
@@ -5661,6 +6086,11 @@
           "next_run_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "occurrence_due_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Due time of the occurrence the current `attempts` budget belongs to.\nWhile an occurrence retries, `next_run_at` holds the backoff time and\nthis holds the time the occurrence was actually due."
           },
           "schedule_key": {
             "type": "string"
@@ -6580,6 +7010,9 @@
           "runtime_kind",
           "mode",
           "status",
+          "desired_lifecycle_state",
+          "desired_egress_state",
+          "control_generation",
           "code_bundle_hash",
           "orchestration_mode",
           "requirements",
@@ -6612,6 +7045,11 @@
           "compute_backend": {
             "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
           },
+          "control_generation": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Monotonic operator-control epoch enforced at admission and egress."
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
@@ -6635,6 +7073,14 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "desired_egress_state": {
+            "$ref": "#/components/schemas/DesiredEgressState",
+            "description": "Operator-desired external publication fence."
+          },
+          "desired_lifecycle_state": {
+            "$ref": "#/components/schemas/DesiredLifecycleState",
+            "description": "Operator-desired lifecycle. Independent of observed compute status."
           },
           "endpoint_url": {
             "type": [
@@ -7000,6 +7446,7 @@
           "eval_set_id",
           "organization_id",
           "created_by_user_id",
+          "admitted_control_generation",
           "status",
           "total_cases",
           "completed_cases",
@@ -7013,6 +7460,10 @@
           "updated_at"
         ],
         "properties": {
+          "admitted_control_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
           "completed_at": {
             "type": [
               "string",
@@ -7524,6 +7975,12 @@
         "properties": {
           "client_message_id": {
             "type": "string"
+          },
+          "confirmation": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "duplicate": {
             "type": "boolean"
@@ -8898,6 +9355,81 @@
           "unknown"
         ]
       },
+      "ConnectorBindingProposalPreview": {
+        "type": "object",
+        "required": [
+          "deployment_id",
+          "connector_ref",
+          "expected_active_revision_id",
+          "proposal_fingerprint",
+          "requirements_fingerprint",
+          "requested_environment_names",
+          "secret_ref_count"
+        ],
+        "properties": {
+          "connector_ref": {
+            "type": "string"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_active_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "proposal_fingerprint": {
+            "type": "string"
+          },
+          "requested_environment_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requirements_fingerprint": {
+            "type": "string"
+          },
+          "secret_ref_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ConnectorBindingProposalRequest": {
+        "type": "object",
+        "required": [
+          "expected_active_revision_id",
+          "secret_refs",
+          "channel_policy"
+        ],
+        "properties": {
+          "channel_policy": {
+            "$ref": "#/components/schemas/ManagedChannelPolicy"
+          },
+          "expected_active_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "replace_proposal_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "secret_refs": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "ConnectorCatalogEntry": {
         "type": "object",
         "description": "One connector the platform supports for managed deployments.",
@@ -9550,6 +10082,17 @@
               "secret_refs"
             ],
             "properties": {
+              "channel_policy": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedChannelPolicy",
+                    "description": "Normalized channel authorization policy persisted for this deployment."
+                  }
+                ]
+              },
               "connector_ref": {
                 "type": "string"
               },
@@ -9684,9 +10227,28 @@
             "type": "object",
             "description": "Generic status payload used by cloud deployment lifecycle endpoints.",
             "required": [
-              "status"
+              "status",
+              "desired_lifecycle_state",
+              "desired_egress_state",
+              "control_generation"
             ],
             "properties": {
+              "confirmation": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "control_generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "desired_egress_state": {
+                "$ref": "#/components/schemas/DesiredEgressState"
+              },
+              "desired_lifecycle_state": {
+                "$ref": "#/components/schemas/DesiredLifecycleState"
+              },
               "status": {
                 "type": "string"
               }
@@ -9720,6 +10282,7 @@
               "schedule_key",
               "schedule_kind",
               "next_run_at",
+              "occurrence_due_at",
               "status",
               "attempts",
               "max_attempts",
@@ -9761,6 +10324,39 @@
                   "null"
                 ]
               },
+              "last_occurrence_attempts": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32"
+              },
+              "last_occurrence_due_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "last_occurrence_error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "last_occurrence_run_event_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "last_occurrence_status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "last_run_at": {
                 "type": [
                   "string",
@@ -9782,6 +10378,11 @@
               "next_run_at": {
                 "type": "string",
                 "format": "date-time"
+              },
+              "occurrence_due_at": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Due time of the occurrence the current `attempts` budget belongs to.\nWhile an occurrence retries, `next_run_at` holds the backoff time and\nthis holds the time the occurrence was actually due."
               },
               "schedule_key": {
                 "type": "string"
@@ -10484,6 +11085,9 @@
               "runtime_kind",
               "mode",
               "status",
+              "desired_lifecycle_state",
+              "desired_egress_state",
+              "control_generation",
               "code_bundle_hash",
               "orchestration_mode",
               "requirements",
@@ -10516,6 +11120,11 @@
               "compute_backend": {
                 "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
               },
+              "control_generation": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Monotonic operator-control epoch enforced at admission and egress."
+              },
               "created_at": {
                 "type": "string",
                 "format": "date-time"
@@ -10539,6 +11148,14 @@
                   "null"
                 ],
                 "format": "uuid"
+              },
+              "desired_egress_state": {
+                "$ref": "#/components/schemas/DesiredEgressState",
+                "description": "Operator-desired external publication fence."
+              },
+              "desired_lifecycle_state": {
+                "$ref": "#/components/schemas/DesiredLifecycleState",
+                "description": "Operator-desired lifecycle. Independent of observed compute status."
               },
               "endpoint_url": {
                 "type": [
@@ -10918,6 +11535,7 @@
               "eval_set_id",
               "organization_id",
               "created_by_user_id",
+              "admitted_control_generation",
               "status",
               "total_cases",
               "completed_cases",
@@ -10931,6 +11549,10 @@
               "updated_at"
             ],
             "properties": {
+              "admitted_control_generation": {
+                "type": "integer",
+                "format": "int64"
+              },
               "completed_at": {
                 "type": [
                   "string",
@@ -11174,6 +11796,12 @@
             "properties": {
               "client_message_id": {
                 "type": "string"
+              },
+              "confirmation": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "duplicate": {
                 "type": "boolean"
@@ -11569,6 +12197,67 @@
           }
         }
       },
+      "DataResponse_ConnectorBindingProposalPreview": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "deployment_id",
+              "connector_ref",
+              "expected_active_revision_id",
+              "proposal_fingerprint",
+              "requirements_fingerprint",
+              "requested_environment_names",
+              "secret_ref_count"
+            ],
+            "properties": {
+              "connector_ref": {
+                "type": "string"
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "expected_active_revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "proposal_fingerprint": {
+                "type": "string"
+              },
+              "requested_environment_names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "requirements_fingerprint": {
+                "type": "string"
+              },
+              "secret_ref_count": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ConnectorCatalogResponse": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -11735,6 +12424,102 @@
           }
         }
       },
+      "DataResponse_ManagedConnectorBindingProposal": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "deployment_id",
+              "connector_ref",
+              "expected_active_revision_id",
+              "proposal_fingerprint",
+              "requirements_fingerprint",
+              "state",
+              "requested_environment_names"
+            ],
+            "properties": {
+              "applied_revision_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "approval_request_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "connector_ref": {
+                "type": "string"
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "expected_active_revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "proposal_fingerprint": {
+                "type": "string"
+              },
+              "requested_environment_names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "requirements_fingerprint": {
+                "type": "string"
+              },
+              "result_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "runtime_action": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedRuntimeReconciliationSummary"
+                  }
+                ]
+              },
+              "state": {
+                "$ref": "#/components/schemas/ManagedConnectorBindingProposalState"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedStorageAttachment": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -11765,6 +12550,16 @@
               "permission": {
                 "$ref": "#/components/schemas/ManagedStoragePermission"
               },
+              "runtime_action": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedRuntimeReconciliationSummary"
+                  }
+                ]
+              },
               "workspace": {
                 "oneOf": [
                   {
@@ -11790,14 +12585,39 @@
           }
         }
       },
-      "DataResponse_Value": {
+      "DataResponse_ManagedStorageDetachment": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
         "required": [
           "data"
         ],
         "properties": {
-          "data": {},
+          "data": {
+            "type": "object",
+            "required": [
+              "deployment_id",
+              "detached"
+            ],
+            "properties": {
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "detached": {
+                "type": "boolean"
+              },
+              "runtime_action": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedRuntimeReconciliationSummary"
+                  }
+                ]
+              }
+            }
+          },
           "pagination": {
             "oneOf": [
               {
@@ -11989,6 +12809,7 @@
                 "schedule_key",
                 "schedule_kind",
                 "next_run_at",
+                "occurrence_due_at",
                 "status",
                 "attempts",
                 "max_attempts",
@@ -12030,6 +12851,39 @@
                     "null"
                   ]
                 },
+                "last_occurrence_attempts": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int32"
+                },
+                "last_occurrence_due_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "last_occurrence_error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "last_occurrence_run_event_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "last_occurrence_status": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "last_run_at": {
                   "type": [
                     "string",
@@ -12051,6 +12905,11 @@
                 "next_run_at": {
                   "type": "string",
                   "format": "date-time"
+                },
+                "occurrence_due_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "Due time of the occurrence the current `attempts` budget belongs to.\nWhile an occurrence retries, `next_run_at` holds the backoff time and\nthis holds the time the occurrence was actually due."
                 },
                 "schedule_key": {
                   "type": "string"
@@ -12452,6 +13311,9 @@
                 "runtime_kind",
                 "mode",
                 "status",
+                "desired_lifecycle_state",
+                "desired_egress_state",
+                "control_generation",
                 "code_bundle_hash",
                 "orchestration_mode",
                 "requirements",
@@ -12484,6 +13346,11 @@
                 "compute_backend": {
                   "$ref": "#/components/schemas/CloudDeploymentComputeBackend"
                 },
+                "control_generation": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Monotonic operator-control epoch enforced at admission and egress."
+                },
                 "created_at": {
                   "type": "string",
                   "format": "date-time"
@@ -12507,6 +13374,14 @@
                     "null"
                   ],
                   "format": "uuid"
+                },
+                "desired_egress_state": {
+                  "$ref": "#/components/schemas/DesiredEgressState",
+                  "description": "Operator-desired external publication fence."
+                },
+                "desired_lifecycle_state": {
+                  "$ref": "#/components/schemas/DesiredLifecycleState",
+                  "description": "Operator-desired lifecycle. Independent of observed compute status."
                 },
                 "endpoint_url": {
                   "type": [
@@ -12895,6 +13770,7 @@
                 "eval_set_id",
                 "organization_id",
                 "created_by_user_id",
+                "admitted_control_generation",
                 "status",
                 "total_cases",
                 "completed_cases",
@@ -12908,6 +13784,10 @@
                 "updated_at"
               ],
               "properties": {
+                "admitted_control_generation": {
+                  "type": "integer",
+                  "format": "int64"
+                },
                 "completed_at": {
                   "type": [
                     "string",
@@ -13484,6 +14364,142 @@
           }
         }
       },
+      "DesiredEgressState": {
+        "type": "string",
+        "description": "Operator-desired external publication for a cloud deployment.",
+        "enum": [
+          "enabled",
+          "muted"
+        ]
+      },
+      "DesiredLifecycleState": {
+        "type": "string",
+        "description": "Operator-desired lifecycle for a cloud deployment.\n\nObserved compute status stays on `CloudDeploymentStatus`. This value is the\nadmission fence: only `running` accepts new work.",
+        "enum": [
+          "running",
+          "stopping",
+          "stopped"
+        ]
+      },
+      "DirectMessageChannelPolicy": {
+        "type": "object",
+        "description": "Deployment-scoped authorization for a direct-message channel account.\n\nSignal and the current WhatsApp integration expose one-to-one conversations\nonly. Provider account access is an outer ceiling; this policy states which\nsenders may wake the deployment and which recipients it may contact.",
+        "properties": {
+          "allowed_dm_sender_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Sender identifiers authorized when `dm_policy` is `allowlist`."
+          },
+          "dm_policy": {
+            "$ref": "#/components/schemas/ChannelDmPolicy",
+            "description": "Direct-message authorization for the linked provider account."
+          },
+          "outbound_recipient_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Recipients this deployment may publish to. Empty falls back to the\nauthorized inbound scope and is never wider than it."
+          },
+          "reply_delivery": {
+            "$ref": "#/components/schemas/ChannelReplyDelivery",
+            "description": "Which egress path owns the reply for one inbound event."
+          }
+        },
+        "additionalProperties": false
+      },
+      "DiscordActivationPolicy": {
+        "type": "string",
+        "description": "Evidence a guild event must carry before it may wake the deployment.",
+        "enum": [
+          "mention_or_reply",
+          "slash_command",
+          "all_messages"
+        ]
+      },
+      "DiscordChannelPolicy": {
+        "type": "object",
+        "description": "Deployment-scoped Discord authorization surface.\n\nEvery field defaults to the narrowest option: an absent value denies rather\nthan widens. Empty allowlists deny every matching event.",
+        "properties": {
+          "activation": {
+            "$ref": "#/components/schemas/DiscordActivationPolicy",
+            "description": "Evidence required before a guild event may wake the deployment."
+          },
+          "allowed_channel_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Channel ids inside the allowed guilds, or the explicit `*` wildcard."
+          },
+          "allowed_dm_sender_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Sender ids authorized when `dm_policy` is `allowlist`."
+          },
+          "allowed_guild_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Guild ids whose events may reach this deployment."
+          },
+          "allowed_thread_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Thread ids authorized when `thread_policy` is `allowlist`."
+          },
+          "dm_policy": {
+            "$ref": "#/components/schemas/ChannelDmPolicy",
+            "description": "Direct-message authorization for the bot account."
+          },
+          "operator_actor_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Additional Discord accounts allowed to issue operator lifecycle commands."
+          },
+          "outbound_channel_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Channel ids this deployment may publish to. Defaults to the inbound\nallowlist and is never wider than it."
+          },
+          "owner_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Discord account allowed to issue operator lifecycle commands."
+          },
+          "reply_delivery": {
+            "$ref": "#/components/schemas/ChannelReplyDelivery",
+            "description": "Which egress path owns the reply for one inbound event."
+          },
+          "thread_policy": {
+            "$ref": "#/components/schemas/DiscordThreadPolicy",
+            "description": "Child-thread authorization for the allowed channels."
+          }
+        },
+        "additionalProperties": false
+      },
+      "DiscordThreadPolicy": {
+        "type": "string",
+        "description": "Child-thread authorization for an authorized guild channel.",
+        "enum": [
+          "deny",
+          "inherit_parent",
+          "allowlist"
+        ]
+      },
       "EvalGate": {
         "type": "object",
         "description": "Eval gate configuration that must pass with a fresh verdict before runs proceed.\n\n`block_on_failure` controls what happens at update or rollback apply time:\nwhen `Some(true)`, the control plane rejects the apply if the latest eval\nverdict has failed or has expired beyond `max_age_seconds`. The default\n(`None`/`false`) preserves the original freshness-only behavior for\nback-compat.\n\n`schedule` is an operator-supplied cron expression that asks the control\nplane to run the gated eval set on a fixed cadence so freshness stays\ncurrent without manual triggering. The actual scheduling-loop dispatch is\nowned by the eval-set scheduler today (see `CloudEvalSetSchedule`); this\nfield records the operator intent on the deployment side.\n\n`drift_baseline` is captured by the apply path when an update or rollback\ncommits with a passing gate. Subsequent eval runs compare against the\nbaseline so operators see regressions explicitly.",
@@ -13873,6 +14889,95 @@
           "database"
         ]
       },
+      "ManagedChannelPolicy": {
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DiscordChannelPolicy"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "platform"
+                ],
+                "properties": {
+                  "platform": {
+                    "type": "string",
+                    "enum": [
+                      "discord"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SlackChannelPolicy"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "platform"
+                ],
+                "properties": {
+                  "platform": {
+                    "type": "string",
+                    "enum": [
+                      "slack"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DirectMessageChannelPolicy"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "platform"
+                ],
+                "properties": {
+                  "platform": {
+                    "type": "string",
+                    "enum": [
+                      "signal"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DirectMessageChannelPolicy"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "platform"
+                ],
+                "properties": {
+                  "platform": {
+                    "type": "string",
+                    "enum": [
+                      "whatsapp"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "description": "Provider-specific channel policy carried by the connector binding API.\n\nThe provider tag prevents a policy for one identifier domain from being\npersisted against another connector whose values only look similar."
+      },
       "ManagedCodexAuth": {
         "oneOf": [
           {
@@ -13930,6 +15035,94 @@
           }
         }
       },
+      "ManagedConnectorBindingProposal": {
+        "type": "object",
+        "required": [
+          "id",
+          "deployment_id",
+          "connector_ref",
+          "expected_active_revision_id",
+          "proposal_fingerprint",
+          "requirements_fingerprint",
+          "state",
+          "requested_environment_names"
+        ],
+        "properties": {
+          "applied_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "approval_request_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "connector_ref": {
+            "type": "string"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_active_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "proposal_fingerprint": {
+            "type": "string"
+          },
+          "requested_environment_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requirements_fingerprint": {
+            "type": "string"
+          },
+          "result_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "runtime_action": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedRuntimeReconciliationSummary"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/ManagedConnectorBindingProposalState"
+          }
+        }
+      },
+      "ManagedConnectorBindingProposalState": {
+        "type": "string",
+        "enum": [
+          "awaiting_review",
+          "approved",
+          "applying",
+          "rolling",
+          "ingress_ready",
+          "failed",
+          "superseded"
+        ]
+      },
       "ManagedExternalDatabaseAccess": {
         "type": "string",
         "enum": [
@@ -13962,6 +15155,122 @@
         },
         "additionalProperties": false
       },
+      "ManagedRuntimeReconciliationFailure": {
+        "type": "string",
+        "description": "Stable redacted reason for the latest managed runtime reconciliation failure.",
+        "enum": [
+          "runtime_unavailable",
+          "runtime_rejected",
+          "runtime_evidence_invalid",
+          "revision_superseded",
+          "deadline_exceeded"
+        ]
+      },
+      "ManagedRuntimeReconciliationState": {
+        "type": "string",
+        "description": "Durable progress for applying one managed revision to its runtime.",
+        "enum": [
+          "pending",
+          "applied",
+          "failed",
+          "superseded"
+        ]
+      },
+      "ManagedRuntimeReconciliationSummary": {
+        "type": "object",
+        "description": "Public status for the exact runtime action created with a managed revision.",
+        "required": [
+          "id",
+          "request_id",
+          "deployment_id",
+          "revision_id",
+          "state",
+          "target",
+          "control_generation",
+          "desired_runtime_fingerprint",
+          "attempt_count",
+          "status_path",
+          "accepted_at",
+          "updated_at"
+        ],
+        "properties": {
+          "accepted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "attempt_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "control_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "desired_runtime_fingerprint": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "observed_runtime_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedRuntimeReconciliationFailure"
+              }
+            ]
+          },
+          "release_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ManagedRuntimeReconciliationState"
+          },
+          "status_path": {
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/ManagedRuntimeReconciliationTarget"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ManagedRuntimeReconciliationTarget": {
+        "type": "string",
+        "description": "Runtime boundary that owns completion of one managed revision.",
+        "enum": [
+          "controller",
+          "synchronous",
+          "next_start"
+        ]
+      },
       "ManagedStorageAttachment": {
         "type": "object",
         "required": [
@@ -13984,6 +15293,16 @@
           },
           "permission": {
             "$ref": "#/components/schemas/ManagedStoragePermission"
+          },
+          "runtime_action": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedRuntimeReconciliationSummary"
+              }
+            ]
           },
           "workspace": {
             "oneOf": [
@@ -14011,6 +15330,32 @@
           },
           "slug": {
             "type": "string"
+          }
+        }
+      },
+      "ManagedStorageDetachment": {
+        "type": "object",
+        "required": [
+          "deployment_id",
+          "detached"
+        ],
+        "properties": {
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "detached": {
+            "type": "boolean"
+          },
+          "runtime_action": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedRuntimeReconciliationSummary"
+              }
+            ]
           }
         }
       },
@@ -14194,6 +15539,62 @@
             "type": "boolean"
           }
         }
+      },
+      "SlackChannelPolicy": {
+        "type": "object",
+        "description": "Deployment-scoped Slack conversation authorization.",
+        "required": [
+          "mode",
+          "ingress_mode"
+        ],
+        "properties": {
+          "allowed_conversation_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Conversation ids allowed in `allowlist` mode."
+          },
+          "allowed_team_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Slack workspace (team) ids authorized to send Socket Mode events."
+          },
+          "default_conversation_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional preferred conversation. It must be inside the allowlist when\nthe target set is bounded."
+          },
+          "ingress_mode": {
+            "$ref": "#/components/schemas/SlackIngressMode",
+            "description": "Explicit inbound transport."
+          },
+          "mode": {
+            "$ref": "#/components/schemas/SlackChannelTargetMode",
+            "description": "Whether the connector is limited to a declared conversation set."
+          }
+        },
+        "additionalProperties": false
+      },
+      "SlackChannelTargetMode": {
+        "type": "string",
+        "description": "The target modes callers may declare for a Slack connector.",
+        "enum": [
+          "allowlist",
+          "unrestricted"
+        ]
+      },
+      "SlackIngressMode": {
+        "type": "string",
+        "description": "Slack inbound transport.",
+        "enum": [
+          "outbound_only",
+          "socket_mode"
+        ]
       },
       "TaskLabel": {
         "type": "string",

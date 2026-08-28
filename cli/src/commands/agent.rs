@@ -143,6 +143,191 @@ fn truncate_for_cli(value: &str, max_chars: usize) -> String {
     format!("{truncated}... (truncated)")
 }
 
+const MANAGED_MUTATION_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+const MANAGED_MUTATION_POLL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
+async fn get_managed_mutation(
+    client: &seren::Client,
+    deployment_id: Uuid,
+    request_id: Uuid,
+) -> Result<Option<seren::DataResponseManagedAgentDeploymentMutationResponse>> {
+    match client
+        .seren_agent_get_managed_deployment_action(&deployment_id, &request_id)
+        .await
+    {
+        Ok(response) => Ok(Some(response.into_inner())),
+        Err(error) if error.status() == Some(reqwest::StatusCode::NOT_FOUND) => Ok(None),
+        Err(error) => {
+            Err(anyhow_from_seren_error("Managed deployment action lookup failed", error).await)
+        }
+    }
+}
+
+trait ManagedMutationPayload: serde::Serialize {
+    fn runtime_action(&self) -> Option<&seren::ManagedRuntimeReconciliationSummary>;
+
+    fn completes_without_action(&self) -> bool {
+        false
+    }
+}
+
+impl ManagedMutationPayload for seren::DataResponseManagedAgentDeploymentMutationResponse {
+    fn runtime_action(&self) -> Option<&seren::ManagedRuntimeReconciliationSummary> {
+        Some(&self.data.reconciliation)
+    }
+}
+
+impl ManagedMutationPayload for seren::DataResponseManagedAgentRuntimePolicyReconciliationResult {
+    fn runtime_action(&self) -> Option<&seren::ManagedRuntimeReconciliationSummary> {
+        self.data.runtime_action.as_ref()
+    }
+
+    fn completes_without_action(&self) -> bool {
+        self.data.runtime_action.is_none()
+    }
+}
+
+enum ManagedMutationResult<T> {
+    Submission(T),
+    Recovered(Box<seren::DataResponseManagedAgentDeploymentMutationResponse>),
+}
+
+impl<T: ManagedMutationPayload> ManagedMutationResult<T> {
+    fn runtime_action(&self) -> Option<&seren::ManagedRuntimeReconciliationSummary> {
+        match self {
+            Self::Submission(payload) => payload.runtime_action(),
+            Self::Recovered(payload) => Some(&payload.data.reconciliation),
+        }
+    }
+
+    fn completes_without_action(&self) -> bool {
+        matches!(self, Self::Submission(payload) if payload.completes_without_action())
+    }
+
+    fn to_json(&self) -> Result<serde_json::Value> {
+        match self {
+            Self::Submission(payload) => serde_json::to_value(payload),
+            Self::Recovered(payload) => serde_json::to_value(payload),
+        }
+        .map_err(Into::into)
+    }
+}
+
+fn managed_mutation_outcome_is_ambiguous(error: &seren::Error<()>) -> bool {
+    error
+        .status()
+        .is_some_and(|status| status.is_server_error())
+        || matches!(
+            error,
+            seren::Error::CommunicationError(_)
+                | seren::Error::ResponseBodyError(_)
+                | seren::Error::InvalidResponsePayload(_, _)
+        )
+}
+
+fn managed_mutation_terminal_error(
+    operation: &str,
+    request_id: Uuid,
+    action: &seren::ManagedRuntimeReconciliationSummary,
+) -> anyhow::Error {
+    let reason = action
+        .reason
+        .map(|reason| reason.to_string())
+        .unwrap_or_else(|| "unspecified".to_string());
+    anyhow::anyhow!(
+        "{operation} request {request_id} ended as {}: {reason}",
+        action.state
+    )
+}
+
+async fn submit_managed_mutation<T, F, Fut>(
+    client: &seren::Client,
+    deployment_id: Uuid,
+    request_id: Uuid,
+    mut send: F,
+    operation: &str,
+) -> Result<serde_json::Value>
+where
+    T: ManagedMutationPayload,
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = std::result::Result<seren::ResponseValue<T>, seren::Error<()>>>,
+{
+    let initial = match send().await {
+        Ok(response) => ManagedMutationResult::Submission(response.into_inner()),
+        Err(error) if managed_mutation_outcome_is_ambiguous(&error) => {
+            let first_error = anyhow_from_seren_error(operation, error).await;
+            match get_managed_mutation(client, deployment_id, request_id).await {
+                Ok(Some(payload)) => ManagedMutationResult::Recovered(Box::new(payload)),
+                Ok(None) => {
+                    let response = match send().await {
+                        Ok(response) => response,
+                        Err(second_error) => {
+                            let second_error =
+                                anyhow_from_seren_error(operation, second_error).await;
+                            return Err(anyhow::anyhow!(
+                                "{operation} request {request_id} could not be confirmed after retry: {first_error}; {second_error}"
+                            ));
+                        }
+                    };
+                    ManagedMutationResult::Submission(response.into_inner())
+                }
+                Err(status_error) => {
+                    return Err(anyhow::anyhow!(
+                        "{operation} request {request_id} has an unknown outcome: {first_error}; {status_error}"
+                    ));
+                }
+            }
+        }
+        Err(error) => return Err(anyhow_from_seren_error(operation, error).await),
+    };
+
+    let Some(action) = initial.runtime_action() else {
+        if initial.completes_without_action() {
+            return initial.to_json();
+        }
+        anyhow::bail!("{operation} response omitted its runtime action");
+    };
+    match action.state {
+        seren::ManagedRuntimeReconciliationState::Applied => return initial.to_json(),
+        seren::ManagedRuntimeReconciliationState::Failed
+        | seren::ManagedRuntimeReconciliationState::Superseded => {
+            return Err(managed_mutation_terminal_error(
+                operation, request_id, action,
+            ));
+        }
+        seren::ManagedRuntimeReconciliationState::Pending => {}
+    }
+
+    let deadline = std::time::Instant::now() + MANAGED_MUTATION_POLL_TIMEOUT;
+    loop {
+        if std::time::Instant::now() >= deadline {
+            anyhow::bail!(
+                "{operation} request {request_id} is still pending after {} seconds",
+                MANAGED_MUTATION_POLL_TIMEOUT.as_secs()
+            );
+        }
+        tokio::time::sleep(MANAGED_MUTATION_POLL_INTERVAL).await;
+        let payload = match get_managed_mutation(client, deployment_id, request_id).await {
+            Ok(Some(payload)) => payload,
+            Ok(None) => anyhow::bail!("{operation} request {request_id} was not found"),
+            Err(error) => return Err(error),
+        };
+        let action = &payload.data.reconciliation;
+        match action.state {
+            seren::ManagedRuntimeReconciliationState::Applied => {
+                return serde_json::to_value(payload).map_err(Into::into);
+            }
+            seren::ManagedRuntimeReconciliationState::Failed
+            | seren::ManagedRuntimeReconciliationState::Superseded => {
+                return Err(managed_mutation_terminal_error(
+                    operation, request_id, action,
+                ));
+            }
+            seren::ManagedRuntimeReconciliationState::Pending => {}
+        }
+    }
+}
+
 fn compact_preview_for_cli(value: &str, max_chars: usize) -> String {
     let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
     truncate_for_cli(&compact, max_chars)
@@ -4322,6 +4507,7 @@ pub async fn managed_agent_secrets_setup(deployment_id: Uuid, ctx: &CommandConte
         .managed_agent_secrets_setup_initiate(
             &deployment.organization_id,
             &seren::InitiateManagedAgentSecretsSetupRequest {
+                connector_binding_proposal_id: None,
                 deployment_id,
                 redirect_origin: seren::MANAGED_AGENT_SECRETS_REDIRECT_ORIGIN.to_string(),
             },
@@ -4404,19 +4590,21 @@ pub async fn managed_agent_secrets_apply(setup_id: Uuid, ctx: &CommandContext) -
             return Ok(());
         }
         seren::ManagedAgentSecretsApplication::Update(update) => {
-            match client
-                .seren_agent_update_managed_deployment(&deployment_id, &update)
-                .await
-            {
-                Ok(_) => {}
-                Err(error) => {
-                    return Err(anyhow_from_seren_error(
-                        "Failed to apply managed agent Seren Passwords setup",
-                        error,
+            let request_id = Uuid::new_v4();
+            submit_managed_mutation(
+                &client,
+                deployment_id,
+                request_id,
+                || {
+                    client.seren_agent_update_managed_deployment(
+                        &deployment_id,
+                        &request_id,
+                        &update,
                     )
-                    .await);
-                }
-            }
+                },
+                "Managed agent Seren Passwords setup",
+            )
+            .await?;
         }
     }
     let after = client
@@ -4880,18 +5068,16 @@ pub async fn managed_agent_update(
 ) -> Result<()> {
     let client = ctx.client().await?;
     let body = build_managed_agent_update_request(options)?;
-    let response = match client
-        .seren_agent_update_managed_deployment(&deployment_id, &body)
-        .await
-    {
-        Ok(response) => response,
-        Err(err) => {
-            return Err(
-                anyhow_from_seren_error("Failed to update managed agent deployment", err).await,
-            );
-        }
-    };
-    output::print_json(&response.into_inner())?;
+    let request_id = Uuid::new_v4();
+    let response = submit_managed_mutation(
+        &client,
+        deployment_id,
+        request_id,
+        || client.seren_agent_update_managed_deployment(&deployment_id, &request_id, &body),
+        "Managed agent deployment update",
+    )
+    .await?;
+    output::print_json(&response)?;
     Ok(())
 }
 
@@ -4938,20 +5124,16 @@ pub async fn managed_agent_rollback(
         expected_active_revision_id,
         secret_resolution_result_id,
     );
-    let response = match client
-        .seren_agent_rollback_managed_deployment(&deployment_id, &body)
-        .await
-    {
-        Ok(response) => response,
-        Err(err) => {
-            return Err(anyhow_from_seren_error(
-                "Failed to roll back managed agent deployment",
-                err,
-            )
-            .await);
-        }
-    };
-    output::print_json(&response.into_inner())?;
+    let request_id = Uuid::new_v4();
+    let response = submit_managed_mutation(
+        &client,
+        deployment_id,
+        request_id,
+        || client.seren_agent_rollback_managed_deployment(&deployment_id, &request_id, &body),
+        "Managed agent deployment rollback",
+    )
+    .await?;
+    output::print_json(&response)?;
     Ok(())
 }
 
@@ -4984,20 +5166,16 @@ pub async fn managed_agent_runtime_policy_reconciliation(
     ctx: &CommandContext,
 ) -> Result<()> {
     let client = ctx.client().await?;
-    let response = match client
-        .seren_agent_apply_runtime_policy_reconciliation(&deployment_id)
-        .await
-    {
-        Ok(response) => response,
-        Err(err) => {
-            return Err(anyhow_from_seren_error(
-                "Failed to apply managed agent runtime-policy reconciliation",
-                err,
-            )
-            .await);
-        }
-    };
-    output::print_json(&response.into_inner())?;
+    let request_id = Uuid::new_v4();
+    let response = submit_managed_mutation(
+        &client,
+        deployment_id,
+        request_id,
+        || client.seren_agent_apply_runtime_policy_reconciliation(&deployment_id, &request_id),
+        "Managed agent runtime-policy reconciliation",
+    )
+    .await?;
+    output::print_json(&response)?;
     Ok(())
 }
 

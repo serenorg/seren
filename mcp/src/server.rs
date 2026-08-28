@@ -2215,6 +2215,14 @@ pub struct GetSerenAgentDeploymentParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetSerenAgentDeploymentActionParams {
+    /// Deployment UUID
+    pub deployment_id: Uuid,
+    /// Mutation request UUID returned by a managed deployment operation
+    pub request_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct StartSerenAgentPasswordsSetupParams {
     /// Managed agent deployment UUID
     pub deployment_id: Uuid,
@@ -2659,11 +2667,16 @@ fn build_managed_workload_patch(
         })?;
 
     Ok(seren::ManagedAgentWorkloadPatch {
+        bundle: None,
         clear_fallback_models: params.clear_fallback_models.then_some(true),
+        clear_llm_connection: None,
+        clear_model_config: None,
+        clear_model_id: None,
         clear_requirements_txt: params.clear_requirements_txt.then_some(true),
         config,
         external_databases: params.external_databases.clone(),
         fallback_models: params.fallback_models.clone(),
+        llm_connection: None,
         model_config,
         model_id: params.model_id.clone(),
         prompt: params.prompt.clone(),
@@ -6647,6 +6660,97 @@ impl SerenMcpServer {
             &self.api_base_url,
             http_client,
         ))
+    }
+
+    async fn get_managed_mutation(
+        client: &seren::Client,
+        deployment_id: Uuid,
+        request_id: Uuid,
+    ) -> Result<Option<seren::DataResponseManagedAgentDeploymentMutationResponse>, McpError> {
+        match client
+            .seren_agent_get_managed_deployment_action(&deployment_id, &request_id)
+            .await
+        {
+            Ok(response) => Ok(Some(response.into_inner())),
+            Err(error) if error.status() == Some(reqwest::StatusCode::NOT_FOUND) => Ok(None),
+            Err(error) => Err(seren_error_to_mcp_error(error).await),
+        }
+    }
+
+    fn managed_mutation_outcome_is_ambiguous(error: &seren::Error<()>) -> bool {
+        error
+            .status()
+            .is_some_and(|status| status.is_server_error())
+            || matches!(
+                error,
+                seren::Error::CommunicationError(_)
+                    | seren::Error::ResponseBodyError(_)
+                    | seren::Error::InvalidResponsePayload(_, _)
+            )
+    }
+
+    async fn submit_managed_mutation<T, F, Fut>(
+        &self,
+        client: &seren::Client,
+        deployment_id: Uuid,
+        request_id: Uuid,
+        mut send: F,
+    ) -> Result<serde_json::Value, McpError>
+    where
+        T: Serialize,
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = Result<seren::ResponseValue<T>, seren::Error<()>>>,
+    {
+        match send().await {
+            Ok(response) => serde_json::to_value(response.into_inner()).map_err(|error| {
+                McpError::internal_error(
+                    format!("Managed deployment mutation response could not be encoded: {error}"),
+                    None,
+                )
+            }),
+            Err(error) if Self::managed_mutation_outcome_is_ambiguous(&error) => {
+                let first_error = seren_error_to_mcp_error(error).await;
+                match Self::get_managed_mutation(client, deployment_id, request_id).await {
+                    Ok(Some(payload)) => serde_json::to_value(payload).map_err(|error| {
+                        McpError::internal_error(
+                            format!(
+                                "Managed deployment action response could not be encoded: {error}"
+                            ),
+                            None,
+                        )
+                    }),
+                    Ok(None) => {
+                        let response = match send().await {
+                            Ok(response) => response,
+                            Err(second_error) => {
+                                let second_error = seren_error_to_mcp_error(second_error).await;
+                                return Err(McpError::internal_error(
+                                    format!(
+                                        "Managed deployment action {request_id} could not be confirmed after retry: {first_error}; {second_error}"
+                                    ),
+                                    None,
+                                ));
+                            }
+                        };
+                        serde_json::to_value(response.into_inner()).map_err(|error| {
+                            McpError::internal_error(
+                                format!(
+                                    "Managed deployment mutation response could not be encoded: {error}"
+                                ),
+                                None,
+                            )
+                        })
+                    }
+                    Err(status_error) => Err(McpError::internal_error(
+                        format!(
+                            "Managed deployment action {request_id} has an unknown outcome: {first_error}; {status_error}"
+                        ),
+                        None,
+                    )),
+                }
+            }
+            Err(error) => Err(seren_error_to_mcp_error(error).await),
+        }
     }
 
     /// Create an API client with a custom timeout for long-running operations.
@@ -13937,6 +14041,7 @@ API endpoint: {endpoint}",
             .managed_agent_secrets_setup_initiate(
                 &deployment.organization_id,
                 &seren::InitiateManagedAgentSecretsSetupRequest {
+                    connector_binding_proposal_id: None,
                     deployment_id: params.deployment_id,
                     redirect_origin: seren::MANAGED_AGENT_SECRETS_REDIRECT_ORIGIN.to_string(),
                 },
@@ -14039,10 +14144,23 @@ API endpoint: {endpoint}",
                 )?]));
             }
             seren::ManagedAgentSecretsApplication::Update(update) => {
-                api_client
-                    .seren_agent_update_managed_deployment(&deployment_id, &update)
-                    .into_mcp_result()
+                let request_id = Uuid::new_v4();
+                let action = self
+                    .submit_managed_mutation(&api_client, deployment_id, request_id, || {
+                        api_client.seren_agent_update_managed_deployment(
+                            &deployment_id,
+                            &request_id,
+                            &update,
+                        )
+                    })
                     .await?;
+                if action
+                    .pointer("/data/reconciliation/state")
+                    .and_then(serde_json::Value::as_str)
+                    != Some("applied")
+                {
+                    return Ok(CallToolResult::success(vec![json_content(&action)?]));
+                }
             }
         }
         let after = api_client
@@ -14092,6 +14210,29 @@ API endpoint: {endpoint}",
             .await?
             .into_inner();
         Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Get the durable status of one managed deployment operation. Poll this exact request after a mutation returns pending.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn get_seren_agent_deployment_action(
+        &self,
+        Parameters(params): Parameters<GetSerenAgentDeploymentActionParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let action =
+            Self::get_managed_mutation(&api_client, params.deployment_id, params.request_id)
+                .await?
+                .ok_or_else(|| {
+                    McpError::invalid_params("Managed deployment action not found", None)
+                })?;
+        Ok(CallToolResult::success(vec![json_content(&action)?]))
     }
 
     #[tool(
@@ -14358,11 +14499,15 @@ API endpoint: {endpoint}",
     ) -> Result<CallToolResult, McpError> {
         ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Update)?;
         let api_client = self.api_client(&extensions)?;
-        let response = api_client
-            .seren_agent_apply_runtime_policy_reconciliation(&params.deployment_id)
-            .into_mcp_result()
-            .await?
-            .into_inner();
+        let request_id = Uuid::new_v4();
+        let response = self
+            .submit_managed_mutation(&api_client, params.deployment_id, request_id, || {
+                api_client.seren_agent_apply_runtime_policy_reconciliation(
+                    &params.deployment_id,
+                    &request_id,
+                )
+            })
+            .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -14407,13 +14552,18 @@ API endpoint: {endpoint}",
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Update)?;
-        let api_client = self.api_client(&extensions)?;
         let body = build_update_seren_agent_deployment_request(&params)?;
-        let response = api_client
-            .seren_agent_update_managed_deployment(&params.deployment_id, &body)
-            .into_mcp_result()
-            .await?
-            .into_inner();
+        let api_client = self.api_client(&extensions)?;
+        let request_id = Uuid::new_v4();
+        let response = self
+            .submit_managed_mutation(&api_client, params.deployment_id, request_id, || {
+                api_client.seren_agent_update_managed_deployment(
+                    &params.deployment_id,
+                    &request_id,
+                    &body,
+                )
+            })
+            .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -14437,11 +14587,16 @@ API endpoint: {endpoint}",
             secret_resolution_result_id: params.secret_resolution_result_id,
         };
         let api_client = self.api_client(&extensions)?;
-        let response = api_client
-            .seren_agent_rollback_managed_deployment(&params.deployment_id, &body)
-            .into_mcp_result()
-            .await?
-            .into_inner();
+        let request_id = Uuid::new_v4();
+        let response = self
+            .submit_managed_mutation(&api_client, params.deployment_id, request_id, || {
+                api_client.seren_agent_rollback_managed_deployment(
+                    &params.deployment_id,
+                    &request_id,
+                    &body,
+                )
+            })
+            .await?;
         Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
@@ -16500,21 +16655,46 @@ mod tests {
     fn managed_agent_update_summary_fixture(deployment_id: Uuid) -> serde_json::Value {
         serde_json::json!({
             "data": {
-                "id": deployment_id,
-                "organization_id": Uuid::from_u128(2),
-                "user_id": Uuid::from_u128(3),
-                "name": "Runtime Policy Canary",
-                "skill_slug": "runtime-policy-canary",
-                "compute_backend": "aws_container",
-                "runtime_kind": "python",
-                "mode": "job",
-                "status": "running",
-                "code_bundle_hash": "bundle-sha",
-                "orchestration_mode": "llm",
-                "requirements": [],
-                "visibility": "opaque",
-                "created_at": "2026-08-09T11:00:00Z",
-                "updated_at": "2026-08-21T20:30:00Z"
+                "deployment": {
+                    "id": deployment_id,
+                    "organization_id": Uuid::from_u128(2),
+                    "user_id": Uuid::from_u128(3),
+                    "name": "Runtime Policy Canary",
+                    "skill_slug": "runtime-policy-canary",
+                    "compute_backend": "aws_container",
+                    "control_generation": 1,
+                    "desired_egress_state": "enabled",
+                    "desired_lifecycle_state": "running",
+                    "runtime_kind": "python",
+                    "mode": "job",
+                    "status": "running",
+                    "code_bundle_hash": "bundle-sha",
+                    "orchestration_mode": "llm",
+                    "requirements": [],
+                    "visibility": "opaque",
+                    "created_at": "2026-08-09T11:00:00Z",
+                    "updated_at": "2026-08-21T20:30:00Z"
+                },
+                "reconciliation": {
+                    "accepted_at": "2026-08-21T20:30:00Z",
+                    "attempt_count": 1,
+                    "control_generation": 1,
+                    "deployment_id": deployment_id,
+                    "desired_runtime_fingerprint": "desired-runtime-fingerprint",
+                    "id": Uuid::from_u128(4),
+                    "observed_runtime_fingerprint": "desired-runtime-fingerprint",
+                    "reason": null,
+                    "release_id": null,
+                    "request_id": Uuid::from_u128(5),
+                    "revision_id": Uuid::from_u128(6),
+                    "state": "applied",
+                    "status_path": format!(
+                        "/publishers/seren-agent/deployments/{deployment_id}/managed/actions/{}",
+                        Uuid::from_u128(5)
+                    ),
+                    "target": "controller",
+                    "updated_at": "2026-08-21T20:30:00Z"
+                }
             }
         })
     }

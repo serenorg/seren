@@ -11398,7 +11398,7 @@
       },
       "ApiKeyCreated": {
         "type": "object",
-        "description": "Response struct for API key creation (includes the full key ONCE)",
+        "description": "Response struct for API key creation or an authorized idempotent mint.",
         "required": [
           "id",
           "key_id",
@@ -13696,7 +13696,7 @@
         "properties": {
           "data": {
             "type": "object",
-            "description": "Response struct for API key creation (includes the full key ONCE)",
+            "description": "Response struct for API key creation or an authorized idempotent mint.",
             "required": [
               "id",
               "key_id",
@@ -23317,6 +23317,13 @@
           "redirect_origin"
         ],
         "properties": {
+          "connector_binding_proposal_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "deployment_id": {
             "type": "string",
             "format": "uuid"
@@ -23703,6 +23710,12 @@
             "type": "string"
           },
           "field_group": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "format_hint": {
             "type": [
               "string",
               "null"
