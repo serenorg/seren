@@ -982,6 +982,16 @@
               }
             }
           },
+          "202": {
+            "description": "Start accepted; managed compute is building until convergence",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentActionStatusResponse"
+                }
+              }
+            }
+          },
           "400": {
             "description": "Bad request"
           },
@@ -5946,6 +5956,7 @@
           "message"
         ],
         "properties": {
+          "details": {},
           "error": {
             "type": "string"
           },
@@ -7208,6 +7219,17 @@
           },
           "id": {
             "type": "string"
+          },
+          "migration_action": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedConnectorBindingMigrationStatus",
+                "description": "Resumable action for a connector-binding admission failure."
+              }
+            ]
           },
           "recommendation": {
             "type": "string"
@@ -8734,6 +8756,61 @@
           "auth": {
             "$ref": "#/components/schemas/ManagedCodexAuth",
             "description": "How the Codex runtime authenticates for this deployment."
+          }
+        }
+      },
+      "ManagedConnectorBindingMigrationState": {
+        "type": "string",
+        "enum": [
+          "awaiting_secret_selection",
+          "proposal_pending",
+          "completed",
+          "superseded"
+        ]
+      },
+      "ManagedConnectorBindingMigrationStatus": {
+        "type": "object",
+        "required": [
+          "id",
+          "deployment_id",
+          "connector_ref",
+          "expected_active_revision_id",
+          "state",
+          "status_path",
+          "updated_at"
+        ],
+        "properties": {
+          "connector_ref": {
+            "type": "string"
+          },
+          "converted_proposal_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_active_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ManagedConnectorBindingMigrationState"
+          },
+          "status_path": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },

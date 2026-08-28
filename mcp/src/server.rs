@@ -5022,6 +5022,25 @@ fn skill_doc_url(api_base_url: &str, segments: &[&str]) -> Result<String, McpErr
     Ok(url.to_string())
 }
 
+fn client_contract_mismatch_error(
+    status: reqwest::StatusCode,
+    request_id: Option<&str>,
+) -> McpError {
+    let request_context = request_id
+        .map(|value| format!(" (request ID: {value})"))
+        .unwrap_or_default();
+    McpError::internal_error(
+        format!(
+            "client_contract_mismatch: the server returned undocumented success status {status}{request_context}; update the bundled API contract"
+        ),
+        Some(serde_json::json!({
+            "kind": "client_contract_mismatch",
+            "status": status.as_u16(),
+            "request_id": request_id,
+        })),
+    )
+}
+
 /// Convert a seren SDK error to an MCP error.
 pub(crate) async fn seren_error_to_mcp_error<T: std::fmt::Debug>(e: seren::Error<T>) -> McpError {
     match e {
@@ -5032,6 +5051,9 @@ pub(crate) async fn seren_error_to_mcp_error<T: std::fmt::Debug>(e: seren::Error
                 .get("x-request-id")
                 .and_then(|value| value.to_str().ok())
                 .map(ToOwned::to_owned);
+            if status.is_success() {
+                return client_contract_mismatch_error(status, request_id.as_deref());
+            }
             let body = response.text().await.unwrap_or_default();
             McpError::internal_error(
                 api_error_message(status, &body, request_id.as_deref()),
@@ -15008,14 +15030,18 @@ API endpoint: {endpoint}",
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        api_client
+        let response = api_client
             .seren_cloud_start(&params.deployment_id)
             .into_mcp_result()
-            .await?;
-        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
-            "Deployment {} started.",
-            params.deployment_id
-        ))]))
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![
+            ContentBlock::text(format!(
+                "Deployment {} start acknowledged; observed status: {}.",
+                params.deployment_id, response.data.status
+            )),
+            json_content(&response)?,
+        ]))
     }
 
     #[tool(
@@ -15028,14 +15054,18 @@ API endpoint: {endpoint}",
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
-        api_client
+        let response = api_client
             .seren_cloud_stop(&params.deployment_id)
             .into_mcp_result()
-            .await?;
-        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
-            "Deployment {} stopped.",
-            params.deployment_id
-        ))]))
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![
+            ContentBlock::text(format!(
+                "Deployment {} stop acknowledged; observed status: {}.",
+                params.deployment_id, response.data.status
+            )),
+            json_content(&response)?,
+        ]))
     }
 
     #[tool(
@@ -17648,6 +17678,142 @@ mod tests {
         .expect_err("invalid connection timestamp should be rejected");
 
         assert!(error.message.contains("valid_from"));
+    }
+
+    fn lifecycle_action_body(status: &str) -> serde_json::Value {
+        serde_json::json!({
+            "data": {
+                "status": status,
+                "desired_lifecycle_state": "running",
+                "desired_egress_state": "muted",
+                "control_generation": 1,
+                "confirmation": "Runtime submission is pending recovery."
+            }
+        })
+    }
+
+    fn result_contains(result: &CallToolResult, needle: &str) -> bool {
+        serde_json::to_string(result)
+            .unwrap_or_default()
+            .contains(needle)
+    }
+
+    #[tokio::test]
+    async fn managed_lifecycle_accepts_typed_nonterminal_responses() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let deployment_id = Uuid::from_u128(0x2020_2020);
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/start"
+            )))
+            .respond_with(
+                ResponseTemplate::new(202).set_body_json(lifecycle_action_body("building")),
+            )
+            .mount(&proxy)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/stop"
+            )))
+            .respond_with(
+                ResponseTemplate::new(202).set_body_json(lifecycle_action_body("stopping")),
+            )
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let started = server
+            .start_seren_agent_deployment(
+                Parameters(GetSerenAgentDeploymentParams { deployment_id }),
+                Extensions::default(),
+            )
+            .await
+            .expect("accepted start should be a successful tool result");
+        let stopped = server
+            .stop_seren_agent_deployment(
+                Parameters(GetSerenAgentDeploymentParams { deployment_id }),
+                Extensions::default(),
+            )
+            .await
+            .expect("accepted stop should be a successful tool result");
+
+        assert!(result_contains(&started, "building"));
+        assert!(result_contains(&stopped, "stopping"));
+    }
+
+    #[tokio::test]
+    async fn cloud_lifecycle_returns_observed_nonterminal_status() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let deployment_id = Uuid::from_u128(0x2020_2021);
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/publishers/seren-cloud/deployments/{deployment_id}/start"
+            )))
+            .respond_with(
+                ResponseTemplate::new(202).set_body_json(lifecycle_action_body("building")),
+            )
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let result = server
+            .start_cloud_agent(
+                Parameters(CloudDeploymentIdParams { deployment_id }),
+                Extensions::default(),
+            )
+            .await
+            .expect("accepted cloud start should be a successful tool result");
+
+        assert!(result_contains(&result, "start acknowledged"));
+        assert!(result_contains(&result, "building"));
+        assert!(!result_contains(&result, "started"));
+    }
+
+    #[tokio::test]
+    async fn undocumented_success_is_a_contract_mismatch_without_body_disclosure() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(
+                ResponseTemplate::new(203)
+                    .insert_header("x-request-id", "drift-1")
+                    .set_body_json(serde_json::json!({ "data": { "secret": "unrouted" } })),
+            )
+            .mount(&server)
+            .await;
+
+        let response = reqwest::Client::new()
+            .get(server.uri())
+            .send()
+            .await
+            .expect("mock response should be returned");
+        let error =
+            seren_error_to_mcp_error::<()>(seren::Error::UnexpectedResponse(response)).await;
+
+        assert_eq!(
+            error.data.as_ref().and_then(|data| data.get("kind")),
+            Some(&serde_json::json!("client_contract_mismatch"))
+        );
+        assert_eq!(
+            error.data.as_ref().and_then(|data| data.get("status")),
+            Some(&serde_json::json!(203))
+        );
+        assert!(
+            error
+                .data
+                .as_ref()
+                .and_then(|data| data.get("body"))
+                .is_none()
+        );
+        assert!(!error.message.contains("unrouted"));
     }
 
     #[tokio::test]

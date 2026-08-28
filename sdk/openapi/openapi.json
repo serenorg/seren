@@ -6745,6 +6745,70 @@
         ]
       }
     },
+    "/organizations/{organization_id}/publishers/{publisher_id}/catalog/admit": {
+      "post": {
+        "tags": [
+          "Organizations"
+        ],
+        "operationId": "admit_org_publisher_catalog",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID or 'default' for the authenticated user's default organization",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "publisher_id",
+            "in": "path",
+            "description": "Publisher ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmitPublisherCatalogRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Reviewed publisher catalog admitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_AdmitPublisherCatalogResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid candidate or catalog policy"
+          },
+          "403": {
+            "description": "Organization administrator access required"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "409": {
+            "description": "Candidate or catalog changed after review"
+          }
+        }
+      }
+    },
     "/organizations/{organization_id}/publishers/{publisher_id}/earnings": {
       "get": {
         "tags": [
@@ -8871,6 +8935,63 @@
         }
       }
     },
+    "/service/publishers/{slug}/catalog/reconcile": {
+      "post": {
+        "tags": [
+          "Service Publishers"
+        ],
+        "operationId": "svc_reconcile_catalog",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "Publisher slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Publisher catalog reconciled and verified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_PublisherCatalogReconcileReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Publisher catalog cannot be reconciled"
+          },
+          "401": {
+            "description": "Service authentication required"
+          },
+          "403": {
+            "description": "Publisher is not configured for catalog reconciliation"
+          },
+          "404": {
+            "description": "Publisher not found"
+          },
+          "409": {
+            "description": "Live publisher contract is not admitted"
+          },
+          "502": {
+            "description": "Publisher contract could not be fetched"
+          },
+          "503": {
+            "description": "Service JWT verification is unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/sessions": {
       "get": {
         "tags": [
@@ -10674,6 +10795,92 @@
           },
           "stripe_payment_method_id": {
             "type": "string"
+          }
+        }
+      },
+      "AdmitPublisherCatalogRequest": {
+        "type": "object",
+        "required": [
+          "candidate_openapi",
+          "expected_version",
+          "expected_surface_fingerprint",
+          "expected_contract_fingerprint",
+          "expected_added",
+          "expected_removed",
+          "reviewed_additions"
+        ],
+        "properties": {
+          "candidate_openapi": {},
+          "expected_added": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublisherCatalogRouteRef"
+            }
+          },
+          "expected_contract_fingerprint": {
+            "type": "string"
+          },
+          "expected_removed": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublisherCatalogRouteRef"
+            }
+          },
+          "expected_surface_fingerprint": {
+            "type": "string"
+          },
+          "expected_version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "reviewed_additions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EndpointDefinition"
+            }
+          }
+        }
+      },
+      "AdmitPublisherCatalogResponse": {
+        "type": "object",
+        "required": [
+          "slug",
+          "from_version",
+          "to_version",
+          "admitted_surface_fingerprint",
+          "admitted_contract_fingerprint",
+          "added",
+          "removed"
+        ],
+        "properties": {
+          "added": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublisherCatalogRouteRef"
+            }
+          },
+          "admitted_contract_fingerprint": {
+            "type": "string"
+          },
+          "admitted_surface_fingerprint": {
+            "type": "string"
+          },
+          "from_version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "removed": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublisherCatalogRouteRef"
+            }
+          },
+          "slug": {
+            "type": "string"
+          },
+          "to_version": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -13210,6 +13417,69 @@
                   "null"
                 ],
                 "description": "Verified recovery address used only for account access and security notices."
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_AdmitPublisherCatalogResponse": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "slug",
+              "from_version",
+              "to_version",
+              "admitted_surface_fingerprint",
+              "admitted_contract_fingerprint",
+              "added",
+              "removed"
+            ],
+            "properties": {
+              "added": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PublisherCatalogRouteRef"
+                }
+              },
+              "admitted_contract_fingerprint": {
+                "type": "string"
+              },
+              "admitted_surface_fingerprint": {
+                "type": "string"
+              },
+              "from_version": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "removed": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PublisherCatalogRouteRef"
+                }
+              },
+              "slug": {
+                "type": "string"
+              },
+              "to_version": {
+                "type": "integer",
+                "format": "int64"
               }
             }
           },
@@ -17131,6 +17401,76 @@
               },
               "totals": {
                 "$ref": "#/components/schemas/PublisherAnalyticsTotals"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_PublisherCatalogReconcileReport": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "slug",
+              "added",
+              "removed",
+              "changed",
+              "applied_safe",
+              "live_surface_fingerprint",
+              "live_contract_fingerprint"
+            ],
+            "properties": {
+              "added": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "admitted_contract_fingerprint": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "admitted_surface_fingerprint": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "applied_safe": {
+                "type": "boolean"
+              },
+              "changed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "live_contract_fingerprint": {
+                "type": "string"
+              },
+              "live_surface_fingerprint": {
+                "type": "string"
+              },
+              "removed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "slug": {
+                "type": "string"
               }
             }
           },
@@ -27080,6 +27420,71 @@
           "unique_agents_served": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "PublisherCatalogReconcileReport": {
+        "type": "object",
+        "required": [
+          "slug",
+          "added",
+          "removed",
+          "changed",
+          "applied_safe",
+          "live_surface_fingerprint",
+          "live_contract_fingerprint"
+        ],
+        "properties": {
+          "added": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "admitted_contract_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "admitted_surface_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "applied_safe": {
+            "type": "boolean"
+          },
+          "changed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "live_contract_fingerprint": {
+            "type": "string"
+          },
+          "live_surface_fingerprint": {
+            "type": "string"
+          },
+          "removed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
+      "PublisherCatalogRouteRef": {
+        "type": "object",
+        "required": [
+          "method",
+          "path"
+        ],
+        "properties": {
+          "method": {
+            "$ref": "#/components/schemas/HttpMethod"
+          },
+          "path": {
+            "type": "string"
           }
         }
       },

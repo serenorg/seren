@@ -453,6 +453,19 @@ async fn anyhow_from_seren_error(context: &str, err: seren::Error<()>) -> anyhow
         {
             anyhow::anyhow!(format_payment_required_response(response).await)
         }
+        seren::Error::UnexpectedResponse(response) if response.status().is_success() => {
+            let status = response.status();
+            let request_id = response
+                .headers()
+                .get("x-request-id")
+                .and_then(|value| value.to_str().ok());
+            let request_context = request_id
+                .map(|value| format!(" (request ID: {value})"))
+                .unwrap_or_default();
+            anyhow::anyhow!(
+                "{context}: client_contract_mismatch: the server returned undocumented success status {status}{request_context}; update the bundled API contract"
+            )
+        }
         seren::Error::UnexpectedResponse(response) => {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
@@ -463,6 +476,93 @@ async fn anyhow_from_seren_error(context: &str, err: seren::Error<()>) -> anyhow
         }
         other => anyhow::anyhow!("{context}: {other}"),
     }
+}
+
+#[derive(Clone, Copy)]
+enum LifecycleTransition {
+    Start,
+    Stop,
+}
+
+impl LifecycleTransition {
+    fn verb(self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::Stop => "stop",
+        }
+    }
+
+    fn converged_status(self) -> &'static str {
+        match self {
+            Self::Start => "running",
+            Self::Stop => "stopped",
+        }
+    }
+}
+
+fn desired_lifecycle_label(state: &seren::DesiredLifecycleState) -> &'static str {
+    match state {
+        seren::DesiredLifecycleState::Running => "running",
+        seren::DesiredLifecycleState::Stopping => "stopping",
+        seren::DesiredLifecycleState::Stopped => "stopped",
+    }
+}
+
+fn desired_egress_label(state: &seren::DesiredEgressState) -> &'static str {
+    match state {
+        seren::DesiredEgressState::Enabled => "enabled",
+        seren::DesiredEgressState::Muted => "muted",
+    }
+}
+
+fn render_lifecycle_status(
+    entity_label: &str,
+    transition: LifecycleTransition,
+    deployment_id: Uuid,
+    status: &seren::CloudDeploymentActionStatusResponse,
+    request_id: Option<&str>,
+) -> String {
+    let converged = status
+        .status
+        .eq_ignore_ascii_case(transition.converged_status());
+    let headline = if converged {
+        format!(
+            "{entity_label} {deployment_id} converged (status: {}).",
+            status.status
+        )
+    } else {
+        format!(
+            "{entity_label} {deployment_id} {} accepted; not yet converged (status: {}).",
+            transition.verb(),
+            status.status
+        )
+    };
+    let mut lines = vec![
+        headline,
+        format!(
+            "  desired lifecycle: {}, desired egress: {}",
+            desired_lifecycle_label(&status.desired_lifecycle_state),
+            desired_egress_label(&status.desired_egress_state),
+        ),
+        format!("  control generation: {}", status.control_generation),
+    ];
+    if let Some(request_id) = request_id {
+        lines.push(format!("  action request id: {request_id}"));
+    }
+    if let Some(confirmation) = status
+        .confirmation
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        lines.push(format!("  note: {confirmation}"));
+    }
+    if !converged {
+        lines.push(format!(
+            "  poll `seren agent get {deployment_id}` until it reports {}.",
+            transition.converged_status()
+        ));
+    }
+    lines.join("\n")
 }
 
 /// Get x402 deposit requirements (EIP-712 data for on-chain USDC deposit)
@@ -4657,48 +4757,72 @@ pub async fn managed_agent_revisions(deployment_id: Uuid, ctx: &CommandContext) 
 /// Start a managed seren-agent deployment.
 pub async fn managed_agent_start(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
-    match client
+    let response = match client
         .seren_agent_start_managed_deployment(&deployment_id)
         .await
     {
-        Ok(response) => {
-            let _ = response.into_inner();
-        }
+        Ok(response) => response,
         Err(err) => {
             return Err(
                 anyhow_from_seren_error("Failed to start managed agent deployment", err).await,
             );
         }
+    };
+    let request_id = response
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let payload = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&payload)?,
+        OutputFormat::Table => println!(
+            "{}",
+            render_lifecycle_status(
+                "Managed deployment",
+                LifecycleTransition::Start,
+                deployment_id,
+                &payload.data,
+                request_id.as_deref(),
+            )
+        ),
     }
-    println!(
-        "{} Managed deployment {} started.",
-        "✓".green(),
-        deployment_id
-    );
     Ok(())
 }
 
 /// Stop a managed seren-agent deployment.
 pub async fn managed_agent_stop(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
-    match client
+    let response = match client
         .seren_agent_stop_managed_deployment(&deployment_id)
         .await
     {
-        Ok(response) => {
-            let _ = response.into_inner();
-        }
+        Ok(response) => response,
         Err(err) => {
             return Err(
                 anyhow_from_seren_error("Failed to stop managed agent deployment", err).await,
             );
         }
+    };
+    let request_id = response
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let payload = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&payload)?,
+        OutputFormat::Table => println!(
+            "{}",
+            render_lifecycle_status(
+                "Managed deployment",
+                LifecycleTransition::Stop,
+                deployment_id,
+                &payload.data,
+                request_id.as_deref(),
+            )
+        ),
     }
-    println!(
-        "{} Managed deployment {} stopped.",
-        "✓".green(),
-        deployment_id
-    );
     Ok(())
 }
 
@@ -5627,22 +5751,58 @@ pub async fn cloud_status(deployment_id: Uuid, ctx: &CommandContext) -> Result<(
 /// Start a stopped always-on cloud agent.
 pub async fn cloud_start(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
-    client
-        .seren_cloud_start(&deployment_id)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?;
-    println!("{} Deployment {} started.", "✓".green(), deployment_id);
+    let response = match client.seren_cloud_start(&deployment_id).await {
+        Ok(response) => response,
+        Err(err) => return Err(anyhow_from_seren_error("Failed to start deployment", err).await),
+    };
+    let request_id = response
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let payload = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&payload)?,
+        OutputFormat::Table => println!(
+            "{}",
+            render_lifecycle_status(
+                "Deployment",
+                LifecycleTransition::Start,
+                deployment_id,
+                &payload.data,
+                request_id.as_deref(),
+            )
+        ),
+    }
     Ok(())
 }
 
 /// Stop a running always-on cloud agent.
 pub async fn cloud_stop(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
-    client
-        .seren_cloud_stop(&deployment_id)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed: {}", e))?;
-    println!("{} Deployment {} stopped.", "✓".green(), deployment_id);
+    let response = match client.seren_cloud_stop(&deployment_id).await {
+        Ok(response) => response,
+        Err(err) => return Err(anyhow_from_seren_error("Failed to stop deployment", err).await),
+    };
+    let request_id = response
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let payload = response.into_inner();
+    match ctx.format {
+        OutputFormat::Json => output::print_json(&payload)?,
+        OutputFormat::Table => println!(
+            "{}",
+            render_lifecycle_status(
+                "Deployment",
+                LifecycleTransition::Stop,
+                deployment_id,
+                &payload.data,
+                request_id.as_deref(),
+            )
+        ),
+    }
     Ok(())
 }
 
@@ -9620,6 +9780,68 @@ fn parse_json_file(path: &str) -> Result<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn action_status(status: &str) -> seren::CloudDeploymentActionStatusResponse {
+        serde_json::from_value(serde_json::json!({
+            "status": status,
+            "desired_lifecycle_state": "running",
+            "desired_egress_state": "muted",
+            "control_generation": 7,
+            "confirmation": "Runtime submission is pending recovery."
+        }))
+        .expect("action status fixture must deserialize")
+    }
+
+    #[test]
+    fn lifecycle_status_distinguishes_accepted_from_converged_start() {
+        let deployment_id = Uuid::from_u128(1);
+        let accepted = render_lifecycle_status(
+            "Managed deployment",
+            LifecycleTransition::Start,
+            deployment_id,
+            &action_status("building"),
+            Some("req-abc"),
+        );
+        assert!(accepted.contains("accepted; not yet converged"));
+        assert!(accepted.contains("status: building"));
+        assert!(accepted.contains("action request id: req-abc"));
+        assert!(accepted.contains("poll `seren agent get"));
+
+        let converged = render_lifecycle_status(
+            "Managed deployment",
+            LifecycleTransition::Start,
+            deployment_id,
+            &action_status("running"),
+            None,
+        );
+        assert!(converged.contains("converged (status: running)"));
+        assert!(!converged.contains("not yet converged"));
+        assert!(!converged.contains("poll `seren agent get"));
+    }
+
+    #[test]
+    fn lifecycle_status_distinguishes_accepted_from_converged_stop() {
+        let deployment_id = Uuid::from_u128(2);
+        let accepted = render_lifecycle_status(
+            "Managed deployment",
+            LifecycleTransition::Stop,
+            deployment_id,
+            &action_status("stopping"),
+            None,
+        );
+        assert!(accepted.contains("accepted; not yet converged"));
+        assert!(accepted.contains("status: stopping"));
+
+        let converged = render_lifecycle_status(
+            "Managed deployment",
+            LifecycleTransition::Stop,
+            deployment_id,
+            &action_status("stopped"),
+            None,
+        );
+        assert!(converged.contains("converged (status: stopped)"));
+        assert!(!converged.contains("not yet converged"));
+    }
 
     #[test]
     fn cloud_run_payload_selects_organization_context() {

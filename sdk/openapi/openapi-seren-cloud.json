@@ -880,6 +880,114 @@
         ]
       }
     },
+    "/deployments/{id}/connectors/{connector_ref}/migration": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_get_active_connector_binding_migration",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "connector_ref",
+            "in": "path",
+            "description": "Connector reference",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active connector binding migration status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedConnectorBindingMigrationStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Active connector binding migration not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/connectors/{connector_ref}/migration/{migration_id}": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_get_connector_binding_migration",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "connector_ref",
+            "in": "path",
+            "description": "Connector catalog reference",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "migration_id",
+            "in": "path",
+            "description": "Migration task ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Connector binding migration status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedConnectorBindingMigrationStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Connector binding migration not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/connectors/{connector_ref}/proposals": {
       "get": {
         "tags": [
@@ -2788,6 +2896,16 @@
         "responses": {
           "200": {
             "description": "Deployment started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_CloudDeploymentActionStatusResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Start accepted; compute is building until convergence",
             "content": {
               "application/json": {
                 "schema": {
@@ -9411,6 +9529,14 @@
             "type": "string",
             "format": "uuid"
           },
+          "migration_task_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Open handoff atomically linked to this proposal."
+          },
           "replace_proposal_id": {
             "type": [
               "string",
@@ -12424,6 +12550,72 @@
           }
         }
       },
+      "DataResponse_ManagedConnectorBindingMigrationStatus": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "deployment_id",
+              "connector_ref",
+              "expected_active_revision_id",
+              "state",
+              "status_path",
+              "updated_at"
+            ],
+            "properties": {
+              "connector_ref": {
+                "type": "string"
+              },
+              "converted_proposal_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "expected_active_revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "state": {
+                "$ref": "#/components/schemas/ManagedConnectorBindingMigrationState"
+              },
+              "status_path": {
+                "type": "string"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedConnectorBindingProposal": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -15032,6 +15224,61 @@
           "auth": {
             "$ref": "#/components/schemas/ManagedCodexAuth",
             "description": "How the Codex runtime authenticates for this deployment."
+          }
+        }
+      },
+      "ManagedConnectorBindingMigrationState": {
+        "type": "string",
+        "enum": [
+          "awaiting_secret_selection",
+          "proposal_pending",
+          "completed",
+          "superseded"
+        ]
+      },
+      "ManagedConnectorBindingMigrationStatus": {
+        "type": "object",
+        "required": [
+          "id",
+          "deployment_id",
+          "connector_ref",
+          "expected_active_revision_id",
+          "state",
+          "status_path",
+          "updated_at"
+        ],
+        "properties": {
+          "connector_ref": {
+            "type": "string"
+          },
+          "converted_proposal_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_active_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ManagedConnectorBindingMigrationState"
+          },
+          "status_path": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
