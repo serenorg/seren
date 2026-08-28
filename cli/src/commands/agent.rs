@@ -478,6 +478,31 @@ async fn anyhow_from_seren_error(context: &str, err: seren::Error<()>) -> anyhow
     }
 }
 
+/// Keeps the resolve step distinguishable from the lifecycle mutation so a failure
+/// report states whether the deployment was reached at all.
+async fn anyhow_from_cloud_lifecycle_error(
+    transition: LifecycleTransition,
+    error: seren::CloudDeploymentLifecycleError,
+) -> anyhow::Error {
+    let verb = transition.verb();
+    match error {
+        seren::CloudDeploymentLifecycleError::Lookup(error) => {
+            anyhow_from_seren_error(
+                &format!("Failed to resolve deployment before {verb}"),
+                *error,
+            )
+            .await
+        }
+        seren::CloudDeploymentLifecycleError::Mutation(error) => {
+            anyhow_from_seren_error(&format!("Failed to {verb} deployment"), *error).await
+        }
+        seren::CloudDeploymentLifecycleError::UnsupportedManagedPublisher { .. }
+        | seren::CloudDeploymentLifecycleError::AmbiguousDeploymentType => {
+            anyhow::anyhow!("Failed to {verb} deployment: {error}")
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 enum LifecycleTransition {
     Start,
@@ -5751,9 +5776,17 @@ pub async fn cloud_status(deployment_id: Uuid, ctx: &CommandContext) -> Result<(
 /// Start a stopped always-on cloud agent.
 pub async fn cloud_start(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
-    let response = match client.seren_cloud_start(&deployment_id).await {
+    let response = match client
+        .dispatch_cloud_deployment_lifecycle(
+            &deployment_id,
+            seren::CloudDeploymentLifecycleAction::Start,
+        )
+        .await
+    {
         Ok(response) => response,
-        Err(err) => return Err(anyhow_from_seren_error("Failed to start deployment", err).await),
+        Err(error) => {
+            return Err(anyhow_from_cloud_lifecycle_error(LifecycleTransition::Start, error).await);
+        }
     };
     let request_id = response
         .headers()
@@ -5780,9 +5813,17 @@ pub async fn cloud_start(deployment_id: Uuid, ctx: &CommandContext) -> Result<()
 /// Stop a running always-on cloud agent.
 pub async fn cloud_stop(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;
-    let response = match client.seren_cloud_stop(&deployment_id).await {
+    let response = match client
+        .dispatch_cloud_deployment_lifecycle(
+            &deployment_id,
+            seren::CloudDeploymentLifecycleAction::Stop,
+        )
+        .await
+    {
         Ok(response) => response,
-        Err(err) => return Err(anyhow_from_seren_error("Failed to stop deployment", err).await),
+        Err(error) => {
+            return Err(anyhow_from_cloud_lifecycle_error(LifecycleTransition::Stop, error).await);
+        }
     };
     let request_id = response
         .headers()
@@ -9790,6 +9831,242 @@ mod tests {
             "confirmation": "Runtime submission is pending recovery."
         }))
         .expect("action status fixture must deserialize")
+    }
+
+    fn lifecycle_action_body(status: &str) -> serde_json::Value {
+        let desired_lifecycle_state = if status == "stopping" {
+            "stopped"
+        } else {
+            "running"
+        };
+        serde_json::json!({
+            "data": {
+                "status": status,
+                "desired_lifecycle_state": desired_lifecycle_state,
+                "desired_egress_state": "muted",
+                "control_generation": 7,
+                "confirmation": "Runtime submission is pending recovery."
+            }
+        })
+    }
+
+    /// Mirrors the Seren Cloud deployment detail response, which reports the
+    /// managed-agent publisher and omits `active_revision_id` for every
+    /// deployment, including managed ones.
+    fn cloud_deployment_body(
+        deployment_id: Uuid,
+        managed_publisher: Option<&str>,
+    ) -> serde_json::Value {
+        let mut data = serde_json::json!({
+            "id": deployment_id,
+            "organization_id": Uuid::from_u128(1),
+            "user_id": Uuid::from_u128(2),
+            "name": "Lifecycle Test",
+            "skill_slug": "lifecycle-test",
+            "code_bundle_hash": "bundle-sha",
+            "compute_backend": "aws_container",
+            "control_generation": 7,
+            "created_at": "2026-08-28T12:00:00Z",
+            "desired_egress_state": "muted",
+            "desired_lifecycle_state": "stopped",
+            "mode": "always_on",
+            "orchestration_mode": "llm",
+            "requirements": [],
+            "runtime_kind": "python",
+            "status": "stopped",
+            "updated_at": "2026-08-28T12:00:00Z",
+            "visibility": "open"
+        });
+        if let Some(publisher) = managed_publisher {
+            data.as_object_mut().expect("deployment object").insert(
+                "managed_agent".to_string(),
+                serde_json::json!({
+                    "publisher": publisher,
+                    "template": "research_monitor",
+                    "target_framework": "codex",
+                    "runtime_adapter": "seren_agent",
+                    "build_target": "python",
+                    "tool_presets": [],
+                    "allowed_publisher_operations": [],
+                    "resolved_tools": [],
+                    "approval_policy": "read_only",
+                    "model_policy": "balanced",
+                    "routing_reason": "test fixture"
+                }),
+            );
+        }
+
+        serde_json::json!({ "data": data })
+    }
+
+    #[tokio::test]
+    async fn cloud_lifecycle_commands_dispatch_managed_routes_once() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let deployment_id = Uuid::from_u128(0x3030_3030);
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-cloud/deployments/{deployment_id}"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(cloud_deployment_body(deployment_id, Some("seren-agent"))),
+            )
+            .expect(2)
+            .mount(&proxy)
+            .await;
+        for (transition, status) in [
+            (LifecycleTransition::Start, "building"),
+            (LifecycleTransition::Stop, "stopping"),
+        ] {
+            let action = transition.verb();
+            Mock::given(method("POST"))
+                .and(path(format!(
+                    "/publishers/seren-agent/deployments/{deployment_id}/{action}"
+                )))
+                .respond_with(
+                    ResponseTemplate::new(202).set_body_json(lifecycle_action_body(status)),
+                )
+                .expect(1)
+                .mount(&proxy)
+                .await;
+        }
+
+        let context = CommandContext::new(
+            Some(proxy.uri()),
+            Some("test-key".to_string()),
+            OutputFormat::Json,
+        );
+        cloud_start(deployment_id, &context)
+            .await
+            .expect("managed start should succeed");
+        cloud_stop(deployment_id, &context)
+            .await
+            .expect("managed stop should succeed");
+
+        let requests = proxy.received_requests().await.expect("recorded requests");
+        assert_eq!(requests.len(), 4);
+        assert!(requests.iter().all(|request| {
+            !request.url.path().starts_with(&format!(
+                "/publishers/seren-cloud/deployments/{deployment_id}/"
+            ))
+        }));
+    }
+
+    #[tokio::test]
+    async fn cloud_lifecycle_commands_dispatch_non_managed_routes_once() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let deployment_id = Uuid::from_u128(0x3030_3031);
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-cloud/deployments/{deployment_id}"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(cloud_deployment_body(deployment_id, None)),
+            )
+            .expect(2)
+            .mount(&proxy)
+            .await;
+        for (transition, status) in [
+            (LifecycleTransition::Start, "building"),
+            (LifecycleTransition::Stop, "stopping"),
+        ] {
+            let action = transition.verb();
+            Mock::given(method("POST"))
+                .and(path(format!(
+                    "/publishers/seren-cloud/deployments/{deployment_id}/{action}"
+                )))
+                .respond_with(
+                    ResponseTemplate::new(202).set_body_json(lifecycle_action_body(status)),
+                )
+                .expect(1)
+                .mount(&proxy)
+                .await;
+        }
+
+        let context = CommandContext::new(
+            Some(proxy.uri()),
+            Some("test-key".to_string()),
+            OutputFormat::Json,
+        );
+        cloud_start(deployment_id, &context)
+            .await
+            .expect("generic start should succeed");
+        cloud_stop(deployment_id, &context)
+            .await
+            .expect("generic stop should succeed");
+
+        let requests = proxy.received_requests().await.expect("recorded requests");
+        assert_eq!(requests.len(), 4);
+        assert!(requests.iter().all(|request| {
+            !request.url.path().starts_with(&format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/"
+            ))
+        }));
+    }
+
+    #[tokio::test]
+    async fn cloud_lifecycle_commands_fail_before_mutation_when_the_route_is_unresolved() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let deployment_id = Uuid::from_u128(0x3030_3032);
+        let cases = [
+            ("not found", ResponseTemplate::new(404)),
+            ("authorization denied", ResponseTemplate::new(403)),
+            (
+                "malformed detail",
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "data": { "id": deployment_id } })),
+            ),
+            (
+                "unsupported managed publisher",
+                ResponseTemplate::new(200).set_body_json(cloud_deployment_body(
+                    deployment_id,
+                    Some("another-publisher"),
+                )),
+            ),
+        ];
+
+        for (case, response) in cases {
+            for transition in [LifecycleTransition::Start, LifecycleTransition::Stop] {
+                let action = transition.verb();
+                let proxy = MockServer::start().await;
+                Mock::given(method("GET"))
+                    .and(path(format!(
+                        "/publishers/seren-cloud/deployments/{deployment_id}"
+                    )))
+                    .respond_with(response.clone())
+                    .expect(1)
+                    .mount(&proxy)
+                    .await;
+
+                let context = CommandContext::new(
+                    Some(proxy.uri()),
+                    Some("test-key".to_string()),
+                    OutputFormat::Json,
+                );
+                let result = match transition {
+                    LifecycleTransition::Start => cloud_start(deployment_id, &context).await,
+                    LifecycleTransition::Stop => cloud_stop(deployment_id, &context).await,
+                };
+                result.expect_err(case);
+
+                let requests = proxy.received_requests().await.expect("recorded requests");
+                assert_eq!(
+                    requests.len(),
+                    1,
+                    "{case} must not issue a {action} mutation"
+                );
+                assert_eq!(requests[0].method.as_str(), "GET", "{case} {action}");
+            }
+        }
     }
 
     #[test]

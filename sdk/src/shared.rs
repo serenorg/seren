@@ -2,6 +2,102 @@ use thiserror::Error;
 
 pub const MANAGED_AGENT_SECRETS_REDIRECT_ORIGIN: &str = "https://passwords.serendb.com";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloudDeploymentLifecycleAction {
+    Start,
+    Stop,
+}
+
+#[derive(Debug, Error)]
+pub enum CloudDeploymentLifecycleError {
+    #[error("failed to resolve the cloud deployment before changing its lifecycle: {0}")]
+    Lookup(#[source] Box<crate::Error<()>>),
+    #[error(
+        "cannot select a lifecycle endpoint because deployment metadata identifies unsupported managed publisher '{publisher}'"
+    )]
+    UnsupportedManagedPublisher { publisher: String },
+    #[error(
+        "cannot select a lifecycle endpoint because the deployment has an active managed revision but no managed-agent metadata"
+    )]
+    AmbiguousDeploymentType,
+    #[error("cloud deployment lifecycle mutation failed: {0}")]
+    Mutation(#[source] Box<crate::Error<()>>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CloudDeploymentLifecycleRoute {
+    SerenAgent,
+    SerenCloud,
+}
+
+/// `managed_agent` is the authoritative control-plane discriminator: Seren Cloud
+/// derives it from the same managed-agent runtime configuration the server uses to
+/// reject managed deployments on the generic lifecycle route.
+///
+/// `active_revision_id` is only a drift guard. A deployment detail that carries a
+/// managed revision without managed-agent metadata cannot be classified, so it must
+/// not reach either mutation. It does not detect a managed deployment whose metadata
+/// the server withheld, because a withheld deployment detail carries neither field.
+fn cloud_deployment_lifecycle_route(
+    deployment: &crate::CloudDeploymentSummary,
+) -> Result<CloudDeploymentLifecycleRoute, CloudDeploymentLifecycleError> {
+    match deployment.managed_agent.as_ref() {
+        Some(managed_agent) if managed_agent.publisher == "seren-agent" => {
+            Ok(CloudDeploymentLifecycleRoute::SerenAgent)
+        }
+        Some(managed_agent) => Err(CloudDeploymentLifecycleError::UnsupportedManagedPublisher {
+            publisher: managed_agent.publisher.clone(),
+        }),
+        None if deployment.active_revision_id.is_some() => {
+            Err(CloudDeploymentLifecycleError::AmbiguousDeploymentType)
+        }
+        None => Ok(CloudDeploymentLifecycleRoute::SerenCloud),
+    }
+}
+
+impl crate::Client {
+    /// Start or stop a cloud deployment through the lifecycle endpoint that owns it.
+    ///
+    /// Resolves the deployment once through the read-only Seren Cloud detail
+    /// operation, then issues exactly one mutation to the route the deployment
+    /// metadata selects. Deployments that cannot be classified fail before any
+    /// mutation; the generic route is never used as a probe or a fallback.
+    pub async fn dispatch_cloud_deployment_lifecycle(
+        &self,
+        deployment_id: &uuid::Uuid,
+        action: CloudDeploymentLifecycleAction,
+    ) -> Result<
+        crate::ResponseValue<crate::DataResponseCloudDeploymentActionStatusResponse>,
+        CloudDeploymentLifecycleError,
+    > {
+        let deployment = self
+            .seren_cloud_get_deployment(deployment_id)
+            .await
+            .map_err(|error| CloudDeploymentLifecycleError::Lookup(Box::new(error)))?
+            .into_inner()
+            .data;
+        let route = cloud_deployment_lifecycle_route(&deployment)?;
+
+        match (route, action) {
+            (CloudDeploymentLifecycleRoute::SerenAgent, CloudDeploymentLifecycleAction::Start) => {
+                self.seren_agent_start_managed_deployment(deployment_id)
+                    .await
+            }
+            (CloudDeploymentLifecycleRoute::SerenAgent, CloudDeploymentLifecycleAction::Stop) => {
+                self.seren_agent_stop_managed_deployment(deployment_id)
+                    .await
+            }
+            (CloudDeploymentLifecycleRoute::SerenCloud, CloudDeploymentLifecycleAction::Start) => {
+                self.seren_cloud_start(deployment_id).await
+            }
+            (CloudDeploymentLifecycleRoute::SerenCloud, CloudDeploymentLifecycleAction::Stop) => {
+                self.seren_cloud_stop(deployment_id).await
+            }
+        }
+        .map_err(|error| CloudDeploymentLifecycleError::Mutation(Box::new(error)))
+    }
+}
+
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 #[error("{0}")]
 pub struct ValidationError(pub String);
@@ -1112,5 +1208,98 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    /// Mirrors the Seren Cloud deployment detail response, which omits
+    /// `managed_agent` and `active_revision_id` rather than sending nulls.
+    fn cloud_deployment_summary(
+        managed_publisher: Option<&str>,
+        active_revision_id: Option<uuid::Uuid>,
+    ) -> crate::CloudDeploymentSummary {
+        let mut data = serde_json::json!({
+            "id": uuid::Uuid::from_u128(0x9001),
+            "organization_id": uuid::Uuid::from_u128(1),
+            "user_id": uuid::Uuid::from_u128(2),
+            "name": "Lifecycle Route",
+            "skill_slug": "lifecycle-route",
+            "code_bundle_hash": "bundle-sha",
+            "compute_backend": "aws_container",
+            "control_generation": 15,
+            "created_at": "2026-08-28T12:00:00Z",
+            "desired_egress_state": "muted",
+            "desired_lifecycle_state": "stopped",
+            "mode": "always_on",
+            "orchestration_mode": "llm",
+            "requirements": {},
+            "runtime_kind": "python",
+            "status": "stopped",
+            "updated_at": "2026-08-28T12:00:00Z",
+            "visibility": "open"
+        });
+        let object = data.as_object_mut().expect("object body");
+        if let Some(publisher) = managed_publisher {
+            object.insert(
+                "managed_agent".to_string(),
+                serde_json::json!({
+                    "publisher": publisher,
+                    "template": "research_monitor",
+                    "target_framework": "codex",
+                    "runtime_adapter": "seren_agent",
+                    "build_target": "python",
+                    "tool_presets": [],
+                    "allowed_publisher_operations": [],
+                    "resolved_tools": [],
+                    "approval_policy": "read_only",
+                    "model_policy": "balanced",
+                    "routing_reason": "route selection fixture"
+                }),
+            );
+        }
+        if let Some(revision_id) = active_revision_id {
+            object.insert(
+                "active_revision_id".to_string(),
+                serde_json::json!(revision_id),
+            );
+        }
+        serde_json::from_value(data).expect("deployment summary fixture")
+    }
+
+    #[test]
+    fn managed_seren_agent_deployments_select_the_seren_agent_route() {
+        // Seren Cloud omits active_revision_id from the deployment detail, so the
+        // managed-agent publisher has to carry the classification on its own.
+        let deployment = cloud_deployment_summary(Some("seren-agent"), None);
+        assert_eq!(
+            cloud_deployment_lifecycle_route(&deployment).expect("managed route"),
+            CloudDeploymentLifecycleRoute::SerenAgent
+        );
+    }
+
+    #[test]
+    fn deployments_without_managed_metadata_select_the_seren_cloud_route() {
+        let deployment = cloud_deployment_summary(None, None);
+        assert_eq!(
+            cloud_deployment_lifecycle_route(&deployment).expect("generic route"),
+            CloudDeploymentLifecycleRoute::SerenCloud
+        );
+    }
+
+    #[test]
+    fn unknown_managed_publishers_have_no_lifecycle_route() {
+        let deployment = cloud_deployment_summary(Some("another-publisher"), None);
+        assert!(matches!(
+            cloud_deployment_lifecycle_route(&deployment),
+            Err(CloudDeploymentLifecycleError::UnsupportedManagedPublisher { publisher })
+                if publisher == "another-publisher"
+        ));
+    }
+
+    #[test]
+    fn managed_revisions_without_managed_metadata_have_no_lifecycle_route() {
+        let deployment = cloud_deployment_summary(None, Some(uuid::Uuid::from_u128(3)));
+        assert!(matches!(
+            cloud_deployment_lifecycle_route(&deployment),
+            Err(CloudDeploymentLifecycleError::AmbiguousDeploymentType)
+        ));
     }
 }

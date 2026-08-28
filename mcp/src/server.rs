@@ -5108,6 +5108,21 @@ pub(crate) async fn seren_error_to_mcp_error<T: std::fmt::Debug>(e: seren::Error
     }
 }
 
+async fn cloud_lifecycle_error_to_mcp_error(
+    error: seren::CloudDeploymentLifecycleError,
+) -> McpError {
+    match error {
+        seren::CloudDeploymentLifecycleError::Lookup(error)
+        | seren::CloudDeploymentLifecycleError::Mutation(error) => {
+            seren_error_to_mcp_error(*error).await
+        }
+        seren::CloudDeploymentLifecycleError::UnsupportedManagedPublisher { .. }
+        | seren::CloudDeploymentLifecycleError::AmbiguousDeploymentType => {
+            McpError::invalid_params(error.to_string(), None)
+        }
+    }
+}
+
 /// Preserves structured HTTP response details from generated SDK calls.
 trait SerenApiFutureExt<T, E>:
     std::future::Future<Output = Result<T, seren::Error<E>>> + Sized
@@ -15029,12 +15044,18 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CloudDeploymentIdParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
         let api_client = self.api_client(&extensions)?;
-        let response = api_client
-            .seren_cloud_start(&params.deployment_id)
-            .into_mcp_result()
-            .await?
-            .into_inner();
+        let response = match api_client
+            .dispatch_cloud_deployment_lifecycle(
+                &params.deployment_id,
+                seren::CloudDeploymentLifecycleAction::Start,
+            )
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(cloud_lifecycle_error_to_mcp_error(error).await),
+        };
         Ok(CallToolResult::success(vec![
             ContentBlock::text(format!(
                 "Deployment {} start acknowledged; observed status: {}.",
@@ -15053,12 +15074,18 @@ API endpoint: {endpoint}",
         Parameters(params): Parameters<CloudDeploymentIdParams>,
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
         let api_client = self.api_client(&extensions)?;
-        let response = api_client
-            .seren_cloud_stop(&params.deployment_id)
-            .into_mcp_result()
-            .await?
-            .into_inner();
+        let response = match api_client
+            .dispatch_cloud_deployment_lifecycle(
+                &params.deployment_id,
+                seren::CloudDeploymentLifecycleAction::Stop,
+            )
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(cloud_lifecycle_error_to_mcp_error(error).await),
+        };
         Ok(CallToolResult::success(vec![
             ContentBlock::text(format!(
                 "Deployment {} stop acknowledged; observed status: {}.",
@@ -17681,15 +17708,77 @@ mod tests {
     }
 
     fn lifecycle_action_body(status: &str) -> serde_json::Value {
+        let desired_lifecycle_state = if status == "stopping" {
+            "stopped"
+        } else {
+            "running"
+        };
         serde_json::json!({
             "data": {
                 "status": status,
-                "desired_lifecycle_state": "running",
+                "desired_lifecycle_state": desired_lifecycle_state,
                 "desired_egress_state": "muted",
                 "control_generation": 1,
                 "confirmation": "Runtime submission is pending recovery."
             }
         })
+    }
+
+    /// Mirrors the Seren Cloud deployment detail response, which reports the
+    /// managed-agent publisher and omits `active_revision_id` for every
+    /// deployment, including managed ones.
+    fn cloud_deployment_body(
+        deployment_id: Uuid,
+        managed_publisher: Option<&str>,
+        active_revision_without_managed_metadata: bool,
+    ) -> serde_json::Value {
+        let mut data = serde_json::json!({
+            "id": deployment_id,
+            "organization_id": Uuid::from_u128(1),
+            "user_id": Uuid::from_u128(2),
+            "name": "Lifecycle Test",
+            "skill_slug": "lifecycle-test",
+            "code_bundle_hash": "bundle-sha",
+            "compute_backend": "aws_container",
+            "control_generation": 7,
+            "created_at": "2026-08-28T12:00:00Z",
+            "desired_egress_state": "muted",
+            "desired_lifecycle_state": "stopped",
+            "mode": "always_on",
+            "orchestration_mode": "llm",
+            "requirements": [],
+            "runtime_kind": "python",
+            "status": "stopped",
+            "updated_at": "2026-08-28T12:00:00Z",
+            "visibility": "open"
+        });
+        let object = data.as_object_mut().expect("deployment object");
+        if let Some(publisher) = managed_publisher {
+            object.insert(
+                "managed_agent".to_string(),
+                serde_json::json!({
+                    "publisher": publisher,
+                    "template": "research_monitor",
+                    "target_framework": "codex",
+                    "runtime_adapter": "seren_agent",
+                    "build_target": "python",
+                    "tool_presets": [],
+                    "allowed_publisher_operations": [],
+                    "resolved_tools": [],
+                    "approval_policy": "read_only",
+                    "model_policy": "balanced",
+                    "routing_reason": "test fixture"
+                }),
+            );
+        }
+        if active_revision_without_managed_metadata {
+            object.insert(
+                "active_revision_id".to_string(),
+                serde_json::json!(Uuid::from_u128(0x2020_2fff)),
+            );
+        }
+
+        serde_json::json!({ "data": data })
     }
 
     fn result_contains(result: &CallToolResult, needle: &str) -> bool {
@@ -17745,34 +17834,251 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cloud_lifecycle_returns_observed_nonterminal_status() {
+    async fn cloud_lifecycle_dispatches_managed_start_and_stop_once() {
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
         let proxy = MockServer::start().await;
         let deployment_id = Uuid::from_u128(0x2020_2021);
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-cloud/deployments/{deployment_id}"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(cloud_deployment_body(
+                    deployment_id,
+                    Some("seren-agent"),
+                    false,
+                )),
+            )
+            .expect(2)
+            .mount(&proxy)
+            .await;
         Mock::given(method("POST"))
             .and(path(format!(
-                "/publishers/seren-cloud/deployments/{deployment_id}/start"
+                "/publishers/seren-agent/deployments/{deployment_id}/start"
             )))
             .respond_with(
                 ResponseTemplate::new(202).set_body_json(lifecycle_action_body("building")),
             )
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/stop"
+            )))
+            .respond_with(
+                ResponseTemplate::new(202).set_body_json(lifecycle_action_body("stopping")),
+            )
+            .expect(1)
             .mount(&proxy)
             .await;
 
         let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
-        let result = server
+        let started = server
             .start_cloud_agent(
                 Parameters(CloudDeploymentIdParams { deployment_id }),
                 Extensions::default(),
             )
             .await
             .expect("accepted cloud start should be a successful tool result");
+        let stopped = server
+            .stop_cloud_agent(
+                Parameters(CloudDeploymentIdParams { deployment_id }),
+                Extensions::default(),
+            )
+            .await
+            .expect("accepted cloud stop should be a successful tool result");
 
-        assert!(result_contains(&result, "start acknowledged"));
-        assert!(result_contains(&result, "building"));
-        assert!(!result_contains(&result, "started"));
+        assert!(result_contains(&started, "start acknowledged"));
+        assert!(result_contains(&started, "building"));
+        assert!(!result_contains(&started, "started"));
+        assert!(result_contains(&stopped, "stop acknowledged"));
+        assert!(result_contains(&stopped, "stopping"));
+
+        let requests = proxy.received_requests().await.expect("recorded requests");
+        assert_eq!(requests.len(), 4);
+        assert!(requests.iter().all(|request| {
+            !request.url.path().starts_with(&format!(
+                "/publishers/seren-cloud/deployments/{deployment_id}/"
+            ))
+        }));
+    }
+
+    #[tokio::test]
+    async fn cloud_lifecycle_dispatches_non_managed_start_and_stop_once() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let deployment_id = Uuid::from_u128(0x2020_2022);
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-cloud/deployments/{deployment_id}"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(cloud_deployment_body(
+                    deployment_id,
+                    None,
+                    false,
+                )),
+            )
+            .expect(2)
+            .mount(&proxy)
+            .await;
+        for (action, status) in [
+            (seren::CloudDeploymentLifecycleAction::Start, "building"),
+            (seren::CloudDeploymentLifecycleAction::Stop, "stopping"),
+        ] {
+            let action_path = match action {
+                seren::CloudDeploymentLifecycleAction::Start => "start",
+                seren::CloudDeploymentLifecycleAction::Stop => "stop",
+            };
+            Mock::given(method("POST"))
+                .and(path(format!(
+                    "/publishers/seren-cloud/deployments/{deployment_id}/{action_path}"
+                )))
+                .respond_with(
+                    ResponseTemplate::new(202).set_body_json(lifecycle_action_body(status)),
+                )
+                .expect(1)
+                .mount(&proxy)
+                .await;
+        }
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        server
+            .start_cloud_agent(
+                Parameters(CloudDeploymentIdParams { deployment_id }),
+                Extensions::default(),
+            )
+            .await
+            .expect("generic start should succeed");
+        server
+            .stop_cloud_agent(
+                Parameters(CloudDeploymentIdParams { deployment_id }),
+                Extensions::default(),
+            )
+            .await
+            .expect("generic stop should succeed");
+
+        let requests = proxy.received_requests().await.expect("recorded requests");
+        assert_eq!(requests.len(), 4);
+        assert!(requests.iter().all(|request| {
+            !request.url.path().starts_with(&format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/"
+            ))
+        }));
+    }
+
+    #[tokio::test]
+    async fn cloud_lifecycle_lookup_and_type_errors_make_no_mutation() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let deployment_id = Uuid::from_u128(0x2020_2023);
+        let cases = [
+            ("not found", ResponseTemplate::new(404)),
+            ("authorization denied", ResponseTemplate::new(403)),
+            (
+                "malformed detail",
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "data": { "id": deployment_id } })),
+            ),
+            (
+                "unsupported managed publisher",
+                ResponseTemplate::new(200).set_body_json(cloud_deployment_body(
+                    deployment_id,
+                    Some("another-publisher"),
+                    false,
+                )),
+            ),
+            (
+                "ambiguous managed metadata",
+                ResponseTemplate::new(200).set_body_json(cloud_deployment_body(
+                    deployment_id,
+                    None,
+                    true,
+                )),
+            ),
+        ];
+
+        for (case, response) in cases {
+            for action in [
+                seren::CloudDeploymentLifecycleAction::Start,
+                seren::CloudDeploymentLifecycleAction::Stop,
+            ] {
+                let action_name = match action {
+                    seren::CloudDeploymentLifecycleAction::Start => "start",
+                    seren::CloudDeploymentLifecycleAction::Stop => "stop",
+                };
+                let proxy = MockServer::start().await;
+                Mock::given(method("GET"))
+                    .and(path(format!(
+                        "/publishers/seren-cloud/deployments/{deployment_id}"
+                    )))
+                    .respond_with(response.clone())
+                    .expect(1)
+                    .mount(&proxy)
+                    .await;
+
+                let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+                let params = Parameters(CloudDeploymentIdParams { deployment_id });
+                let result = match action {
+                    seren::CloudDeploymentLifecycleAction::Start => {
+                        server
+                            .start_cloud_agent(params, Extensions::default())
+                            .await
+                    }
+                    seren::CloudDeploymentLifecycleAction::Stop => {
+                        server.stop_cloud_agent(params, Extensions::default()).await
+                    }
+                };
+                result.expect_err(case);
+
+                let requests = proxy.received_requests().await.expect("recorded requests");
+                assert_eq!(
+                    requests.len(),
+                    1,
+                    "{case} must not issue a {action_name} mutation"
+                );
+                assert_eq!(requests[0].method.as_str(), "GET", "{case} {action_name}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn read_only_mode_blocks_generic_cloud_lifecycle_mutations() {
+        use wiremock::MockServer;
+
+        let proxy = MockServer::start().await;
+        let deployment_id = Uuid::from_u128(0x2020_2024);
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let extensions = extensions_with_headers(&[("x-read-only", "true")]);
+
+        server
+            .start_cloud_agent(
+                Parameters(CloudDeploymentIdParams { deployment_id }),
+                extensions.clone(),
+            )
+            .await
+            .expect_err("read-only mode must reject the generic start tool");
+        server
+            .stop_cloud_agent(
+                Parameters(CloudDeploymentIdParams { deployment_id }),
+                extensions,
+            )
+            .await
+            .expect_err("read-only mode must reject the generic stop tool");
+
+        assert!(
+            proxy
+                .received_requests()
+                .await
+                .expect("recorded requests")
+                .is_empty()
+        );
     }
 
     #[tokio::test]
