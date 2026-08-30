@@ -318,7 +318,7 @@
         },
         "responses": {
           "200": {
-            "description": "Credential secret stored; the value is encrypted and never echoed back",
+            "description": "Credential secret stored; the value is never returned",
             "content": {
               "application/json": {
                 "schema": {
@@ -532,7 +532,7 @@
         "tags": [
           "seren-cloud"
         ],
-        "summary": "Complete a direct-to-S3 upload for a registered deployment bundle.",
+        "summary": "Complete an upload for a registered deployment bundle.",
         "operationId": "seren_cloud_complete_deployment_bundle_upload",
         "parameters": [
           {
@@ -1403,6 +1403,240 @@
         ]
       }
     },
+    "/deployments/{id}/credentials/proposals": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_get_publisher_credential_proposal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current publisher credential proposal progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedPublisherCredentialProposal"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Publisher credential proposal is still progressing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedPublisherCredentialProposal"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Publisher credential proposal not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_create_publisher_credential_proposal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublisherCredentialProposalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Revision-bound publisher credential proposal awaiting review",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedPublisherCredentialProposal"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another proposal is active or the deployment changed"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/credentials/proposals/preview": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_preview_publisher_credential_proposal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublisherCredentialProposalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Publisher credential proposal preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_PublisherCredentialProposalPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid publisher credential proposal"
+          },
+          "409": {
+            "description": "Active revision or credential authority changed"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/credentials/proposals/{proposal_id}/apply": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_apply_publisher_credential_proposal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "description": "Publisher credential proposal ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Stable proposal apply identity",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyPublisherCredentialProposalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Applied publisher credential proposal progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedPublisherCredentialProposal"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Publisher credential proposal apply accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedPublisherCredentialProposal"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid idempotency identity or request"
+          },
+          "409": {
+            "description": "Approval, revision, or proposal no longer matches"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/deployments/{id}/deployment-bundle-download": {
       "get": {
         "tags": [
@@ -1488,6 +1722,240 @@
           },
           "404": {
             "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/model-credential/proposals": {
+      "get": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_get_model_credential_proposal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current model credential proposal progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedModelCredentialProposal"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Model credential proposal is still progressing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedModelCredentialProposal"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Model credential proposal not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_create_model_credential_proposal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelCredentialProposalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Revision-bound model credential proposal awaiting review",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedModelCredentialProposal"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another proposal is active or the deployment changed"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/model-credential/proposals/preview": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_preview_model_credential_proposal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelCredentialProposalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Immutable model credential proposal preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ModelCredentialProposalPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid model credential proposal"
+          },
+          "409": {
+            "description": "Active revision or model connection changed"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/deployments/{id}/model-credential/proposals/{proposal_id}/apply": {
+      "post": {
+        "tags": [
+          "seren-cloud"
+        ],
+        "operationId": "seren_cloud_apply_model_credential_proposal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Deployment ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "description": "Model credential proposal ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Stable proposal apply identity",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyModelCredentialProposalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Applied model credential proposal progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedModelCredentialProposal"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Model credential proposal apply accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedModelCredentialProposal"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid idempotency identity or request"
+          },
+          "409": {
+            "description": "Approval, revision, or proposal no longer matches"
           }
         },
         "security": [
@@ -4016,8 +4484,7 @@
         "tags": [
           "seren-cloud"
         ],
-        "summary": "List every awaiting approval the operator owns across all approval kinds.",
-        "description": "Returns `ToolCall` entries (derived from `awaiting_approval` runs) and\n`BlockedEgress` entries (from `blocked_egress_inbox_entries`) merged into\na single timeline ordered by `created_at DESC`. Pagination is cursor-only:\nthe response includes `next_cursor` when more entries are available, and\nthe caller passes it back in `?cursor=`.",
+        "summary": "List pending approval entries in reverse chronological order.",
         "operationId": "seren_cloud_approval_inbox_list",
         "parameters": [
           {
@@ -4070,8 +4537,8 @@
         "tags": [
           "seren-cloud"
         ],
-        "summary": "Record an operator approve/deny decision for a single inbox entry.",
-        "description": "Tool-call entries record an audit row and rely on the existing run-resume\nflow to emit the `approval_decision` event. Blocked-egress entries flip\nthe row's `decision_state` so the runtime wait long-poll releases or\ndrops the corresponding request on its next tick. Re-deciding an\nalready-terminal blocked-egress row returns the current state instead of\n409 so the agent runtime's at-least-once retries are idempotent.",
+        "summary": "Record an operator decision for one approval entry.",
+        "description": "Repeating a completed blocked-egress decision returns its current state.",
         "operationId": "seren_cloud_approval_inbox_decide",
         "parameters": [
           {
@@ -5069,6 +5536,27 @@
         },
         "additionalProperties": false
       },
+      "AgentCredentialBinding": {
+        "type": "string",
+        "enum": [
+          "env",
+          "reference_env",
+          "header",
+          "body",
+          "proxy_inject"
+        ]
+      },
+      "AgentCredentialKind": {
+        "type": "string",
+        "enum": [
+          "api_key",
+          "oauth2_token",
+          "basic",
+          "mtls",
+          "aws_sig_v4",
+          "gcp_service_account"
+        ]
+      },
       "AgentCredentialSecret": {
         "type": "object",
         "required": [
@@ -5219,6 +5707,46 @@
         "properties": {
           "secret_resolution_result_id": {
             "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApplyModelCredentialProposalRequest": {
+        "type": "object",
+        "properties": {
+          "effective_mapping": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedModelCredentialEffectiveMapping"
+            },
+            "description": "Exact effective mapping returned by the proposal-bound Passwords approval."
+          },
+          "secret_resolution_result_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Approved narrowed mapping. Omit only when removing the final Seren Secrets reference."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApplyPublisherCredentialProposalRequest": {
+        "type": "object",
+        "properties": {
+          "effective_mapping": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedPublisherCredentialEffectiveMapping"
+            }
+          },
+          "secret_resolution_result_id": {
+            "type": [
+              "string",
+              "null"
+            ],
             "format": "uuid"
           }
         },
@@ -6297,20 +6825,28 @@
       "CloudDeploymentAlertPolicy": {
         "type": "object",
         "description": "Deployment-level operator alert policy.",
-        "required": [
-          "webhook_secret_key"
-        ],
         "properties": {
           "events": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/CloudDeploymentAlertEvent"
             },
-            "description": "Run events that should trigger the webhook."
+            "description": "Run events that trigger the webhook."
+          },
+          "managed_health_channel": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedHealthAlertChannel",
+                "description": "Infrastructure-health notification target."
+              }
+            ]
           },
           "webhook_secret_key": {
             "type": "string",
-            "description": "Secret key whose value is the destination webhook URL."
+            "description": "Run-status webhook URL secret key."
           }
         }
       },
@@ -8434,6 +8970,7 @@
           "task",
           "guardrail",
           "approval",
+          "delivery",
           "unknown"
         ]
       },
@@ -8452,6 +8989,7 @@
           "model_provider_rejected",
           "approval_required",
           "guardrail_blocked",
+          "delivery_contract",
           "runtime_error",
           "timeout",
           "unknown"
@@ -8692,6 +9230,16 @@
               },
               "is_error": {
                 "type": "boolean"
+              },
+              "recovery": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ToolRecoveryMetadata"
+                  }
+                ]
               },
               "retryable": {
                 "type": "boolean"
@@ -12712,6 +13260,223 @@
           }
         }
       },
+      "DataResponse_ManagedModelCredentialProposal": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "deployment_id",
+              "expected_active_revision_id",
+              "operation",
+              "model_id",
+              "proposal_fingerprint",
+              "requirements_fingerprint",
+              "state",
+              "requested_environment_names",
+              "requires_secret_resolution_result"
+            ],
+            "properties": {
+              "applied_revision_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "approval_request_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "auth_method": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedModelCredentialAuthMethod"
+                  }
+                ]
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "expected_active_revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "model_id": {
+                "type": "string"
+              },
+              "operation": {
+                "$ref": "#/components/schemas/ManagedModelCredentialProposalOperation"
+              },
+              "proposal_fingerprint": {
+                "type": "string"
+              },
+              "requested_environment_names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "requirements_fingerprint": {
+                "type": "string"
+              },
+              "requires_secret_resolution_result": {
+                "type": "boolean"
+              },
+              "result_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "runtime_action": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedRuntimeReconciliationSummary"
+                  }
+                ]
+              },
+              "state": {
+                "$ref": "#/components/schemas/ManagedModelCredentialProposalState"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ManagedPublisherCredentialProposal": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "deployment_id",
+              "expected_active_revision_id",
+              "proposal_fingerprint",
+              "requirements_fingerprint",
+              "requested_environment_names",
+              "requires_secret_resolution_result",
+              "changes",
+              "state"
+            ],
+            "properties": {
+              "applied_revision_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "approval_request_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "changes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedPublisherCredentialChange"
+                }
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "expected_active_revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "proposal_fingerprint": {
+                "type": "string"
+              },
+              "requested_environment_names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "requirements_fingerprint": {
+                "type": "string"
+              },
+              "requires_secret_resolution_result": {
+                "type": "boolean"
+              },
+              "result_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "runtime_action": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedRuntimeReconciliationSummary"
+                  }
+                ]
+              },
+              "state": {
+                "$ref": "#/components/schemas/ManagedPublisherCredentialProposalState"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedStorageAttachment": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -12807,6 +13572,139 @@
                     "$ref": "#/components/schemas/ManagedRuntimeReconciliationSummary"
                   }
                 ]
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_ModelCredentialProposalPreview": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "deployment_id",
+              "expected_active_revision_id",
+              "operation",
+              "model_id",
+              "proposal_fingerprint",
+              "requirements_fingerprint",
+              "requested_environment_names",
+              "requires_secret_resolution_result"
+            ],
+            "properties": {
+              "auth_method": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ManagedModelCredentialAuthMethod"
+                  }
+                ]
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "expected_active_revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "model_id": {
+                "type": "string"
+              },
+              "operation": {
+                "$ref": "#/components/schemas/ManagedModelCredentialProposalOperation"
+              },
+              "proposal_fingerprint": {
+                "type": "string"
+              },
+              "requested_environment_names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "requirements_fingerprint": {
+                "type": "string"
+              },
+              "requires_secret_resolution_result": {
+                "type": "boolean"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
+      "DataResponse_PublisherCredentialProposalPreview": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "deployment_id",
+              "expected_active_revision_id",
+              "proposal_fingerprint",
+              "requested_environment_names",
+              "requires_secret_resolution_result",
+              "changes"
+            ],
+            "properties": {
+              "changes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedPublisherCredentialChange"
+                }
+              },
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "expected_active_revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "proposal_fingerprint": {
+                "type": "string"
+              },
+              "requested_environment_names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "requires_secret_resolution_result": {
+                "type": "boolean"
               }
             }
           },
@@ -15402,6 +16300,347 @@
         },
         "additionalProperties": false
       },
+      "ManagedHealthAlertChannel": {
+        "type": "object",
+        "description": "Platform-authored infrastructure-health destination.",
+        "required": [
+          "platform",
+          "webhook_secret_key"
+        ],
+        "properties": {
+          "platform": {
+            "$ref": "#/components/schemas/ManagedHealthAlertPlatform",
+            "description": "Incoming-webhook platform."
+          },
+          "webhook_secret_key": {
+            "type": "string",
+            "description": "Incoming-webhook URL secret key."
+          }
+        }
+      },
+      "ManagedHealthAlertPlatform": {
+        "type": "string",
+        "description": "Supported health notification platforms.",
+        "enum": [
+          "discord",
+          "slack"
+        ]
+      },
+      "ManagedModelCredentialAuthMethod": {
+        "type": "string",
+        "description": "Reviewed Codex authentication interpretation. Changing it requires a new proposal even when the secret reference is unchanged.",
+        "enum": [
+          "api_key",
+          "chatgpt_subscription"
+        ]
+      },
+      "ManagedModelCredentialEffectiveMapping": {
+        "type": "object",
+        "required": [
+          "environment_name",
+          "ref_uri",
+          "vault_id",
+          "item_id",
+          "field"
+        ],
+        "properties": {
+          "environment_name": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          },
+          "field_group": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "item_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ref_uri": {
+            "type": "string"
+          },
+          "vault_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedModelCredentialProposal": {
+        "type": "object",
+        "required": [
+          "id",
+          "deployment_id",
+          "expected_active_revision_id",
+          "operation",
+          "model_id",
+          "proposal_fingerprint",
+          "requirements_fingerprint",
+          "state",
+          "requested_environment_names",
+          "requires_secret_resolution_result"
+        ],
+        "properties": {
+          "applied_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "approval_request_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "auth_method": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedModelCredentialAuthMethod"
+              }
+            ]
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_active_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/ManagedModelCredentialProposalOperation"
+          },
+          "proposal_fingerprint": {
+            "type": "string"
+          },
+          "requested_environment_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requirements_fingerprint": {
+            "type": "string"
+          },
+          "requires_secret_resolution_result": {
+            "type": "boolean"
+          },
+          "result_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "runtime_action": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedRuntimeReconciliationSummary"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/ManagedModelCredentialProposalState"
+          }
+        }
+      },
+      "ManagedModelCredentialProposalOperation": {
+        "type": "string",
+        "enum": [
+          "configure",
+          "remove"
+        ]
+      },
+      "ManagedModelCredentialProposalState": {
+        "type": "string",
+        "enum": [
+          "awaiting_review",
+          "applied",
+          "superseded"
+        ]
+      },
+      "ManagedPublisherCredentialChange": {
+        "type": "object",
+        "required": [
+          "operation",
+          "name",
+          "publisher_slug",
+          "kind",
+          "binding",
+          "binding_target"
+        ],
+        "properties": {
+          "binding": {
+            "$ref": "#/components/schemas/AgentCredentialBinding"
+          },
+          "binding_target": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AgentCredentialKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/ManagedPublisherCredentialProposalOperation"
+          },
+          "publisher_slug": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedPublisherCredentialEffectiveMapping": {
+        "type": "object",
+        "required": [
+          "environment_name",
+          "ref_uri",
+          "vault_id",
+          "item_id",
+          "field"
+        ],
+        "properties": {
+          "environment_name": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          },
+          "item_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ref_uri": {
+            "type": "string"
+          },
+          "vault_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedPublisherCredentialProposal": {
+        "type": "object",
+        "required": [
+          "id",
+          "deployment_id",
+          "expected_active_revision_id",
+          "proposal_fingerprint",
+          "requirements_fingerprint",
+          "requested_environment_names",
+          "requires_secret_resolution_result",
+          "changes",
+          "state"
+        ],
+        "properties": {
+          "applied_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "approval_request_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedPublisherCredentialChange"
+            }
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_active_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "proposal_fingerprint": {
+            "type": "string"
+          },
+          "requested_environment_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requirements_fingerprint": {
+            "type": "string"
+          },
+          "requires_secret_resolution_result": {
+            "type": "boolean"
+          },
+          "result_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "runtime_action": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedRuntimeReconciliationSummary"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/ManagedPublisherCredentialProposalState"
+          }
+        }
+      },
+      "ManagedPublisherCredentialProposalOperation": {
+        "type": "string",
+        "enum": [
+          "add",
+          "rotate",
+          "rebind",
+          "remove"
+        ]
+      },
+      "ManagedPublisherCredentialProposalState": {
+        "type": "string",
+        "enum": [
+          "awaiting_review",
+          "applied",
+          "superseded"
+        ]
+      },
       "ManagedRuntimeReconciliationFailure": {
         "type": "string",
         "description": "Stable redacted reason for the latest managed runtime reconciliation failure.",
@@ -15634,6 +16873,110 @@
         },
         "additionalProperties": false
       },
+      "ModelCredentialProposalPreview": {
+        "type": "object",
+        "required": [
+          "deployment_id",
+          "expected_active_revision_id",
+          "operation",
+          "model_id",
+          "proposal_fingerprint",
+          "requirements_fingerprint",
+          "requested_environment_names",
+          "requires_secret_resolution_result"
+        ],
+        "properties": {
+          "auth_method": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedModelCredentialAuthMethod"
+              }
+            ]
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_active_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/ManagedModelCredentialProposalOperation"
+          },
+          "proposal_fingerprint": {
+            "type": "string"
+          },
+          "requested_environment_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requirements_fingerprint": {
+            "type": "string"
+          },
+          "requires_secret_resolution_result": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ModelCredentialProposalRequest": {
+        "type": "object",
+        "required": [
+          "expected_active_revision_id",
+          "operation"
+        ],
+        "properties": {
+          "auth_method": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedModelCredentialAuthMethod",
+                "description": "Reviewed Codex authentication method. Required for `configure`."
+              }
+            ]
+          },
+          "expected_active_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "model_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Desired model identifier for the resulting connection."
+          },
+          "operation": {
+            "$ref": "#/components/schemas/ManagedModelCredentialProposalOperation"
+          },
+          "replace_proposal_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Replace a specific active proposal instead of the current one."
+          },
+          "secret_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional compatibility pin for a preselected `seren-secrets://` reference. Never plaintext."
+          }
+        },
+        "additionalProperties": false
+      },
       "OrchestrationMode": {
         "type": "string",
         "description": "Cloud deployment orchestration mode.\n\n`Script` (default): container runs user code directly (existing behavior).\n`Llm`: container runs the seren-orchestrator LLM tool-calling loop.",
@@ -15731,6 +17074,77 @@
           }
         }
       },
+      "PublisherCredentialProposalPreview": {
+        "type": "object",
+        "required": [
+          "deployment_id",
+          "expected_active_revision_id",
+          "proposal_fingerprint",
+          "requested_environment_names",
+          "requires_secret_resolution_result",
+          "changes"
+        ],
+        "properties": {
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedPublisherCredentialChange"
+            }
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_active_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "proposal_fingerprint": {
+            "type": "string"
+          },
+          "requested_environment_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requires_secret_resolution_result": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PublisherCredentialProposalRequest": {
+        "type": "object",
+        "required": [
+          "expected_active_revision_id",
+          "idempotency_key",
+          "changes"
+        ],
+        "properties": {
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedPublisherCredentialChange"
+            }
+          },
+          "expected_active_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "replace_proposal_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
       "RequirementSource": {
         "type": "string",
         "description": "Where a deployment requirement should be satisfied from.",
@@ -15787,6 +17201,14 @@
           }
         }
       },
+      "SlackActivationPolicy": {
+        "type": "string",
+        "description": "Evidence a Slack event must carry before it may wake the deployment.",
+        "enum": [
+          "mention_or_reply",
+          "all_messages"
+        ]
+      },
       "SlackChannelPolicy": {
         "type": "object",
         "description": "Deployment-scoped Slack conversation authorization.",
@@ -15795,12 +17217,23 @@
           "ingress_mode"
         ],
         "properties": {
+          "activation": {
+            "$ref": "#/components/schemas/SlackActivationPolicy",
+            "description": "Evidence required before a channel event may wake the deployment."
+          },
           "allowed_conversation_ids": {
             "type": "array",
             "items": {
               "type": "string"
             },
             "description": "Conversation ids allowed in `allowlist` mode."
+          },
+          "allowed_dm_sender_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Sender ids authorized when `dm_policy` is `allowlist`."
           },
           "allowed_team_ids": {
             "type": "array",
@@ -15816,6 +17249,10 @@
             ],
             "description": "Optional preferred conversation. It must be inside the allowlist when\nthe target set is bounded."
           },
+          "dm_policy": {
+            "$ref": "#/components/schemas/ChannelDmPolicy",
+            "description": "Direct-message authorization for the Slack bot account."
+          },
           "ingress_mode": {
             "$ref": "#/components/schemas/SlackIngressMode",
             "description": "Explicit inbound transport."
@@ -15823,6 +17260,20 @@
           "mode": {
             "$ref": "#/components/schemas/SlackChannelTargetMode",
             "description": "Whether the connector is limited to a declared conversation set."
+          },
+          "operator_actor_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Additional Slack accounts allowed to issue operator lifecycle commands."
+          },
+          "owner_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Slack account allowed to issue operator lifecycle commands."
           }
         },
         "additionalProperties": false
@@ -16090,6 +17541,57 @@
             "minimum": 0
           }
         }
+      },
+      "ToolRecoveryErrorClass": {
+        "type": "string",
+        "enum": [
+          "invalid_input",
+          "permission_denied",
+          "rate_limited",
+          "timeout",
+          "provider",
+          "unknown"
+        ]
+      },
+      "ToolRecoveryMetadata": {
+        "type": "object",
+        "description": "Recovery telemetry accepts additive fields while keeping state and class closed.",
+        "required": [
+          "attempt",
+          "max_attempts",
+          "state",
+          "error_class",
+          "error_hash"
+        ],
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "error_class": {
+            "$ref": "#/components/schemas/ToolRecoveryErrorClass"
+          },
+          "error_hash": {
+            "type": "string"
+          },
+          "max_attempts": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "state": {
+            "$ref": "#/components/schemas/ToolRecoveryState"
+          }
+        }
+      },
+      "ToolRecoveryState": {
+        "type": "string",
+        "enum": [
+          "retrying",
+          "exhausted",
+          "recovered"
+        ]
       },
       "UpdateCloudDeploymentEnvironmentRequest": {
         "type": "object",

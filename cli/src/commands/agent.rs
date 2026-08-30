@@ -4620,9 +4620,20 @@ fn managed_agent_secrets_status_json(
     })
 }
 
-pub async fn managed_agent_secrets_setup(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
+pub async fn managed_agent_secrets_setup(
+    deployment_id: Uuid,
+    connector_binding_proposal_id: Option<Uuid>,
+    model_credential_proposal_id: Option<Uuid>,
+    publisher_credential_proposal_id: Option<Uuid>,
+    ctx: &CommandContext,
+) -> Result<()> {
     ctx.require_user_session("Managed agent Seren Passwords setup")
         .await?;
+    seren::ensure_single_managed_secrets_proposal_selector(
+        connector_binding_proposal_id,
+        model_credential_proposal_id,
+        publisher_credential_proposal_id,
+    )?;
     let client = ctx.client().await?;
     let deployment = managed_agent_deployment_summary(&client, deployment_id).await?;
     if deployment.managed_agent.is_none() {
@@ -4632,7 +4643,9 @@ pub async fn managed_agent_secrets_setup(deployment_id: Uuid, ctx: &CommandConte
         .managed_agent_secrets_setup_initiate(
             &deployment.organization_id,
             &seren::InitiateManagedAgentSecretsSetupRequest {
-                connector_binding_proposal_id: None,
+                connector_binding_proposal_id,
+                model_credential_proposal_id,
+                publisher_credential_proposal_id,
                 deployment_id,
                 redirect_origin: seren::MANAGED_AGENT_SECRETS_REDIRECT_ORIGIN.to_string(),
             },
@@ -4756,6 +4769,309 @@ pub async fn managed_agent_secrets_apply(setup_id: Uuid, ctx: &CommandContext) -
         "active_revision_id": after.active_revision_id,
         "already_applied": false,
     }))?;
+    Ok(())
+}
+
+fn parse_publisher_credential_changes(
+    changes_json: &str,
+) -> Result<Vec<seren::ManagedPublisherCredentialChange>> {
+    let changes: Vec<seren::ManagedPublisherCredentialChange> = serde_json::from_str(changes_json)
+        .map_err(|error| anyhow::anyhow!("Invalid --changes JSON: {error}"))?;
+    if changes.is_empty() {
+        anyhow::bail!("--changes must contain at least one credential change");
+    }
+    Ok(changes)
+}
+
+async fn build_publisher_credential_proposal_request(
+    client: &seren::Client,
+    deployment_id: Uuid,
+    changes: Vec<seren::ManagedPublisherCredentialChange>,
+    replace_proposal_id: Option<Uuid>,
+    idempotency_key: Uuid,
+) -> Result<seren::PublisherCredentialProposalRequest> {
+    let detail = client
+        .seren_agent_get_managed_deployment(&deployment_id)
+        .await
+        .map_err(|error| anyhow::anyhow!("Failed to load managed agent detail: {error}"))?
+        .into_inner()
+        .data;
+    let expected_active_revision_id = detail.active_revision_id.ok_or_else(|| {
+        anyhow::anyhow!("The managed agent deployment has no active revision to base a proposal on")
+    })?;
+    Ok(seren::PublisherCredentialProposalRequest {
+        changes,
+        expected_active_revision_id,
+        idempotency_key,
+        replace_proposal_id,
+    })
+}
+
+/// Preview a publisher-credential proposal from non-secret change intent.
+pub async fn managed_publisher_credential_proposal_preview(
+    deployment_id: Uuid,
+    changes_json: String,
+    ctx: &CommandContext,
+) -> Result<()> {
+    ctx.require_user_session("Managed agent publisher credential proposal preview")
+        .await?;
+    let changes = parse_publisher_credential_changes(&changes_json)?;
+    let client = ctx.client().await?;
+    let request = build_publisher_credential_proposal_request(
+        &client,
+        deployment_id,
+        changes,
+        None,
+        Uuid::new_v4(),
+    )
+    .await?;
+    let preview = match client
+        .seren_cloud_preview_publisher_credential_proposal(&deployment_id, &request)
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to preview publisher credential proposal",
+                error,
+            )
+            .await);
+        }
+    };
+    output::print_json(&serde_json::json!({
+        "deployment_id": preview.deployment_id,
+        "expected_active_revision_id": preview.expected_active_revision_id,
+        "proposal_fingerprint": preview.proposal_fingerprint,
+        "requested_environment_names": preview.requested_environment_names,
+        "requires_secret_resolution_result": preview.requires_secret_resolution_result,
+        "changes": preview.changes,
+    }))?;
+    Ok(())
+}
+
+/// Create a revision-bound publisher-credential proposal awaiting review.
+pub async fn managed_publisher_credential_proposal_create(
+    deployment_id: Uuid,
+    changes_json: String,
+    replace_proposal_id: Option<Uuid>,
+    idempotency_key: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    ctx.require_user_session("Managed agent publisher credential proposal create")
+        .await?;
+    let changes = parse_publisher_credential_changes(&changes_json)?;
+    let client = ctx.client().await?;
+    let request = build_publisher_credential_proposal_request(
+        &client,
+        deployment_id,
+        changes,
+        replace_proposal_id,
+        idempotency_key,
+    )
+    .await?;
+    let proposal = match client
+        .seren_cloud_create_publisher_credential_proposal(&deployment_id, &request)
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to create publisher credential proposal",
+                error,
+            )
+            .await);
+        }
+    };
+    let next_step = if proposal.requires_secret_resolution_result {
+        format!(
+            "Run `seren agent managed-passwords-setup {deployment_id} --publisher-credential-proposal-id {proposal_id}`, approve the exact field mapping, then `seren agent managed-publisher-credential-proposal-apply {deployment_id} --proposal-id {proposal_id} --setup-id <setup-id>`.",
+            proposal_id = proposal.id
+        )
+    } else {
+        format!(
+            "Run `seren agent managed-publisher-credential-proposal-apply {deployment_id} --proposal-id {}` to apply this proposal.",
+            proposal.id
+        )
+    };
+    output::print_json(&serde_json::json!({
+        "status": proposal.state,
+        "proposal_id": proposal.id,
+        "deployment_id": proposal.deployment_id,
+        "expected_active_revision_id": proposal.expected_active_revision_id,
+        "requested_environment_names": proposal.requested_environment_names,
+        "requires_secret_resolution_result": proposal.requires_secret_resolution_result,
+        "next_step": next_step,
+    }))?;
+    Ok(())
+}
+
+/// Get the current publisher-credential proposal for a managed deployment.
+pub async fn managed_publisher_credential_proposal_get(
+    deployment_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    ctx.require_user_session("Managed agent publisher credential proposal status")
+        .await?;
+    let client = ctx.client().await?;
+    let proposal = match client
+        .seren_cloud_get_publisher_credential_proposal(&deployment_id)
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(seren::Error::UnexpectedResponse(response)) if response.status() == 404 => {
+            output::print_json(&serde_json::json!({
+                "status": "none",
+                "deployment_id": deployment_id,
+            }))?;
+            return Ok(());
+        }
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to load publisher credential proposal",
+                error,
+            )
+            .await);
+        }
+    };
+    output::print_json(&serde_json::json!({
+        "status": proposal.state,
+        "proposal_id": proposal.id,
+        "deployment_id": proposal.deployment_id,
+        "expected_active_revision_id": proposal.expected_active_revision_id,
+        "requested_environment_names": proposal.requested_environment_names,
+        "requires_secret_resolution_result": proposal.requires_secret_resolution_result,
+        "result_id": proposal.result_id,
+        "applied_revision_id": proposal.applied_revision_id,
+        "changes": proposal.changes,
+    }))?;
+    Ok(())
+}
+
+/// Summarize the runtime rollout Core started for an applied proposal.
+fn publisher_credential_runtime_action_json(
+    action: Option<&seren::ManagedRuntimeReconciliationSummary>,
+) -> serde_json::Value {
+    action
+        .map(|action| {
+            serde_json::json!({
+                "request_id": action.request_id,
+                "state": action.state,
+                "status_path": action.status_path,
+            })
+        })
+        .unwrap_or(serde_json::Value::Null)
+}
+
+/// Apply an approved publisher-credential proposal through the Core
+/// proposal-bound apply route using the reviewed Seren Passwords mapping.
+pub async fn managed_publisher_credential_proposal_apply(
+    deployment_id: Uuid,
+    proposal_id: Uuid,
+    setup_id: Option<Uuid>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    ctx.require_user_session("Managed agent publisher credential proposal apply")
+        .await?;
+    let client = ctx.client().await?;
+    let deployment = managed_agent_deployment_summary(&client, deployment_id).await?;
+    let detail = client
+        .seren_agent_get_managed_deployment(&deployment_id)
+        .await
+        .map_err(|error| anyhow::anyhow!("Failed to load managed agent detail: {error}"))?
+        .into_inner()
+        .data;
+    let proposal = match client
+        .seren_cloud_get_publisher_credential_proposal(&deployment_id)
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to load publisher credential proposal",
+                error,
+            )
+            .await);
+        }
+    };
+    let request = match setup_id {
+        Some(setup_id) => Some(managed_agent_secrets_policy_request(&client, setup_id).await?),
+        None => None,
+    };
+    match seren::publisher_credential_proposal_apply(
+        deployment.organization_id,
+        &detail,
+        request.as_ref(),
+        &proposal,
+        proposal_id,
+    )? {
+        seren::PublisherCredentialProposalApply::AlreadyApplied {
+            applied_revision_id,
+            result_id,
+        } => {
+            output::print_json(&serde_json::json!({
+                "status": "applied",
+                "setup_id": setup_id,
+                "deployment_id": deployment_id,
+                "proposal_id": proposal.id,
+                "result_id": result_id,
+                "active_revision_id": applied_revision_id,
+                "runtime_action": publisher_credential_runtime_action_json(
+                    proposal.runtime_action.as_ref()
+                ),
+                "already_applied": true,
+            }))?;
+        }
+        seren::PublisherCredentialProposalApply::Apply {
+            proposal_id,
+            idempotency_key,
+            request: apply_request,
+        } => {
+            let applied = match client
+                .seren_cloud_apply_publisher_credential_proposal(
+                    &deployment_id,
+                    &proposal_id,
+                    &idempotency_key,
+                    &apply_request,
+                )
+                .await
+            {
+                Ok(response) => response.into_inner().data,
+                Err(error) => {
+                    return Err(anyhow_from_seren_error(
+                        "Failed to apply publisher credential proposal",
+                        error,
+                    )
+                    .await);
+                }
+            };
+            let applied_revision_id = seren::publisher_credential_proposal_applied_revision(
+                &proposal,
+                &apply_request,
+                &applied,
+            )?;
+            let rollout_pending = applied.runtime_action.as_ref().is_some_and(|action| {
+                action.state == seren::ManagedRuntimeReconciliationState::Pending
+            });
+            output::print_json(&serde_json::json!({
+                "status": applied.state,
+                "setup_id": setup_id,
+                "deployment_id": deployment_id,
+                "proposal_id": proposal_id,
+                "result_id": applied.result_id,
+                "active_revision_id": applied_revision_id,
+                "requested_environment_names": applied.requested_environment_names,
+                "runtime_action": publisher_credential_runtime_action_json(
+                    applied.runtime_action.as_ref()
+                ),
+                "already_applied": false,
+                "next_step": if rollout_pending {
+                    "The applied revision is recorded but its runtime rollout is still pending; check the deployment before relying on the new credentials."
+                } else {
+                    "The publisher credential proposal has been applied."
+                },
+            }))?;
+        }
+    }
     Ok(())
 }
 

@@ -1264,6 +1264,80 @@
         ]
       }
     },
+    "/incidents": {
+      "get": {
+        "tags": [
+          "seren-agent"
+        ],
+        "summary": "List infrastructure-health incidents for managed seren-agent deployments.",
+        "description": "Returns infrastructure-health incidents for managed agents, including lifecycle and notification status.",
+        "operationId": "seren_agent_incidents",
+        "parameters": [
+          {
+            "name": "deployment_id",
+            "in": "query",
+            "description": "Filter incidents by managed deployment",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "include_resolved",
+            "in": "query",
+            "description": "Include resolved incidents",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum incidents to return",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Incidents to skip",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed agent health incidents retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_Vec_ManagedAgentHealthIncident"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/private-models": {
       "get": {
         "tags": [
@@ -3677,20 +3751,28 @@
       "CloudDeploymentAlertPolicy": {
         "type": "object",
         "description": "Deployment-level operator alert policy.",
-        "required": [
-          "webhook_secret_key"
-        ],
         "properties": {
           "events": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/CloudDeploymentAlertEvent"
             },
-            "description": "Run events that should trigger the webhook."
+            "description": "Run events that trigger the webhook."
+          },
+          "managed_health_channel": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedHealthAlertChannel",
+                "description": "Infrastructure-health notification target."
+              }
+            ]
           },
           "webhook_secret_key": {
             "type": "string",
-            "description": "Secret key whose value is the destination webhook URL."
+            "description": "Run-status webhook URL secret key."
           }
         }
       },
@@ -5932,6 +6014,133 @@
           }
         }
       },
+      "DataResponse_Vec_ManagedAgentHealthIncident": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Content-free operator projection of a managed health incident.",
+              "required": [
+                "id",
+                "organization_id",
+                "deployment_id",
+                "category",
+                "severity",
+                "incident_fingerprint",
+                "destination_fingerprint",
+                "finding_codes",
+                "state",
+                "delivery_state",
+                "delivery_attempts",
+                "first_seen_at",
+                "last_seen_at",
+                "updated_at"
+              ],
+              "properties": {
+                "category": {
+                  "$ref": "#/components/schemas/ManagedAgentHealthIncidentCategory"
+                },
+                "delivered_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "delivery_attempts": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "delivery_state": {
+                  "$ref": "#/components/schemas/ManagedAgentHealthIncidentDeliveryState"
+                },
+                "deployment_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "destination_fingerprint": {
+                  "type": "string",
+                  "description": "Opaque identity for the configured alert destination."
+                },
+                "finding_codes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "first_seen_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "incident_fingerprint": {
+                  "type": "string",
+                  "description": "Opaque identity for one continuous incident."
+                },
+                "last_delivery_error_class": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Safe delivery error class."
+                },
+                "last_seen_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "opened_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "organization_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "resolved_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "severity": {
+                  "$ref": "#/components/schemas/ManagedAgentHealthSeverity"
+                },
+                "state": {
+                  "$ref": "#/components/schemas/ManagedAgentHealthIncidentState"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DesiredEgressState": {
         "type": "string",
         "description": "Operator-desired external publication for a cloud deployment.",
@@ -7245,6 +7454,133 @@
           }
         }
       },
+      "ManagedAgentHealthIncident": {
+        "type": "object",
+        "description": "Content-free operator projection of a managed health incident.",
+        "required": [
+          "id",
+          "organization_id",
+          "deployment_id",
+          "category",
+          "severity",
+          "incident_fingerprint",
+          "destination_fingerprint",
+          "finding_codes",
+          "state",
+          "delivery_state",
+          "delivery_attempts",
+          "first_seen_at",
+          "last_seen_at",
+          "updated_at"
+        ],
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/ManagedAgentHealthIncidentCategory"
+          },
+          "delivered_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "delivery_attempts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "delivery_state": {
+            "$ref": "#/components/schemas/ManagedAgentHealthIncidentDeliveryState"
+          },
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "destination_fingerprint": {
+            "type": "string",
+            "description": "Opaque identity for the configured alert destination."
+          },
+          "finding_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "first_seen_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incident_fingerprint": {
+            "type": "string",
+            "description": "Opaque identity for one continuous incident."
+          },
+          "last_delivery_error_class": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Safe delivery error class."
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "opened_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "resolved_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/ManagedAgentHealthSeverity"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ManagedAgentHealthIncidentState"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ManagedAgentHealthIncidentCategory": {
+        "type": "string",
+        "enum": [
+          "container_health"
+        ]
+      },
+      "ManagedAgentHealthIncidentDeliveryState": {
+        "type": "string",
+        "description": "Delivery progress for an open incident's platform-authored notice.",
+        "enum": [
+          "pending",
+          "delivered"
+        ]
+      },
+      "ManagedAgentHealthIncidentState": {
+        "type": "string",
+        "description": "Lifecycle of a managed health incident, as surfaced to operators.",
+        "enum": [
+          "pending",
+          "open",
+          "resolved"
+        ]
+      },
       "ManagedAgentHealthReport": {
         "type": "object",
         "required": [
@@ -7953,7 +8289,9 @@
         "enum": [
           "manifest_env",
           "manifest_secret",
-          "connector_catalog"
+          "connector_catalog",
+          "model_connection",
+          "publisher_credential"
         ]
       },
       "ManagedAgentSecretRequirements": {
@@ -8908,6 +9246,32 @@
           }
         },
         "additionalProperties": false
+      },
+      "ManagedHealthAlertChannel": {
+        "type": "object",
+        "description": "Platform-authored infrastructure-health destination.",
+        "required": [
+          "platform",
+          "webhook_secret_key"
+        ],
+        "properties": {
+          "platform": {
+            "$ref": "#/components/schemas/ManagedHealthAlertPlatform",
+            "description": "Incoming-webhook platform."
+          },
+          "webhook_secret_key": {
+            "type": "string",
+            "description": "Incoming-webhook URL secret key."
+          }
+        }
+      },
+      "ManagedHealthAlertPlatform": {
+        "type": "string",
+        "description": "Supported health notification platforms.",
+        "enum": [
+          "discord",
+          "slack"
+        ]
       },
       "ManagedRuntimeReconciliationFailure": {
         "type": "string",

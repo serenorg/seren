@@ -1462,6 +1462,15 @@ enum AgentAction {
     ManagedPasswordsSetup {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
+        /// Bind a connector-binding proposal (mutually exclusive with the other proposal selectors)
+        #[arg(long, conflicts_with_all = ["model_credential_proposal_id", "publisher_credential_proposal_id"])]
+        connector_binding_proposal_id: Option<Uuid>,
+        /// Bind a model-credential proposal (mutually exclusive with the other proposal selectors)
+        #[arg(long, conflicts_with_all = ["connector_binding_proposal_id", "publisher_credential_proposal_id"])]
+        model_credential_proposal_id: Option<Uuid>,
+        /// Bind a publisher-credential proposal (mutually exclusive with the other proposal selectors)
+        #[arg(long, conflicts_with_all = ["connector_binding_proposal_id", "model_credential_proposal_id"])]
+        publisher_credential_proposal_id: Option<Uuid>,
     },
     /// Check a managed agent Seren Passwords setup
     ManagedPasswordsStatus {
@@ -1472,6 +1481,44 @@ enum AgentAction {
     ManagedPasswordsApply {
         /// Setup ID returned by managed-passwords-setup
         setup_id: Uuid,
+    },
+    /// Preview a managed publisher-credential proposal from non-secret change intent
+    ManagedPublisherCredentialProposalPreview {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// JSON array of non-secret credential changes
+        #[arg(long)]
+        changes: String,
+    },
+    /// Create a revision-bound managed publisher-credential proposal awaiting review
+    ManagedPublisherCredentialProposalCreate {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// JSON array of non-secret credential changes
+        #[arg(long)]
+        changes: String,
+        /// Proposal UUID to supersede
+        #[arg(long)]
+        replace_proposal_id: Option<Uuid>,
+        /// Stable idempotency key for convergent retries
+        #[arg(long)]
+        idempotency_key: Uuid,
+    },
+    /// Get the current managed publisher-credential proposal for a deployment
+    ManagedPublisherCredentialProposalGet {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+    /// Apply an approved managed publisher-credential proposal
+    ManagedPublisherCredentialProposalApply {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Proposal ID returned by managed-publisher-credential-proposal-create
+        #[arg(long)]
+        proposal_id: Uuid,
+        /// Setup ID returned by managed-passwords-setup; omit only when no secret result is required
+        #[arg(long)]
+        setup_id: Option<Uuid>,
     },
     /// Get a managed-agent resource summary for a deployment
     ManagedDeploymentResources {
@@ -7424,14 +7471,69 @@ async fn main() -> anyhow::Result<()> {
             AgentAction::ManagedGet { deployment_id } => {
                 commands::agent::managed_agent_get(deployment_id, &ctx).await?
             }
-            AgentAction::ManagedPasswordsSetup { deployment_id } => {
-                commands::agent::managed_agent_secrets_setup(deployment_id, &ctx).await?
+            AgentAction::ManagedPasswordsSetup {
+                deployment_id,
+                connector_binding_proposal_id,
+                model_credential_proposal_id,
+                publisher_credential_proposal_id,
+            } => {
+                commands::agent::managed_agent_secrets_setup(
+                    deployment_id,
+                    connector_binding_proposal_id,
+                    model_credential_proposal_id,
+                    publisher_credential_proposal_id,
+                    &ctx,
+                )
+                .await?
             }
             AgentAction::ManagedPasswordsStatus { setup_id } => {
                 commands::agent::managed_agent_secrets_status(setup_id, &ctx).await?
             }
             AgentAction::ManagedPasswordsApply { setup_id } => {
                 commands::agent::managed_agent_secrets_apply(setup_id, &ctx).await?
+            }
+            AgentAction::ManagedPublisherCredentialProposalPreview {
+                deployment_id,
+                changes,
+            } => {
+                commands::agent::managed_publisher_credential_proposal_preview(
+                    deployment_id,
+                    changes,
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::ManagedPublisherCredentialProposalCreate {
+                deployment_id,
+                changes,
+                replace_proposal_id,
+                idempotency_key,
+            } => {
+                commands::agent::managed_publisher_credential_proposal_create(
+                    deployment_id,
+                    changes,
+                    replace_proposal_id,
+                    idempotency_key,
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::ManagedPublisherCredentialProposalGet { deployment_id } => {
+                commands::agent::managed_publisher_credential_proposal_get(deployment_id, &ctx)
+                    .await?
+            }
+            AgentAction::ManagedPublisherCredentialProposalApply {
+                deployment_id,
+                proposal_id,
+                setup_id,
+            } => {
+                commands::agent::managed_publisher_credential_proposal_apply(
+                    deployment_id,
+                    proposal_id,
+                    setup_id,
+                    &ctx,
+                )
+                .await?
             }
             AgentAction::ManagedDeploymentResources { deployment_id } => {
                 commands::agent::managed_agent_deployment_resources(deployment_id, &ctx).await?
@@ -7751,7 +7853,44 @@ mod tests {
             Commands::Agent { action } => match *action {
                 AgentAction::ManagedPasswordsSetup {
                     deployment_id: parsed,
-                } => assert_eq!(parsed.to_string(), deployment_id),
+                    connector_binding_proposal_id,
+                    model_credential_proposal_id,
+                    publisher_credential_proposal_id,
+                } => {
+                    assert_eq!(parsed.to_string(), deployment_id);
+                    assert!(connector_binding_proposal_id.is_none());
+                    assert!(model_credential_proposal_id.is_none());
+                    assert!(publisher_credential_proposal_id.is_none());
+                }
+                _ => panic!("unexpected managed Passwords setup action"),
+            },
+            _ => panic!("unexpected command"),
+        }
+
+        let proposal_id = "6f9619ff-8b86-d011-b42d-00cf4fc964ff";
+        let setup_with_selector = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-passwords-setup",
+            deployment_id,
+            "--publisher-credential-proposal-id",
+            proposal_id,
+        ]);
+        match setup_with_selector.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedPasswordsSetup {
+                    publisher_credential_proposal_id,
+                    connector_binding_proposal_id,
+                    model_credential_proposal_id,
+                    ..
+                } => {
+                    assert_eq!(
+                        publisher_credential_proposal_id.map(|id| id.to_string()),
+                        Some(proposal_id.to_string())
+                    );
+                    assert!(connector_binding_proposal_id.is_none());
+                    assert!(model_credential_proposal_id.is_none());
+                }
                 _ => panic!("unexpected managed Passwords setup action"),
             },
             _ => panic!("unexpected command"),
@@ -7775,6 +7914,86 @@ mod tests {
                 },
                 _ => panic!("unexpected command"),
             }
+        }
+    }
+
+    #[test]
+    fn managed_passwords_setup_rejects_multiple_proposal_selectors() {
+        let error = match try_parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-passwords-setup",
+            "550e8400-e29b-41d4-a716-446655440000",
+            "--connector-binding-proposal-id",
+            "6f9619ff-8b86-d011-b42d-00cf4fc964ff",
+            "--publisher-credential-proposal-id",
+            "c2f579ec-3e8a-4a52-a969-203d2a80c98d",
+        ]) {
+            Ok(_) => panic!("proposal selectors must be mutually exclusive"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn managed_publisher_proposal_commands_parse_apply_and_retry_inputs() {
+        let deployment_id = "550e8400-e29b-41d4-a716-446655440000";
+        let setup_id = "c2f579ec-3e8a-4a52-a969-203d2a80c98d";
+        let idempotency_key = "6f9619ff-8b86-d011-b42d-00cf4fc964ff";
+
+        let create = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-publisher-credential-proposal-create",
+            deployment_id,
+            "--changes",
+            "[]",
+            "--idempotency-key",
+            idempotency_key,
+        ]);
+        match create.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedPublisherCredentialProposalCreate {
+                    deployment_id: parsed_deployment_id,
+                    idempotency_key: parsed_idempotency_key,
+                    ..
+                } => {
+                    assert_eq!(parsed_deployment_id.to_string(), deployment_id);
+                    assert_eq!(parsed_idempotency_key.to_string(), idempotency_key);
+                }
+                _ => panic!("unexpected managed publisher proposal create action"),
+            },
+            _ => panic!("unexpected command"),
+        }
+
+        let proposal_id = "0b7f3a7e-2b1c-4b1a-9c2d-5d2f1e6a7b8c";
+        let apply = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-publisher-credential-proposal-apply",
+            deployment_id,
+            "--proposal-id",
+            proposal_id,
+            "--setup-id",
+            setup_id,
+        ]);
+        match apply.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedPublisherCredentialProposalApply {
+                    deployment_id: parsed_deployment_id,
+                    proposal_id: parsed_proposal_id,
+                    setup_id: parsed_setup_id,
+                } => {
+                    assert_eq!(parsed_deployment_id.to_string(), deployment_id);
+                    assert_eq!(parsed_proposal_id.to_string(), proposal_id);
+                    assert_eq!(
+                        parsed_setup_id.map(|id| id.to_string()),
+                        Some(setup_id.to_string())
+                    );
+                }
+                _ => panic!("unexpected managed publisher proposal apply action"),
+            },
+            _ => panic!("unexpected command"),
         }
     }
 
