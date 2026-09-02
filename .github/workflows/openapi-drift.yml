@@ -1,0 +1,114 @@
+name: OpenAPI Snapshot Drift
+
+# Turns "committed sdk/openapi snapshot behind the deployed Core" into a red
+# build. The committed snapshots drive `sdk/build.rs`, so a Core-added public
+# route or request field is otherwise invisible here until an operator hits the
+# missing tool in production (the #220 regression class).
+#
+# Two authoritative sources are checked:
+#   1. The base contract is served live by the deployed Core at
+#      `${SEREN_API_BASE}/openapi.json`; the committed base snapshot must match.
+#   2. The per-service specs are NOT served over HTTP — they are `gen_openapi`
+#      build artifacts. The authoritative source is seren-core's generator at
+#      the deployed ref, so this job builds it and diffs its output.
+#
+# Required repository secret:
+#   SEREN_CORE_SYNC_TOKEN - a token with read access to serenorg/seren-core and
+#   its private git dependencies (e.g. serenorg/seren-service).
+
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+    inputs:
+      seren_core_ref:
+        description: "seren-core ref to generate specs from (deployed SHA or branch)"
+        required: false
+        default: "main"
+
+permissions:
+  contents: read
+
+env:
+  # Deployed Core base URL. Override to point the gate at staging.
+  SEREN_API_BASE: "https://api.serendb.com"
+
+jobs:
+  drift:
+    name: Detect snapshot drift vs deployed Core
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout seren
+        uses: actions/checkout@v4
+        with:
+          path: seren
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Compare base snapshot against the deployed Core
+        run: |
+          set -euo pipefail
+          base="${SEREN_API_BASE%/}"
+          curl -fsSL "$base/openapi.json" -o /tmp/deployed-openapi.json
+          jq -S . /tmp/deployed-openapi.json > /tmp/deployed.norm.json
+          jq -S . seren/sdk/openapi/openapi.json > /tmp/committed-base.norm.json
+          if ! diff -u /tmp/committed-base.norm.json /tmp/deployed.norm.json > /tmp/base.diff; then
+            echo "::error file=sdk/openapi/openapi.json::Base snapshot is behind the deployed Core base contract. Re-sync sdk/openapi/openapi.json."
+            head -c 8000 /tmp/base.diff
+            exit 1
+          fi
+          echo "Base snapshot matches the deployed Core."
+
+      - name: Configure git auth for private seren-core dependencies
+        run: |
+          git config --global \
+            url."https://x-access-token:${{ secrets.SEREN_CORE_SYNC_TOKEN }}@github.com/".insteadOf \
+            "https://github.com/"
+
+      - name: Checkout seren-core
+        uses: actions/checkout@v4
+        with:
+          repository: serenorg/seren-core
+          ref: ${{ github.event.inputs.seren_core_ref || 'main' }}
+          token: ${{ secrets.SEREN_CORE_SYNC_TOKEN }}
+          path: seren-core
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Regenerate seren-core OpenAPI specs
+        working-directory: seren-core
+        env:
+          SQLX_OFFLINE: "true"
+          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+        run: |
+          set -euo pipefail
+          cargo run --locked --quiet --bin gen_openapi
+          for slug in seren-db seren-cloud seren-agent seren-models seren-private-models; do
+            cargo run --locked --quiet --bin gen_openapi -- --publisher "$slug"
+          done
+
+      - name: Compare seren-core-owned snapshots against generated contract
+        run: |
+          set -euo pipefail
+          status=0
+          for spec in \
+            openapi.json \
+            openapi-seren-db.json \
+            openapi-seren-cloud.json \
+            openapi-seren-agent.json \
+            openapi-seren-models.json \
+            openapi-seren-private-models.json; do
+            jq -S . "seren-core/openapi/$spec" > "/tmp/gen-$spec"
+            jq -S . "seren/sdk/openapi/$spec" > "/tmp/committed-$spec"
+            if ! diff -u "/tmp/committed-$spec" "/tmp/gen-$spec" > "/tmp/diff-$spec"; then
+              echo "::error file=sdk/openapi/$spec::sdk/openapi/$spec is out of sync with seren-core's generated contract. Re-sync from a deployed Core SHA and commit the regenerated client."
+              head -c 4000 "/tmp/diff-$spec"
+              status=1
+            fi
+          done
+          if [ "$status" -eq 0 ]; then
+            echo "All seren-core-owned snapshots match the generated contract."
+          fi
+          exit $status
