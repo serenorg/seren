@@ -1462,6 +1462,15 @@ enum AgentAction {
     ManagedPasswordsSetup {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
+        /// Bind a connector-binding proposal (mutually exclusive with the other proposal selectors)
+        #[arg(long)]
+        connector_binding_proposal_id: Option<Uuid>,
+        /// Bind a model-credential proposal (mutually exclusive with the other proposal selectors)
+        #[arg(long)]
+        model_credential_proposal_id: Option<Uuid>,
+        /// Bind a publisher-credential proposal (mutually exclusive with the other proposal selectors)
+        #[arg(long)]
+        publisher_credential_proposal_id: Option<Uuid>,
     },
     /// Check a managed agent Seren Passwords setup
     ManagedPasswordsStatus {
@@ -1470,6 +1479,35 @@ enum AgentAction {
     },
     /// Apply an approved Seren Passwords setup to its managed agent
     ManagedPasswordsApply {
+        /// Setup ID returned by managed-passwords-setup
+        setup_id: Uuid,
+    },
+    /// Preview a managed publisher-credential proposal from non-secret change intent
+    ManagedPublisherProposalPreview {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// JSON array of non-secret credential changes
+        #[arg(long)]
+        changes: String,
+    },
+    /// Create a revision-bound managed publisher-credential proposal awaiting review
+    ManagedPublisherProposalCreate {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// JSON array of non-secret credential changes
+        #[arg(long)]
+        changes: String,
+        /// Proposal UUID to supersede
+        #[arg(long)]
+        replace_proposal_id: Option<Uuid>,
+    },
+    /// Get the current managed publisher-credential proposal for a deployment
+    ManagedPublisherProposalGet {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+    /// Apply an approved managed publisher-credential proposal
+    ManagedPublisherProposalApply {
         /// Setup ID returned by managed-passwords-setup
         setup_id: Uuid,
     },
@@ -7424,14 +7462,57 @@ async fn main() -> anyhow::Result<()> {
             AgentAction::ManagedGet { deployment_id } => {
                 commands::agent::managed_agent_get(deployment_id, &ctx).await?
             }
-            AgentAction::ManagedPasswordsSetup { deployment_id } => {
-                commands::agent::managed_agent_secrets_setup(deployment_id, &ctx).await?
+            AgentAction::ManagedPasswordsSetup {
+                deployment_id,
+                connector_binding_proposal_id,
+                model_credential_proposal_id,
+                publisher_credential_proposal_id,
+            } => {
+                commands::agent::managed_agent_secrets_setup(
+                    deployment_id,
+                    connector_binding_proposal_id,
+                    model_credential_proposal_id,
+                    publisher_credential_proposal_id,
+                    &ctx,
+                )
+                .await?
             }
             AgentAction::ManagedPasswordsStatus { setup_id } => {
                 commands::agent::managed_agent_secrets_status(setup_id, &ctx).await?
             }
             AgentAction::ManagedPasswordsApply { setup_id } => {
                 commands::agent::managed_agent_secrets_apply(setup_id, &ctx).await?
+            }
+            AgentAction::ManagedPublisherProposalPreview {
+                deployment_id,
+                changes,
+            } => {
+                commands::agent::managed_publisher_credential_proposal_preview(
+                    deployment_id,
+                    changes,
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::ManagedPublisherProposalCreate {
+                deployment_id,
+                changes,
+                replace_proposal_id,
+            } => {
+                commands::agent::managed_publisher_credential_proposal_create(
+                    deployment_id,
+                    changes,
+                    replace_proposal_id,
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::ManagedPublisherProposalGet { deployment_id } => {
+                commands::agent::managed_publisher_credential_proposal_get(deployment_id, &ctx)
+                    .await?
+            }
+            AgentAction::ManagedPublisherProposalApply { setup_id } => {
+                commands::agent::managed_publisher_credential_proposal_apply(setup_id, &ctx).await?
             }
             AgentAction::ManagedDeploymentResources { deployment_id } => {
                 commands::agent::managed_agent_deployment_resources(deployment_id, &ctx).await?
@@ -7751,7 +7832,44 @@ mod tests {
             Commands::Agent { action } => match *action {
                 AgentAction::ManagedPasswordsSetup {
                     deployment_id: parsed,
-                } => assert_eq!(parsed.to_string(), deployment_id),
+                    connector_binding_proposal_id,
+                    model_credential_proposal_id,
+                    publisher_credential_proposal_id,
+                } => {
+                    assert_eq!(parsed.to_string(), deployment_id);
+                    assert!(connector_binding_proposal_id.is_none());
+                    assert!(model_credential_proposal_id.is_none());
+                    assert!(publisher_credential_proposal_id.is_none());
+                }
+                _ => panic!("unexpected managed Passwords setup action"),
+            },
+            _ => panic!("unexpected command"),
+        }
+
+        let proposal_id = "6f9619ff-8b86-d011-b42d-00cf4fc964ff";
+        let setup_with_selector = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-passwords-setup",
+            deployment_id,
+            "--publisher-credential-proposal-id",
+            proposal_id,
+        ]);
+        match setup_with_selector.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedPasswordsSetup {
+                    publisher_credential_proposal_id,
+                    connector_binding_proposal_id,
+                    model_credential_proposal_id,
+                    ..
+                } => {
+                    assert_eq!(
+                        publisher_credential_proposal_id.map(|id| id.to_string()),
+                        Some(proposal_id.to_string())
+                    );
+                    assert!(connector_binding_proposal_id.is_none());
+                    assert!(model_credential_proposal_id.is_none());
+                }
                 _ => panic!("unexpected managed Passwords setup action"),
             },
             _ => panic!("unexpected command"),

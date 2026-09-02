@@ -26,7 +26,7 @@ base62 = { workspace = true }
 futures = { workspace = true }
 progenitor-client = { workspace = true }
 jiff = { workspace = true }
-uuid = { workspace = true, features = ["js"] }
+uuid = { workspace = true, features = ["js", "v5"] }
 regress = { workspace = true }
 schemars = { workspace = true }
 

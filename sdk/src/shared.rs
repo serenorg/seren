@@ -392,6 +392,248 @@ pub fn managed_agent_secrets_application(
     )))
 }
 
+/// Reject a managed Passwords setup that binds more than one proposal selector.
+///
+/// The three selectors are mutually exclusive; Core derives a distinct
+/// server-side contract from whichever one is bound, so silently defaulting or
+/// accepting several at once would mint the wrong field set.
+pub fn ensure_single_managed_secrets_proposal_selector(
+    connector_binding_proposal_id: Option<uuid::Uuid>,
+    model_credential_proposal_id: Option<uuid::Uuid>,
+    publisher_credential_proposal_id: Option<uuid::Uuid>,
+) -> Result<(), ValidationError> {
+    let selected = usize::from(connector_binding_proposal_id.is_some())
+        + usize::from(model_credential_proposal_id.is_some())
+        + usize::from(publisher_credential_proposal_id.is_some());
+    if selected > 1 {
+        return Err(ValidationError::new(
+            "At most one managed Passwords proposal selector may be set (connector, model, or publisher).",
+        ));
+    }
+    Ok(())
+}
+
+/// Validate that an approved Seren Passwords setup can back a managed-agent
+/// credential apply. Mirrors the guards in [`managed_agent_secrets_application`]
+/// for the publisher-credential proposal path.
+fn ensure_delegation_setup_applies(
+    organization_id: uuid::Uuid,
+    detail: &crate::ManagedAgentDeploymentDetail,
+    request: &crate::DelegationPolicyRequestView,
+) -> Result<(), ValidationError> {
+    if !matches!(
+        request.status,
+        crate::DelegationPolicyRequestStatus::Approved
+            | crate::DelegationPolicyRequestStatus::Applied
+    ) {
+        return Err(ValidationError::new(format!(
+            "The Seren Passwords setup is {} and cannot be applied.",
+            request.status
+        )));
+    }
+    let now = jiff::Timestamp::now();
+    let expired = match request.status {
+        crate::DelegationPolicyRequestStatus::Approved => request.expires_at <= now,
+        crate::DelegationPolicyRequestStatus::Applied => request
+            .grant_expires_at
+            .is_some_and(|expires_at| expires_at <= now),
+        _ => false,
+    };
+    if expired {
+        return Err(ValidationError::new(
+            "The Seren Passwords setup has expired and cannot be applied.",
+        ));
+    }
+    if request.scope_kind != crate::DelegationPolicyScopeKind::SecretFields {
+        return Err(ValidationError::new(
+            "The setup request is not a secret-fields policy.",
+        ));
+    }
+    if request.deployment_id != Some(detail.deployment_id) {
+        return Err(ValidationError::new(
+            "The setup request belongs to another managed agent deployment.",
+        ));
+    }
+    if request.destination_organization_id != organization_id {
+        return Err(ValidationError::new(
+            "The setup request belongs to another organization.",
+        ));
+    }
+    if request.effective_mapping.is_empty() {
+        return Err(ValidationError::new(
+            "The approved Seren Passwords setup has no credential mapping.",
+        ));
+    }
+    if detail
+        .agent_identity_id
+        .is_some_and(|identity_id| identity_id != request.agent_identity_id)
+    {
+        return Err(ValidationError::new(
+            "The setup request names a different Seren Passwords agent identity than the managed agent.",
+        ));
+    }
+    Ok(())
+}
+
+/// Project the server-approved Seren Passwords mapping onto the publisher
+/// credential apply shape.
+///
+/// Only the mapping the server returned on the approved delegation is trusted;
+/// a caller-invented reference never reaches the apply route. The mapping must
+/// cover exactly the environment names the proposal requested.
+pub fn managed_publisher_credential_effective_mapping(
+    requested_environment_names: &[String],
+    request: &crate::DelegationPolicyRequestView,
+) -> Result<Vec<crate::ManagedPublisherCredentialEffectiveMapping>, ValidationError> {
+    let requested: std::collections::BTreeSet<&str> = requested_environment_names
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let mut mapping = Vec::with_capacity(request.effective_mapping.len());
+    let mut seen = std::collections::BTreeSet::new();
+    for entry in &request.effective_mapping {
+        if !valid_environment_name(&entry.environment_name) {
+            return Err(ValidationError::new(format!(
+                "The approved mapping contains invalid environment name '{}'.",
+                entry.environment_name
+            )));
+        }
+        let ref_uri = entry.ref_uri.trim();
+        if !valid_seren_secrets_reference(ref_uri) {
+            return Err(ValidationError::new(format!(
+                "The approved mapping for '{}' is not a valid Seren Passwords reference.",
+                entry.environment_name
+            )));
+        }
+        if !seen.insert(entry.environment_name.clone()) {
+            return Err(ValidationError::new(format!(
+                "The approved mapping contains duplicate environment name '{}'.",
+                entry.environment_name
+            )));
+        }
+        mapping.push(crate::ManagedPublisherCredentialEffectiveMapping {
+            environment_name: entry.environment_name.clone(),
+            ref_uri: ref_uri.to_string(),
+            vault_id: entry.vault_id,
+            item_id: entry.item_id,
+            field: entry.field.clone(),
+        });
+    }
+    let mapped: std::collections::BTreeSet<&str> = mapping
+        .iter()
+        .map(|entry| entry.environment_name.as_str())
+        .collect();
+    if mapped != requested {
+        return Err(ValidationError::new(
+            "The approved Seren Passwords mapping does not cover the exact requested publisher fields.",
+        ));
+    }
+    Ok(mapping)
+}
+
+/// UUIDv5 namespace for deriving a stable publisher-credential apply
+/// idempotency key from the proposal and its bound result.
+const PUBLISHER_CREDENTIAL_APPLY_NAMESPACE: uuid::Uuid =
+    uuid::Uuid::from_u128(0x8f1e_6c0a_4b7d_4e51_9a2c_3d5f_7b8e_1a20);
+
+/// The decision a caller must carry out to apply a publisher-credential
+/// proposal: either the proposal is already applied (no mutation), or a single
+/// proposal-bound apply call must be issued with the server-returned mapping.
+#[derive(Debug, Clone)]
+pub enum PublisherCredentialProposalApply {
+    /// The proposal is already applied at this revision; retrying is a no-op.
+    AlreadyApplied { applied_revision_id: uuid::Uuid },
+    /// Issue exactly one proposal-bound apply with this request.
+    Apply {
+        proposal_id: uuid::Uuid,
+        idempotency_key: uuid::Uuid,
+        request: Box<crate::ApplyPublisherCredentialProposalRequest>,
+    },
+}
+
+/// Decide how to apply an awaiting-review publisher-credential proposal against
+/// an approved Seren Passwords setup.
+///
+/// Fails closed: a superseded proposal, a proposal bound to a different result,
+/// a stale active revision, or a mapping that does not cover the requested
+/// fields all error before any mutation. An already-applied proposal joins the
+/// existing revision so an idempotent retry never mutates twice.
+pub fn publisher_credential_proposal_apply(
+    organization_id: uuid::Uuid,
+    detail: &crate::ManagedAgentDeploymentDetail,
+    request: &crate::DelegationPolicyRequestView,
+    proposal: &crate::ManagedPublisherCredentialProposal,
+) -> Result<PublisherCredentialProposalApply, ValidationError> {
+    if proposal.deployment_id != detail.deployment_id {
+        return Err(ValidationError::new(
+            "The publisher credential proposal belongs to another managed agent deployment.",
+        ));
+    }
+    match proposal.state {
+        crate::ManagedPublisherCredentialProposalState::Superseded => {
+            return Err(ValidationError::new(
+                "The publisher credential proposal has been superseded and can no longer be applied.",
+            ));
+        }
+        crate::ManagedPublisherCredentialProposalState::Applied => {
+            let applied_revision_id = proposal.applied_revision_id.ok_or_else(|| {
+                ValidationError::new(
+                    "The publisher credential proposal is applied but names no active revision.",
+                )
+            })?;
+            return Ok(PublisherCredentialProposalApply::AlreadyApplied {
+                applied_revision_id,
+            });
+        }
+        crate::ManagedPublisherCredentialProposalState::AwaitingReview => {}
+    }
+
+    if let Some(result_id) = proposal.result_id
+        && result_id != request.result_id
+    {
+        return Err(ValidationError::new(
+            "The publisher credential proposal is bound to a different Seren Passwords result.",
+        ));
+    }
+
+    let active_revision_id = detail
+        .active_revision_id
+        .ok_or_else(|| ValidationError::new("The managed agent has no active revision to bind."))?;
+    if proposal.expected_active_revision_id != active_revision_id {
+        return Err(ValidationError::new(
+            "The publisher credential proposal no longer targets the managed agent's active revision.",
+        ));
+    }
+
+    let apply_request = if proposal.requires_secret_resolution_result {
+        ensure_delegation_setup_applies(organization_id, detail, request)?;
+        let effective_mapping = managed_publisher_credential_effective_mapping(
+            &proposal.requested_environment_names,
+            request,
+        )?;
+        crate::ApplyPublisherCredentialProposalRequest {
+            effective_mapping,
+            secret_resolution_result_id: Some(request.result_id),
+        }
+    } else {
+        crate::ApplyPublisherCredentialProposalRequest {
+            effective_mapping: Vec::new(),
+            secret_resolution_result_id: None,
+        }
+    };
+
+    let idempotency_key = uuid::Uuid::new_v5(
+        &PUBLISHER_CREDENTIAL_APPLY_NAMESPACE,
+        format!("{}:{}", proposal.id, request.result_id).as_bytes(),
+    );
+
+    Ok(PublisherCredentialProposalApply::Apply {
+        proposal_id: proposal.id,
+        idempotency_key,
+        request: Box::new(apply_request),
+    })
+}
+
 pub fn normalize_optional_string(
     value: Option<&str>,
     field: &str,
@@ -1301,5 +1543,141 @@ mod tests {
             cloud_deployment_lifecycle_route(&deployment),
             Err(CloudDeploymentLifecycleError::AmbiguousDeploymentType)
         ));
+    }
+
+    fn publisher_proposal(
+        deployment_id: uuid::Uuid,
+        expected_active_revision_id: uuid::Uuid,
+        state: &str,
+    ) -> crate::ManagedPublisherCredentialProposal {
+        serde_json::from_value(serde_json::json!({
+            "id": uuid::Uuid::new_v4(),
+            "deployment_id": deployment_id,
+            "expected_active_revision_id": expected_active_revision_id,
+            "proposal_fingerprint": "fp",
+            "requirements_fingerprint": "rfp",
+            "requested_environment_names": ["PASSWORD"],
+            "requires_secret_resolution_result": true,
+            "changes": [],
+            "state": state,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn ensure_single_managed_secrets_proposal_selector_rejects_multiple() {
+        let one = Some(uuid::Uuid::new_v4());
+        assert!(ensure_single_managed_secrets_proposal_selector(None, None, None).is_ok());
+        assert!(ensure_single_managed_secrets_proposal_selector(one, None, None).is_ok());
+        assert!(ensure_single_managed_secrets_proposal_selector(None, one, None).is_ok());
+        assert!(ensure_single_managed_secrets_proposal_selector(None, None, one).is_ok());
+        assert!(ensure_single_managed_secrets_proposal_selector(one, one, None).is_err());
+        assert!(ensure_single_managed_secrets_proposal_selector(one, None, one).is_err());
+        assert!(ensure_single_managed_secrets_proposal_selector(one, one, one).is_err());
+    }
+
+    #[test]
+    fn publisher_credential_apply_binds_server_mapping_and_is_deterministic() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+        let proposal = publisher_proposal(deployment_id, revision_id, "awaiting_review");
+
+        let PublisherCredentialProposalApply::Apply {
+            proposal_id,
+            idempotency_key,
+            request: apply,
+        } = publisher_credential_proposal_apply(organization_id, &detail, &request, &proposal)
+            .expect("awaiting-review proposal must produce an apply")
+        else {
+            panic!("awaiting-review proposal must produce an apply");
+        };
+
+        assert_eq!(proposal_id, proposal.id);
+        assert_eq!(apply.secret_resolution_result_id, Some(request.result_id));
+        assert_eq!(apply.effective_mapping.len(), 1);
+        let entry = &apply.effective_mapping[0];
+        assert_eq!(entry.environment_name, "PASSWORD");
+        assert_eq!(entry.ref_uri, secrets_ref("password"));
+        // The idempotency key is a pure function of (proposal, result), so a
+        // retry replays the same server mutation instead of minting a new one.
+        let expected = uuid::Uuid::new_v5(
+            &PUBLISHER_CREDENTIAL_APPLY_NAMESPACE,
+            format!("{}:{}", proposal.id, request.result_id).as_bytes(),
+        );
+        assert_eq!(idempotency_key, expected);
+    }
+
+    #[test]
+    fn publisher_credential_apply_is_idempotent_when_already_applied() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+        let mut proposal = publisher_proposal(deployment_id, revision_id, "applied");
+        let applied = uuid::Uuid::new_v4();
+        proposal.applied_revision_id = Some(applied);
+
+        match publisher_credential_proposal_apply(organization_id, &detail, &request, &proposal)
+            .expect("applied proposal resolves without error")
+        {
+            PublisherCredentialProposalApply::AlreadyApplied {
+                applied_revision_id,
+            } => assert_eq!(applied_revision_id, applied),
+            PublisherCredentialProposalApply::Apply { .. } => {
+                panic!("an applied proposal must not mutate again")
+            }
+        }
+    }
+
+    #[test]
+    fn publisher_credential_apply_fails_closed() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+
+        // A superseded proposal can never be applied.
+        let superseded = publisher_proposal(deployment_id, revision_id, "superseded");
+        assert!(
+            publisher_credential_proposal_apply(organization_id, &detail, &request, &superseded)
+                .is_err()
+        );
+
+        // A proposal targeting a stale active revision fails before mutation.
+        let stale = publisher_proposal(deployment_id, uuid::Uuid::new_v4(), "awaiting_review");
+        assert!(
+            publisher_credential_proposal_apply(organization_id, &detail, &request, &stale)
+                .is_err()
+        );
+
+        // A proposal bound to a different Seren Passwords result is rejected.
+        let mut mismatched = publisher_proposal(deployment_id, revision_id, "awaiting_review");
+        mismatched.result_id = Some(uuid::Uuid::new_v4());
+        assert!(
+            publisher_credential_proposal_apply(organization_id, &detail, &request, &mismatched)
+                .is_err()
+        );
+
+        // A proposal for another deployment is rejected.
+        let other = publisher_proposal(uuid::Uuid::new_v4(), revision_id, "awaiting_review");
+        assert!(
+            publisher_credential_proposal_apply(organization_id, &detail, &request, &other)
+                .is_err()
+        );
+
+        // The approved mapping must cover exactly the requested publisher fields.
+        let mut extra = publisher_proposal(deployment_id, revision_id, "awaiting_review");
+        extra
+            .requested_environment_names
+            .push("USERNAME".to_string());
+        assert!(
+            publisher_credential_proposal_apply(organization_id, &detail, &request, &extra)
+                .is_err()
+        );
     }
 }
