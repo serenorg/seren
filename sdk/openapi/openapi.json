@@ -23662,11 +23662,28 @@
               "string",
               "null"
             ],
-            "format": "uuid"
+            "format": "uuid",
+            "description": "Connector proposal bound to this setup. At most one proposal selector may be set."
           },
           "deployment_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "model_credential_proposal_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Model proposal bound to this setup. At most one proposal selector may be set."
+          },
+          "publisher_credential_proposal_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Publisher credential proposal bound to this setup. At most one proposal selector may be set."
           },
           "redirect_origin": {
             "type": "string"
@@ -24071,7 +24088,9 @@
         "enum": [
           "manifest_env",
           "manifest_secret",
-          "connector_catalog"
+          "connector_catalog",
+          "model_connection",
+          "publisher_credential"
         ]
       },
       "ManagedAgentSecretRequirements": {
