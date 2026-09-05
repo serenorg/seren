@@ -4584,17 +4584,38 @@ async fn managed_agent_secrets_policy_request(
     Ok(response.data)
 }
 
+/// Name the apply command Core bound to a managed secrets setup.
+fn managed_secrets_apply_guidance(target: &seren::ManagedSecretsApplyTarget) -> String {
+    match target {
+        seren::ManagedSecretsApplyTarget::BaseManifest => {
+            "Run `seren agent managed-passwords-apply <setup-id>`.".to_string()
+        }
+        seren::ManagedSecretsApplyTarget::Connector {
+            connector_ref,
+            proposal_id,
+        } => format!(
+            "Run `seren agent managed-connector-binding-proposal-apply <deployment-id> --connector-ref {connector_ref} --proposal-id {proposal_id} --setup-id <setup-id>`."
+        ),
+        seren::ManagedSecretsApplyTarget::Model { proposal_id } => format!(
+            "Run `seren agent managed-model-credential-proposal-apply <deployment-id> --proposal-id {proposal_id} --setup-id <setup-id>`."
+        ),
+        seren::ManagedSecretsApplyTarget::Publisher { proposal_id } => format!(
+            "Run `seren agent managed-publisher-credential-proposal-apply <deployment-id> --proposal-id {proposal_id} --setup-id <setup-id>`."
+        ),
+    }
+}
+
 fn managed_agent_secrets_status_json(
+    target: &seren::ManagedSecretsApplyTarget,
     request: &seren::DelegationPolicyRequestView,
 ) -> serde_json::Value {
+    let approved_step = managed_secrets_apply_guidance(target);
     let next_step = match request.status {
         seren::DelegationPolicyRequestStatus::Pending
         | seren::DelegationPolicyRequestStatus::PartiallyApproved => {
             "Complete the approval in Seren Passwords, then check this setup again."
         }
-        seren::DelegationPolicyRequestStatus::Approved => {
-            "Run `seren agent managed-passwords-apply <setup-id>`."
-        }
+        seren::DelegationPolicyRequestStatus::Approved => approved_step.as_str(),
         seren::DelegationPolicyRequestStatus::Applied => {
             "The approved Seren Passwords binding has been applied."
         }
@@ -4683,8 +4704,8 @@ pub async fn managed_agent_secrets_setup(
             println!("Keep this short-lived bearer URL private.");
             println!();
             println!(
-                "After approval, run `seren agent managed-passwords-status {}` and then `seren agent managed-passwords-apply {}`.",
-                setup.setup_id, setup.setup_id
+                "After approval, run `seren agent managed-passwords-status {}` and follow its apply guidance.",
+                setup.setup_id
             );
         }
     }
@@ -4696,7 +4717,12 @@ pub async fn managed_agent_secrets_status(setup_id: Uuid, ctx: &CommandContext) 
         .await?;
     let client = ctx.client().await?;
     let request = managed_agent_secrets_policy_request(&client, setup_id).await?;
-    output::print_json(&managed_agent_secrets_status_json(&request))?;
+    let target = if request.status == seren::DelegationPolicyRequestStatus::Approved {
+        seren::managed_secrets_apply_target(&client, setup_id, &request).await?
+    } else {
+        seren::ManagedSecretsApplyTarget::BaseManifest
+    };
+    output::print_json(&managed_agent_secrets_status_json(&target, &request))?;
     Ok(())
 }
 
@@ -4709,13 +4735,22 @@ pub async fn managed_agent_secrets_apply(setup_id: Uuid, ctx: &CommandContext) -
         anyhow::anyhow!("Seren Passwords setup is not bound to a managed agent deployment")
     })?;
     let deployment = managed_agent_deployment_summary(&client, deployment_id).await?;
+    let target = seren::managed_secrets_apply_target(&client, setup_id, &request).await?;
+    if !matches!(target, seren::ManagedSecretsApplyTarget::BaseManifest) {
+        anyhow::bail!(managed_secrets_apply_guidance(&target));
+    }
     let detail = client
         .seren_agent_get_managed_deployment(&deployment_id)
         .await
         .map_err(|error| anyhow::anyhow!("Failed to load managed agent detail: {error}"))?
         .into_inner()
         .data;
-    match seren::managed_agent_secrets_application(deployment.organization_id, &detail, &request)? {
+    match seren::managed_agent_secrets_application(
+        &target,
+        deployment.organization_id,
+        &detail,
+        &request,
+    )? {
         seren::ManagedAgentSecretsApplication::AlreadyApplied => {
             output::print_json(&serde_json::json!({
                 "status": "applied",
@@ -4754,7 +4789,12 @@ pub async fn managed_agent_secrets_apply(setup_id: Uuid, ctx: &CommandContext) -
         .into_inner()
         .data;
     if !matches!(
-        seren::managed_agent_secrets_application(deployment.organization_id, &after, &request),
+        seren::managed_agent_secrets_application(
+            &target,
+            deployment.organization_id,
+            &after,
+            &request,
+        ),
         Ok(seren::ManagedAgentSecretsApplication::AlreadyApplied)
     ) {
         anyhow::bail!(
@@ -4948,7 +4988,7 @@ pub async fn managed_publisher_credential_proposal_get(
 }
 
 /// Summarize the runtime rollout Core started for an applied proposal.
-fn publisher_credential_runtime_action_json(
+fn managed_runtime_action_json(
     action: Option<&seren::ManagedRuntimeReconciliationSummary>,
 ) -> serde_json::Value {
     action
@@ -5009,13 +5049,13 @@ pub async fn managed_publisher_credential_proposal_apply(
             result_id,
         } => {
             output::print_json(&serde_json::json!({
-                "status": "applied",
+                "status": proposal.state,
                 "setup_id": setup_id,
                 "deployment_id": deployment_id,
                 "proposal_id": proposal.id,
                 "result_id": result_id,
                 "active_revision_id": applied_revision_id,
-                "runtime_action": publisher_credential_runtime_action_json(
+                "runtime_action": managed_runtime_action_json(
                     proposal.runtime_action.as_ref()
                 ),
                 "already_applied": true,
@@ -5060,7 +5100,7 @@ pub async fn managed_publisher_credential_proposal_apply(
                 "result_id": applied.result_id,
                 "active_revision_id": applied_revision_id,
                 "requested_environment_names": applied.requested_environment_names,
-                "runtime_action": publisher_credential_runtime_action_json(
+                "runtime_action": managed_runtime_action_json(
                     applied.runtime_action.as_ref()
                 ),
                 "already_applied": false,
@@ -5068,6 +5108,166 @@ pub async fn managed_publisher_credential_proposal_apply(
                     "The applied revision is recorded but its runtime rollout is still pending; check the deployment before relying on the new credentials."
                 } else {
                     "The publisher credential proposal has been applied."
+                },
+            }))?;
+        }
+    }
+    Ok(())
+}
+
+/// Read the current connector-binding proposal for a managed seren-agent
+/// deployment connector.
+pub async fn managed_connector_binding_proposal_get(
+    deployment_id: Uuid,
+    connector_ref: String,
+    ctx: &CommandContext,
+) -> Result<()> {
+    ctx.require_user_session("Managed agent connector binding proposal status")
+        .await?;
+    let client = ctx.client().await?;
+    let proposal = match client
+        .seren_cloud_get_connector_binding_proposal(&deployment_id, &connector_ref)
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(seren::Error::UnexpectedResponse(response)) if response.status() == 404 => {
+            output::print_json(&serde_json::json!({
+                "status": "none",
+                "deployment_id": deployment_id,
+                "connector_ref": connector_ref,
+            }))?;
+            return Ok(());
+        }
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to load connector binding proposal",
+                error,
+            )
+            .await);
+        }
+    };
+    output::print_json(&serde_json::json!({
+        "status": proposal.state,
+        "proposal_id": proposal.id,
+        "deployment_id": proposal.deployment_id,
+        "connector_ref": proposal.connector_ref,
+        "expected_active_revision_id": proposal.expected_active_revision_id,
+        "requested_environment_names": proposal.requested_environment_names,
+        "result_id": proposal.result_id,
+        "applied_revision_id": proposal.applied_revision_id,
+        "runtime_action": managed_runtime_action_json(proposal.runtime_action.as_ref()),
+    }))?;
+    Ok(())
+}
+
+/// Apply an approved connector-binding proposal through the Core connector
+/// proposal-bound apply route using the reviewed Seren Passwords result.
+pub async fn managed_connector_binding_proposal_apply(
+    deployment_id: Uuid,
+    connector_ref: String,
+    proposal_id: Uuid,
+    setup_id: Option<Uuid>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    ctx.require_user_session("Managed agent connector binding proposal apply")
+        .await?;
+    let client = ctx.client().await?;
+    let deployment = managed_agent_deployment_summary(&client, deployment_id).await?;
+    let detail = client
+        .seren_agent_get_managed_deployment(&deployment_id)
+        .await
+        .map_err(|error| anyhow::anyhow!("Failed to load managed agent detail: {error}"))?
+        .into_inner()
+        .data;
+    let proposal = match client
+        .seren_cloud_get_connector_binding_proposal(&deployment_id, &connector_ref)
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to load connector binding proposal",
+                error,
+            )
+            .await);
+        }
+    };
+    let request = match setup_id {
+        Some(setup_id) => Some(managed_agent_secrets_policy_request(&client, setup_id).await?),
+        None => None,
+    };
+    match seren::connector_binding_proposal_apply(
+        deployment.organization_id,
+        &detail,
+        request.as_ref(),
+        &proposal,
+        proposal_id,
+        &connector_ref,
+    )? {
+        seren::ConnectorBindingProposalApply::AlreadyApplied {
+            applied_revision_id,
+            result_id,
+        } => {
+            output::print_json(&serde_json::json!({
+                "status": proposal.state,
+                "setup_id": setup_id,
+                "deployment_id": deployment_id,
+                "connector_ref": connector_ref,
+                "proposal_id": proposal.id,
+                "result_id": result_id,
+                "active_revision_id": applied_revision_id,
+                "runtime_action": managed_runtime_action_json(proposal.runtime_action.as_ref()),
+                "already_applied": true,
+            }))?;
+        }
+        seren::ConnectorBindingProposalApply::Apply {
+            connector_ref,
+            proposal_id,
+            idempotency_key,
+            request: apply_request,
+        } => {
+            let applied = match client
+                .seren_cloud_apply_connector_binding_proposal(
+                    &deployment_id,
+                    &connector_ref,
+                    &proposal_id,
+                    &idempotency_key,
+                    &apply_request,
+                )
+                .await
+            {
+                Ok(response) => response.into_inner().data,
+                Err(error) => {
+                    return Err(anyhow_from_seren_error(
+                        "Failed to apply connector binding proposal",
+                        error,
+                    )
+                    .await);
+                }
+            };
+            let applied_revision_id = seren::connector_binding_proposal_applied_revision(
+                &proposal,
+                &apply_request,
+                &applied,
+            )?;
+            let rollout_pending = applied.runtime_action.as_ref().is_some_and(|action| {
+                action.state == seren::ManagedRuntimeReconciliationState::Pending
+            });
+            output::print_json(&serde_json::json!({
+                "status": applied.state,
+                "setup_id": setup_id,
+                "deployment_id": deployment_id,
+                "connector_ref": connector_ref,
+                "proposal_id": proposal_id,
+                "result_id": applied.result_id,
+                "active_revision_id": applied_revision_id,
+                "requested_environment_names": applied.requested_environment_names,
+                "runtime_action": managed_runtime_action_json(applied.runtime_action.as_ref()),
+                "already_applied": false,
+                "next_step": if rollout_pending {
+                    "The applied revision is recorded but its runtime rollout is still pending; check the deployment before relying on the connector binding."
+                } else {
+                    "The connector-binding proposal has been applied."
                 },
             }))?;
         }

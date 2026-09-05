@@ -1520,6 +1520,28 @@ enum AgentAction {
         #[arg(long)]
         setup_id: Option<Uuid>,
     },
+    /// Get the current managed connector-binding proposal for a deployment connector
+    ManagedConnectorBindingProposalGet {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Connector reference (slug), e.g. "slack"
+        #[arg(long)]
+        connector_ref: String,
+    },
+    /// Apply an approved managed connector-binding proposal
+    ManagedConnectorBindingProposalApply {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Connector reference (slug), e.g. "slack"
+        #[arg(long)]
+        connector_ref: String,
+        /// Proposal ID from the connector-binding proposal workflow
+        #[arg(long)]
+        proposal_id: Uuid,
+        /// Setup ID returned by managed-passwords-setup with connector_binding_proposal_id; omit only on an idempotent retry
+        #[arg(long)]
+        setup_id: Option<Uuid>,
+    },
     /// Get a managed-agent resource summary for a deployment
     ManagedDeploymentResources {
         /// Deployment ID (UUID)
@@ -7535,6 +7557,32 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
+            AgentAction::ManagedConnectorBindingProposalGet {
+                deployment_id,
+                connector_ref,
+            } => {
+                commands::agent::managed_connector_binding_proposal_get(
+                    deployment_id,
+                    connector_ref,
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::ManagedConnectorBindingProposalApply {
+                deployment_id,
+                connector_ref,
+                proposal_id,
+                setup_id,
+            } => {
+                commands::agent::managed_connector_binding_proposal_apply(
+                    deployment_id,
+                    connector_ref,
+                    proposal_id,
+                    setup_id,
+                    &ctx,
+                )
+                .await?
+            }
             AgentAction::ManagedDeploymentResources { deployment_id } => {
                 commands::agent::managed_agent_deployment_resources(deployment_id, &ctx).await?
             }
@@ -7992,6 +8040,68 @@ mod tests {
                     );
                 }
                 _ => panic!("unexpected managed publisher proposal apply action"),
+            },
+            _ => panic!("unexpected command"),
+        }
+    }
+
+    #[test]
+    fn managed_connector_binding_proposal_commands_parse_apply_inputs() {
+        let deployment_id = "550e8400-e29b-41d4-a716-446655440000";
+        let setup_id = "c2f579ec-3e8a-4a52-a969-203d2a80c98d";
+        let proposal_id = "0b7f3a7e-2b1c-4b1a-9c2d-5d2f1e6a7b8c";
+
+        let get = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-connector-binding-proposal-get",
+            deployment_id,
+            "--connector-ref",
+            "slack",
+        ]);
+        match get.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedConnectorBindingProposalGet {
+                    deployment_id: parsed_deployment_id,
+                    connector_ref,
+                } => {
+                    assert_eq!(parsed_deployment_id.to_string(), deployment_id);
+                    assert_eq!(connector_ref, "slack");
+                }
+                _ => panic!("unexpected managed connector proposal get action"),
+            },
+            _ => panic!("unexpected command"),
+        }
+
+        let apply = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-connector-binding-proposal-apply",
+            deployment_id,
+            "--connector-ref",
+            "slack",
+            "--proposal-id",
+            proposal_id,
+            "--setup-id",
+            setup_id,
+        ]);
+        match apply.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedConnectorBindingProposalApply {
+                    deployment_id: parsed_deployment_id,
+                    connector_ref,
+                    proposal_id: parsed_proposal_id,
+                    setup_id: parsed_setup_id,
+                } => {
+                    assert_eq!(parsed_deployment_id.to_string(), deployment_id);
+                    assert_eq!(connector_ref, "slack");
+                    assert_eq!(parsed_proposal_id.to_string(), proposal_id);
+                    assert_eq!(
+                        parsed_setup_id.map(|id| id.to_string()),
+                        Some(setup_id.to_string())
+                    );
+                }
+                _ => panic!("unexpected managed connector proposal apply action"),
             },
             _ => panic!("unexpected command"),
         }

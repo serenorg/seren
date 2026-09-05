@@ -5094,6 +5094,58 @@
       }
     },
     "/organizations/{organization_id}/managed-agent-secrets/setups/{setup_id}": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Get the deployment and apply target selected for a managed agent secrets setup.",
+        "operationId": "managed_agent_secrets_setup_binding",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "setup_id",
+            "in": "path",
+            "description": "Secrets setup ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed agent secrets setup binding",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedAgentSecretsSetupBinding"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed-in user session and organization access required"
+          },
+          "404": {
+            "description": "Managed agent secrets setup not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
       "post": {
         "tags": [
           "Organizations"
@@ -15395,6 +15447,48 @@
           }
         }
       },
+      "DataResponse_ManagedAgentSecretsSetupBinding": {
+        "type": "object",
+        "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The immutable deployment and apply target selected for a managed agent secrets setup.",
+            "required": [
+              "setup_id",
+              "deployment_id",
+              "target"
+            ],
+            "properties": {
+              "deployment_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "setup_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "target": {
+                "$ref": "#/components/schemas/ManagedSecretsApplyTarget"
+              }
+            }
+          },
+          "pagination": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaginationMeta",
+                "description": "Optional pagination metadata"
+              }
+            ]
+          }
+        }
+      },
       "DataResponse_ManagedAgentSecretsSetupContext": {
         "type": "object",
         "description": "Generic API response wrapper with optional pagination\n\nThis wrapper provides a consistent structure for all API responses,\nmaking it easier for clients to handle responses uniformly. It supports\nboth single resources and collections, with optional pagination metadata.\nPublisher endpoints use the same wrapper for non-streaming JSON success\nresponses, including first-class publishers. Streaming endpoints such as\nSSE responses carry metering in response headers and are not wrapped.\nPayment-required and error responses are also not wrapped so clients can\nparse their existing wire contracts directly.\n\n# Response Structure\n\n```json\n{\n  \"data\": T,\n  \"pagination\": { ... } // optional\n}\n```\n\n# Examples\n\n## Single Resource\n\n```rust\nuse seren_core::http::DataResponse;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet project = Project {\n    id: \"123\".to_string(),\n    name: \"My Project\".to_string(),\n};\n\nlet response = DataResponse::new(project);\n// Serializes to: {\"data\": {\"id\": \"123\", \"name\": \"My Project\"}}\n```\n\n## Collection with Pagination\n\n```rust\nuse seren_core::http::DataResponse;\nuse seren_core::pagination::PaginationMeta;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Project {\n    id: String,\n    name: String,\n}\n\nlet projects: Vec<Project> = Vec::new();\nlet pagination = PaginationMeta {\n    total: 0,\n    count: 0,\n    limit: 20,\n    offset: 0,\n    has_more: false,\n};\n\nlet response = DataResponse::with_pagination(projects, pagination);\n// Serializes to: {\"data\": [...], \"pagination\": {\"total\": 0, \"count\": 0, \"limit\": 20, \"offset\": 0, \"has_more\": false}}\n```",
@@ -24078,6 +24172,16 @@
               "null"
             ]
           },
+          "selection_constraint": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentSecretSelectionConstraint"
+              }
+            ]
+          },
           "source": {
             "$ref": "#/components/schemas/ManagedAgentSecretRequirementSource"
           }
@@ -24147,6 +24251,49 @@
             "type": "string"
           }
         }
+      },
+      "ManagedAgentSecretSelectionConstraint": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "The selected reference must not match the lowercase SHA-256 fingerprint.",
+            "required": [
+              "reference_fingerprint",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "different_reference"
+                ]
+              },
+              "reference_fingerprint": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The selected reference must match the lowercase SHA-256 fingerprint.",
+            "required": [
+              "reference_fingerprint",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "exact_reference"
+                ]
+              },
+              "reference_fingerprint": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "Constraint applied to the selected `seren-secrets://` reference before approval."
       },
       "ManagedAgentSecretsApprovalRule": {
         "oneOf": [
@@ -24268,6 +24415,28 @@
           }
         }
       },
+      "ManagedAgentSecretsSetupBinding": {
+        "type": "object",
+        "description": "The immutable deployment and apply target selected for a managed agent secrets setup.",
+        "required": [
+          "setup_id",
+          "deployment_id",
+          "target"
+        ],
+        "properties": {
+          "deployment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "setup_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "target": {
+            "$ref": "#/components/schemas/ManagedSecretsApplyTarget"
+          }
+        }
+      },
       "ManagedAgentSecretsSetupContext": {
         "type": "object",
         "required": [
@@ -24348,6 +24517,86 @@
           "direct_url",
           "seren_organization_database"
         ]
+      },
+      "ManagedSecretsApplyTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "base_manifest"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "connector_ref",
+              "proposal_id",
+              "kind"
+            ],
+            "properties": {
+              "connector_ref": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "connector"
+                ]
+              },
+              "proposal_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "proposal_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model"
+                ]
+              },
+              "proposal_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "proposal_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "publisher"
+                ]
+              },
+              "proposal_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          }
+        ],
+        "description": "The apply target of a managed agent secrets setup."
       },
       "McpDiscoveryStatus": {
         "type": "object",

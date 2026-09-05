@@ -1,3 +1,4 @@
+use crate::ManagedSecretsApplyTarget;
 use thiserror::Error;
 
 pub const MANAGED_AGENT_SECRETS_REDIRECT_ORIGIN: &str = "https://passwords.serendb.com";
@@ -282,11 +283,57 @@ fn same_credential_set(
     Ok(left == right)
 }
 
+#[derive(Debug, Error)]
+pub enum ManagedSecretsSetupBindingError {
+    #[error("Failed to load the managed secrets setup binding: {0}")]
+    Lookup(#[source] Box<crate::Error<()>>),
+    #[error(transparent)]
+    InvalidBinding(#[from] ValidationError),
+}
+
+/// Resolve the original apply target Core bound to a managed secrets setup.
+///
+/// Missing or inconsistent bindings stop apply; they never imply a base setup.
+pub async fn managed_secrets_apply_target(
+    client: &crate::Client,
+    setup_id: uuid::Uuid,
+    request: &crate::DelegationPolicyRequestView,
+) -> Result<ManagedSecretsApplyTarget, ManagedSecretsSetupBindingError> {
+    if request.request_id != setup_id {
+        return Err(ValidationError::new(
+            "The returned secrets setup does not match the selected setup.",
+        )
+        .into());
+    }
+    let deployment_id = request.deployment_id.ok_or_else(|| {
+        ValidationError::new("The secrets setup is not bound to a managed agent deployment.")
+    })?;
+    let binding = client
+        .managed_agent_secrets_setup_binding(&request.destination_organization_id, &setup_id)
+        .await
+        .map_err(|error| ManagedSecretsSetupBindingError::Lookup(Box::new(error)))?
+        .into_inner()
+        .data;
+    if binding.setup_id != setup_id || binding.deployment_id != deployment_id {
+        return Err(ValidationError::new(
+            "Core returned a binding for another setup or deployment.",
+        )
+        .into());
+    }
+    Ok(binding.target)
+}
+
 pub fn managed_agent_secrets_application(
+    target: &ManagedSecretsApplyTarget,
     organization_id: uuid::Uuid,
     detail: &crate::ManagedAgentDeploymentDetail,
     request: &crate::DelegationPolicyRequestView,
 ) -> Result<ManagedAgentSecretsApplication, ValidationError> {
+    if !matches!(target, ManagedSecretsApplyTarget::BaseManifest) {
+        return Err(ValidationError::new(
+            "This Seren Passwords setup requires its dedicated proposal apply route.",
+        ));
+    }
     ensure_delegation_setup_applies(organization_id, detail, request)?;
     let requested_names = request
         .requested_fields
@@ -672,6 +719,201 @@ pub fn publisher_credential_proposal_apply(
         proposal_id: proposal.id,
         idempotency_key: proposal.id,
         request: Box::new(apply_request),
+    })
+}
+
+/// The decision a caller must carry out to apply a connector-binding proposal:
+/// either the proposal already produced its revision (no mutation), or a single
+/// proposal-bound apply call must be issued against the connector's apply route.
+///
+/// A connector-binding proposal always resolves connector secret references, so
+/// an approved Seren Passwords setup is always required for a fresh apply and
+/// the apply body only carries the server-resolved `secret_resolution_result_id`.
+#[derive(Debug, Clone)]
+pub enum ConnectorBindingProposalApply {
+    /// The proposal already produced its revision; retrying is a no-op.
+    AlreadyApplied {
+        applied_revision_id: uuid::Uuid,
+        result_id: Option<uuid::Uuid>,
+    },
+    /// Issue exactly one proposal-bound apply against the connector route.
+    Apply {
+        connector_ref: String,
+        proposal_id: uuid::Uuid,
+        idempotency_key: uuid::Uuid,
+        request: Box<crate::ApplyConnectorBindingProposalRequest>,
+    },
+}
+
+/// Whether a connector-binding proposal state means its apply produced a
+/// revision that is rolling out or live. Core keeps `applied_revision_id` on a
+/// failed rollout, so the revision alone does not prove the apply completed.
+fn connector_binding_proposal_rollout_started(
+    state: &crate::ManagedConnectorBindingProposalState,
+) -> bool {
+    matches!(
+        state,
+        crate::ManagedConnectorBindingProposalState::Applying
+            | crate::ManagedConnectorBindingProposalState::Rolling
+            | crate::ManagedConnectorBindingProposalState::IngressReady
+    )
+}
+
+/// Reject a Seren Passwords setup that Core did not bind to this connector
+/// proposal.
+///
+/// Core records the setup handoff minted for the proposal and reanchors the
+/// proposal to the revision that setup bound, so both must agree before the
+/// setup's approved result can stand in for the proposal's reviewed fields.
+fn ensure_setup_bound_to_connector_binding_proposal(
+    request: &crate::DelegationPolicyRequestView,
+    proposal: &crate::ManagedConnectorBindingProposal,
+) -> Result<(), ValidationError> {
+    if proposal.approval_request_id != Some(request.request_id) {
+        return Err(ValidationError::new(
+            "The Seren Passwords setup is not bound to this connector-binding proposal.",
+        ));
+    }
+    if request.deployment_revision_id != Some(proposal.expected_active_revision_id) {
+        return Err(ValidationError::new(
+            "The Seren Passwords setup does not target the connector proposal's reviewed revision.",
+        ));
+    }
+    Ok(())
+}
+
+/// Validate the connector-binding proposal Core returned from the apply route
+/// against the reviewed proposal and the request that was sent.
+///
+/// Fails closed: Core must echo the same proposal identity, connector, revision,
+/// fingerprints, requested fields, and setup binding, bind the result that was
+/// sent, report a rollout state, and name the applied revision.
+pub fn connector_binding_proposal_applied_revision(
+    reviewed: &crate::ManagedConnectorBindingProposal,
+    request: &crate::ApplyConnectorBindingProposalRequest,
+    applied: &crate::ManagedConnectorBindingProposal,
+) -> Result<uuid::Uuid, ValidationError> {
+    if !connector_binding_proposal_rollout_started(&applied.state)
+        || applied.id != reviewed.id
+        || applied.deployment_id != reviewed.deployment_id
+        || applied.connector_ref != reviewed.connector_ref
+        || applied.proposal_fingerprint != reviewed.proposal_fingerprint
+        || applied.requirements_fingerprint != reviewed.requirements_fingerprint
+        || applied.expected_active_revision_id != reviewed.expected_active_revision_id
+        || applied.requested_environment_names != reviewed.requested_environment_names
+        || applied.approval_request_id != reviewed.approval_request_id
+        || applied.result_id != Some(request.secret_resolution_result_id)
+    {
+        return Err(ValidationError::new(
+            "Core returned a connector-binding proposal that does not match the reviewed apply.",
+        ));
+    }
+    applied.applied_revision_id.ok_or_else(|| {
+        ValidationError::new(
+            "Core returned an applied connector-binding proposal without an applied revision.",
+        )
+    })
+}
+
+/// Select an apply mutation or an existing rollout revision for a connector proposal.
+///
+/// The selected connector and proposal must match Core's response. An approved
+/// setup must bind the proposal, reviewed revision, and exact result. Failed or
+/// superseded proposals cannot be applied or reported as successful replays.
+pub fn connector_binding_proposal_apply(
+    organization_id: uuid::Uuid,
+    detail: &crate::ManagedAgentDeploymentDetail,
+    request: Option<&crate::DelegationPolicyRequestView>,
+    proposal: &crate::ManagedConnectorBindingProposal,
+    proposal_id: uuid::Uuid,
+    connector_ref: &str,
+) -> Result<ConnectorBindingProposalApply, ValidationError> {
+    if proposal_id != proposal.id {
+        return Err(ValidationError::new(
+            "The connector's current binding proposal is not the proposal selected for apply.",
+        ));
+    }
+    if proposal.connector_ref != connector_ref {
+        return Err(ValidationError::new(
+            "The connector binding proposal is not for the connector selected for apply.",
+        ));
+    }
+    if proposal.deployment_id != detail.deployment_id {
+        return Err(ValidationError::new(
+            "The connector-binding proposal belongs to another managed agent deployment.",
+        ));
+    }
+    match proposal.state {
+        crate::ManagedConnectorBindingProposalState::Superseded => {
+            return Err(ValidationError::new(
+                "The connector-binding proposal has been superseded and can no longer be applied.",
+            ));
+        }
+        crate::ManagedConnectorBindingProposalState::Failed => {
+            return Err(ValidationError::new(
+                "The connector-binding proposal rollout failed; create a new proposal instead of retrying.",
+            ));
+        }
+        _ => {}
+    }
+
+    if connector_binding_proposal_rollout_started(&proposal.state) {
+        let applied_revision_id = proposal.applied_revision_id.ok_or_else(|| {
+            ValidationError::new(
+                "The connector-binding proposal is rolling out but names no applied revision.",
+            )
+        })?;
+        if let Some(request) = request {
+            ensure_setup_bound_to_connector_binding_proposal(request, proposal)?;
+            if proposal.result_id != Some(request.result_id) {
+                return Err(ValidationError::new(
+                    "The connector-binding proposal is bound to a different Seren Passwords result.",
+                ));
+            }
+        }
+        return Ok(ConnectorBindingProposalApply::AlreadyApplied {
+            applied_revision_id,
+            result_id: proposal.result_id,
+        });
+    }
+    if proposal.applied_revision_id.is_some() {
+        return Err(ValidationError::new(
+            "The connector-binding proposal names an applied revision before its rollout started.",
+        ));
+    }
+
+    let request = request.ok_or_else(|| {
+        ValidationError::new(
+            "The connector-binding proposal requires an approved Seren Passwords setup.",
+        )
+    })?;
+    ensure_delegation_setup_applies(organization_id, detail, request)?;
+    ensure_setup_bound_to_connector_binding_proposal(request, proposal)?;
+    if proposal
+        .result_id
+        .is_some_and(|result_id| result_id != request.result_id)
+    {
+        return Err(ValidationError::new(
+            "The connector-binding proposal is bound to a different Seren Passwords result.",
+        ));
+    }
+
+    let active_revision_id = detail
+        .active_revision_id
+        .ok_or_else(|| ValidationError::new("The managed agent has no active revision to bind."))?;
+    if proposal.expected_active_revision_id != active_revision_id {
+        return Err(ValidationError::new(
+            "The connector-binding proposal no longer targets the managed agent's active revision.",
+        ));
+    }
+
+    Ok(ConnectorBindingProposalApply::Apply {
+        connector_ref: proposal.connector_ref.clone(),
+        proposal_id: proposal.id,
+        idempotency_key: proposal.id,
+        request: Box::new(crate::ApplyConnectorBindingProposalRequest {
+            secret_resolution_result_id: request.result_id,
+        }),
     })
 }
 
@@ -1064,6 +1306,155 @@ pub fn validate_cloud_approval_resume_identity(
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn managed_secrets_binding_resolves_each_original_apply_target() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let request =
+            managed_secrets_policy_request(organization_id, deployment_id, uuid::Uuid::new_v4());
+        let proposal_id = uuid::Uuid::new_v4();
+        for target in [
+            serde_json::json!({ "kind": "base_manifest" }),
+            serde_json::json!({
+                "kind": "connector",
+                "connector_ref": "slack",
+                "proposal_id": proposal_id,
+            }),
+            serde_json::json!({ "kind": "model", "proposal_id": proposal_id }),
+            serde_json::json!({ "kind": "publisher", "proposal_id": proposal_id }),
+        ] {
+            let proxy = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path(format!(
+                    "/organizations/{organization_id}/managed-agent-secrets/setups/{}",
+                    request.request_id,
+                )))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "data": {
+                        "setup_id": request.request_id,
+                        "deployment_id": deployment_id,
+                        "target": target,
+                    },
+                })))
+                .expect(1)
+                .mount(&proxy)
+                .await;
+            let client = crate::Client::new(&proxy.uri());
+            let resolved = managed_secrets_apply_target(&client, request.request_id, &request)
+                .await
+                .expect("the original setup binding selects the apply route");
+            assert_eq!(serde_json::to_value(resolved).unwrap(), target);
+            assert_eq!(proxy.received_requests().await.unwrap().len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn managed_secrets_binding_rejects_missing_or_inconsistent_authority() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let request =
+            managed_secrets_policy_request(organization_id, deployment_id, uuid::Uuid::new_v4());
+        let valid = serde_json::json!({
+            "data": {
+                "setup_id": request.request_id,
+                "deployment_id": deployment_id,
+                "target": { "kind": "base_manifest" },
+            },
+        });
+        let mut wrong_setup = valid.clone();
+        wrong_setup["data"]["setup_id"] = serde_json::json!(uuid::Uuid::new_v4());
+        let mut wrong_deployment = valid.clone();
+        wrong_deployment["data"]["deployment_id"] = serde_json::json!(uuid::Uuid::new_v4());
+        let mut unknown_target = valid.clone();
+        unknown_target["data"]["target"] = serde_json::json!({ "kind": "unknown" });
+        let mut missing_target = valid.clone();
+        missing_target["data"]
+            .as_object_mut()
+            .unwrap()
+            .remove("target");
+        let mut missing_kind = valid;
+        missing_kind["data"]["target"] = serde_json::json!({});
+        for response in [
+            ResponseTemplate::new(404),
+            ResponseTemplate::new(503),
+            ResponseTemplate::new(200).set_body_json(wrong_setup),
+            ResponseTemplate::new(200).set_body_json(wrong_deployment),
+            ResponseTemplate::new(200).set_body_json(unknown_target),
+            ResponseTemplate::new(200).set_body_json(missing_target),
+            ResponseTemplate::new(200).set_body_json(missing_kind),
+        ] {
+            let proxy = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path(format!(
+                    "/organizations/{organization_id}/managed-agent-secrets/setups/{}",
+                    request.request_id,
+                )))
+                .respond_with(response)
+                .expect(1)
+                .mount(&proxy)
+                .await;
+            let client = crate::Client::new(&proxy.uri());
+            assert!(
+                managed_secrets_apply_target(&client, request.request_id, &request)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(proxy.received_requests().await.unwrap().len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn managed_secrets_binding_rejects_unselected_or_unbound_setups_before_lookup() {
+        let proxy = wiremock::MockServer::start().await;
+        let client = crate::Client::new(&proxy.uri());
+        let mut request = managed_secrets_policy_request(
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+        );
+        assert!(
+            managed_secrets_apply_target(&client, uuid::Uuid::new_v4(), &request)
+                .await
+                .is_err()
+        );
+        request.deployment_id = None;
+        assert!(
+            managed_secrets_apply_target(&client, request.request_id, &request)
+                .await
+                .is_err()
+        );
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+    }
+
+    #[test]
+    fn generic_passwords_application_rejects_proposal_targets() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+        let proposal_id = uuid::Uuid::new_v4();
+        for target in [
+            ManagedSecretsApplyTarget::Connector {
+                connector_ref: "slack".to_string(),
+                proposal_id,
+            },
+            ManagedSecretsApplyTarget::Model { proposal_id },
+            ManagedSecretsApplyTarget::Publisher { proposal_id },
+        ] {
+            assert!(
+                managed_agent_secrets_application(&target, organization_id, &detail, &request)
+                    .is_err()
+            );
+        }
+    }
+
     #[test]
     fn header_bound_secrets_credentials_survive_the_approved_mapping() {
         let mut header = credential("slack_authorization", "seren-secrets://vault/item/password");
@@ -1285,6 +1676,7 @@ mod tests {
         let deployment_id = uuid::Uuid::new_v4();
         let revision_id = uuid::Uuid::new_v4();
         let detail = managed_detail(deployment_id, revision_id);
+        let target = ManagedSecretsApplyTarget::BaseManifest;
         let mut request =
             managed_secrets_policy_request(organization_id, deployment_id, revision_id);
         request
@@ -1294,7 +1686,7 @@ mod tests {
                 field_group: None,
             });
 
-        let error = managed_agent_secrets_application(organization_id, &detail, &request)
+        let error = managed_agent_secrets_application(&target, organization_id, &detail, &request)
             .expect_err("partial mapping must be rejected");
         assert!(error.0.contains("exact requested fields"));
     }
@@ -1305,16 +1697,23 @@ mod tests {
         let deployment_id = uuid::Uuid::new_v4();
         let revision_id = uuid::Uuid::new_v4();
         let detail = managed_detail(deployment_id, revision_id);
+        let target = ManagedSecretsApplyTarget::BaseManifest;
         let mut request =
             managed_secrets_policy_request(organization_id, deployment_id, revision_id);
         request.expires_at = "2020-01-01T00:00:00Z".parse().unwrap();
-        assert!(managed_agent_secrets_application(organization_id, &detail, &request).is_err());
+        assert!(
+            managed_agent_secrets_application(&target, organization_id, &detail, &request).is_err()
+        );
 
         request.status = crate::DelegationPolicyRequestStatus::Applied;
-        assert!(managed_agent_secrets_application(organization_id, &detail, &request).is_ok());
+        assert!(
+            managed_agent_secrets_application(&target, organization_id, &detail, &request).is_ok()
+        );
 
         request.grant_expires_at = Some("2021-01-01T00:00:00Z".parse().unwrap());
-        assert!(managed_agent_secrets_application(organization_id, &detail, &request).is_err());
+        assert!(
+            managed_agent_secrets_application(&target, organization_id, &detail, &request).is_err()
+        );
     }
 
     #[test]
@@ -1323,10 +1722,11 @@ mod tests {
         let deployment_id = uuid::Uuid::new_v4();
         let revision_id = uuid::Uuid::new_v4();
         let detail = managed_detail(deployment_id, revision_id);
+        let target = ManagedSecretsApplyTarget::BaseManifest;
         let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
 
         let ManagedAgentSecretsApplication::Update(update) =
-            managed_agent_secrets_application(organization_id, &detail, &request).unwrap()
+            managed_agent_secrets_application(&target, organization_id, &detail, &request).unwrap()
         else {
             panic!("approved setup must produce an update");
         };
@@ -1347,13 +1747,18 @@ mod tests {
         let deployment_id = uuid::Uuid::new_v4();
         let revision_id = uuid::Uuid::new_v4();
         let mut detail = managed_detail(deployment_id, revision_id);
+        let target = ManagedSecretsApplyTarget::BaseManifest;
         let request =
             managed_secrets_policy_request(organization_id, deployment_id, uuid::Uuid::new_v4());
-        assert!(managed_agent_secrets_application(organization_id, &detail, &request).is_err());
+        assert!(
+            managed_agent_secrets_application(&target, organization_id, &detail, &request).is_err()
+        );
 
         detail.secret_resolution_result_id = Some(request.result_id);
         detail.agent_identity_id = Some(request.agent_identity_id);
-        assert!(managed_agent_secrets_application(organization_id, &detail, &request).is_err());
+        assert!(
+            managed_agent_secrets_application(&target, organization_id, &detail, &request).is_err()
+        );
     }
 
     #[test]
@@ -1362,9 +1767,10 @@ mod tests {
         let deployment_id = uuid::Uuid::new_v4();
         let revision_id = uuid::Uuid::new_v4();
         let mut detail = managed_detail(deployment_id, revision_id);
+        let target = ManagedSecretsApplyTarget::BaseManifest;
         let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
         let ManagedAgentSecretsApplication::Update(update) =
-            managed_agent_secrets_application(organization_id, &detail, &request).unwrap()
+            managed_agent_secrets_application(&target, organization_id, &detail, &request).unwrap()
         else {
             panic!("approved setup must produce an update");
         };
@@ -1374,7 +1780,7 @@ mod tests {
         detail.active_revision_id = Some(uuid::Uuid::new_v4());
 
         assert!(matches!(
-            managed_agent_secrets_application(organization_id, &detail, &request),
+            managed_agent_secrets_application(&target, organization_id, &detail, &request),
             Ok(ManagedAgentSecretsApplication::AlreadyApplied)
         ));
     }
@@ -1385,13 +1791,17 @@ mod tests {
         let deployment_id = uuid::Uuid::new_v4();
         let revision_id = uuid::Uuid::new_v4();
         let mut detail = managed_detail(deployment_id, revision_id);
+        let target = ManagedSecretsApplyTarget::BaseManifest;
         let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
 
         assert!(
-            managed_agent_secrets_application(uuid::Uuid::new_v4(), &detail, &request).is_err()
+            managed_agent_secrets_application(&target, uuid::Uuid::new_v4(), &detail, &request)
+                .is_err()
         );
         detail.agent_identity_id = Some(uuid::Uuid::new_v4());
-        assert!(managed_agent_secrets_application(organization_id, &detail, &request).is_err());
+        assert!(
+            managed_agent_secrets_application(&target, organization_id, &detail, &request).is_err()
+        );
     }
 
     #[test]
@@ -1926,6 +2336,302 @@ mod tests {
                 proposal.id,
             )
             .is_err()
+        );
+    }
+
+    fn connector_proposal(
+        deployment_id: uuid::Uuid,
+        expected_active_revision_id: uuid::Uuid,
+        state: &str,
+    ) -> crate::ManagedConnectorBindingProposal {
+        serde_json::from_value(serde_json::json!({
+            "id": uuid::Uuid::new_v4(),
+            "deployment_id": deployment_id,
+            "connector_ref": "slack",
+            "expected_active_revision_id": expected_active_revision_id,
+            "proposal_fingerprint": "fp",
+            "requirements_fingerprint": "rfp",
+            "requested_environment_names": ["PASSWORD"],
+            "state": state,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn connector_binding_apply_binds_setup_result_and_is_deterministic() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+        let mut proposal = connector_proposal(deployment_id, revision_id, "approved");
+        proposal.approval_request_id = Some(request.request_id);
+
+        let ConnectorBindingProposalApply::Apply {
+            connector_ref,
+            proposal_id,
+            idempotency_key,
+            request: apply,
+        } = connector_binding_proposal_apply(
+            organization_id,
+            &detail,
+            Some(&request),
+            &proposal,
+            proposal.id,
+            "slack",
+        )
+        .expect("approved connector proposal must produce an apply")
+        else {
+            panic!("approved connector proposal must produce an apply");
+        };
+
+        assert_eq!(connector_ref, "slack");
+        assert_eq!(proposal_id, proposal.id);
+        assert_eq!(idempotency_key, proposal.id);
+        assert_eq!(apply.secret_resolution_result_id, request.result_id);
+    }
+
+    #[test]
+    fn connector_binding_apply_rejects_another_connector() {
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let proposal = connector_proposal(deployment_id, revision_id, "applying");
+        let error = connector_binding_proposal_apply(
+            uuid::Uuid::new_v4(),
+            &detail,
+            None,
+            &proposal,
+            proposal.id,
+            "discord",
+        )
+        .expect_err("the selected connector must match before apply or replay");
+        assert!(error.to_string().contains("connector selected for apply"));
+    }
+
+    #[test]
+    fn connector_binding_apply_requires_a_setup() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let proposal = connector_proposal(deployment_id, revision_id, "approved");
+
+        assert!(
+            connector_binding_proposal_apply(
+                organization_id,
+                &detail,
+                None,
+                &proposal,
+                proposal.id,
+                "slack",
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn connector_binding_apply_rejects_unbound_or_superseded_proposals() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+
+        // A setup not bound to this proposal is refused.
+        let unbound = connector_proposal(deployment_id, revision_id, "approved");
+        assert!(
+            connector_binding_proposal_apply(
+                organization_id,
+                &detail,
+                Some(&request),
+                &unbound,
+                unbound.id,
+                "slack",
+            )
+            .is_err()
+        );
+
+        // A superseded proposal can no longer be applied.
+        let mut superseded = connector_proposal(deployment_id, revision_id, "superseded");
+        superseded.approval_request_id = Some(request.request_id);
+        assert!(
+            connector_binding_proposal_apply(
+                organization_id,
+                &detail,
+                Some(&request),
+                &superseded,
+                superseded.id,
+                "slack",
+            )
+            .is_err()
+        );
+
+        // The selected proposal_id must match the fetched proposal.
+        let proposal = connector_proposal(deployment_id, revision_id, "approved");
+        assert!(
+            connector_binding_proposal_apply(
+                organization_id,
+                &detail,
+                Some(&request),
+                &proposal,
+                uuid::Uuid::new_v4(),
+                "slack",
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn connector_binding_apply_is_idempotent_once_the_rollout_started() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+        let applied = uuid::Uuid::new_v4();
+
+        for state in ["applying", "rolling", "ingress_ready"] {
+            let mut proposal = connector_proposal(deployment_id, revision_id, state);
+            proposal.applied_revision_id = Some(applied);
+            proposal.result_id = Some(request.result_id);
+            proposal.approval_request_id = Some(request.request_id);
+
+            for setup in [Some(&request), None] {
+                match connector_binding_proposal_apply(
+                    organization_id,
+                    &detail,
+                    setup,
+                    &proposal,
+                    proposal.id,
+                    "slack",
+                )
+                .expect("a started connector rollout resolves without error")
+                {
+                    ConnectorBindingProposalApply::AlreadyApplied {
+                        applied_revision_id,
+                        result_id,
+                    } => {
+                        assert_eq!(applied_revision_id, applied);
+                        assert_eq!(result_id, Some(request.result_id));
+                    }
+                    ConnectorBindingProposalApply::Apply { .. } => {
+                        panic!("a started connector rollout must not mutate again")
+                    }
+                }
+            }
+
+            let mut other_result =
+                managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+            other_result.request_id = request.request_id;
+            assert!(
+                connector_binding_proposal_apply(
+                    organization_id,
+                    &detail,
+                    Some(&other_result),
+                    &proposal,
+                    proposal.id,
+                    "slack",
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn connector_binding_apply_rejects_failed_and_unstarted_rollouts() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+
+        // A failed rollout keeps its revision but is never reported as applied.
+        let mut failed = connector_proposal(deployment_id, revision_id, "failed");
+        failed.applied_revision_id = Some(uuid::Uuid::new_v4());
+        failed.result_id = Some(request.result_id);
+        failed.approval_request_id = Some(request.request_id);
+        for setup in [Some(&request), None] {
+            assert!(
+                connector_binding_proposal_apply(
+                    organization_id,
+                    &detail,
+                    setup,
+                    &failed,
+                    failed.id,
+                    "slack",
+                )
+                .is_err()
+            );
+        }
+
+        // A revision recorded before the rollout state is an inconsistent record.
+        let mut unstarted = connector_proposal(deployment_id, revision_id, "approved");
+        unstarted.applied_revision_id = Some(uuid::Uuid::new_v4());
+        unstarted.approval_request_id = Some(request.request_id);
+        assert!(
+            connector_binding_proposal_apply(
+                organization_id,
+                &detail,
+                Some(&request),
+                &unstarted,
+                unstarted.id,
+                "slack",
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn connector_binding_applied_revision_requires_a_rollout_state() {
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let setup_id = uuid::Uuid::new_v4();
+        let result_id = uuid::Uuid::new_v4();
+        let applied_revision_id = uuid::Uuid::new_v4();
+        let mut reviewed = connector_proposal(deployment_id, revision_id, "approved");
+        reviewed.approval_request_id = Some(setup_id);
+        let request = crate::ApplyConnectorBindingProposalRequest {
+            secret_resolution_result_id: result_id,
+        };
+
+        let mut applied = reviewed.clone();
+        applied.state = crate::ManagedConnectorBindingProposalState::Applying;
+        applied.applied_revision_id = Some(applied_revision_id);
+        applied.result_id = Some(result_id);
+        assert_eq!(
+            connector_binding_proposal_applied_revision(&reviewed, &request, &applied)
+                .expect("a started rollout names its revision"),
+            applied_revision_id
+        );
+
+        let mut failed = applied.clone();
+        failed.state = crate::ManagedConnectorBindingProposalState::Failed;
+        assert!(connector_binding_proposal_applied_revision(&reviewed, &request, &failed).is_err());
+
+        let mut unstarted = applied.clone();
+        unstarted.state = crate::ManagedConnectorBindingProposalState::Approved;
+        assert!(
+            connector_binding_proposal_applied_revision(&reviewed, &request, &unstarted).is_err()
+        );
+
+        let mut other_setup = applied.clone();
+        other_setup.approval_request_id = Some(uuid::Uuid::new_v4());
+        assert!(
+            connector_binding_proposal_applied_revision(&reviewed, &request, &other_setup).is_err()
+        );
+
+        let mut other_result = applied.clone();
+        other_result.result_id = Some(uuid::Uuid::new_v4());
+        assert!(
+            connector_binding_proposal_applied_revision(&reviewed, &request, &other_result)
+                .is_err()
+        );
+
+        let mut no_revision = applied;
+        no_revision.applied_revision_id = None;
+        assert!(
+            connector_binding_proposal_applied_revision(&reviewed, &request, &no_revision).is_err()
         );
     }
 }

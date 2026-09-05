@@ -255,8 +255,9 @@ Managed-agent Seren Passwords setup remains human-authorized. Its setup, status,
 - `deploy_seren_agent` deploys a managed prompt-based agent
 - `get_seren_agent_deployment` returns the resolved deployment detail
 - `start_seren_agent_passwords_setup` starts the human-authorized Seren Passwords field-mapping flow and returns its browser launch URL; treat that short-lived bearer URL as sensitive and never send it to another tool or third party
-- `get_seren_agent_passwords_setup_status` checks whether that setup is pending, approved, applied, or terminal
-- `apply_seren_agent_passwords_setup` attaches the approved identity, policy result, and exact field mapping through the revision-CAS update path
+- `get_seren_agent_passwords_setup_status` checks whether that setup is pending, approved, applied, or terminal and identifies the apply tool for the original setup binding
+- `apply_seren_agent_passwords_setup` attaches an approved base-manifest identity, policy result, and exact field mapping through the revision-CAS update path; Core's original setup binding prevents proposal-bound setups from reaching this route
+- `get_seren_agent_connector_binding_proposal` and `apply_seren_agent_connector_binding_proposal` read and apply the current connector proposal; supply its `connector_ref`, `proposal_id`, and approved `setup_id`
 - `list_seren_agent_deployment_revisions` shows immutable revision history
 - `start_seren_agent_deployment` starts a managed deployment through the seren-agent lifecycle API
 - `stop_seren_agent_deployment` stops a managed deployment through the seren-agent lifecycle API
