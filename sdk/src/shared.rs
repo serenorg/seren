@@ -917,6 +917,258 @@ pub fn connector_binding_proposal_apply(
     })
 }
 
+/// Project the server-approved Seren Passwords mapping onto the model-credential
+/// apply shape.
+///
+/// Only the mapping the server returned on the approved delegation is trusted; a
+/// caller-invented reference never reaches the apply route. The mapping must
+/// cover exactly the environment names the proposal requested. Unlike the
+/// publisher mapping, the model mapping carries `field_group` through.
+pub fn managed_model_credential_effective_mapping(
+    requested_environment_names: &[String],
+    request: &crate::DelegationPolicyRequestView,
+) -> Result<Vec<crate::ManagedModelCredentialEffectiveMapping>, ValidationError> {
+    let requested: std::collections::BTreeSet<&str> = requested_environment_names
+        .iter()
+        .map(String::as_str)
+        .collect();
+    if requested.len() != requested_environment_names.len() {
+        return Err(ValidationError::new(
+            "The model credential proposal contains duplicate requested environment names.",
+        ));
+    }
+    let policy_requested: std::collections::BTreeSet<&str> = request
+        .requested_fields
+        .iter()
+        .map(|field| field.environment_name.as_str())
+        .collect();
+    if policy_requested.len() != request.requested_fields.len() || policy_requested != requested {
+        return Err(ValidationError::new(
+            "The Seren Passwords setup does not request the proposal's exact model fields.",
+        ));
+    }
+    let mut mapping = Vec::with_capacity(request.effective_mapping.len());
+    let mut seen = std::collections::BTreeSet::new();
+    for entry in &request.effective_mapping {
+        if !valid_environment_name(&entry.environment_name) {
+            return Err(ValidationError::new(format!(
+                "The approved mapping contains invalid environment name '{}'.",
+                entry.environment_name
+            )));
+        }
+        let ref_uri = entry.ref_uri.trim();
+        if !valid_seren_secrets_reference(ref_uri) {
+            return Err(ValidationError::new(format!(
+                "The approved mapping for '{}' is not a valid Seren Passwords reference.",
+                entry.environment_name
+            )));
+        }
+        if !seen.insert(entry.environment_name.clone()) {
+            return Err(ValidationError::new(format!(
+                "The approved mapping contains duplicate environment name '{}'.",
+                entry.environment_name
+            )));
+        }
+        mapping.push(crate::ManagedModelCredentialEffectiveMapping {
+            environment_name: entry.environment_name.clone(),
+            ref_uri: ref_uri.to_string(),
+            vault_id: entry.vault_id,
+            item_id: entry.item_id,
+            field: entry.field.clone(),
+            field_group: entry.field_group.clone(),
+        });
+    }
+    let mapped: std::collections::BTreeSet<&str> = mapping
+        .iter()
+        .map(|entry| entry.environment_name.as_str())
+        .collect();
+    if mapped != requested {
+        return Err(ValidationError::new(
+            "The approved Seren Passwords mapping does not cover the exact requested model fields.",
+        ));
+    }
+    Ok(mapping)
+}
+
+/// The decision a caller must carry out to apply a model-credential proposal:
+/// either the proposal is already applied (no mutation), or a single
+/// proposal-bound apply call must be issued against the model-credential route.
+///
+/// Like a publisher-credential proposal, a model-credential proposal may require
+/// a managed secrets result (API-key auth) or none (ChatGPT-subscription
+/// auth); the apply body carries the reviewed mapping and result only in the
+/// former case.
+#[derive(Debug, Clone)]
+pub enum ModelCredentialProposalApply {
+    /// The proposal is already applied at this revision; retrying is a no-op.
+    AlreadyApplied {
+        applied_revision_id: uuid::Uuid,
+        result_id: Option<uuid::Uuid>,
+    },
+    /// Issue exactly one proposal-bound apply with this request.
+    Apply {
+        proposal_id: uuid::Uuid,
+        idempotency_key: uuid::Uuid,
+        request: Box<crate::ApplyModelCredentialProposalRequest>,
+    },
+}
+
+pub fn model_credential_proposal_applied_revision(
+    reviewed: &crate::ManagedModelCredentialProposal,
+    request: &crate::ApplyModelCredentialProposalRequest,
+    applied: &crate::ManagedModelCredentialProposal,
+) -> Result<uuid::Uuid, ValidationError> {
+    if applied.state != crate::ManagedModelCredentialProposalState::Applied
+        || applied.id != reviewed.id
+        || applied.deployment_id != reviewed.deployment_id
+        || applied.model_id != reviewed.model_id
+        || applied.auth_method != reviewed.auth_method
+        || applied.operation != reviewed.operation
+        || applied.proposal_fingerprint != reviewed.proposal_fingerprint
+        || applied.requirements_fingerprint != reviewed.requirements_fingerprint
+        || applied.expected_active_revision_id != reviewed.expected_active_revision_id
+        || applied.requested_environment_names != reviewed.requested_environment_names
+        || applied.requires_secret_resolution_result != reviewed.requires_secret_resolution_result
+        || applied.approval_request_id != reviewed.approval_request_id
+        || applied.result_id != request.secret_resolution_result_id
+    {
+        return Err(ValidationError::new(
+            "Core returned a model credential proposal that does not match the reviewed apply.",
+        ));
+    }
+    applied.applied_revision_id.ok_or_else(|| {
+        ValidationError::new(
+            "Core returned an applied model credential proposal without an applied revision.",
+        )
+    })
+}
+
+/// Reject a Seren Passwords setup that Core did not bind to this model proposal.
+fn ensure_setup_bound_to_model_credential_proposal(
+    request: &crate::DelegationPolicyRequestView,
+    proposal: &crate::ManagedModelCredentialProposal,
+) -> Result<(), ValidationError> {
+    if proposal.approval_request_id != Some(request.request_id) {
+        return Err(ValidationError::new(
+            "The Seren Passwords setup is not bound to this model credential proposal.",
+        ));
+    }
+    if request.deployment_revision_id != Some(proposal.expected_active_revision_id) {
+        return Err(ValidationError::new(
+            "The Seren Passwords setup does not target the model proposal's reviewed revision.",
+        ));
+    }
+    Ok(())
+}
+
+fn model_credential_proposal_already_applied(
+    proposal: &crate::ManagedModelCredentialProposal,
+) -> Result<ModelCredentialProposalApply, ValidationError> {
+    let applied_revision_id = proposal.applied_revision_id.ok_or_else(|| {
+        ValidationError::new(
+            "The model credential proposal is applied but names no active revision.",
+        )
+    })?;
+    Ok(ModelCredentialProposalApply::AlreadyApplied {
+        applied_revision_id,
+        result_id: proposal.result_id,
+    })
+}
+
+/// Select an apply mutation or an existing revision for a model credential proposal.
+///
+/// The selected proposal and approved setup must match Core's reviewed binding.
+/// Proposals that require no secret result accept no setup or field mapping.
+pub fn model_credential_proposal_apply(
+    organization_id: uuid::Uuid,
+    detail: &crate::ManagedAgentDeploymentDetail,
+    request: Option<&crate::DelegationPolicyRequestView>,
+    proposal: &crate::ManagedModelCredentialProposal,
+    proposal_id: uuid::Uuid,
+) -> Result<ModelCredentialProposalApply, ValidationError> {
+    if proposal_id != proposal.id {
+        return Err(ValidationError::new(
+            "The managed agent's current model credential proposal is not the proposal selected for apply.",
+        ));
+    }
+    if proposal.deployment_id != detail.deployment_id {
+        return Err(ValidationError::new(
+            "The model credential proposal belongs to another managed agent deployment.",
+        ));
+    }
+    if proposal.state == crate::ManagedModelCredentialProposalState::Superseded {
+        return Err(ValidationError::new(
+            "The model credential proposal has been superseded and can no longer be applied.",
+        ));
+    }
+
+    let apply_request = if proposal.requires_secret_resolution_result {
+        if proposal.state == crate::ManagedModelCredentialProposalState::Applied {
+            if let Some(request) = request {
+                ensure_setup_bound_to_model_credential_proposal(request, proposal)?;
+                if proposal.result_id != Some(request.result_id) {
+                    return Err(ValidationError::new(
+                        "The model credential proposal is bound to a different Seren Passwords result.",
+                    ));
+                }
+            }
+            return model_credential_proposal_already_applied(proposal);
+        }
+        let request = request.ok_or_else(|| {
+            ValidationError::new(
+                "The model credential proposal requires an approved Seren Passwords setup.",
+            )
+        })?;
+        ensure_delegation_setup_applies(organization_id, detail, request)?;
+        ensure_setup_bound_to_model_credential_proposal(request, proposal)?;
+        if proposal
+            .result_id
+            .is_some_and(|result_id| result_id != request.result_id)
+        {
+            return Err(ValidationError::new(
+                "The model credential proposal is bound to a different Seren Passwords result.",
+            ));
+        }
+        let effective_mapping = managed_model_credential_effective_mapping(
+            &proposal.requested_environment_names,
+            request,
+        )?;
+        crate::ApplyModelCredentialProposalRequest {
+            effective_mapping,
+            secret_resolution_result_id: Some(request.result_id),
+        }
+    } else {
+        if request.is_some()
+            || !proposal.requested_environment_names.is_empty()
+            || proposal.result_id.is_some()
+            || proposal.approval_request_id.is_some()
+        {
+            return Err(ValidationError::new(
+                "The model credential proposal has an inconsistent result contract.",
+            ));
+        }
+        if proposal.state == crate::ManagedModelCredentialProposalState::Applied {
+            return model_credential_proposal_already_applied(proposal);
+        }
+        crate::ApplyModelCredentialProposalRequest::default()
+    };
+
+    let active_revision_id = detail
+        .active_revision_id
+        .ok_or_else(|| ValidationError::new("The managed agent has no active revision to bind."))?;
+    if proposal.expected_active_revision_id != active_revision_id {
+        return Err(ValidationError::new(
+            "The model credential proposal no longer targets the managed agent's active revision.",
+        ));
+    }
+
+    Ok(ModelCredentialProposalApply::Apply {
+        proposal_id: proposal.id,
+        idempotency_key: proposal.id,
+        request: Box::new(apply_request),
+    })
+}
+
 pub fn normalize_optional_string(
     value: Option<&str>,
     field: &str,
@@ -2633,5 +2885,211 @@ mod tests {
         assert!(
             connector_binding_proposal_applied_revision(&reviewed, &request, &no_revision).is_err()
         );
+    }
+    fn model_proposal(
+        deployment_id: uuid::Uuid,
+        expected_active_revision_id: uuid::Uuid,
+        state: &str,
+        auth_method: &str,
+        requires_secret: bool,
+    ) -> crate::ManagedModelCredentialProposal {
+        serde_json::from_value(serde_json::json!({
+            "id": uuid::Uuid::new_v4(),
+            "deployment_id": deployment_id,
+            "model_id": "openai/gpt-5",
+            "operation": "configure",
+            "auth_method": auth_method,
+            "expected_active_revision_id": expected_active_revision_id,
+            "proposal_fingerprint": "fp",
+            "requirements_fingerprint": "rfp",
+            "requested_environment_names": if requires_secret { vec!["PASSWORD"] } else { Vec::<&str>::new() },
+            "requires_secret_resolution_result": requires_secret,
+            "state": state,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn model_credential_apply_binds_server_mapping_for_api_key_auth() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+        let mut proposal = model_proposal(
+            deployment_id,
+            revision_id,
+            "awaiting_review",
+            "api_key",
+            true,
+        );
+        proposal.approval_request_id = Some(request.request_id);
+
+        let ModelCredentialProposalApply::Apply {
+            proposal_id,
+            idempotency_key,
+            request: apply,
+        } = model_credential_proposal_apply(
+            organization_id,
+            &detail,
+            Some(&request),
+            &proposal,
+            proposal.id,
+        )
+        .expect("api-key model proposal must produce an apply")
+        else {
+            panic!("api-key model proposal must produce an apply");
+        };
+
+        assert_eq!(proposal_id, proposal.id);
+        assert_eq!(idempotency_key, proposal.id);
+        assert_eq!(apply.secret_resolution_result_id, Some(request.result_id));
+        assert_eq!(apply.effective_mapping.len(), 1);
+        assert_eq!(apply.effective_mapping[0].environment_name, "PASSWORD");
+        assert_eq!(apply.effective_mapping[0].ref_uri, secrets_ref("password"));
+    }
+
+    #[test]
+    fn model_credential_apply_omits_secret_for_chatgpt_subscription_auth() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let proposal = model_proposal(
+            deployment_id,
+            revision_id,
+            "awaiting_review",
+            "chatgpt_subscription",
+            false,
+        );
+
+        let ModelCredentialProposalApply::Apply { request: apply, .. } =
+            model_credential_proposal_apply(organization_id, &detail, None, &proposal, proposal.id)
+                .expect("chatgpt-subscription model proposal applies without a Secrets result")
+        else {
+            panic!("chatgpt-subscription model proposal must produce an apply");
+        };
+
+        assert!(apply.secret_resolution_result_id.is_none());
+        assert!(apply.effective_mapping.is_empty());
+    }
+
+    #[test]
+    fn model_credential_apply_requires_a_setup_for_api_key_auth() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let proposal = model_proposal(
+            deployment_id,
+            revision_id,
+            "awaiting_review",
+            "api_key",
+            true,
+        );
+
+        assert!(
+            model_credential_proposal_apply(organization_id, &detail, None, &proposal, proposal.id)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn model_credential_apply_rejects_unbound_selected_or_superseded_proposals() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+
+        // Setup not bound to this proposal.
+        let unbound = model_proposal(
+            deployment_id,
+            revision_id,
+            "awaiting_review",
+            "api_key",
+            true,
+        );
+        assert!(
+            model_credential_proposal_apply(
+                organization_id,
+                &detail,
+                Some(&request),
+                &unbound,
+                unbound.id,
+            )
+            .is_err()
+        );
+
+        // Superseded proposal.
+        let mut superseded =
+            model_proposal(deployment_id, revision_id, "superseded", "api_key", true);
+        superseded.approval_request_id = Some(request.request_id);
+        assert!(
+            model_credential_proposal_apply(
+                organization_id,
+                &detail,
+                Some(&request),
+                &superseded,
+                superseded.id,
+            )
+            .is_err()
+        );
+
+        // Wrong selected proposal_id.
+        let proposal = model_proposal(
+            deployment_id,
+            revision_id,
+            "awaiting_review",
+            "api_key",
+            true,
+        );
+        assert!(
+            model_credential_proposal_apply(
+                organization_id,
+                &detail,
+                Some(&request),
+                &proposal,
+                uuid::Uuid::new_v4(),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn model_credential_apply_is_idempotent_when_already_applied() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+        let mut proposal = model_proposal(deployment_id, revision_id, "applied", "api_key", true);
+        let applied = uuid::Uuid::new_v4();
+        proposal.applied_revision_id = Some(applied);
+        proposal.result_id = Some(request.result_id);
+        proposal.approval_request_id = Some(request.request_id);
+
+        for setup in [Some(&request), None] {
+            match model_credential_proposal_apply(
+                organization_id,
+                &detail,
+                setup,
+                &proposal,
+                proposal.id,
+            )
+            .expect("applied model proposal resolves without error")
+            {
+                ModelCredentialProposalApply::AlreadyApplied {
+                    applied_revision_id,
+                    result_id,
+                } => {
+                    assert_eq!(applied_revision_id, applied);
+                    assert_eq!(result_id, Some(request.result_id));
+                }
+                ModelCredentialProposalApply::Apply { .. } => {
+                    panic!("an applied model proposal must not mutate again")
+                }
+            }
+        }
     }
 }

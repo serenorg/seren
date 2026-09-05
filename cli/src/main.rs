@@ -1542,6 +1542,22 @@ enum AgentAction {
         #[arg(long)]
         setup_id: Option<Uuid>,
     },
+    /// Get the current managed model-credential proposal for a deployment
+    ManagedModelCredentialProposalGet {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+    /// Apply an approved managed model-credential proposal
+    ManagedModelCredentialProposalApply {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Proposal ID from the model-credential proposal workflow
+        #[arg(long)]
+        proposal_id: Uuid,
+        /// Setup ID returned by managed-passwords-setup with model_credential_proposal_id; omit for ChatGPT-subscription auth or an idempotent retry
+        #[arg(long)]
+        setup_id: Option<Uuid>,
+    },
     /// Get a managed-agent resource summary for a deployment
     ManagedDeploymentResources {
         /// Deployment ID (UUID)
@@ -7583,6 +7599,22 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
+            AgentAction::ManagedModelCredentialProposalGet { deployment_id } => {
+                commands::agent::managed_model_credential_proposal_get(deployment_id, &ctx).await?
+            }
+            AgentAction::ManagedModelCredentialProposalApply {
+                deployment_id,
+                proposal_id,
+                setup_id,
+            } => {
+                commands::agent::managed_model_credential_proposal_apply(
+                    deployment_id,
+                    proposal_id,
+                    setup_id,
+                    &ctx,
+                )
+                .await?
+            }
             AgentAction::ManagedDeploymentResources { deployment_id } => {
                 commands::agent::managed_agent_deployment_resources(deployment_id, &ctx).await?
             }
@@ -8102,6 +8134,80 @@ mod tests {
                     );
                 }
                 _ => panic!("unexpected managed connector proposal apply action"),
+            },
+            _ => panic!("unexpected command"),
+        }
+    }
+
+    #[test]
+    fn managed_model_credential_proposal_commands_parse_apply_inputs() {
+        let deployment_id = "550e8400-e29b-41d4-a716-446655440000";
+        let setup_id = "c2f579ec-3e8a-4a52-a969-203d2a80c98d";
+        let proposal_id = "0b7f3a7e-2b1c-4b1a-9c2d-5d2f1e6a7b8c";
+
+        let get = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-model-credential-proposal-get",
+            deployment_id,
+        ]);
+        match get.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedModelCredentialProposalGet {
+                    deployment_id: parsed_deployment_id,
+                } => {
+                    assert_eq!(parsed_deployment_id.to_string(), deployment_id);
+                }
+                _ => panic!("unexpected managed model proposal get action"),
+            },
+            _ => panic!("unexpected command"),
+        }
+
+        // API-key auth: setup_id present.
+        let apply = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-model-credential-proposal-apply",
+            deployment_id,
+            "--proposal-id",
+            proposal_id,
+            "--setup-id",
+            setup_id,
+        ]);
+        match apply.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedModelCredentialProposalApply {
+                    deployment_id: parsed_deployment_id,
+                    proposal_id: parsed_proposal_id,
+                    setup_id: parsed_setup_id,
+                } => {
+                    assert_eq!(parsed_deployment_id.to_string(), deployment_id);
+                    assert_eq!(parsed_proposal_id.to_string(), proposal_id);
+                    assert_eq!(
+                        parsed_setup_id.map(|id| id.to_string()),
+                        Some(setup_id.to_string())
+                    );
+                }
+                _ => panic!("unexpected managed model proposal apply action"),
+            },
+            _ => panic!("unexpected command"),
+        }
+
+        // ChatGPT-subscription auth: setup_id omitted.
+        let apply_no_setup = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-model-credential-proposal-apply",
+            deployment_id,
+            "--proposal-id",
+            proposal_id,
+        ]);
+        match apply_no_setup.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedModelCredentialProposalApply { setup_id, .. } => {
+                    assert!(setup_id.is_none());
+                }
+                _ => panic!("unexpected managed model proposal apply action"),
             },
             _ => panic!("unexpected command"),
         }

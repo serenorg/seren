@@ -5275,6 +5275,157 @@ pub async fn managed_connector_binding_proposal_apply(
     Ok(())
 }
 
+/// Read the current model-credential proposal for a managed seren-agent
+/// deployment.
+pub async fn managed_model_credential_proposal_get(
+    deployment_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    ctx.require_user_session("Managed agent model credential proposal status")
+        .await?;
+    let client = ctx.client().await?;
+    let proposal = match client
+        .seren_cloud_get_model_credential_proposal(&deployment_id)
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(seren::Error::UnexpectedResponse(response)) if response.status() == 404 => {
+            output::print_json(&serde_json::json!({
+                "status": "none",
+                "deployment_id": deployment_id,
+            }))?;
+            return Ok(());
+        }
+        Err(error) => {
+            return Err(
+                anyhow_from_seren_error("Failed to load model credential proposal", error).await,
+            );
+        }
+    };
+    output::print_json(&serde_json::json!({
+        "status": proposal.state,
+        "proposal_id": proposal.id,
+        "deployment_id": proposal.deployment_id,
+        "model_id": proposal.model_id,
+        "auth_method": proposal.auth_method,
+        "operation": proposal.operation,
+        "expected_active_revision_id": proposal.expected_active_revision_id,
+        "requested_environment_names": proposal.requested_environment_names,
+        "requires_secret_resolution_result": proposal.requires_secret_resolution_result,
+        "result_id": proposal.result_id,
+        "applied_revision_id": proposal.applied_revision_id,
+        "runtime_action": managed_runtime_action_json(proposal.runtime_action.as_ref()),
+    }))?;
+    Ok(())
+}
+
+/// Apply an approved model-credential proposal through the Core model-credential
+/// proposal-bound apply route using the reviewed Seren Passwords result.
+pub async fn managed_model_credential_proposal_apply(
+    deployment_id: Uuid,
+    proposal_id: Uuid,
+    setup_id: Option<Uuid>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    ctx.require_user_session("Managed agent model credential proposal apply")
+        .await?;
+    let client = ctx.client().await?;
+    let deployment = managed_agent_deployment_summary(&client, deployment_id).await?;
+    let detail = client
+        .seren_agent_get_managed_deployment(&deployment_id)
+        .await
+        .map_err(|error| anyhow::anyhow!("Failed to load managed agent detail: {error}"))?
+        .into_inner()
+        .data;
+    let proposal = match client
+        .seren_cloud_get_model_credential_proposal(&deployment_id)
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(error) => {
+            return Err(
+                anyhow_from_seren_error("Failed to load model credential proposal", error).await,
+            );
+        }
+    };
+    let request = match setup_id {
+        Some(setup_id) => Some(managed_agent_secrets_policy_request(&client, setup_id).await?),
+        None => None,
+    };
+    match seren::model_credential_proposal_apply(
+        deployment.organization_id,
+        &detail,
+        request.as_ref(),
+        &proposal,
+        proposal_id,
+    )? {
+        seren::ModelCredentialProposalApply::AlreadyApplied {
+            applied_revision_id,
+            result_id,
+        } => {
+            output::print_json(&serde_json::json!({
+                "status": proposal.state,
+                "setup_id": setup_id,
+                "deployment_id": deployment_id,
+                "proposal_id": proposal.id,
+                "result_id": result_id,
+                "active_revision_id": applied_revision_id,
+                "runtime_action": managed_runtime_action_json(proposal.runtime_action.as_ref()),
+                "already_applied": true,
+            }))?;
+        }
+        seren::ModelCredentialProposalApply::Apply {
+            proposal_id,
+            idempotency_key,
+            request: apply_request,
+        } => {
+            let applied = match client
+                .seren_cloud_apply_model_credential_proposal(
+                    &deployment_id,
+                    &proposal_id,
+                    &idempotency_key,
+                    &apply_request,
+                )
+                .await
+            {
+                Ok(response) => response.into_inner().data,
+                Err(error) => {
+                    return Err(anyhow_from_seren_error(
+                        "Failed to apply model credential proposal",
+                        error,
+                    )
+                    .await);
+                }
+            };
+            let applied_revision_id = seren::model_credential_proposal_applied_revision(
+                &proposal,
+                &apply_request,
+                &applied,
+            )?;
+            let rollout_pending = applied.runtime_action.as_ref().is_some_and(|action| {
+                action.state == seren::ManagedRuntimeReconciliationState::Pending
+            });
+            output::print_json(&serde_json::json!({
+                "status": applied.state,
+                "setup_id": setup_id,
+                "deployment_id": deployment_id,
+                "proposal_id": proposal_id,
+                "result_id": applied.result_id,
+                "active_revision_id": applied_revision_id,
+                "requested_environment_names": applied.requested_environment_names,
+                "runtime_action": managed_runtime_action_json(applied.runtime_action.as_ref()),
+                "already_applied": false,
+                "next_step": if rollout_pending {
+                    "The applied revision is recorded but its runtime rollout is still pending; check the deployment before relying on the model credential."
+                } else {
+                    "The model credential proposal has been applied."
+                },
+            }))?;
+        }
+    }
+    Ok(())
+}
+
 /// List immutable revision snapshots for a managed seren-agent deployment.
 pub async fn managed_agent_revisions(deployment_id: Uuid, ctx: &CommandContext) -> Result<()> {
     let client = ctx.client().await?;

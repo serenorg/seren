@@ -2303,6 +2303,27 @@ pub struct ApplyConnectorBindingProposalParams {
     pub setup_id: Option<Uuid>,
 }
 
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetModelCredentialProposalParams {
+    /// Managed agent deployment UUID
+    pub deployment_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ApplyModelCredentialProposalParams {
+    /// Managed agent deployment UUID
+    pub deployment_id: Uuid,
+    /// Proposal UUID returned by the model-credential proposal workflow.
+    pub proposal_id: Uuid,
+    /// Setup UUID returned by start_seren_agent_passwords_setup with
+    /// model_credential_proposal_id set. Required for an API-key auth method that
+    /// requests a Secrets result; omitted for a ChatGPT-subscription auth method
+    /// that needs no Secrets result, and on an idempotent retry of an
+    /// already-applied proposal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup_id: Option<Uuid>,
+}
+
 /// Summarize the runtime rollout Core started for an applied proposal.
 fn managed_runtime_action_json(
     action: Option<&seren::ManagedRuntimeReconciliationSummary>,
@@ -14827,6 +14848,175 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "Get the current model-credential proposal for a managed seren-agent deployment, if one is awaiting review or was recently applied. Requires a signed-in OAuth user session.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn get_seren_agent_model_credential_proposal(
+        &self,
+        Parameters(params): Parameters<GetModelCredentialProposalParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_account_user_session(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let proposal = match api_client
+            .seren_cloud_get_model_credential_proposal(&params.deployment_id)
+            .await
+        {
+            Ok(response) => response.into_inner().data,
+            Err(seren::Error::UnexpectedResponse(response)) if response.status() == 404 => {
+                return Ok(CallToolResult::success(vec![json_content(
+                    &serde_json::json!({
+                        "status": "none",
+                        "deployment_id": params.deployment_id,
+                    }),
+                )?]));
+            }
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(
+            &serde_json::json!({
+                "status": proposal.state,
+                "proposal_id": proposal.id,
+                "deployment_id": proposal.deployment_id,
+                "model_id": proposal.model_id,
+                "auth_method": proposal.auth_method,
+                "operation": proposal.operation,
+                "expected_active_revision_id": proposal.expected_active_revision_id,
+                "requested_environment_names": proposal.requested_environment_names,
+                "requires_secret_resolution_result": proposal.requires_secret_resolution_result,
+                "result_id": proposal.result_id,
+                "applied_revision_id": proposal.applied_revision_id,
+                "runtime_action": managed_runtime_action_json(proposal.runtime_action.as_ref()),
+            }),
+        )?]))
+    }
+
+    #[tool(
+        description = "Apply an approved model-credential proposal to its managed seren-agent deployment through the Core model-credential proposal-bound apply route. Pass the proposal_id from the model-credential workflow; the apply fails if the deployment's current proposal differs. For an API-key auth method that requests secrets, reads the exact reviewed mapping from the approved Seren Passwords setup (setup_id); a ChatGPT-subscription auth method needs no Secrets result, so omit setup_id. Idempotent retries return the already-applied revision without a second mutation. Requires a signed-in OAuth user session.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn apply_seren_agent_model_credential_proposal(
+        &self,
+        Parameters(params): Parameters<ApplyModelCredentialProposalParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_account_user_session(&extensions)?;
+        ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Update)?;
+        let api_client = self.api_client(&extensions)?;
+        let deployments = api_client
+            .seren_agent_list_deployments()
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        let organization_id = deployments
+            .iter()
+            .find(|deployment| deployment.id == params.deployment_id)
+            .map(|deployment| deployment.organization_id)
+            .ok_or_else(|| McpError::invalid_params("Managed agent deployment not found", None))?;
+        let detail = api_client
+            .seren_agent_get_managed_deployment(&params.deployment_id)
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        let proposal = api_client
+            .seren_cloud_get_model_credential_proposal(&params.deployment_id)
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        let request = match params.setup_id {
+            Some(setup_id) => Some(
+                self.get_passwords_policy_request(&extensions, setup_id)
+                    .await?,
+            ),
+            None => None,
+        };
+        match seren::model_credential_proposal_apply(
+            organization_id,
+            &detail,
+            request.as_ref(),
+            &proposal,
+            params.proposal_id,
+        )
+        .map_err(|error| McpError::invalid_request(error.to_string(), None))?
+        {
+            seren::ModelCredentialProposalApply::AlreadyApplied {
+                applied_revision_id,
+                result_id,
+            } => Ok(CallToolResult::success(vec![json_content(
+                &serde_json::json!({
+                    "status": proposal.state,
+                    "setup_id": params.setup_id,
+                    "deployment_id": params.deployment_id,
+                    "proposal_id": proposal.id,
+                    "result_id": result_id,
+                    "active_revision_id": applied_revision_id,
+                    "runtime_action": managed_runtime_action_json(
+                        proposal.runtime_action.as_ref()
+                    ),
+                    "already_applied": true,
+                }),
+            )?])),
+            seren::ModelCredentialProposalApply::Apply {
+                proposal_id,
+                idempotency_key,
+                request: apply_request,
+            } => {
+                let applied = api_client
+                    .seren_cloud_apply_model_credential_proposal(
+                        &params.deployment_id,
+                        &proposal_id,
+                        &idempotency_key,
+                        &apply_request,
+                    )
+                    .into_mcp_result()
+                    .await?
+                    .into_inner()
+                    .data;
+                let applied_revision_id = seren::model_credential_proposal_applied_revision(
+                    &proposal,
+                    &apply_request,
+                    &applied,
+                )
+                .map_err(|error| McpError::invalid_request(error.to_string(), None))?;
+                let rollout_pending = applied.runtime_action.as_ref().is_some_and(|action| {
+                    action.state == seren::ManagedRuntimeReconciliationState::Pending
+                });
+                Ok(CallToolResult::success(vec![json_content(
+                    &serde_json::json!({
+                        "status": applied.state,
+                        "setup_id": params.setup_id,
+                        "deployment_id": params.deployment_id,
+                        "proposal_id": proposal_id,
+                        "result_id": applied.result_id,
+                        "active_revision_id": applied_revision_id,
+                        "requested_environment_names": applied.requested_environment_names,
+                        "runtime_action": managed_runtime_action_json(
+                            applied.runtime_action.as_ref()
+                        ),
+                        "already_applied": false,
+                        "next_step": if rollout_pending {
+                            "The applied revision is recorded but its runtime rollout is still pending; check the deployment before relying on the model credential."
+                        } else {
+                            "The model credential proposal has been applied."
+                        },
+                    }),
+                )?]))
+            }
+        }
+    }
+
+    #[tool(
         description = "Get health for a single managed seren-agent deployment.",
         annotations(
             read_only_hint = true,
@@ -23365,6 +23555,350 @@ mod tests {
             .await
             .expect("a base-manifest setup still routes through the generic apply");
         assert!(result_contains(&result, "already_applied"));
+    }
+
+    #[tokio::test]
+    async fn apply_model_credential_proposal_requires_user_session() {
+        let server = SerenMcpServer::new("restricted-key", "http://127.0.0.1:9").unwrap();
+        let extensions = extensions_with_auth_context(crate::SerenRequestAuthContext {
+            user_id: Uuid::new_v4(),
+            email: None,
+            credential: crate::SerenRequestCredential::UserApiKey {
+                api_key_id: Some(Uuid::new_v4()),
+                api_key_scopes: Some(vec!["managed-deployment:*".to_string()]),
+            },
+        });
+        let error = server
+            .apply_seren_agent_model_credential_proposal(
+                Parameters(ApplyModelCredentialProposalParams {
+                    deployment_id: Uuid::new_v4(),
+                    proposal_id: Uuid::new_v4(),
+                    setup_id: Some(Uuid::new_v4()),
+                }),
+                extensions,
+            )
+            .await
+            .expect_err("an API key cannot apply a model credential proposal");
+        assert!(error.message.contains("Hosted MCP with OAuth"));
+    }
+
+    #[tokio::test]
+    async fn apply_model_credential_proposal_routes_to_model_endpoint() {
+        use wiremock::matchers::{body_json, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let setup_id = Uuid::from_u128(0x3a01);
+        let deployment_id = Uuid::from_u128(0x3a02);
+        let organization_id = Uuid::from_u128(1);
+        let revision_id = Uuid::from_u128(0x3a03);
+        let agent_identity_id = Uuid::from_u128(0x3a04);
+        let result_id = Uuid::from_u128(0x3a05);
+        let proposal_id = Uuid::from_u128(0x3a06);
+        let vault_id = Uuid::from_u128(0x3a07);
+        let item_id = Uuid::from_u128(0x3a08);
+        let applied_revision_id = Uuid::from_u128(0x3a09);
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-passwords/delegations/{setup_id}"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(delegation_view_value(
+                    DelegationViewFixture {
+                        request_id: setup_id,
+                        organization_id,
+                        deployment_id,
+                        deployment_revision_id: revision_id,
+                        agent_identity_id,
+                        result_id,
+                        vault_id,
+                        item_id,
+                    },
+                )),
+            )
+            .mount(&proxy)
+            .await;
+
+        let summary = cloud_deployment_body(deployment_id, Some("seren-agent"), false);
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/deployments"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [summary["data"].clone()]
+            })))
+            .mount(&proxy)
+            .await;
+
+        let mut detail = managed_agent_detail_fixture(deployment_id);
+        detail["data"]["active_revision_id"] = serde_json::json!(revision_id);
+        detail["data"]["agent_identity_id"] = serde_json::json!(agent_identity_id);
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(detail))
+            .mount(&proxy)
+            .await;
+
+        let proposal = serde_json::json!({
+            "id": proposal_id,
+            "deployment_id": deployment_id,
+            "model_id": "openai/gpt-5",
+            "operation": "configure",
+            "auth_method": "api_key",
+            "expected_active_revision_id": revision_id,
+            "proposal_fingerprint": "fp",
+            "requirements_fingerprint": "rfp",
+            "requested_environment_names": ["SLACK_BOT_TOKEN"],
+            "requires_secret_resolution_result": true,
+            "state": "awaiting_review",
+            "approval_request_id": setup_id
+        });
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-cloud/deployments/{deployment_id}/model-credential/proposals"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": proposal.clone()
+            })))
+            .mount(&proxy)
+            .await;
+
+        let mut applied = proposal;
+        applied["state"] = serde_json::json!("applied");
+        applied["applied_revision_id"] = serde_json::json!(applied_revision_id);
+        applied["result_id"] = serde_json::json!(result_id);
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/publishers/seren-cloud/deployments/{deployment_id}/model-credential/proposals/{proposal_id}/apply"
+            )))
+            .and(header("Idempotency-Key", proposal_id.to_string()))
+            .and(body_json(serde_json::json!({
+                "effective_mapping": [{
+                    "environment_name": "SLACK_BOT_TOKEN",
+                    "ref_uri": format!("seren-secrets://{vault_id}/{item_id}/token"),
+                    "vault_id": vault_id,
+                    "item_id": item_id,
+                    "field": "token"
+                }],
+                "secret_resolution_result_id": result_id,
+            })))
+            .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
+                "data": applied
+            })))
+            .expect(2)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let result = server
+            .apply_seren_agent_model_credential_proposal(
+                Parameters(ApplyModelCredentialProposalParams {
+                    deployment_id,
+                    proposal_id,
+                    setup_id: Some(setup_id),
+                }),
+                Extensions::default(),
+            )
+            .await
+            .expect("apply routes through the Core model-credential endpoint");
+        assert!(result_contains(&result, &applied_revision_id.to_string()));
+        let replay = server
+            .apply_seren_agent_model_credential_proposal(
+                Parameters(ApplyModelCredentialProposalParams {
+                    deployment_id,
+                    proposal_id,
+                    setup_id: Some(setup_id),
+                }),
+                Extensions::default(),
+            )
+            .await
+            .expect("a replay sends the same proposal idempotency key");
+        assert!(result_contains(&replay, &applied_revision_id.to_string()));
+    }
+
+    #[tokio::test]
+    async fn apply_model_credential_proposal_chatgpt_subscription_needs_no_setup() {
+        use wiremock::matchers::{body_json, header_exists, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let deployment_id = Uuid::from_u128(0x3b01);
+        let revision_id = Uuid::from_u128(0x3b02);
+        let proposal_id = Uuid::from_u128(0x3b03);
+        let applied_revision_id = Uuid::from_u128(0x3b04);
+
+        let summary = cloud_deployment_body(deployment_id, Some("seren-agent"), false);
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/deployments"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [summary["data"].clone()]
+            })))
+            .mount(&proxy)
+            .await;
+
+        let mut detail = managed_agent_detail_fixture(deployment_id);
+        detail["data"]["active_revision_id"] = serde_json::json!(revision_id);
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(detail))
+            .mount(&proxy)
+            .await;
+
+        let proposal = serde_json::json!({
+            "id": proposal_id,
+            "deployment_id": deployment_id,
+            "model_id": "openai/gpt-5",
+            "operation": "configure",
+            "auth_method": "chatgpt_subscription",
+            "expected_active_revision_id": revision_id,
+            "proposal_fingerprint": "fp",
+            "requirements_fingerprint": "rfp",
+            "requested_environment_names": [],
+            "requires_secret_resolution_result": false,
+            "state": "awaiting_review"
+        });
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-cloud/deployments/{deployment_id}/model-credential/proposals"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": proposal.clone()
+            })))
+            .mount(&proxy)
+            .await;
+
+        let mut applied = proposal;
+        applied["state"] = serde_json::json!("applied");
+        applied["applied_revision_id"] = serde_json::json!(applied_revision_id);
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/publishers/seren-cloud/deployments/{deployment_id}/model-credential/proposals/{proposal_id}/apply"
+            )))
+            .and(header_exists("Idempotency-Key"))
+            .and(body_json(serde_json::json!({})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": applied
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let result = server
+            .apply_seren_agent_model_credential_proposal(
+                Parameters(ApplyModelCredentialProposalParams {
+                    deployment_id,
+                    proposal_id,
+                    setup_id: None,
+                }),
+                Extensions::default(),
+            )
+            .await
+            .expect("chatgpt-subscription model proposal applies with no Secrets result");
+        assert!(result_contains(&result, &applied_revision_id.to_string()));
+    }
+
+    #[tokio::test]
+    async fn apply_model_credential_proposal_is_idempotent_on_replay() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let setup_id = Uuid::from_u128(0x3c01);
+        let deployment_id = Uuid::from_u128(0x3c02);
+        let organization_id = Uuid::from_u128(1);
+        let revision_id = Uuid::from_u128(0x3c03);
+        let agent_identity_id = Uuid::from_u128(0x3c04);
+        let result_id = Uuid::from_u128(0x3c05);
+        let proposal_id = Uuid::from_u128(0x3c06);
+        let vault_id = Uuid::from_u128(0x3c07);
+        let item_id = Uuid::from_u128(0x3c08);
+        let applied_revision_id = Uuid::from_u128(0x3c09);
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-passwords/delegations/{setup_id}"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(delegation_view_value(
+                    DelegationViewFixture {
+                        request_id: setup_id,
+                        organization_id,
+                        deployment_id,
+                        deployment_revision_id: revision_id,
+                        agent_identity_id,
+                        result_id,
+                        vault_id,
+                        item_id,
+                    },
+                )),
+            )
+            .mount(&proxy)
+            .await;
+
+        let summary = cloud_deployment_body(deployment_id, Some("seren-agent"), false);
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/deployments"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [summary["data"].clone()]
+            })))
+            .mount(&proxy)
+            .await;
+
+        let mut detail = managed_agent_detail_fixture(deployment_id);
+        detail["data"]["active_revision_id"] = serde_json::json!(revision_id);
+        detail["data"]["agent_identity_id"] = serde_json::json!(agent_identity_id);
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(detail))
+            .mount(&proxy)
+            .await;
+
+        // An applied proposal is confirmed, never re-applied.
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-cloud/deployments/{deployment_id}/model-credential/proposals"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "id": proposal_id,
+                    "deployment_id": deployment_id,
+                    "model_id": "openai/gpt-5",
+                    "operation": "configure",
+                    "auth_method": "api_key",
+                    "expected_active_revision_id": revision_id,
+                    "proposal_fingerprint": "fp",
+                    "requirements_fingerprint": "rfp",
+                    "requested_environment_names": ["SLACK_BOT_TOKEN"],
+                    "requires_secret_resolution_result": true,
+                    "state": "applied",
+                    "applied_revision_id": applied_revision_id,
+                    "result_id": result_id,
+                    "approval_request_id": setup_id
+                }
+            })))
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let result = server
+            .apply_seren_agent_model_credential_proposal(
+                Parameters(ApplyModelCredentialProposalParams {
+                    deployment_id,
+                    proposal_id,
+                    setup_id: Some(setup_id),
+                }),
+                Extensions::default(),
+            )
+            .await
+            .expect("an applied model proposal resolves idempotently");
+        assert!(result_contains(&result, "already_applied"));
+        assert!(result_contains(&result, &applied_revision_id.to_string()));
     }
 
     #[tokio::test]

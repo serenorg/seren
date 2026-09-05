@@ -258,6 +258,7 @@ Managed-agent Seren Passwords setup remains human-authorized. Its setup, status,
 - `get_seren_agent_passwords_setup_status` checks whether that setup is pending, approved, applied, or terminal and identifies the apply tool for the original setup binding
 - `apply_seren_agent_passwords_setup` attaches an approved base-manifest identity, policy result, and exact field mapping through the revision-CAS update path; Core's original setup binding prevents proposal-bound setups from reaching this route
 - `get_seren_agent_connector_binding_proposal` and `apply_seren_agent_connector_binding_proposal` read and apply the current connector proposal; supply its `connector_ref`, `proposal_id`, and approved `setup_id`
+- `get_seren_agent_model_credential_proposal` and `apply_seren_agent_model_credential_proposal` read and apply the current model credential proposal; supply `proposal_id` and the approved `setup_id` when secrets are required, and omit `setup_id` for ChatGPT-subscription authentication
 - `list_seren_agent_deployment_revisions` shows immutable revision history
 - `start_seren_agent_deployment` starts a managed deployment through the seren-agent lifecycle API
 - `stop_seren_agent_deployment` stops a managed deployment through the seren-agent lifecycle API
