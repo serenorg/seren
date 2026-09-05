@@ -2517,6 +2517,14 @@
         },
         "additionalProperties": false
       },
+      "AgentPublisherToolSurface": {
+        "type": "string",
+        "description": "Surface authorized to execute a publisher operation.",
+        "enum": [
+          "prompt",
+          "script"
+        ]
+      },
       "AgentRealtimeSessionsCapabilityPolicy": {
         "type": "object",
         "required": [
@@ -3484,6 +3492,10 @@
               "kind"
             ],
             "properties": {
+              "execution_surface": {
+                "$ref": "#/components/schemas/AgentPublisherToolSurface",
+                "description": "Execution surface that may use this grant. A grant belongs to\nexactly one surface; grant the same operation to both surfaces\nwith two refs."
+              },
               "kind": {
                 "type": "string",
                 "enum": [
@@ -8279,6 +8291,16 @@
               "null"
             ]
           },
+          "selection_constraint": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentSecretSelectionConstraint"
+              }
+            ]
+          },
           "source": {
             "$ref": "#/components/schemas/ManagedAgentSecretRequirementSource"
           }
@@ -8348,6 +8370,49 @@
             "type": "string"
           }
         }
+      },
+      "ManagedAgentSecretSelectionConstraint": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "The selected reference must not match the lowercase SHA-256 fingerprint.",
+            "required": [
+              "reference_fingerprint",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "different_reference"
+                ]
+              },
+              "reference_fingerprint": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The selected reference must match the lowercase SHA-256 fingerprint.",
+            "required": [
+              "reference_fingerprint",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "exact_reference"
+                ]
+              },
+              "reference_fingerprint": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "Constraint applied to the selected `seren-secrets://` reference before approval."
       },
       "ManagedAgentSecretsApprovalRule": {
         "oneOf": [
