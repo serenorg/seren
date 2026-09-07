@@ -1480,6 +1480,16 @@
           "required": true
         },
         "responses": {
+          "200": {
+            "description": "Existing publisher credential proposal progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_ManagedPublisherCredentialProposal"
+                }
+              }
+            }
+          },
           "202": {
             "description": "Revision-bound publisher credential proposal awaiting review",
             "content": {
@@ -1489,6 +1499,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid publisher credential proposal"
           },
           "409": {
             "description": "Another proposal is active or the deployment changed"
@@ -16500,7 +16513,8 @@
             "$ref": "#/components/schemas/AgentCredentialKind"
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Credential name: an ASCII letter or underscore followed by ASCII letters, digits, or underscores. SEREN_ and process-reserved names are not allowed."
           },
           "operation": {
             "$ref": "#/components/schemas/ManagedPublisherCredentialProposalOperation"

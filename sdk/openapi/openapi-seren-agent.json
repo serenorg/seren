@@ -5013,6 +5013,7 @@
               "connectors",
               "schedule",
               "tools",
+              "publisher_credentials",
               "memory",
               "capabilities"
             ],
@@ -5043,6 +5044,10 @@
               "organization_id": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "publisher_credentials": {
+                "$ref": "#/components/schemas/ManagedAgentPublisherCredentialReadiness",
+                "description": "Current availability of credentials required by publisher operations."
               },
               "runtime": {
                 "$ref": "#/components/schemas/ManagedAgentRuntimeResources"
@@ -7190,6 +7195,7 @@
           "connectors",
           "schedule",
           "tools",
+          "publisher_credentials",
           "memory",
           "capabilities"
         ],
@@ -7220,6 +7226,10 @@
           "organization_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "publisher_credentials": {
+            "$ref": "#/components/schemas/ManagedAgentPublisherCredentialReadiness",
+            "description": "Current availability of credentials required by publisher operations."
           },
           "runtime": {
             "$ref": "#/components/schemas/ManagedAgentRuntimeResources"
@@ -7799,6 +7809,52 @@
         "enum": [
           "control_plane",
           "private_session_database"
+        ]
+      },
+      "ManagedAgentPublisherCredentialReadiness": {
+        "type": "object",
+        "required": [
+          "status",
+          "required_credential_count",
+          "checked_at"
+        ],
+        "properties": {
+          "active_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "control_generation": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Control generation checked when status is ready."
+          },
+          "required_credential_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/ManagedAgentPublisherCredentialStatus"
+          }
+        }
+      },
+      "ManagedAgentPublisherCredentialStatus": {
+        "type": "string",
+        "enum": [
+          "not_required",
+          "ready",
+          "denied",
+          "unavailable"
         ]
       },
       "ManagedAgentRevisionChangeKind": {
@@ -9338,6 +9394,16 @@
           "slack"
         ]
       },
+      "ManagedRuntimeReconciliationDeferral": {
+        "type": "string",
+        "description": "Why a pending managed runtime action is waiting rather than actively applying.\n\nA deferral is distinct from a failure: the action is durable and admitted,\nbut its runtime cannot accept the material yet. It resolves on its own once\nthe named precondition clears (the Employee restarts, the build completes),\nso the operator sees a specific reason instead of an opaque `pending`.",
+        "enum": [
+          "awaiting_runtime_start",
+          "awaiting_runtime_build",
+          "operator_control_withdrawn",
+          "ephemeral_next_run"
+        ]
+      },
       "ManagedRuntimeReconciliationFailure": {
         "type": "string",
         "description": "Stable redacted reason for the latest managed runtime reconciliation failure.",
@@ -9389,6 +9455,17 @@
             "type": "integer",
             "format": "int64"
           },
+          "deferral": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedRuntimeReconciliationDeferral",
+                "description": "Present when the action is a waiting `pending` rather than actively applying."
+              }
+            ]
+          },
           "deployment_id": {
             "type": "string",
             "format": "uuid"
@@ -9415,6 +9492,13 @@
                 "$ref": "#/components/schemas/ManagedRuntimeReconciliationFailure"
               }
             ]
+          },
+          "reason_detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Bounded, redacted explanation for `reason` or `deferral`, when known."
           },
           "release_id": {
             "type": [

@@ -8705,11 +8705,51 @@
           "402": {
             "description": "Payment required"
           },
+          "403": {
+            "description": "Request is forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublisherForbiddenResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Publisher not found"
           },
           "500": {
             "description": "Internal server error"
+          },
+          "502": {
+            "description": "Invalid dependency response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Required dependency is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Dependency request timed out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -8863,11 +8903,11 @@
             "description": "Payment required"
           },
           "403": {
-            "description": "Publisher is geo-restricted and routing is not enabled",
+            "description": "Request is forbidden or requires a routing opt-in",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GeoRestrictedError"
+                  "$ref": "#/components/schemas/PublisherForbiddenResponse"
                 }
               }
             }
@@ -8887,6 +8927,36 @@
           },
           "500": {
             "description": "Internal server error"
+          },
+          "502": {
+            "description": "Invalid dependency response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Required dependency is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Dependency request timed out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       },
@@ -8959,11 +9029,11 @@
             "description": "Payment required"
           },
           "403": {
-            "description": "Publisher is geo-restricted and routing is not enabled",
+            "description": "Request is forbidden or requires a routing opt-in",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GeoRestrictedError"
+                  "$ref": "#/components/schemas/PublisherForbiddenResponse"
                 }
               }
             }
@@ -8983,6 +9053,36 @@
           },
           "500": {
             "description": "Internal server error"
+          },
+          "502": {
+            "description": "Invalid dependency response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Required dependency is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Dependency request timed out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -23167,6 +23267,22 @@
           }
         }
       },
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "error",
+          "message"
+        ],
+        "properties": {
+          "details": {},
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
       "EstimateRequestBody": {
         "type": "object",
         "description": "Query estimate request body",
@@ -23678,34 +23794,6 @@
           "year": {
             "type": "integer",
             "format": "int32"
-          }
-        }
-      },
-      "GeoRestrictedError": {
-        "type": "object",
-        "description": "Error response when a publisher uses opt_in routing and the user has not opted in",
-        "required": [
-          "error",
-          "message",
-          "publisher",
-          "proxy_region",
-          "opt_in_endpoint"
-        ],
-        "properties": {
-          "error": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "opt_in_endpoint": {
-            "type": "string"
-          },
-          "proxy_region": {
-            "type": "string"
-          },
-          "publisher": {
-            "type": "string"
           }
         }
       },
@@ -27864,6 +27952,54 @@
             "$ref": "#/components/schemas/WalletAddress"
           }
         }
+      },
+      "PublisherForbiddenResponse": {
+        "anyOf": [
+          {
+            "type": "object",
+            "description": "Error response when a publisher uses opt_in routing and the user has not opted in",
+            "required": [
+              "error",
+              "message",
+              "publisher",
+              "proxy_region",
+              "opt_in_endpoint"
+            ],
+            "properties": {
+              "error": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "opt_in_endpoint": {
+                "type": "string"
+              },
+              "proxy_region": {
+                "type": "string"
+              },
+              "publisher": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "error",
+              "message"
+            ],
+            "properties": {
+              "details": {},
+              "error": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        ]
       },
       "PublisherOAuthProviderResponse": {
         "type": "object",

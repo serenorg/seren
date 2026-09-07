@@ -124,6 +124,85 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
+    use crate::{Client, ClientConfig, PublisherCredentialProposalRequest};
+    use serde_json::json;
+    use uuid::Uuid;
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{body_json, method, path},
+    };
+
+    #[tokio::test]
+    async fn publisher_credential_create_preserves_replay_acceptance_and_validation_responses() {
+        let deployment_id = Uuid::new_v4();
+        let revision_id = Uuid::new_v4();
+        let proposal_id = Uuid::new_v4();
+        let request_wire = json!({
+            "expected_active_revision_id": revision_id,
+            "idempotency_key": Uuid::new_v4(),
+            "changes": [{
+                "operation": "add",
+                "name": "publisher_token",
+                "publisher_slug": "slack-byok",
+                "kind": "api_key",
+                "binding": "header",
+                "binding_target": "X-Passthrough-Authorization"
+            }]
+        });
+        let request: PublisherCredentialProposalRequest =
+            serde_json::from_value(request_wire.clone()).expect("proposal request");
+
+        for status in [200, 202, 400, 409] {
+            let server = MockServer::start().await;
+            let response_wire = if status < 300 {
+                json!({"data": {
+                    "id": proposal_id,
+                    "deployment_id": deployment_id,
+                    "expected_active_revision_id": revision_id,
+                    "proposal_fingerprint": "a".repeat(64),
+                    "requirements_fingerprint": "b".repeat(64),
+                    "requested_environment_names": ["publisher_token"],
+                    "requires_secret_resolution_result": true,
+                    "changes": request_wire["changes"],
+                    "state": if status == 202 { "awaiting_review" } else { "applied" },
+                    "result_id": if status == 200 { Some(Uuid::new_v4()) } else { None },
+                    "applied_revision_id": if status == 200 { Some(Uuid::new_v4()) } else { None }
+                }})
+            } else {
+                json!({"error": "BadRequest", "message": "Invalid publisher credential proposal"})
+            };
+            Mock::given(method("POST"))
+                .and(path(format!(
+                    "/publishers/seren-cloud/deployments/{deployment_id}/credentials/proposals"
+                )))
+                .and(body_json(request_wire.clone()))
+                .respond_with(ResponseTemplate::new(status).set_body_json(response_wire))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let client =
+                Client::from_config(&ClientConfig::unauthenticated().with_base_url(server.uri()))
+                    .expect("client");
+            let result = client
+                .seren_cloud_create_publisher_credential_proposal(&deployment_id, &request)
+                .await;
+            if status < 300 {
+                let response = result.expect("both accepted and replayed proposals are success");
+                assert_eq!(response.status().as_u16(), status);
+                let proposal = response.into_inner().data;
+                assert_eq!(proposal.id, proposal_id);
+                assert_eq!(proposal.deployment_id, deployment_id);
+                assert_eq!(proposal.expected_active_revision_id, revision_id);
+                assert_eq!(proposal.requested_environment_names, ["publisher_token"]);
+                assert_eq!(proposal.changes[0].name, "publisher_token");
+            } else {
+                let error = result.expect_err("invalid and conflicting proposals remain errors");
+                assert_eq!(error.status().expect("HTTP response").as_u16(), status);
+            }
+            server.verify().await;
+        }
+    }
+
     /// `build.rs` omits exactly one operation from code generation because
     /// Progenitor cannot emit multipart request bodies, and
     /// `upload_current_user_avatar` is hand-written against that omission. If

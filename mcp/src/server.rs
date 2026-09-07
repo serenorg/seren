@@ -5745,6 +5745,27 @@ impl ManagedDeploymentMutation {
     }
 }
 
+/// An idempotent create can return a proposal that is no longer awaiting review.
+fn publisher_credential_proposal_next_step(
+    proposal: &seren::ManagedPublisherCredentialProposal,
+) -> &'static str {
+    match &proposal.state {
+        seren::ManagedPublisherCredentialProposalState::AwaitingReview => {
+            if proposal.requires_secret_resolution_result {
+                "Call start_seren_agent_passwords_setup with publisher_credential_proposal_id set to this proposal_id, approve the exact field mapping in Seren Passwords, then call apply_seren_agent_publisher_credential_proposal with deployment_id, proposal_id, and setup_id."
+            } else {
+                "Call apply_seren_agent_publisher_credential_proposal with deployment_id and proposal_id and omit setup_id."
+            }
+        }
+        seren::ManagedPublisherCredentialProposalState::Applied => {
+            "This idempotency_key belongs to a proposal that was already applied. Call get_seren_agent_publisher_credential_proposal to review it, or create a new proposal with a new idempotency_key to change credentials further."
+        }
+        seren::ManagedPublisherCredentialProposalState::Superseded => {
+            "This idempotency_key belongs to a superseded proposal that can no longer be set up or applied. Call get_seren_agent_publisher_credential_proposal to find the current proposal, or create a new proposal with a new idempotency_key."
+        }
+    }
+}
+
 fn ensure_managed_deployment_mutation_allowed(
     extensions: &Extensions,
     mutation: ManagedDeploymentMutation,
@@ -14430,11 +14451,7 @@ API endpoint: {endpoint}",
             .await?
             .into_inner()
             .data;
-        let next_step = if proposal.requires_secret_resolution_result {
-            "Call start_seren_agent_passwords_setup with publisher_credential_proposal_id set to this proposal_id, approve the exact field mapping in Seren Passwords, then call apply_seren_agent_publisher_credential_proposal with deployment_id, proposal_id, and setup_id."
-        } else {
-            "Call apply_seren_agent_publisher_credential_proposal with deployment_id and proposal_id and omit setup_id."
-        };
+        let next_step = publisher_credential_proposal_next_step(&proposal);
         Ok(CallToolResult::success(vec![json_content(
             &serde_json::json!({
                 "status": proposal.state,
@@ -17546,6 +17563,13 @@ mod tests {
                     "tool_ref_count": 0,
                     "credential_count": 0,
                     "guardrail_count": 0
+                },
+                "publisher_credentials": {
+                    "status": "not_required",
+                    "required_credential_count": 0,
+                    "active_revision_id": null,
+                    "control_generation": null,
+                    "checked_at": "2026-07-30T12:00:00Z"
                 },
                 "memory": {
                     "policy_configured": false,
@@ -22627,6 +22651,91 @@ mod tests {
             &result,
             "requires_secret_resolution_result"
         ));
+    }
+
+    #[tokio::test]
+    async fn create_publisher_credential_proposal_guidance_follows_the_returned_state() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        for (status, state, expects_setup) in [
+            (202, "awaiting_review", true),
+            (200, "superseded", false),
+            (200, "applied", false),
+        ] {
+            let proxy = MockServer::start().await;
+            let deployment_id = Uuid::from_u128(0x9003);
+            let revision_id = Uuid::from_u128(0x7778);
+            let proposal_id = Uuid::from_u128(0x5555);
+            let idempotency_key = Uuid::from_u128(0x3334);
+
+            let mut detail = managed_agent_detail_fixture(deployment_id);
+            detail["data"]["active_revision_id"] = serde_json::json!(revision_id);
+            Mock::given(method("GET"))
+                .and(path(format!(
+                    "/publishers/seren-agent/deployments/{deployment_id}/managed"
+                )))
+                .respond_with(ResponseTemplate::new(200).set_body_json(detail))
+                .mount(&proxy)
+                .await;
+            Mock::given(method("POST"))
+                .and(path(format!(
+                    "/publishers/seren-cloud/deployments/{deployment_id}/credentials/proposals"
+                )))
+                .respond_with(
+                    ResponseTemplate::new(status).set_body_json(serde_json::json!({
+                        "data": {
+                            "id": proposal_id,
+                            "deployment_id": deployment_id,
+                            "expected_active_revision_id": revision_id,
+                            "proposal_fingerprint": "fp",
+                            "requirements_fingerprint": "rfp",
+                            "requested_environment_names": ["SLACK_BOT_TOKEN"],
+                            "requires_secret_resolution_result": true,
+                            "changes": [],
+                            "state": state,
+                            "result_id": null,
+                            "approval_request_id": null
+                        }
+                    })),
+                )
+                .expect(1)
+                .mount(&proxy)
+                .await;
+
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            let result = server
+                .create_seren_agent_publisher_credential_proposal(
+                    Parameters(PublisherCredentialProposalParams {
+                        deployment_id,
+                        changes: vec![publisher_change_fixture()],
+                        replace_proposal_id: None,
+                        idempotency_key,
+                    }),
+                    Extensions::default(),
+                )
+                .await
+                .expect("create succeeds against the mocked Core route");
+            assert!(result_contains(&result, state), "{state}");
+            assert_eq!(
+                result_contains(&result, "Call start_seren_agent_passwords_setup"),
+                expects_setup,
+                "{state}"
+            );
+            if !expects_setup {
+                assert!(
+                    result_contains(&result, "get_seren_agent_publisher_credential_proposal"),
+                    "{state}"
+                );
+                assert!(
+                    !result_contains(
+                        &result,
+                        "Call apply_seren_agent_publisher_credential_proposal"
+                    ),
+                    "{state}"
+                );
+            }
+        }
     }
 
     struct DelegationViewFixture {
