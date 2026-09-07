@@ -5396,6 +5396,11 @@ const MAX_RETRIES: u32 = 2;
 /// Base delay for exponential backoff (doubles each retry).
 const RETRY_BASE_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
 
+/// Retry only HTTP methods whose semantics are safe to replay.
+fn publisher_retry_count(method: &reqwest::Method) -> u32 {
+    if method.is_safe() { MAX_RETRIES } else { 0 }
+}
+
 const BASE_CHAIN_ID: u64 = 8453;
 const BASE_NETWORK_NAME: &str = "base";
 const BASE_NATIVE_ASSET_SYMBOL: &str = "ETH";
@@ -11397,110 +11402,79 @@ Examples:
 
         let root_body: seren::PublisherRootRequest = body.clone().into();
 
-        // Retry loop with exponential backoff
-        let mut last_error = None;
-        for attempt in 0..=MAX_RETRIES {
-            if attempt > 0 {
-                let delay = RETRY_BASE_DELAY * 2u32.pow(attempt - 1);
-                tokio::time::sleep(delay).await;
+        // A database query can mutate upstream state.
+        let error = if return_text {
+            match self
+                .execute_publisher_proxy_raw(
+                    extensions,
+                    agent_metadata,
+                    QUERY_TIMEOUT,
+                    &reqwest::Method::POST,
+                    &publisher_path,
+                    Some(&body),
+                    None,
+                    None,
+                    params.request_id,
+                    None,
+                )
+                .await
+            {
+                Ok(resp) if resp.status().is_success() => {
+                    let response_headers = resp.headers().clone();
+                    let text = resp
+                        .text()
+                        .await
+                        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                    return Ok(call_result_with_response_meta(
+                        vec![ContentBlock::text(text)],
+                        &response_headers,
+                    ));
+                }
+                Ok(resp) => seren::Error::UnexpectedResponse(resp),
+                Err(error) => error,
             }
-
-            let query_result: Result<(), seren::Error<()>> = if return_text {
-                let query_response = self
-                    .execute_publisher_proxy_raw(
-                        extensions,
-                        agent_metadata,
-                        QUERY_TIMEOUT,
-                        &reqwest::Method::POST,
-                        &publisher_path,
-                        Some(&body),
-                        None,
-                        None,
-                        params.request_id,
-                        None,
-                    )
-                    .await;
-
-                match query_response {
-                    Ok(resp) if resp.status().is_success() => {
-                        let response_headers = resp.headers().clone();
-                        let text = resp
-                            .text()
-                            .await
+        } else {
+            match self.api_client_with_timeout_request_id(
+                extensions,
+                QUERY_TIMEOUT,
+                params.request_id,
+            ) {
+                Ok(api_client) => match api_client
+                    .publisher_root_handler(&params.publisher, &root_body)
+                    .await
+                {
+                    Ok(response) => {
+                        let response_headers = response.headers().clone();
+                        let result = serde_json::to_value(response.into_inner())
                             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
                         return Ok(call_result_with_response_meta(
-                            vec![ContentBlock::text(text)],
+                            vec![json_content(&result)?],
                             &response_headers,
                         ));
                     }
-                    Ok(resp) => Err(seren::Error::UnexpectedResponse(resp)),
-                    Err(e) => Err(e),
-                }
-            } else {
-                match self.api_client_with_timeout_request_id(
-                    extensions,
-                    QUERY_TIMEOUT,
-                    params.request_id,
-                ) {
-                    Ok(api_client) => {
-                        match api_client
-                            .publisher_root_handler(&params.publisher, &root_body)
-                            .await
-                        {
-                            Ok(response) => {
-                                let response_headers = response.headers().clone();
-                                let result = serde_json::to_value(response.into_inner())
-                                    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-                                return Ok(call_result_with_response_meta(
-                                    vec![json_content(&result)?],
-                                    &response_headers,
-                                ));
-                            }
-                            Err(e) => Err(e),
-                        }
-                    }
-                    Err(e) => Err(seren::Error::InvalidRequest(e.to_string())),
-                }
-            };
-
-            match query_result {
-                Ok(_) => unreachable!(),
-                Err(e) => {
-                    if is_retryable_error(&e) && attempt < MAX_RETRIES {
-                        last_error = Some(e);
-                        continue;
-                    }
-                    return self
-                        .handle_call_publisher_error(
-                            e,
-                            CallPublisherErrorContext {
-                                publisher: &params.publisher,
-                                publisher_type: "database",
-                                confirm: params.confirm,
-                                request_id: params.request_id,
-                                method: &reqwest::Method::POST,
-                                publisher_path: &publisher_path,
-                                query_string: None,
-                                body: Some(&body),
-                                raw_body: None,
-                                headers: None,
-                                agent_metadata,
-                                return_text,
-                            },
-                        )
-                        .await;
-                }
+                    Err(error) => error,
+                },
+                Err(error) => seren::Error::InvalidRequest(error.to_string()),
             }
-        }
-
-        Err(McpError::internal_error(
-            format!(
-                "Query failed after {} retries: {}",
-                MAX_RETRIES,
-                last_error.map(|e| e.to_string()).unwrap_or_default()
-            ),
-            None,
-        ))
+        };
+        self.handle_call_publisher_error(
+            error,
+            CallPublisherErrorContext {
+                publisher: &params.publisher,
+                publisher_type: "database",
+                confirm: params.confirm,
+                request_id: params.request_id,
+                method: &reqwest::Method::POST,
+                publisher_path: &publisher_path,
+                query_string: None,
+                body: Some(&body),
+                raw_body: None,
+                headers: None,
+                agent_metadata,
+                return_text,
+            },
+        )
+        .await
     }
 
     /// Handle API publisher calls (internal helper for call_publisher)
@@ -11588,9 +11562,10 @@ Examples:
             }
         }
 
-        // Retry loop
+        // A failed mutation can already have taken effect upstream.
+        let max_retries = publisher_retry_count(&method);
         let mut last_error = None;
-        for attempt in 0..=MAX_RETRIES {
+        for attempt in 0..=max_retries {
             if attempt > 0 {
                 let delay = RETRY_BASE_DELAY * 2u32.pow(attempt - 1);
                 tokio::time::sleep(delay).await;
@@ -11654,7 +11629,7 @@ Examples:
             match api_result {
                 Ok(_) => unreachable!(),
                 Err(e) => {
-                    if is_retryable_error(&e) && attempt < MAX_RETRIES {
+                    if is_retryable_error(&e) && attempt < max_retries {
                         last_error = Some(e);
                         continue;
                     }
@@ -11684,7 +11659,7 @@ Examples:
         Err(McpError::internal_error(
             format!(
                 "API call failed after {} retries: {}",
-                MAX_RETRIES,
+                max_retries,
                 last_error.map(|e| e.to_string()).unwrap_or_default()
             ),
             None,
@@ -11766,123 +11741,93 @@ Examples:
             }
         }
 
-        // Retry loop
-        let mut last_error = None;
-        for attempt in 0..=MAX_RETRIES {
-            if attempt > 0 {
-                let delay = RETRY_BASE_DELAY * 2u32.pow(attempt - 1);
-                tokio::time::sleep(delay).await;
+        // An MCP tool invocation can mutate upstream state.
+        let error = match self
+            .execute_publisher_proxy_raw(
+                extensions,
+                agent_metadata,
+                API_TIMEOUT,
+                &reqwest::Method::POST,
+                &publisher_path,
+                Some(&body),
+                None,
+                headers.as_ref(),
+                params.request_id,
+                None,
+            )
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                let response_headers = resp.headers().clone();
+                if return_text {
+                    let text = resp
+                        .text()
+                        .await
+                        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                    return Ok(call_result_with_response_meta(
+                        vec![ContentBlock::text(text)],
+                        &response_headers,
+                    ));
+                }
+                let result: serde_json::Value = resp
+                    .json()
+                    .await
+                    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                return Ok(call_result_with_response_meta(
+                    vec![json_content(&result)?],
+                    &response_headers,
+                ));
             }
+            Ok(resp) => seren::Error::UnexpectedResponse(resp),
+            Err(error) => error,
+        };
 
-            let tool_response = self
-                .execute_publisher_proxy_raw(
-                    extensions,
-                    agent_metadata,
-                    API_TIMEOUT,
-                    &reqwest::Method::POST,
-                    &publisher_path,
-                    Some(&body),
+        match error {
+            seren::Error::UnexpectedResponse(response)
+                if response.status() == reqwest::StatusCode::NOT_FOUND =>
+            {
+                Err(McpError::internal_error(
+                    format!(
+                        "Publisher '{}' or tool '{}' not found. Use list_mcp_tools to see available tools.",
+                        params.publisher, tool_name
+                    ),
                     None,
-                    headers.as_ref(),
-                    params.request_id,
+                ))
+            }
+            seren::Error::UnexpectedResponse(response)
+                if response.status() == reqwest::StatusCode::BAD_REQUEST =>
+            {
+                let body_text = response.text().await.unwrap_or_default();
+                Err(McpError::invalid_params(
+                    format!(
+                        "MCP tool call failed ({}): {}",
+                        reqwest::StatusCode::BAD_REQUEST,
+                        truncate_for_client(&body_text, 1200)
+                    ),
                     None,
+                ))
+            }
+            error => {
+                self.handle_call_publisher_error(
+                    error,
+                    CallPublisherErrorContext {
+                        publisher: &params.publisher,
+                        publisher_type: "mcp tool",
+                        confirm: params.confirm,
+                        request_id: params.request_id,
+                        method: &reqwest::Method::POST,
+                        publisher_path: &publisher_path,
+                        query_string: None,
+                        body: Some(&body),
+                        raw_body: None,
+                        headers: headers.as_ref(),
+                        agent_metadata,
+                        return_text,
+                    },
                 )
-                .await;
-
-            let tool_result: Result<(), seren::Error<()>> = match tool_response {
-                Ok(resp) if resp.status().is_success() => {
-                    let response_headers = resp.headers().clone();
-                    if return_text {
-                        let text = resp
-                            .text()
-                            .await
-                            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-                        return Ok(call_result_with_response_meta(
-                            vec![ContentBlock::text(text)],
-                            &response_headers,
-                        ));
-                    } else {
-                        let result: serde_json::Value = resp
-                            .json()
-                            .await
-                            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-                        return Ok(call_result_with_response_meta(
-                            vec![json_content(&result)?],
-                            &response_headers,
-                        ));
-                    }
-                }
-                Ok(resp) => Err(seren::Error::UnexpectedResponse(resp)),
-                Err(e) => Err(e),
-            };
-
-            match tool_result {
-                Ok(_) => unreachable!(),
-                Err(e) => {
-                    if is_retryable_error(&e) && attempt < MAX_RETRIES {
-                        last_error = Some(e);
-                        continue;
-                    }
-
-                    match e {
-                        seren::Error::UnexpectedResponse(response)
-                            if response.status() == reqwest::StatusCode::NOT_FOUND =>
-                        {
-                            return Err(McpError::internal_error(
-                                format!(
-                                    "Publisher '{}' or tool '{}' not found. Use list_mcp_tools to see available tools.",
-                                    params.publisher, tool_name
-                                ),
-                                None,
-                            ));
-                        }
-                        seren::Error::UnexpectedResponse(response)
-                            if response.status() == reqwest::StatusCode::BAD_REQUEST =>
-                        {
-                            let body_text = response.text().await.unwrap_or_default();
-                            return Err(McpError::invalid_params(
-                                format!(
-                                    "MCP tool call failed ({}): {}",
-                                    reqwest::StatusCode::BAD_REQUEST,
-                                    truncate_for_client(&body_text, 1200)
-                                ),
-                                None,
-                            ));
-                        }
-                        _ => {
-                            return self
-                                .handle_call_publisher_error(
-                                    e,
-                                    CallPublisherErrorContext {
-                                        publisher: &params.publisher,
-                                        publisher_type: "mcp tool",
-                                        confirm: params.confirm,
-                                        request_id: params.request_id,
-                                        method: &reqwest::Method::POST,
-                                        publisher_path: &publisher_path,
-                                        query_string: None,
-                                        body: Some(&body),
-                                        raw_body: None,
-                                        headers: headers.as_ref(),
-                                        agent_metadata,
-                                        return_text,
-                                    },
-                                )
-                                .await;
-                        }
-                    }
-                }
+                .await
             }
         }
-
-        Err(McpError::internal_error(
-            format!(
-                "MCP tool call failed after {} retries: {}",
-                MAX_RETRIES,
-                last_error.map(|e| e.to_string()).unwrap_or_default()
-            ),
-            None,
-        ))
     }
 
     /// Handle MCP resource reads (internal helper for call_publisher)
@@ -20455,6 +20400,179 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), reqwest::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn call_publisher_api_does_not_retry_mutating_http_requests() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        for (requested_method, return_text) in [
+            (None, false),
+            (None, true),
+            (Some("POST"), false),
+            (Some("POST"), true),
+            (Some("PUT"), false),
+            (Some("PUT"), true),
+            (Some("PATCH"), false),
+            (Some("PATCH"), true),
+            (Some("DELETE"), false),
+            (Some("DELETE"), true),
+        ] {
+            let verb = requested_method.unwrap_or("POST");
+            let proxy = MockServer::start().await;
+            Mock::given(method(verb))
+                .and(path("/publishers/test-publisher/action"))
+                .respond_with(ResponseTemplate::new(503).set_body_json(serde_json::json!({
+                    "error": "upstream_unavailable", "message": "The outcome is unknown"
+                })))
+                .mount(&proxy)
+                .await;
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            let params: CallPublisherParams = serde_json::from_value(serde_json::json!({
+                "publisher": "test-publisher", "method": requested_method, "path": "/action", "body": {"text": "one attempt"}
+            })).unwrap();
+            let result = server
+                .call_publisher_api(
+                    &params,
+                    &extensions_with_headers(&[]),
+                    &AgentMetadata::default(),
+                    return_text,
+                )
+                .await;
+            assert!(result.is_err() || result.unwrap().is_error == Some(true));
+            let attempted = proxy
+                .received_requests()
+                .await
+                .unwrap()
+                .into_iter()
+                .filter(|request| request.url.path() == "/publishers/test-publisher/action")
+                .count();
+            assert_eq!(attempted, 1, "{verb} must not replay an ambiguous write");
+        }
+    }
+
+    #[tokio::test]
+    async fn call_publisher_mcp_tool_does_not_retry_a_transient_failure() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/publishers/test-publisher/_mcp/tools/create"))
+            .respond_with(ResponseTemplate::new(503).set_body_json(serde_json::json!({
+                "error": "upstream_unavailable", "message": "The outcome is unknown"
+            })))
+            .mount(&proxy)
+            .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let params: CallPublisherParams = serde_json::from_value(serde_json::json!({
+            "publisher": "test-publisher", "tool": "create", "tool_args": {"name": "one attempt"}
+        }))
+        .unwrap();
+
+        let result = server
+            .call_publisher_mcp_tool(
+                &params,
+                &extensions_with_headers(&[]),
+                &AgentMetadata::default(),
+                false,
+            )
+            .await;
+
+        assert!(result.is_err() || result.unwrap().is_error == Some(true));
+        let attempted = proxy
+            .received_requests()
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|request| request.url.path() == "/publishers/test-publisher/_mcp/tools/create")
+            .count();
+        assert_eq!(attempted, 1, "MCP tools must not replay ambiguous writes");
+    }
+
+    #[tokio::test]
+    async fn call_publisher_database_does_not_retry_a_mutating_query() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/publishers/test-database"))
+            .respond_with(ResponseTemplate::new(503).set_body_json(serde_json::json!({
+                "error": "upstream_unavailable", "message": "The outcome is unknown"
+            })))
+            .mount(&proxy)
+            .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let params: CallPublisherParams = serde_json::from_value(serde_json::json!({
+            "publisher": "test-database", "query": "UPDATE records SET state = 'applied'"
+        }))
+        .unwrap();
+
+        let result = server
+            .call_publisher_database(
+                &params,
+                &extensions_with_headers(&[]),
+                &AgentMetadata::default(),
+                false,
+            )
+            .await;
+
+        assert!(result.is_err() || result.unwrap().is_error == Some(true));
+        let attempted = proxy
+            .received_requests()
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|request| request.url.path() == "/publishers/test-database")
+            .count();
+        assert_eq!(
+            attempted, 1,
+            "database writes must not replay after an ambiguous failure"
+        );
+    }
+
+    #[tokio::test]
+    async fn call_publisher_api_retries_a_transient_read_failure() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let proxy = MockServer::start().await;
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let observed = attempts.clone();
+        Mock::given(method("GET"))
+            .and(path("/publishers/test-publisher/status"))
+            .respond_with(move |_: &wiremock::Request| {
+                if observed.fetch_add(1, Ordering::SeqCst) == 0 {
+                    ResponseTemplate::new(503)
+                        .set_body_json(serde_json::json!({"error":"unavailable"}))
+                } else {
+                    ResponseTemplate::new(200)
+                        .set_body_json(serde_json::json!({"data":{"ready":true}}))
+                }
+            })
+            .mount(&proxy)
+            .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let params: CallPublisherParams = serde_json::from_value(serde_json::json!({
+            "publisher":"test-publisher", "method":"GET", "path":"/status"
+        }))
+        .unwrap();
+        let result = server
+            .call_publisher_api(
+                &params,
+                &extensions_with_headers(&[]),
+                &AgentMetadata::default(),
+                false,
+            )
+            .await
+            .unwrap();
+        assert!(!result.is_error.unwrap_or(false));
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
