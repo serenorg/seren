@@ -27,6 +27,7 @@ mod generated {
 mod config;
 mod examples;
 mod models;
+mod query_error;
 mod shared;
 
 // Re-export the generated client and types
@@ -44,6 +45,7 @@ pub use examples::*;
 
 // Re-export additional model types
 pub use models::*;
+pub use query_error::*;
 pub use shared::*;
 
 /// Create a new authenticated client

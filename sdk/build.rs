@@ -38,8 +38,8 @@ fn collect_refs(value: &serde_json::Value, acc: &mut HashSet<String>) {
 /// Strip content bodies from error responses that would otherwise create multiple typed
 /// responses per operation during progenitor code generation.
 ///
-/// Progenitor can only handle one typed response per operation, so we remove the
-/// error content schemas while keeping them documented in the source OpenAPI spec.
+/// Progenitor supports one success type and one error type per operation. Other
+/// operations can declare several error types, so retain their untyped handling.
 fn strip_error_response_content(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(map) => {
@@ -61,6 +61,31 @@ fn strip_error_response_content(value: &mut serde_json::Value) {
         }
         _ => {}
     }
+}
+
+/// Keep query error responses intact until the bounded diagnostic decoder reads
+/// them. Progenitor's typed decoder loses headers and status on malformed JSON.
+fn preserve_query_error_responses(value: &mut serde_json::Value) -> anyhow::Result<()> {
+    let operation = value
+        .pointer_mut("/paths/~1publishers~1seren-db~1query/post")
+        .context("SerenDB OpenAPI document is missing the query operation")?;
+    anyhow::ensure!(
+        operation
+            .get("operationId")
+            .and_then(serde_json::Value::as_str)
+            == Some("seren_db_query"),
+        "SerenDB query operation ID changed"
+    );
+    let responses = operation
+        .get_mut("responses")
+        .and_then(serde_json::Value::as_object_mut)
+        .context("SerenDB query operation is missing responses")?;
+    // The generated catch-all returns UnexpectedResponse without consuming it.
+    // Published response documentation remains unchanged in the bundled spec.
+    responses.retain(|status, _| {
+        status != "default" && !(status.len() == 3 && status.starts_with(['4', '5']))
+    });
+    Ok(())
 }
 
 /// Normalize binary media schemas so progenitor can generate typed responses.
@@ -786,12 +811,10 @@ fn main() -> anyhow::Result<()> {
     raw_json["openapi"] = serde_json::json!("3.0.3");
 
     // Strip error response content bodies for progenitor code generation.
-    // Progenitor panics with "response_types.len() <= 1" if an operation has
-    // multiple typed responses (e.g., 200 success + 402 payment required).
+    // Progenitor requires all typed error responses in one operation to agree.
     // We still document error bodies in the source OpenAPI spec - this only affects codegen.
-    // The generated code will use UnexpectedResponse for these statuses, preserving the raw
-    // response so callers can deserialize the error body manually when needed.
     strip_error_response_content(&mut raw_json);
+    preserve_query_error_responses(&mut raw_json)?;
     normalize_binary_content_schemas(&mut raw_json);
     remove_unsupported_multipart_operations(&mut raw_json)?;
 
