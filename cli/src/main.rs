@@ -1463,14 +1463,17 @@ enum AgentAction {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
         /// Bind a connector-binding proposal (mutually exclusive with the other proposal selectors)
-        #[arg(long, conflicts_with_all = ["model_credential_proposal_id", "publisher_credential_proposal_id"])]
+        #[arg(long, conflicts_with_all = ["model_credential_proposal_id", "publisher_credential_proposal_id", "reference_env_credential_proposal_id"])]
         connector_binding_proposal_id: Option<Uuid>,
         /// Bind a model-credential proposal (mutually exclusive with the other proposal selectors)
-        #[arg(long, conflicts_with_all = ["connector_binding_proposal_id", "publisher_credential_proposal_id"])]
+        #[arg(long, conflicts_with_all = ["connector_binding_proposal_id", "publisher_credential_proposal_id", "reference_env_credential_proposal_id"])]
         model_credential_proposal_id: Option<Uuid>,
         /// Bind a publisher-credential proposal (mutually exclusive with the other proposal selectors)
-        #[arg(long, conflicts_with_all = ["connector_binding_proposal_id", "model_credential_proposal_id"])]
+        #[arg(long, conflicts_with_all = ["connector_binding_proposal_id", "model_credential_proposal_id", "reference_env_credential_proposal_id"])]
         publisher_credential_proposal_id: Option<Uuid>,
+        /// Bind a reference-environment credential proposal
+        #[arg(long, conflicts_with_all = ["connector_binding_proposal_id", "model_credential_proposal_id", "publisher_credential_proposal_id"])]
+        reference_env_credential_proposal_id: Option<Uuid>,
     },
     /// Check a managed agent Seren Passwords setup
     ManagedPasswordsStatus {
@@ -1520,6 +1523,45 @@ enum AgentAction {
         #[arg(long)]
         setup_id: Option<Uuid>,
     },
+    /// Preview a managed reference-environment credential proposal from non-secret change intent
+    ManagedReferenceEnvCredentialProposalPreview {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// JSON array of non-secret credential changes
+        #[arg(long)]
+        changes: String,
+    },
+    /// Create a revision-bound managed reference-environment credential proposal awaiting review
+    ManagedReferenceEnvCredentialProposalCreate {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// JSON array of non-secret credential changes
+        #[arg(long)]
+        changes: String,
+        /// Proposal UUID to supersede
+        #[arg(long)]
+        replace_proposal_id: Option<Uuid>,
+        /// Stable idempotency key for convergent retries
+        #[arg(long)]
+        idempotency_key: Uuid,
+    },
+    /// Get the current managed reference-environment credential proposal for a deployment
+    ManagedReferenceEnvCredentialProposalGet {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+    },
+    /// Apply an approved managed reference-environment credential proposal
+    ManagedReferenceEnvCredentialProposalApply {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Proposal ID returned by managed-reference-env-credential-proposal-create
+        #[arg(long)]
+        proposal_id: Uuid,
+        /// Setup ID returned by managed-passwords-setup; omit only when no secret result is required
+        #[arg(long)]
+        setup_id: Option<Uuid>,
+    },
+
     /// Get the current managed connector-binding proposal for a deployment connector
     ManagedConnectorBindingProposalGet {
         /// Deployment ID (UUID)
@@ -7514,12 +7556,14 @@ async fn main() -> anyhow::Result<()> {
                 connector_binding_proposal_id,
                 model_credential_proposal_id,
                 publisher_credential_proposal_id,
+                reference_env_credential_proposal_id,
             } => {
                 commands::agent::managed_agent_secrets_setup(
                     deployment_id,
                     connector_binding_proposal_id,
                     model_credential_proposal_id,
                     publisher_credential_proposal_id,
+                    reference_env_credential_proposal_id,
                     &ctx,
                 )
                 .await?
@@ -7573,6 +7617,50 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
+            AgentAction::ManagedReferenceEnvCredentialProposalPreview {
+                deployment_id,
+                changes,
+            } => {
+                commands::agent::managed_reference_env_credential_proposal_preview(
+                    deployment_id,
+                    changes,
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::ManagedReferenceEnvCredentialProposalCreate {
+                deployment_id,
+                changes,
+                replace_proposal_id,
+                idempotency_key,
+            } => {
+                commands::agent::managed_reference_env_credential_proposal_create(
+                    deployment_id,
+                    changes,
+                    replace_proposal_id,
+                    idempotency_key,
+                    &ctx,
+                )
+                .await?
+            }
+            AgentAction::ManagedReferenceEnvCredentialProposalGet { deployment_id } => {
+                commands::agent::managed_reference_env_credential_proposal_get(deployment_id, &ctx)
+                    .await?
+            }
+            AgentAction::ManagedReferenceEnvCredentialProposalApply {
+                deployment_id,
+                proposal_id,
+                setup_id,
+            } => {
+                commands::agent::managed_reference_env_credential_proposal_apply(
+                    deployment_id,
+                    proposal_id,
+                    setup_id,
+                    &ctx,
+                )
+                .await?
+            }
+
             AgentAction::ManagedConnectorBindingProposalGet {
                 deployment_id,
                 connector_ref,
@@ -7936,11 +8024,13 @@ mod tests {
                     connector_binding_proposal_id,
                     model_credential_proposal_id,
                     publisher_credential_proposal_id,
+                    reference_env_credential_proposal_id,
                 } => {
                     assert_eq!(parsed.to_string(), deployment_id);
                     assert!(connector_binding_proposal_id.is_none());
                     assert!(model_credential_proposal_id.is_none());
                     assert!(publisher_credential_proposal_id.is_none());
+                    assert!(reference_env_credential_proposal_id.is_none());
                 }
                 _ => panic!("unexpected managed Passwords setup action"),
             },
@@ -7995,6 +8085,33 @@ mod tests {
                 _ => panic!("unexpected command"),
             }
         }
+    }
+
+    #[test]
+    fn managed_passwords_setup_accepts_reference_env_proposal() {
+        let proposal_id = "6f9619ff-8b86-d011-b42d-00cf4fc964ff";
+        let parsed = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-passwords-setup",
+            proposal_id,
+            "--reference-env-credential-proposal-id",
+            proposal_id,
+        ]);
+        let Commands::Agent { action } = parsed.command else {
+            panic!("agent command");
+        };
+        let AgentAction::ManagedPasswordsSetup {
+            reference_env_credential_proposal_id,
+            ..
+        } = *action
+        else {
+            panic!("setup command");
+        };
+        assert_eq!(
+            reference_env_credential_proposal_id.unwrap().to_string(),
+            proposal_id
+        );
     }
 
     #[test]

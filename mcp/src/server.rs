@@ -2227,17 +2227,21 @@ pub struct StartSerenAgentPasswordsSetupParams {
     /// Managed agent deployment UUID
     pub deployment_id: Uuid,
     /// Optional connector-binding proposal to bind to this setup. At most one of
-    /// the three proposal selectors may be set.
+    /// the proposal selectors may be set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connector_binding_proposal_id: Option<Uuid>,
     /// Optional model-credential proposal to bind to this setup. At most one of
-    /// the three proposal selectors may be set.
+    /// the proposal selectors may be set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_credential_proposal_id: Option<Uuid>,
     /// Optional publisher-credential proposal to bind to this setup. At most one
-    /// of the three proposal selectors may be set.
+    /// of the proposal selectors may be set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub publisher_credential_proposal_id: Option<Uuid>,
+    /// Optional reference-environment credential proposal. Mutually exclusive
+    /// with connector, model, and publisher proposal selectors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference_env_credential_proposal_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -2272,6 +2276,40 @@ pub struct ApplyPublisherCredentialProposalParams {
     /// Managed agent deployment UUID
     pub deployment_id: Uuid,
     /// Proposal UUID returned by create_seren_agent_publisher_credential_proposal
+    pub proposal_id: Uuid,
+    /// Setup UUID returned by start_seren_agent_passwords_setup. Required when
+    /// the proposal requests secret fields and omitted for a removal that needs
+    /// no new secret resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ReferenceEnvCredentialProposalParams {
+    /// Managed agent deployment UUID
+    pub deployment_id: Uuid,
+    /// Non-secret credential change intent (add/rotate/rebind/remove). Secret
+    /// values are never included here; they are resolved later through the
+    /// human-approved Seren Passwords setup bound to this proposal.
+    pub changes: Vec<seren::ManagedReferenceEnvCredentialChange>,
+    /// Optional proposal UUID this proposal supersedes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replace_proposal_id: Option<Uuid>,
+    /// Stable idempotency key that makes proposal retries converge.
+    pub idempotency_key: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetReferenceEnvCredentialProposalParams {
+    /// Managed agent deployment UUID
+    pub deployment_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ApplyReferenceEnvCredentialProposalParams {
+    /// Managed agent deployment UUID
+    pub deployment_id: Uuid,
+    /// Proposal UUID returned by create_seren_agent_reference_env_credential_proposal
     pub proposal_id: Uuid,
     /// Setup UUID returned by start_seren_agent_passwords_setup. Required when
     /// the proposal requests secret fields and omitted for a removal that needs
@@ -2369,6 +2407,9 @@ fn managed_secrets_apply_guidance(target: &seren::ManagedSecretsApplyTarget) -> 
         ),
         seren::ManagedSecretsApplyTarget::Publisher { proposal_id } => format!(
             "Call apply_seren_agent_publisher_credential_proposal with deployment_id, proposal_id {proposal_id}, and setup_id."
+        ),
+        seren::ManagedSecretsApplyTarget::ReferenceEnv { proposal_id } => format!(
+            "Call apply_seren_agent_reference_env_credential_proposal with deployment_id, proposal_id {proposal_id}, and setup_id."
         ),
     }
 }
@@ -5762,6 +5803,27 @@ fn publisher_credential_proposal_next_step(
         }
         seren::ManagedPublisherCredentialProposalState::Superseded => {
             "This idempotency_key belongs to a superseded proposal that can no longer be set up or applied. Call get_seren_agent_publisher_credential_proposal to find the current proposal, or create a new proposal with a new idempotency_key."
+        }
+    }
+}
+
+/// An idempotent create can return a proposal that is no longer awaiting review.
+fn reference_env_credential_proposal_next_step(
+    proposal: &seren::ManagedReferenceEnvCredentialProposal,
+) -> &'static str {
+    match &proposal.state {
+        seren::ManagedReferenceEnvCredentialProposalState::AwaitingReview => {
+            if proposal.requires_secret_resolution_result {
+                "Call start_seren_agent_passwords_setup with reference_env_credential_proposal_id set to this proposal_id, approve the exact field mapping in Seren Passwords, then call apply_seren_agent_reference_env_credential_proposal with deployment_id, proposal_id, and setup_id."
+            } else {
+                "Call apply_seren_agent_reference_env_credential_proposal with deployment_id and proposal_id and omit setup_id."
+            }
+        }
+        seren::ManagedReferenceEnvCredentialProposalState::Applied => {
+            "This idempotency_key belongs to a proposal that was already applied. Call get_seren_agent_reference_env_credential_proposal to review it, or create a new proposal with a new idempotency_key to change credentials further."
+        }
+        seren::ManagedReferenceEnvCredentialProposalState::Superseded => {
+            "This idempotency_key belongs to a superseded proposal that can no longer be set up or applied. Call get_seren_agent_reference_env_credential_proposal to find the current proposal, or create a new proposal with a new idempotency_key."
         }
     }
 }
@@ -14166,6 +14228,7 @@ API endpoint: {endpoint}",
             params.connector_binding_proposal_id,
             params.model_credential_proposal_id,
             params.publisher_credential_proposal_id,
+            params.reference_env_credential_proposal_id,
         )
         .map_err(|error| McpError::invalid_params(error.to_string(), None))?;
         let api_client = self.api_client(&extensions)?;
@@ -14192,6 +14255,8 @@ API endpoint: {endpoint}",
                     connector_binding_proposal_id: params.connector_binding_proposal_id,
                     model_credential_proposal_id: params.model_credential_proposal_id,
                     publisher_credential_proposal_id: params.publisher_credential_proposal_id,
+                    reference_env_credential_proposal_id: params
+                        .reference_env_credential_proposal_id,
                     deployment_id: params.deployment_id,
                     redirect_origin: seren::MANAGED_AGENT_SECRETS_REDIRECT_ORIGIN.to_string(),
                 },
@@ -14624,6 +14689,276 @@ API endpoint: {endpoint}",
                             "The applied revision is recorded but its runtime rollout is still pending; check the deployment before relying on the new credentials."
                         } else {
                             "The publisher credential proposal has been applied."
+                        },
+                    }),
+                )?]))
+            }
+        }
+    }
+
+    /// Build a create/preview reference-environment credential proposal request from
+    /// non-secret intent, pinning the deployment's current active revision so a
+    /// stale proposal fails closed at the server.
+    async fn build_reference_env_credential_proposal_request(
+        &self,
+        api_client: &seren::Client,
+        params: &ReferenceEnvCredentialProposalParams,
+    ) -> Result<seren::ReferenceEnvCredentialProposalRequest, McpError> {
+        let detail = api_client
+            .seren_agent_get_managed_deployment(&params.deployment_id)
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        let expected_active_revision_id = detail.active_revision_id.ok_or_else(|| {
+            McpError::invalid_params(
+                "The managed agent deployment has no active revision to base a proposal on",
+                None,
+            )
+        })?;
+        Ok(seren::ReferenceEnvCredentialProposalRequest {
+            changes: params.changes.clone(),
+            expected_active_revision_id,
+            idempotency_key: params.idempotency_key,
+            replace_proposal_id: params.replace_proposal_id,
+        })
+    }
+
+    #[tool(
+        description = "Preview a reference-environment credential proposal for a managed seren-agent deployment. Sends only non-secret change intent (add/rotate/rebind/remove) and returns the typed proposal preview, including the exact environment names Seren Passwords will request. Does not create a proposal or mutate the deployment. Requires a signed-in OAuth user session.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn preview_seren_agent_reference_env_credential_proposal(
+        &self,
+        Parameters(params): Parameters<ReferenceEnvCredentialProposalParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_account_user_session(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let request = self
+            .build_reference_env_credential_proposal_request(&api_client, &params)
+            .await?;
+        let preview = api_client
+            .seren_cloud_preview_reference_env_credential_proposal(&params.deployment_id, &request)
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        Ok(CallToolResult::success(vec![json_content(
+            &serde_json::json!({
+                "deployment_id": preview.deployment_id,
+                "expected_active_revision_id": preview.expected_active_revision_id,
+                "proposal_fingerprint": preview.proposal_fingerprint,
+                "requested_environment_names": preview.requested_environment_names,
+                "requires_secret_resolution_result": preview.requires_secret_resolution_result,
+                "changes": preview.changes,
+            }),
+        )?]))
+    }
+
+    #[tool(
+        description = "Create a revision-bound reference-environment credential proposal for a managed seren-agent deployment. Sends only non-secret change intent; the proposal is left awaiting review. After creation, run start_seren_agent_passwords_setup with reference_env_credential_proposal_id to request the exact fields, then apply_seren_agent_reference_env_credential_proposal once approved. Requires a signed-in OAuth user session.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn create_seren_agent_reference_env_credential_proposal(
+        &self,
+        Parameters(params): Parameters<ReferenceEnvCredentialProposalParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_account_user_session(&extensions)?;
+        ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Update)?;
+        let api_client = self.api_client(&extensions)?;
+        let request = self
+            .build_reference_env_credential_proposal_request(&api_client, &params)
+            .await?;
+        let proposal = api_client
+            .seren_cloud_create_reference_env_credential_proposal(&params.deployment_id, &request)
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        let next_step = reference_env_credential_proposal_next_step(&proposal);
+        Ok(CallToolResult::success(vec![json_content(
+            &serde_json::json!({
+                "status": proposal.state,
+                "proposal_id": proposal.id,
+                "deployment_id": proposal.deployment_id,
+                "expected_active_revision_id": proposal.expected_active_revision_id,
+                "requested_environment_names": proposal.requested_environment_names,
+                "requires_secret_resolution_result": proposal.requires_secret_resolution_result,
+                "next_step": next_step,
+            }),
+        )?]))
+    }
+
+    #[tool(
+        description = "Get the current reference-environment credential proposal for a managed seren-agent deployment, if one is awaiting review or was recently applied. Requires a signed-in OAuth user session.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn get_seren_agent_reference_env_credential_proposal(
+        &self,
+        Parameters(params): Parameters<GetReferenceEnvCredentialProposalParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_account_user_session(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let proposal = match api_client
+            .seren_cloud_get_reference_env_credential_proposal(&params.deployment_id)
+            .await
+        {
+            Ok(response) => response.into_inner().data,
+            Err(seren::Error::UnexpectedResponse(response)) if response.status() == 404 => {
+                return Ok(CallToolResult::success(vec![json_content(
+                    &serde_json::json!({
+                        "status": "none",
+                        "deployment_id": params.deployment_id,
+                    }),
+                )?]));
+            }
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(
+            &serde_json::json!({
+                "status": proposal.state,
+                "proposal_id": proposal.id,
+                "deployment_id": proposal.deployment_id,
+                "expected_active_revision_id": proposal.expected_active_revision_id,
+                "requested_environment_names": proposal.requested_environment_names,
+                "requires_secret_resolution_result": proposal.requires_secret_resolution_result,
+                "result_id": proposal.result_id,
+                "applied_revision_id": proposal.applied_revision_id,
+                "changes": proposal.changes,
+            }),
+        )?]))
+    }
+
+    #[tool(
+        description = "Apply a reference-environment credential proposal to its managed seren-agent deployment through the Core proposal-bound apply route. Pass the proposal_id returned at creation; the apply fails if the deployment's current proposal differs. For proposals that require secrets, reads the exact reviewed field mapping from the approved Seren Passwords setup; callers never supply credential references. Omit setup_id only when the proposal requires no secret result. Idempotent retries return the already-applied revision without a second mutation. Requires a signed-in OAuth user session.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn apply_seren_agent_reference_env_credential_proposal(
+        &self,
+        Parameters(params): Parameters<ApplyReferenceEnvCredentialProposalParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_account_user_session(&extensions)?;
+        ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Update)?;
+        let api_client = self.api_client(&extensions)?;
+        let deployments = api_client
+            .seren_agent_list_deployments()
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        let organization_id = deployments
+            .iter()
+            .find(|deployment| deployment.id == params.deployment_id)
+            .map(|deployment| deployment.organization_id)
+            .ok_or_else(|| McpError::invalid_params("Managed agent deployment not found", None))?;
+        let detail = api_client
+            .seren_agent_get_managed_deployment(&params.deployment_id)
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        let proposal = api_client
+            .seren_cloud_get_reference_env_credential_proposal(&params.deployment_id)
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        let request = match params.setup_id {
+            Some(setup_id) => Some(
+                self.get_passwords_policy_request(&extensions, setup_id)
+                    .await?,
+            ),
+            None => None,
+        };
+        match seren::reference_env_credential_proposal_apply(
+            organization_id,
+            &detail,
+            request.as_ref(),
+            &proposal,
+            params.proposal_id,
+        )
+        .map_err(|error| McpError::invalid_request(error.to_string(), None))?
+        {
+            seren::ReferenceEnvCredentialProposalApply::AlreadyApplied {
+                applied_revision_id,
+                result_id,
+            } => Ok(CallToolResult::success(vec![json_content(
+                &serde_json::json!({
+                    "status": proposal.state,
+                    "setup_id": params.setup_id,
+                    "deployment_id": params.deployment_id,
+                    "proposal_id": proposal.id,
+                    "result_id": result_id,
+                    "active_revision_id": applied_revision_id,
+                    "runtime_action": managed_runtime_action_json(
+                        proposal.runtime_action.as_ref()
+                    ),
+                    "already_applied": true,
+                }),
+            )?])),
+            seren::ReferenceEnvCredentialProposalApply::Apply {
+                proposal_id,
+                idempotency_key,
+                request: apply_request,
+            } => {
+                let applied = api_client
+                    .seren_cloud_apply_reference_env_credential_proposal(
+                        &params.deployment_id,
+                        &proposal_id,
+                        &idempotency_key,
+                        &apply_request,
+                    )
+                    .into_mcp_result()
+                    .await?
+                    .into_inner()
+                    .data;
+                let applied_revision_id =
+                    seren::reference_env_credential_proposal_applied_revision(
+                        &proposal,
+                        &apply_request,
+                        &applied,
+                    )
+                    .map_err(|error| McpError::invalid_request(error.to_string(), None))?;
+                let rollout_pending = applied.runtime_action.as_ref().is_some_and(|action| {
+                    action.state == seren::ManagedRuntimeReconciliationState::Pending
+                });
+                Ok(CallToolResult::success(vec![json_content(
+                    &serde_json::json!({
+                        "status": applied.state,
+                        "setup_id": params.setup_id,
+                        "deployment_id": params.deployment_id,
+                        "proposal_id": proposal_id,
+                        "result_id": applied.result_id,
+                        "active_revision_id": applied_revision_id,
+                        "requested_environment_names": applied.requested_environment_names,
+                        "runtime_action": managed_runtime_action_json(
+                            applied.runtime_action.as_ref()
+                        ),
+                        "already_applied": false,
+                        "next_step": if rollout_pending {
+                            "The applied revision is recorded but its runtime rollout is still pending; check the deployment before relying on the new credentials."
+                        } else {
+                            "The reference-environment credential proposal has been applied."
                         },
                     }),
                 )?]))
@@ -21466,6 +21801,7 @@ mod tests {
                     connector_binding_proposal_id: None,
                     model_credential_proposal_id: None,
                     publisher_credential_proposal_id: None,
+                    reference_env_credential_proposal_id: None,
                 }),
                 api_key_extensions(),
             )
@@ -22521,6 +22857,7 @@ mod tests {
                     connector_binding_proposal_id: Some(Uuid::new_v4()),
                     model_credential_proposal_id: None,
                     publisher_credential_proposal_id: Some(Uuid::new_v4()),
+                    reference_env_credential_proposal_id: None,
                 }),
                 Extensions::default(),
             )
@@ -22570,10 +22907,57 @@ mod tests {
                     connector_binding_proposal_id: None,
                     model_credential_proposal_id: None,
                     publisher_credential_proposal_id: Some(proposal_id),
+                    reference_env_credential_proposal_id: None,
                 }),
                 Extensions::default(),
             )
             .await;
+    }
+
+    #[tokio::test]
+    async fn start_setup_binds_reference_env_credential_proposal_selector() {
+        use wiremock::matchers::{body_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let deployment_id = Uuid::new_v4();
+        let organization_id = Uuid::from_u128(1);
+        let proposal_id = Uuid::new_v4();
+        let summary = cloud_deployment_body(deployment_id, Some("seren-agent"), false);
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/deployments"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [summary["data"].clone()]
+            })))
+            .mount(&proxy)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/managed-agent-secrets/setups"
+            )))
+            .and(body_json(serde_json::json!({
+                "deployment_id": deployment_id,
+                "reference_env_credential_proposal_id": proposal_id,
+                "redirect_origin": "https://passwords.serendb.com"
+            })))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let _ = server
+            .start_seren_agent_passwords_setup(
+                Parameters(StartSerenAgentPasswordsSetupParams {
+                    deployment_id,
+                    connector_binding_proposal_id: None,
+                    model_credential_proposal_id: None,
+                    publisher_credential_proposal_id: None,
+                    reference_env_credential_proposal_id: Some(proposal_id),
+                }),
+                Extensions::default(),
+            )
+            .await;
+        proxy.verify().await;
     }
 
     #[tokio::test]
@@ -22647,6 +23031,79 @@ mod tests {
             .await
             .expect("preview succeeds against the mocked Core route");
         assert!(result_contains(&result, "SLACK_BOT_TOKEN"));
+        assert!(result_contains(
+            &result,
+            "requires_secret_resolution_result"
+        ));
+    }
+
+    #[tokio::test]
+    async fn preview_reference_env_credential_proposal_posts_non_secret_intent() {
+        use wiremock::matchers::{body_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let deployment_id = Uuid::from_u128(0x9002);
+        let revision_id = Uuid::from_u128(0x7777);
+        let idempotency_key = Uuid::from_u128(0x3333);
+
+        let mut detail = managed_agent_detail_fixture(deployment_id);
+        detail["data"]["active_revision_id"] = serde_json::json!(revision_id);
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(detail))
+            .mount(&proxy)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/publishers/seren-cloud/deployments/{deployment_id}/environment/proposals/preview"
+            )))
+            .and(body_json(serde_json::json!({
+                "changes": [{
+                    "operation": "add",
+                    "environment_name": "EXTERNAL_API_KEY",
+                    "kind": "api_key",
+                }],
+                "expected_active_revision_id": revision_id,
+                "idempotency_key": idempotency_key,
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "deployment_id": deployment_id,
+                    "expected_active_revision_id": revision_id,
+                    "proposal_fingerprint": "fp",
+                    "requested_environment_names": ["EXTERNAL_API_KEY"],
+                    "requires_secret_resolution_result": true,
+                    "changes": [{
+                        "operation": "add",
+                        "environment_name": "EXTERNAL_API_KEY",
+                        "kind": "api_key",
+                    }]
+                }
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let result = server
+            .preview_seren_agent_reference_env_credential_proposal(
+                Parameters(ReferenceEnvCredentialProposalParams {
+                    deployment_id,
+                    changes: vec![serde_json::from_value(serde_json::json!({
+                        "operation": "add", "environment_name": "EXTERNAL_API_KEY", "kind": "api_key"
+                    })).unwrap()],
+                    replace_proposal_id: None,
+                    idempotency_key,
+                }),
+                Extensions::default(),
+            )
+            .await
+            .expect("preview succeeds against the mocked Core route");
+        assert!(result_contains(&result, "EXTERNAL_API_KEY"));
         assert!(result_contains(
             &result,
             "requires_secret_resolution_result"

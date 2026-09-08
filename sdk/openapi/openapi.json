@@ -9115,9 +9115,6 @@
               }
             }
           },
-          "400": {
-            "description": "Publisher catalog cannot be reconciled"
-          },
           "401": {
             "description": "Service authentication required"
           },
@@ -9128,10 +9125,13 @@
             "description": "Publisher not found"
           },
           "409": {
-            "description": "Live publisher contract is not admitted"
+            "description": "Publisher catalog state does not permit reconciliation"
+          },
+          "500": {
+            "description": "Publisher catalog reconciliation failed"
           },
           "502": {
-            "description": "Publisher contract could not be fetched"
+            "description": "Publisher contract could not be fetched or is invalid"
           },
           "503": {
             "description": "Service JWT verification is unavailable"
@@ -9665,6 +9665,9 @@
           },
           "413": {
             "description": "Avatar upload is too large"
+          },
+          "500": {
+            "description": "Avatar upload could not be read"
           }
         },
         "security": [
@@ -23869,6 +23872,14 @@
           },
           "redirect_origin": {
             "type": "string"
+          },
+          "reference_env_credential_proposal_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Reference environment credential proposal. At most one proposal selector may be set."
           }
         },
         "additionalProperties": false
@@ -24675,6 +24686,25 @@
                 "type": "string",
                 "enum": [
                   "publisher"
+                ]
+              },
+              "proposal_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "proposal_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "reference_env"
                 ]
               },
               "proposal_id": {
@@ -27121,6 +27151,7 @@
         "description": "Status of payment request (402 response)",
         "enum": [
           "pending",
+          "settling",
           "paid",
           "expired",
           "cancelled",

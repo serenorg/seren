@@ -4602,6 +4602,9 @@ fn managed_secrets_apply_guidance(target: &seren::ManagedSecretsApplyTarget) -> 
         seren::ManagedSecretsApplyTarget::Publisher { proposal_id } => format!(
             "Run `seren agent managed-publisher-credential-proposal-apply <deployment-id> --proposal-id {proposal_id} --setup-id <setup-id>`."
         ),
+        seren::ManagedSecretsApplyTarget::ReferenceEnv { proposal_id } => format!(
+            "Run `seren agent managed-reference-env-credential-proposal-apply <deployment-id> --proposal-id {proposal_id} --setup-id <setup-id>`."
+        ),
     }
 }
 
@@ -4646,6 +4649,7 @@ pub async fn managed_agent_secrets_setup(
     connector_binding_proposal_id: Option<Uuid>,
     model_credential_proposal_id: Option<Uuid>,
     publisher_credential_proposal_id: Option<Uuid>,
+    reference_env_credential_proposal_id: Option<Uuid>,
     ctx: &CommandContext,
 ) -> Result<()> {
     ctx.require_user_session("Managed agent Seren Passwords setup")
@@ -4654,6 +4658,7 @@ pub async fn managed_agent_secrets_setup(
         connector_binding_proposal_id,
         model_credential_proposal_id,
         publisher_credential_proposal_id,
+        reference_env_credential_proposal_id,
     )?;
     let client = ctx.client().await?;
     let deployment = managed_agent_deployment_summary(&client, deployment_id).await?;
@@ -4667,6 +4672,7 @@ pub async fn managed_agent_secrets_setup(
                 connector_binding_proposal_id,
                 model_credential_proposal_id,
                 publisher_credential_proposal_id,
+                reference_env_credential_proposal_id,
                 deployment_id,
                 redirect_origin: seren::MANAGED_AGENT_SECRETS_REDIRECT_ORIGIN.to_string(),
             },
@@ -5108,6 +5114,299 @@ pub async fn managed_publisher_credential_proposal_apply(
                     "The applied revision is recorded but its runtime rollout is still pending; check the deployment before relying on the new credentials."
                 } else {
                     "The publisher credential proposal has been applied."
+                },
+            }))?;
+        }
+    }
+    Ok(())
+}
+
+fn parse_reference_env_credential_changes(
+    changes_json: &str,
+) -> Result<Vec<seren::ManagedReferenceEnvCredentialChange>> {
+    let changes: Vec<seren::ManagedReferenceEnvCredentialChange> =
+        serde_json::from_str(changes_json)
+            .map_err(|error| anyhow::anyhow!("Invalid --changes JSON: {error}"))?;
+    if changes.is_empty() {
+        anyhow::bail!("--changes must contain at least one credential change");
+    }
+    Ok(changes)
+}
+
+async fn build_reference_env_credential_proposal_request(
+    client: &seren::Client,
+    deployment_id: Uuid,
+    changes: Vec<seren::ManagedReferenceEnvCredentialChange>,
+    replace_proposal_id: Option<Uuid>,
+    idempotency_key: Uuid,
+) -> Result<seren::ReferenceEnvCredentialProposalRequest> {
+    let detail = client
+        .seren_agent_get_managed_deployment(&deployment_id)
+        .await
+        .map_err(|error| anyhow::anyhow!("Failed to load managed agent detail: {error}"))?
+        .into_inner()
+        .data;
+    let expected_active_revision_id = detail.active_revision_id.ok_or_else(|| {
+        anyhow::anyhow!("The managed agent deployment has no active revision to base a proposal on")
+    })?;
+    Ok(seren::ReferenceEnvCredentialProposalRequest {
+        changes,
+        expected_active_revision_id,
+        idempotency_key,
+        replace_proposal_id,
+    })
+}
+
+/// Preview a reference-environment credential proposal from non-secret change intent.
+pub async fn managed_reference_env_credential_proposal_preview(
+    deployment_id: Uuid,
+    changes_json: String,
+    ctx: &CommandContext,
+) -> Result<()> {
+    ctx.require_user_session("Managed agent reference-environment credential proposal preview")
+        .await?;
+    let changes = parse_reference_env_credential_changes(&changes_json)?;
+    let client = ctx.client().await?;
+    let request = build_reference_env_credential_proposal_request(
+        &client,
+        deployment_id,
+        changes,
+        None,
+        Uuid::new_v4(),
+    )
+    .await?;
+    let preview = match client
+        .seren_cloud_preview_reference_env_credential_proposal(&deployment_id, &request)
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to preview reference-environment credential proposal",
+                error,
+            )
+            .await);
+        }
+    };
+    output::print_json(&serde_json::json!({
+        "deployment_id": preview.deployment_id,
+        "expected_active_revision_id": preview.expected_active_revision_id,
+        "proposal_fingerprint": preview.proposal_fingerprint,
+        "requested_environment_names": preview.requested_environment_names,
+        "requires_secret_resolution_result": preview.requires_secret_resolution_result,
+        "changes": preview.changes,
+    }))?;
+    Ok(())
+}
+
+/// Create a revision-bound reference-environment credential proposal awaiting review.
+pub async fn managed_reference_env_credential_proposal_create(
+    deployment_id: Uuid,
+    changes_json: String,
+    replace_proposal_id: Option<Uuid>,
+    idempotency_key: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    ctx.require_user_session("Managed agent reference-environment credential proposal create")
+        .await?;
+    let changes = parse_reference_env_credential_changes(&changes_json)?;
+    let client = ctx.client().await?;
+    let request = build_reference_env_credential_proposal_request(
+        &client,
+        deployment_id,
+        changes,
+        replace_proposal_id,
+        idempotency_key,
+    )
+    .await?;
+    let proposal = match client
+        .seren_cloud_create_reference_env_credential_proposal(&deployment_id, &request)
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to create reference-environment credential proposal",
+                error,
+            )
+            .await);
+        }
+    };
+    let next_step = match &proposal.state {
+        seren::ManagedReferenceEnvCredentialProposalState::AwaitingReview
+            if proposal.requires_secret_resolution_result => format!(
+                "Run `seren agent managed-passwords-setup {deployment_id} --reference-env-credential-proposal-id {proposal_id}`, approve the exact field mapping, then `seren agent managed-reference-env-credential-proposal-apply {deployment_id} --proposal-id {proposal_id} --setup-id <setup-id>`.",
+                proposal_id = proposal.id
+            ),
+        seren::ManagedReferenceEnvCredentialProposalState::AwaitingReview => format!(
+            "Run `seren agent managed-reference-env-credential-proposal-apply {deployment_id} --proposal-id {}` to apply this proposal without setup.",
+            proposal.id
+        ),
+        seren::ManagedReferenceEnvCredentialProposalState::Applied =>
+            "This idempotency key already produced an applied proposal. Review it with managed-reference-env-credential-proposal-get; use a new idempotency key for another change.".to_string(),
+        seren::ManagedReferenceEnvCredentialProposalState::Superseded =>
+            "This idempotency key belongs to a superseded proposal. Read the current proposal and use a new idempotency key for another change.".to_string(),
+    };
+    output::print_json(&serde_json::json!({
+        "status": proposal.state,
+        "proposal_id": proposal.id,
+        "deployment_id": proposal.deployment_id,
+        "expected_active_revision_id": proposal.expected_active_revision_id,
+        "requested_environment_names": proposal.requested_environment_names,
+        "requires_secret_resolution_result": proposal.requires_secret_resolution_result,
+        "next_step": next_step,
+    }))?;
+    Ok(())
+}
+
+/// Get the current reference-environment credential proposal for a managed deployment.
+pub async fn managed_reference_env_credential_proposal_get(
+    deployment_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    ctx.require_user_session("Managed agent reference-environment credential proposal status")
+        .await?;
+    let client = ctx.client().await?;
+    let proposal = match client
+        .seren_cloud_get_reference_env_credential_proposal(&deployment_id)
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(seren::Error::UnexpectedResponse(response)) if response.status() == 404 => {
+            output::print_json(&serde_json::json!({
+                "status": "none",
+                "deployment_id": deployment_id,
+            }))?;
+            return Ok(());
+        }
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to load reference-environment credential proposal",
+                error,
+            )
+            .await);
+        }
+    };
+    output::print_json(&serde_json::json!({
+        "status": proposal.state,
+        "proposal_id": proposal.id,
+        "deployment_id": proposal.deployment_id,
+        "expected_active_revision_id": proposal.expected_active_revision_id,
+        "requested_environment_names": proposal.requested_environment_names,
+        "requires_secret_resolution_result": proposal.requires_secret_resolution_result,
+        "result_id": proposal.result_id,
+        "applied_revision_id": proposal.applied_revision_id,
+        "changes": proposal.changes,
+    }))?;
+    Ok(())
+}
+
+/// Apply an approved reference-environment credential proposal through the Core
+/// proposal-bound apply route using the reviewed Seren Passwords mapping.
+pub async fn managed_reference_env_credential_proposal_apply(
+    deployment_id: Uuid,
+    proposal_id: Uuid,
+    setup_id: Option<Uuid>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    ctx.require_user_session("Managed agent reference-environment credential proposal apply")
+        .await?;
+    let client = ctx.client().await?;
+    let deployment = managed_agent_deployment_summary(&client, deployment_id).await?;
+    let detail = client
+        .seren_agent_get_managed_deployment(&deployment_id)
+        .await
+        .map_err(|error| anyhow::anyhow!("Failed to load managed agent detail: {error}"))?
+        .into_inner()
+        .data;
+    let proposal = match client
+        .seren_cloud_get_reference_env_credential_proposal(&deployment_id)
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to load reference-environment credential proposal",
+                error,
+            )
+            .await);
+        }
+    };
+    let request = match setup_id {
+        Some(setup_id) => Some(managed_agent_secrets_policy_request(&client, setup_id).await?),
+        None => None,
+    };
+    match seren::reference_env_credential_proposal_apply(
+        deployment.organization_id,
+        &detail,
+        request.as_ref(),
+        &proposal,
+        proposal_id,
+    )? {
+        seren::ReferenceEnvCredentialProposalApply::AlreadyApplied {
+            applied_revision_id,
+            result_id,
+        } => {
+            output::print_json(&serde_json::json!({
+                "status": proposal.state,
+                "setup_id": setup_id,
+                "deployment_id": deployment_id,
+                "proposal_id": proposal.id,
+                "result_id": result_id,
+                "active_revision_id": applied_revision_id,
+                "runtime_action": managed_runtime_action_json(
+                    proposal.runtime_action.as_ref()
+                ),
+                "already_applied": true,
+            }))?;
+        }
+        seren::ReferenceEnvCredentialProposalApply::Apply {
+            proposal_id,
+            idempotency_key,
+            request: apply_request,
+        } => {
+            let applied = match client
+                .seren_cloud_apply_reference_env_credential_proposal(
+                    &deployment_id,
+                    &proposal_id,
+                    &idempotency_key,
+                    &apply_request,
+                )
+                .await
+            {
+                Ok(response) => response.into_inner().data,
+                Err(error) => {
+                    return Err(anyhow_from_seren_error(
+                        "Failed to apply reference-environment credential proposal",
+                        error,
+                    )
+                    .await);
+                }
+            };
+            let applied_revision_id = seren::reference_env_credential_proposal_applied_revision(
+                &proposal,
+                &apply_request,
+                &applied,
+            )?;
+            let rollout_pending = applied.runtime_action.as_ref().is_some_and(|action| {
+                action.state == seren::ManagedRuntimeReconciliationState::Pending
+            });
+            output::print_json(&serde_json::json!({
+                "status": applied.state,
+                "setup_id": setup_id,
+                "deployment_id": deployment_id,
+                "proposal_id": proposal_id,
+                "result_id": applied.result_id,
+                "active_revision_id": applied_revision_id,
+                "requested_environment_names": applied.requested_environment_names,
+                "runtime_action": managed_runtime_action_json(
+                    applied.runtime_action.as_ref()
+                ),
+                "already_applied": false,
+                "next_step": if rollout_pending {
+                    "The applied revision is recorded but its runtime rollout is still pending; check the deployment before relying on the new credentials."
+                } else {
+                    "The reference-environment credential proposal has been applied."
                 },
             }))?;
         }
