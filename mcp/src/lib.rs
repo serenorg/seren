@@ -98,6 +98,11 @@ struct OAuthAuthState {
     /// user info to avoid hitting the backend /auth/me endpoint on every request.
     /// Cache entries expire after 5 minutes (similar to Neon's approach).
     api_key_cache: Arc<Mutex<LruCache<String, CachedApiKeyValidation>>>,
+    /// Positive token-hash lookups, bounded by session expiry and a short cache lifetime.
+    /// Revocation becomes visible when this cache expires or an authoritative read rejects it.
+    oauth_token_cache: Arc<Mutex<LruCache<String, CachedRefreshTokenLookup>>>,
+    /// Token storage has a separate failure domain from upstream OAuth and API-key validation.
+    token_store_circuit_breaker: Arc<oauth::circuit_breaker::OAuthCircuitBreaker>,
     /// Shared OAuth state for endpoints and configuration.
     oauth_state: Arc<OAuthState>,
 }
@@ -357,11 +362,61 @@ const API_KEY_VALIDATION_MAX_ATTEMPTS: usize = 3;
 /// Initial retry delay for transient API-key validation failures.
 const API_KEY_VALIDATION_RETRY_DELAY_MS: u64 = 100;
 
+/// OAuth bearer -> upstream token-lookup cache TTL in seconds.
+///
+/// Deliberately short (unlike the 5-minute API-key cache): the cached record carries the
+/// upstream token vault entry and governs session revocation, so it must stay fresh. The TTL
+/// only needs to outlast a transient token-store blip, not an extended outage. A bearer
+/// validated within this window still authenticates when the store then returns an error,
+/// mirroring how the API-key path survives an upstream blip.
+const OAUTH_TOKEN_CACHE_TTL_SECS: u64 = 60;
+
+/// Maximum number of cached OAuth token-hash lookups.
+const OAUTH_TOKEN_CACHE_SIZE: usize = 1_000;
+
+/// Maximum attempts for a transient OAuth token-store lookup (one retry after the first try).
+const OAUTH_TOKEN_LOOKUP_MAX_ATTEMPTS: usize = 2;
+
+/// Initial retry delay for transient OAuth token-store lookup failures.
+const OAUTH_TOKEN_LOOKUP_RETRY_DELAY_MS: u64 = 100;
+
+/// Per-attempt token-store lookup timeout; two stalled attempts plus backoff take at most 4.1 seconds.
+const OAUTH_TOKEN_LOOKUP_TIMEOUT_SECS: u64 = 2;
+
+/// `Retry-After` seconds advertised on the 503 when a token-store lookup genuinely fails, so
+/// clients can distinguish a transient outage from a bad token.
+const OAUTH_TOKEN_LOOKUP_RETRY_AFTER_SECS: u64 = 5;
+
 /// Cached API key validation result with expiry timestamp.
 #[derive(Clone)]
 struct CachedApiKeyValidation {
     user_info: seren::DataResponseUserMeData,
     expires_at: std::time::Instant,
+}
+
+/// Cached OAuth token-hash lookup result with expiry timestamp.
+///
+/// Mirrors [`CachedApiKeyValidation`]: only *successful* lookups are cached, keyed by the
+/// refresh-token hash, so a transient token-store error does not zero out a recently
+/// validated OAuth bearer.
+#[derive(Clone)]
+struct CachedRefreshTokenLookup {
+    refresh_token: oauth::store::RefreshToken,
+    expires_at: tokio::time::Instant,
+}
+
+/// Outcome of a resilient OAuth token-store lookup.
+///
+/// Mirrors [`ApiKeyValidationError`]: a genuinely missing/revoked token (`NotFound`) is the
+/// analogue of `InvalidToken` and must surface as `401 invalid_token`; a store failure
+/// (`Upstream`) is the analogue of `UpstreamError` and must surface as `503` with `Retry-After`.
+#[derive(Debug, PartialEq, Eq)]
+enum OAuthTokenLookupError {
+    /// The token store returned no row: the session is revoked or unknown.
+    NotFound,
+    /// The token store failed (permanent error, or transient error or timeout after its retry),
+    /// with no fresh cache entry.
+    Upstream,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -564,6 +619,215 @@ async fn validate_api_key_uncached(
             }
         }
     }
+}
+
+/// Build the 503 response returned when an OAuth token-store lookup genuinely fails outside the
+/// resilience window. Carries a `Retry-After` header so a client can distinguish a transient
+/// token-store outage from an invalid bearer (which returns `401 invalid_token` instead).
+fn token_lookup_unavailable_response() -> axum::response::Response {
+    let mut response = (
+        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+        axum::Json(serde_json::json!({
+            "error": "server_error",
+            "error_description": "Token lookup failed",
+        })),
+    )
+        .into_response();
+    let retry_after =
+        axum::http::HeaderValue::from_str(&OAUTH_TOKEN_LOOKUP_RETRY_AFTER_SECS.to_string())
+            .expect("numeric retry delay is a valid header value");
+    response
+        .headers_mut()
+        .insert(axum::http::header::RETRY_AFTER, retry_after);
+    response
+}
+
+/// Store a successful token-hash lookup in the resilience cache (keyed by the refresh-token hash).
+/// Only SHA-256 token hashes key the cache: a legacy record still keyed by its plaintext refresh
+/// token is never retained.
+async fn cache_refresh_token_lookup(
+    cache: &Arc<Mutex<LruCache<String, CachedRefreshTokenLookup>>>,
+    token_hash: &str,
+    refresh_token: &oauth::store::RefreshToken,
+) {
+    let maximum_ttl = std::time::Duration::from_secs(OAUTH_TOKEN_CACHE_TTL_SECS);
+    let ttl = refresh_token
+        .expires_at
+        .map(|expiry| {
+            std::time::Duration::try_from(expiry - time::OffsetDateTime::now_utc())
+                .unwrap_or_default()
+                .min(maximum_ttl)
+        })
+        .unwrap_or(maximum_ttl);
+    let mut cache_guard = cache.lock().await;
+    if ttl.is_zero() || !oauth::store::TokenStore::looks_like_sha256_hex(token_hash) {
+        cache_guard.pop(token_hash);
+        return;
+    }
+    cache_guard.put(
+        token_hash.to_string(),
+        CachedRefreshTokenLookup {
+            refresh_token: refresh_token.clone(),
+            expires_at: tokio::time::Instant::now() + ttl,
+        },
+    );
+}
+
+/// Classify transient failures at the database boundary; configuration and decoding faults do not retry.
+fn retryable_token_store_error(error: &crate::error::McpError) -> bool {
+    match error {
+        crate::error::McpError::Database(
+            sqlx::Error::Io(_)
+            | sqlx::Error::Tls(_)
+            | sqlx::Error::PoolTimedOut
+            | sqlx::Error::WorkerCrashed,
+        ) => true,
+        crate::error::McpError::Database(sqlx::Error::Database(error)) => {
+            error.code().as_deref().is_some_and(|code| {
+                code.starts_with("08")
+                    || matches!(
+                        code,
+                        "40001" | "40P01" | "53300" | "57P01" | "57P02" | "57P03"
+                    )
+            })
+        }
+        _ => false,
+    }
+}
+
+/// Look up an upstream refresh token through the token-store circuit breaker with bounded, retried
+/// store calls. Mirrors [`validate_api_key_uncached_with_retry`]: the breaker gates the call, each
+/// attempt is timeout-bounded (so a stalled store cannot hang the request), a transient store
+/// error or timeout retries once after a delay, and a genuine "no row" short-circuits as
+/// `NotFound` (never retried, never cached). Any answer from the store records a breaker success;
+/// only exhausted transient failures record a breaker failure, so a permanent fault in one record
+/// or configuration returns `Upstream` without opening the breaker for every other session.
+async fn lookup_refresh_token_with_retry<F, Fut>(
+    circuit_breaker: &Arc<oauth::circuit_breaker::OAuthCircuitBreaker>,
+    lookup: F,
+) -> std::result::Result<oauth::store::RefreshToken, OAuthTokenLookupError>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = crate::error::Result<Option<oauth::store::RefreshToken>>>,
+{
+    if !circuit_breaker.is_call_permitted() {
+        tracing::warn!(
+            event = "oauth_token_lookup_circuit_open",
+            "Skipping OAuth token lookup because the token-store circuit is open"
+        );
+        return Err(OAuthTokenLookupError::Upstream);
+    }
+
+    let attempt_timeout = std::time::Duration::from_secs(OAUTH_TOKEN_LOOKUP_TIMEOUT_SECS);
+    for attempt in 1..=OAUTH_TOKEN_LOOKUP_MAX_ATTEMPTS {
+        match tokio::time::timeout(attempt_timeout, lookup()).await {
+            Ok(Ok(Some(refresh_token))) => {
+                circuit_breaker.record_success();
+                if refresh_token
+                    .expires_at
+                    .is_some_and(|expiry| expiry <= time::OffsetDateTime::now_utc())
+                {
+                    return Err(OAuthTokenLookupError::NotFound);
+                }
+                return Ok(refresh_token);
+            }
+            Ok(Ok(None)) => {
+                // Genuine "no such token" (revoked/unknown): the store answered, so this is a
+                // breaker success; do not retry, and let the caller return 401.
+                circuit_breaker.record_success();
+                return Err(OAuthTokenLookupError::NotFound);
+            }
+            Ok(Err(e)) if !retryable_token_store_error(&e) => {
+                tracing::error!(error = %e, "OAuth token store lookup failed permanently");
+                return Err(OAuthTokenLookupError::Upstream);
+            }
+            Ok(Err(e)) => {
+                if attempt == OAUTH_TOKEN_LOOKUP_MAX_ATTEMPTS {
+                    tracing::error!(error = %e, "OAuth token store lookup failed");
+                    break;
+                }
+                tracing::warn!(
+                    event = "oauth_token_lookup_retry",
+                    attempt,
+                    max_attempts = OAUTH_TOKEN_LOOKUP_MAX_ATTEMPTS,
+                    error = %e,
+                    "OAuth token lookup hit a transient store error; retrying"
+                );
+                let delay_ms = OAUTH_TOKEN_LOOKUP_RETRY_DELAY_MS.saturating_mul(attempt as u64);
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
+            Err(_elapsed) => {
+                if attempt == OAUTH_TOKEN_LOOKUP_MAX_ATTEMPTS {
+                    tracing::error!(
+                        timeout_secs = OAUTH_TOKEN_LOOKUP_TIMEOUT_SECS,
+                        "OAuth token store lookup timed out"
+                    );
+                    break;
+                }
+                tracing::warn!(
+                    event = "oauth_token_lookup_timeout",
+                    attempt,
+                    max_attempts = OAUTH_TOKEN_LOOKUP_MAX_ATTEMPTS,
+                    timeout_secs = OAUTH_TOKEN_LOOKUP_TIMEOUT_SECS,
+                    "OAuth token lookup timed out; retrying"
+                );
+                let delay_ms = OAUTH_TOKEN_LOOKUP_RETRY_DELAY_MS.saturating_mul(attempt as u64);
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
+        }
+    }
+
+    circuit_breaker.record_failure();
+    Err(OAuthTokenLookupError::Upstream)
+}
+
+/// Look up an upstream refresh token by hash with a short-TTL read-through cache in front of the
+/// resilient store call. Mirrors [`validate_api_key_cached`]: a live cache hit short-circuits the
+/// store entirely (so a token-store blip cannot zero out a recently validated bearer), a cache
+/// miss validates through [`lookup_refresh_token_with_retry`], and only successful lookups are
+/// cached.
+async fn lookup_refresh_token_by_hash_cached<F, Fut>(
+    cache: &Arc<Mutex<LruCache<String, CachedRefreshTokenLookup>>>,
+    circuit_breaker: &Arc<oauth::circuit_breaker::OAuthCircuitBreaker>,
+    token_hash: &str,
+    lookup: F,
+) -> std::result::Result<oauth::store::RefreshToken, OAuthTokenLookupError>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = crate::error::Result<Option<oauth::store::RefreshToken>>>,
+{
+    // Check cache first: a live entry authenticates the bearer even while the store is down.
+    {
+        let mut cache_guard = cache.lock().await;
+        if let Some(cached) = cache_guard.get(token_hash) {
+            if cached.expires_at > tokio::time::Instant::now()
+                && cached
+                    .refresh_token
+                    .expires_at
+                    .is_none_or(|expiry| expiry > time::OffsetDateTime::now_utc())
+            {
+                tracing::debug!(
+                    event = "oauth_token_cache_hit",
+                    "OAuth token lookup served from cache"
+                );
+                return Ok(cached.refresh_token.clone());
+            }
+            cache_guard.pop(token_hash);
+            tracing::debug!(
+                event = "oauth_token_cache_expired",
+                "Cached OAuth token lookup expired"
+            );
+        }
+    }
+
+    let refresh_token = lookup_refresh_token_with_retry(circuit_breaker, lookup).await?;
+    cache_refresh_token_lookup(cache, token_hash, &refresh_token).await;
+    tracing::debug!(
+        event = "oauth_token_cache_miss",
+        ttl_secs = OAUTH_TOKEN_CACHE_TTL_SECS,
+        "OAuth token validated and cached"
+    );
+    Ok(refresh_token)
 }
 
 /// Simple token auth middleware (for start:http mode)
@@ -787,9 +1051,18 @@ async fn require_oauth_auth(
     // their upstream token vault. Legacy tokens without `rth` fall back to user/client lookup.
     let mut refresh_token = match &resolved_auth.refresh_token_hash {
         Some(token_hash) => {
-            // New path: lookup by the JWT's embedded refresh_token_hash
-            match state.store.get_refresh_token_by_hash(token_hash).await {
-                Ok(Some(refresh_token)) => {
+            // New path: lookup by the JWT's embedded refresh_token_hash. Goes through a
+            // short-TTL cache + circuit breaker + bounded retry so a transient token-store
+            // blip cannot turn a recently validated bearer into a 503 (parity with API keys).
+            match lookup_refresh_token_by_hash_cached(
+                &state.oauth_token_cache,
+                &state.token_store_circuit_breaker,
+                token_hash,
+                || state.store.get_refresh_token_by_hash(token_hash),
+            )
+            .await
+            {
+                Ok(refresh_token) => {
                     tracing::debug!(
                         event = "oauth_auth_upstream_token_found_by_hash",
                         user_id = %user_id,
@@ -799,7 +1072,7 @@ async fn require_oauth_auth(
                     );
                     refresh_token
                 }
-                Ok(None) => {
+                Err(OAuthTokenLookupError::NotFound) => {
                     tracing::warn!(
                         event = "oauth_auth_no_upstream_token_for_hash",
                         user_id = %user_id,
@@ -812,23 +1085,15 @@ async fn require_oauth_auth(
                         "Session has been revoked or expired (re-authentication required)",
                     );
                 }
-                Err(e) => {
+                Err(OAuthTokenLookupError::Upstream) => {
                     tracing::error!(
                         event = "oauth_auth_upstream_token_hash_error",
                         user_id = %user_id,
                         client_id = %client_id_value,
                         token_hash = %token_hash,
-                        error = %e,
                         "Failed to look up upstream token by hash"
                     );
-                    return (
-                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                        axum::Json(serde_json::json!({
-                            "error": "server_error",
-                            "error_description": "Token lookup failed",
-                        })),
-                    )
-                        .into_response();
+                    return token_lookup_unavailable_response();
                 }
             }
         }
@@ -842,21 +1107,32 @@ async fn require_oauth_auth(
                 client_id = %client_id_value,
                 "JWT missing rth claim, using legacy user/client lookup"
             );
-            match state
-                .store
-                .get_refresh_token_by_user_client(user_id, &client_id_value)
-                .await
+            // Legacy lookup is keyed by (user_id, client_id), so it cannot read the hash cache
+            // up front, but it still gets the breaker + bounded retry, and primes the hash
+            // cache on success so subsequent rth-path requests stay resilient.
+            match lookup_refresh_token_with_retry(&state.token_store_circuit_breaker, || {
+                state
+                    .store
+                    .get_refresh_token_by_user_client(user_id, &client_id_value)
+            })
+            .await
             {
-                Ok(Some(refresh_token)) => {
+                Ok(refresh_token) => {
                     tracing::debug!(
                         event = "oauth_auth_upstream_token_found",
                         user_id = %user_id,
                         client_id = %client_id_value,
                         "Found upstream token for API calls (legacy path)"
                     );
+                    cache_refresh_token_lookup(
+                        &state.oauth_token_cache,
+                        &refresh_token.token_hash,
+                        &refresh_token,
+                    )
+                    .await;
                     refresh_token
                 }
-                Ok(None) => {
+                Err(OAuthTokenLookupError::NotFound) => {
                     tracing::warn!(
                         event = "oauth_auth_no_upstream_token",
                         user_id = %user_id,
@@ -868,22 +1144,14 @@ async fn require_oauth_auth(
                         "No active session found for this token (re-authentication required)",
                     );
                 }
-                Err(e) => {
+                Err(OAuthTokenLookupError::Upstream) => {
                     tracing::error!(
                         event = "oauth_auth_upstream_token_error",
                         user_id = %user_id,
                         client_id = %client_id_value,
-                        error = %e,
                         "Failed to look up upstream token"
                     );
-                    return (
-                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                        axum::Json(serde_json::json!({
-                            "error": "server_error",
-                            "error_description": "Token lookup failed",
-                        })),
-                    )
-                        .into_response();
+                    return token_lookup_unavailable_response();
                 }
             }
         }
@@ -951,36 +1219,32 @@ async fn require_oauth_auth(
         let mut lock_result: Option<axum::response::Response> = None;
 
         // Re-fetch the latest token under the lock (another request may have refreshed it).
-        match state
-            .store
-            .get_refresh_token_by_hash(&refresh_token_hash)
-            .await
+        // Bypasses the read cache on purpose (we need the authoritative latest record here),
+        // but still gets the breaker + bounded retry, and refreshes the cache on success.
+        match lookup_refresh_token_with_retry(&state.token_store_circuit_breaker, || {
+            state.store.get_refresh_token_by_hash(&refresh_token_hash)
+        })
+        .await
         {
-            Ok(Some(latest)) => refresh_token = latest,
-            Ok(None) => {
+            Ok(latest) => {
+                cache_refresh_token_lookup(&state.oauth_token_cache, &refresh_token_hash, &latest)
+                    .await;
+                refresh_token = latest;
+            }
+            Err(OAuthTokenLookupError::NotFound) => {
                 lock_result = Some(state.unauthorized_response(
                     "invalid_token",
                     "No active session found for this token (re-authentication required)",
                 ));
             }
-            Err(e) => {
-                tracing::warn!(
+            Err(OAuthTokenLookupError::Upstream) => {
+                tracing::error!(
                     event = "oauth_auth_upstream_token_error",
                     user_id = %user_id,
                     client_id = %client_id_value,
-                    error = %e,
                     "Failed to look up upstream token"
                 );
-                lock_result = Some(
-                    (
-                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                        axum::Json(serde_json::json!({
-                            "error": "server_error",
-                            "error_description": "Token lookup failed",
-                        })),
-                    )
-                        .into_response(),
-                );
+                lock_result = Some(token_lookup_unavailable_response());
             }
         }
 
@@ -1089,6 +1353,12 @@ async fn require_oauth_auth(
                             if new_upstream_refresh_token.is_some() {
                                 refresh_token.upstream_refresh_token = new_upstream_refresh_token;
                             }
+                            cache_refresh_token_lookup(
+                                &state.oauth_token_cache,
+                                &refresh_token_hash,
+                                &refresh_token,
+                            )
+                            .await;
                         }
                         Ok(false) => {
                             tracing::warn!(
@@ -1135,6 +1405,11 @@ async fn require_oauth_auth(
         }
 
         if let Some(resp) = lock_result {
+            state
+                .oauth_token_cache
+                .lock()
+                .await
+                .pop(&refresh_token_hash);
             return resp;
         }
     }
@@ -1750,9 +2025,15 @@ async fn run_oauth(config: Config) -> Result<()> {
     let api_key_cache = Arc::new(Mutex::new(LruCache::new(
         NonZeroUsize::new(API_KEY_CACHE_SIZE).expect("API_KEY_CACHE_SIZE must be > 0"),
     )));
+    // OAuth token-hash lookup cache (short TTL) to survive transient token-store failures.
+    let oauth_token_cache = Arc::new(Mutex::new(LruCache::new(
+        NonZeroUsize::new(OAUTH_TOKEN_CACHE_SIZE).expect("OAUTH_TOKEN_CACHE_SIZE must be > 0"),
+    )));
     let oauth_auth_state = OAuthAuthState {
         store,
         api_key_cache,
+        oauth_token_cache,
+        token_store_circuit_breaker: oauth::circuit_breaker::create_oauth_circuit_breaker(),
         oauth_state: oauth_state.clone(),
     };
 
@@ -2533,5 +2814,518 @@ mod tests {
             err.to_string()
                 .contains("only available in local MCP modes")
         );
+    }
+
+    // ------------------------------------------------------------------------
+    // OAuth token-store cache, expiry, timeout and retry behavior.
+    // ------------------------------------------------------------------------
+
+    /// A live session record keyed, like production records, by the SHA-256 hash of `label`.
+    fn make_refresh_token(label: &str) -> oauth::store::RefreshToken {
+        oauth::store::RefreshToken {
+            token_hash: TokenStore::hash_refresh_token(label),
+            client_id: "client-1".to_string(),
+            user_id: Uuid::new_v4(),
+            scope: "api".to_string(),
+            expires_at: None,
+            created_at: time::OffsetDateTime::now_utc(),
+            upstream_access_token: "upstream-access".to_string(),
+            upstream_refresh_token: Some("upstream-refresh".to_string()),
+            upstream_expires_at: time::OffsetDateTime::now_utc() + time::Duration::hours(1),
+        }
+    }
+
+    fn empty_oauth_token_cache() -> Arc<Mutex<LruCache<String, CachedRefreshTokenLookup>>> {
+        Arc::new(Mutex::new(LruCache::new(
+            NonZeroUsize::new(OAUTH_TOKEN_CACHE_SIZE).unwrap(),
+        )))
+    }
+
+    /// A bearer validated within the cache TTL still authenticates when the underlying store
+    /// lookup then returns an error (parity with the API-key cache surviving an upstream blip).
+    #[tokio::test]
+    async fn oauth_bearer_cached_within_ttl_survives_store_error() {
+        let cache = empty_oauth_token_cache();
+        let breaker = oauth::circuit_breaker::create_oauth_circuit_breaker();
+        let refresh_token = make_refresh_token("abc");
+        let token_hash = refresh_token.token_hash.as_str();
+
+        // First lookup succeeds and populates the cache.
+        let ok = lookup_refresh_token_by_hash_cached(&cache, &breaker, token_hash, || {
+            let refresh_token = refresh_token.clone();
+            async move { Ok(Some(refresh_token)) }
+        })
+        .await
+        .expect("first lookup should succeed");
+        assert_eq!(ok.token_hash, token_hash);
+
+        // The store now fails, but the live cache entry still authenticates the bearer.
+        let cached = lookup_refresh_token_by_hash_cached(&cache, &breaker, token_hash, || async {
+            Err::<Option<oauth::store::RefreshToken>, _>(crate::error::McpError::Database(
+                sqlx::Error::PoolTimedOut,
+            ))
+        })
+        .await
+        .expect("cache hit within TTL must authenticate despite the store error");
+        assert_eq!(cached.token_hash, token_hash);
+    }
+
+    /// An immediate transient failure gets one delayed retry and a temporary-unavailability response.
+    #[tokio::test(start_paused = true)]
+    async fn store_failure_is_bounded_and_maps_to_retry_after_503() {
+        let breaker = oauth::circuit_breaker::create_oauth_circuit_breaker();
+
+        let started = tokio::time::Instant::now();
+        let err = lookup_refresh_token_with_retry(&breaker, || async {
+            Err::<Option<oauth::store::RefreshToken>, _>(crate::error::McpError::Database(
+                sqlx::Error::PoolTimedOut,
+            ))
+        })
+        .await
+        .expect_err("a store failure must surface as an error");
+        assert_eq!(err, OAuthTokenLookupError::Upstream);
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed >= std::time::Duration::from_millis(100)
+                && elapsed < std::time::Duration::from_millis(110),
+            "one 100 ms retry delay, got {elapsed:?}"
+        );
+
+        let response = token_lookup_unavailable_response();
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(response.headers()[axum::http::header::RETRY_AFTER], "5");
+        assert!(
+            !response
+                .headers()
+                .contains_key(axum::http::header::WWW_AUTHENTICATE)
+        );
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["error"], "server_error");
+        assert_eq!(body["error_description"], "Token lookup failed");
+    }
+
+    /// A genuinely invalid/unknown bearer surfaces as `NotFound` (caller returns 401 invalid_token)
+    /// and is never written to the resilience cache.
+    #[tokio::test]
+    async fn invalid_bearer_returns_not_found_and_is_not_cached() {
+        let cache = empty_oauth_token_cache();
+        let breaker = oauth::circuit_breaker::create_oauth_circuit_breaker();
+        let token_hash = TokenStore::hash_refresh_token("unknown");
+
+        let err = lookup_refresh_token_by_hash_cached(&cache, &breaker, &token_hash, || async {
+            Ok::<Option<oauth::store::RefreshToken>, crate::error::McpError>(None)
+        })
+        .await
+        .expect_err("an unknown bearer must not authenticate");
+        assert_eq!(err, OAuthTokenLookupError::NotFound);
+
+        let mut guard = cache.lock().await;
+        assert!(
+            guard.get(&token_hash).is_none(),
+            "an invalid/unknown bearer must never populate the resilience cache"
+        );
+    }
+
+    /// An unupgraded legacy record keyed by its plaintext refresh token is never cached.
+    #[tokio::test]
+    async fn oauth_token_cache_only_retains_hashed_keys() {
+        let cache = empty_oauth_token_cache();
+        let mut token = make_refresh_token("legacy");
+        token.token_hash = "legacy-plaintext-refresh-token".to_string();
+        cache_refresh_token_lookup(&cache, &token.token_hash, &token).await;
+        assert!(cache.lock().await.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn oauth_token_cache_expires_at_session_deadline_or_short_ttl() {
+        for lifetime in [None, Some(time::Duration::seconds(5))] {
+            let cache = empty_oauth_token_cache();
+            let breaker = oauth::circuit_breaker::create_oauth_circuit_breaker();
+            let mut token = make_refresh_token("expiry-hash");
+            token.expires_at = lifetime.map(|duration| time::OffsetDateTime::now_utc() + duration);
+            cache_refresh_token_lookup(&cache, &token.token_hash, &token).await;
+            let elapsed = if lifetime.is_some() { 6 } else { 61 };
+            tokio::time::advance(std::time::Duration::from_secs(elapsed)).await;
+            let calls = std::sync::atomic::AtomicUsize::new(0);
+            let result =
+                lookup_refresh_token_by_hash_cached(&cache, &breaker, &token.token_hash, || {
+                    calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    async { Ok(None) }
+                })
+                .await;
+            assert_eq!(result.unwrap_err(), OAuthTokenLookupError::NotFound);
+            assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+            assert!(cache.lock().await.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn oauth_token_cache_never_accepts_an_expired_session() {
+        let cache = empty_oauth_token_cache();
+        let breaker = oauth::circuit_breaker::create_oauth_circuit_breaker();
+        let mut token = make_refresh_token("expired-hash");
+        token.expires_at = Some(time::OffsetDateTime::now_utc() - time::Duration::seconds(1));
+        cache_refresh_token_lookup(&cache, &token.token_hash, &token).await;
+        assert!(cache.lock().await.is_empty());
+        // Even a cache entry with an unexpired timer cannot extend the session's absolute expiry.
+        cache.lock().await.put(
+            token.token_hash.clone(),
+            CachedRefreshTokenLookup {
+                refresh_token: token.clone(),
+                expires_at: tokio::time::Instant::now() + std::time::Duration::from_secs(60),
+            },
+        );
+        let result =
+            lookup_refresh_token_by_hash_cached(&cache, &breaker, &token.token_hash, || {
+                let token = token.clone();
+                async move { Ok(Some(token)) }
+            })
+            .await;
+        assert_eq!(result.unwrap_err(), OAuthTokenLookupError::NotFound);
+        assert!(cache.lock().await.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn oauth_store_timeout_retries_once_with_a_bounded_lookup_budget() {
+        let breaker = oauth::circuit_breaker::create_oauth_circuit_breaker();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let started = tokio::time::Instant::now();
+        let error = lookup_refresh_token_with_retry(&breaker, || {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            std::future::pending::<crate::error::Result<Option<oauth::store::RefreshToken>>>()
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(error, OAuthTokenLookupError::Upstream);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed >= std::time::Duration::from_millis(4100)
+                && elapsed < std::time::Duration::from_millis(4110),
+            "two 2 s attempts and one 100 ms delay, got {elapsed:?}"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn oauth_store_transient_error_recovers_on_one_retry() {
+        let breaker = oauth::circuit_breaker::create_oauth_circuit_breaker();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let token = make_refresh_token("recovered-hash");
+        let result = lookup_refresh_token_with_retry(&breaker, || {
+            let attempt = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let token = token.clone();
+            async move {
+                if attempt == 0 {
+                    Err(crate::error::McpError::Database(sqlx::Error::PoolTimedOut))
+                } else {
+                    Ok(Some(token))
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(result.token_hash, token.token_hash);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert!(breaker.is_call_permitted());
+    }
+
+    #[tokio::test]
+    async fn oauth_store_permanent_error_is_not_retried() {
+        let breaker = oauth::circuit_breaker::create_oauth_circuit_breaker();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let error = lookup_refresh_token_with_retry(&breaker, || {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async {
+                Err(crate::error::McpError::Config(
+                    "invalid encrypted token record".into(),
+                ))
+            }
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(error, OAuthTokenLookupError::Upstream);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    /// A database error carrying only an SQLSTATE, as returned by the server.
+    #[derive(Debug)]
+    struct SqlStateError(&'static str);
+
+    impl std::fmt::Display for SqlStateError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "database error {}", self.0)
+        }
+    }
+
+    impl std::error::Error for SqlStateError {}
+
+    impl sqlx::error::DatabaseError for SqlStateError {
+        fn message(&self) -> &str {
+            "database error"
+        }
+
+        fn code(&self) -> Option<std::borrow::Cow<'_, str>> {
+            Some(self.0.into())
+        }
+
+        fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+            self
+        }
+
+        fn kind(&self) -> sqlx::error::ErrorKind {
+            sqlx::error::ErrorKind::Other
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn oauth_store_retries_only_transient_sqlstates() {
+        for (code, expected_calls) in [
+            ("08006", 2),
+            ("40001", 2),
+            ("40P01", 2),
+            ("53300", 2),
+            ("57P01", 2),
+            ("42501", 1),
+            ("42P01", 1),
+            ("23505", 1),
+        ] {
+            let breaker = oauth::circuit_breaker::create_oauth_circuit_breaker();
+            let calls = std::sync::atomic::AtomicUsize::new(0);
+            let error = lookup_refresh_token_with_retry(&breaker, || {
+                calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                async move {
+                    Err(crate::error::McpError::Database(sqlx::Error::from(
+                        SqlStateError(code),
+                    )))
+                }
+            })
+            .await
+            .unwrap_err();
+            assert_eq!(error, OAuthTokenLookupError::Upstream, "SQLSTATE {code}");
+            assert_eq!(
+                calls.load(std::sync::atomic::Ordering::SeqCst),
+                expected_calls,
+                "SQLSTATE {code}"
+            );
+        }
+    }
+
+    /// Only exhausted availability failures count toward the store breaker: permanent faults in
+    /// one record do not open it, and any answer from the store resets the consecutive count.
+    #[tokio::test(start_paused = true)]
+    async fn oauth_store_breaker_counts_only_availability_failures() {
+        let breaker = oauth::circuit_breaker::create_oauth_circuit_breaker();
+        let permanent = || async {
+            Err::<Option<oauth::store::RefreshToken>, _>(crate::error::McpError::Config(
+                "undecryptable token record".into(),
+            ))
+        };
+        let transient = || async {
+            Err::<Option<oauth::store::RefreshToken>, _>(crate::error::McpError::Database(
+                sqlx::Error::PoolTimedOut,
+            ))
+        };
+
+        for _ in 0..10 {
+            let error = lookup_refresh_token_with_retry(&breaker, permanent)
+                .await
+                .unwrap_err();
+            assert_eq!(error, OAuthTokenLookupError::Upstream);
+        }
+        assert!(breaker.is_call_permitted());
+
+        for _ in 0..4 {
+            let _ = lookup_refresh_token_with_retry(&breaker, transient).await;
+        }
+        let error = lookup_refresh_token_with_retry(&breaker, || async { Ok(None) })
+            .await
+            .unwrap_err();
+        assert_eq!(error, OAuthTokenLookupError::NotFound);
+        for _ in 0..4 {
+            let _ = lookup_refresh_token_with_retry(&breaker, transient).await;
+        }
+        assert!(breaker.is_call_permitted());
+
+        let _ = lookup_refresh_token_with_retry(&breaker, transient).await;
+        assert!(!breaker.is_call_permitted());
+    }
+
+    #[tokio::test]
+    async fn oauth_unknown_sessions_do_not_open_the_store_breaker() {
+        let breaker = oauth::circuit_breaker::create_oauth_circuit_breaker();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        for _ in 0..6 {
+            let error = lookup_refresh_token_with_retry(&breaker, || {
+                calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                async { Ok(None) }
+            })
+            .await
+            .unwrap_err();
+            assert_eq!(error, OAuthTokenLookupError::NotFound);
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 6);
+        assert!(breaker.is_call_permitted());
+    }
+
+    #[tokio::test]
+    async fn oauth_fresh_cache_survives_an_open_store_breaker() {
+        let cache = empty_oauth_token_cache();
+        let breaker = oauth::circuit_breaker::create_oauth_circuit_breaker();
+        let token = make_refresh_token("cached-during-open-breaker");
+        cache_refresh_token_lookup(&cache, &token.token_hash, &token).await;
+        for _ in 0..5 {
+            breaker.record_failure();
+        }
+        assert!(!breaker.is_call_permitted());
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let result =
+            lookup_refresh_token_by_hash_cached(&cache, &breaker, &token.token_hash, || {
+                calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                async { Ok(None) }
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.token_hash, token.token_hash);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        let error = lookup_refresh_token_with_retry(&breaker, || {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async { Ok(None) }
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(error, OAuthTokenLookupError::Upstream);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn oauth_cache_replaces_old_upstream_credentials_after_refresh() {
+        let cache = empty_oauth_token_cache();
+        let breaker = oauth::circuit_breaker::create_oauth_circuit_breaker();
+        let mut token = make_refresh_token("refreshed-hash");
+        cache_refresh_token_lookup(&cache, &token.token_hash, &token).await;
+        token.upstream_access_token = "new-upstream-access".into();
+        token.upstream_refresh_token = Some("new-upstream-refresh".into());
+        cache_refresh_token_lookup(&cache, &token.token_hash, &token).await;
+        let cached =
+            lookup_refresh_token_by_hash_cached(&cache, &breaker, &token.token_hash, || async {
+                Ok(None)
+            })
+            .await
+            .unwrap();
+        assert_eq!(cached.upstream_access_token, token.upstream_access_token);
+        assert_eq!(cached.upstream_refresh_token, token.upstream_refresh_token);
+    }
+
+    /// OAuth middleware state whose token store refuses every connection.
+    fn unreachable_store_oauth_auth_state() -> OAuthAuthState {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .acquire_timeout(std::time::Duration::from_millis(250))
+            .connect_lazy("postgresql://postgres@127.0.0.1:1/unreachable")
+            .expect("lazy pool");
+        let store = TokenStore::new(pool);
+        let oauth_state = Arc::new(OAuthState {
+            store: store.clone(),
+            http: reqwest::Client::new(),
+            server_host: "http://mcp.test".to_string(),
+            upstream_client_id: "upstream-client-id".to_string(),
+            upstream_api_base_url: "http://127.0.0.1:1".to_string(),
+            upstream_oauth_redirect_base_url: "http://127.0.0.1:1".to_string(),
+            circuit_breaker: oauth::circuit_breaker::create_oauth_circuit_breaker(),
+            jwt_signer: Arc::new(oauth::McpJwtSigner::new(
+                b"test-secret-key-at-least-32-bytes!!",
+                "http://mcp.test",
+            )),
+        });
+        OAuthAuthState {
+            store,
+            api_key_cache: Arc::new(Mutex::new(LruCache::new(
+                NonZeroUsize::new(API_KEY_CACHE_SIZE).unwrap(),
+            ))),
+            oauth_token_cache: empty_oauth_token_cache(),
+            token_store_circuit_breaker: oauth::circuit_breaker::create_oauth_circuit_breaker(),
+            oauth_state,
+        }
+    }
+
+    /// Through the real middleware, a cached session keeps authenticating while the store is
+    /// unreachable, and uncached `rth` and legacy user/client lookups return a retryable 503.
+    #[tokio::test]
+    async fn oauth_middleware_serves_cached_sessions_and_reports_store_outage() {
+        let state = unreachable_store_oauth_auth_state();
+        let user_id = Uuid::new_v4();
+        let mut cached = make_refresh_token("cached-session");
+        cached.user_id = user_id;
+        cache_refresh_token_lookup(&state.oauth_token_cache, &cached.token_hash, &cached).await;
+
+        let app = axum::Router::new()
+            .route(
+                "/",
+                axum::routing::get(|request: Request<Body>| async move {
+                    request
+                        .headers()
+                        .get(axum::http::header::AUTHORIZATION)
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or_default()
+                        .to_string()
+                }),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                require_oauth_auth,
+            ));
+        let request_with_rth = |rth: Option<&str>| {
+            let (jwt, _) = state
+                .oauth_state
+                .jwt_signer
+                .sign_access_token(user_id, "client-1", "api", None, None, rth)
+                .unwrap();
+            Request::get("/")
+                .header(axum::http::header::AUTHORIZATION, format!("Bearer {jwt}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+
+        let response = app
+            .clone()
+            .oneshot(request_with_rth(Some(cached.token_hash.as_str())))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        assert_eq!(&body[..], b"Bearer upstream-access");
+
+        let uncached = TokenStore::hash_refresh_token("uncached-session");
+        for request in [
+            request_with_rth(Some(uncached.as_str())),
+            request_with_rth(None),
+        ] {
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(
+                response.status(),
+                axum::http::StatusCode::SERVICE_UNAVAILABLE
+            );
+            assert_eq!(response.headers()[axum::http::header::RETRY_AFTER], "5");
+            assert!(
+                !response
+                    .headers()
+                    .contains_key(axum::http::header::WWW_AUTHENTICATE)
+            );
+        }
     }
 }

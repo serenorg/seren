@@ -51,6 +51,14 @@ seren mcp start
 - Optional local x402 wallet signing for advanced paid publisher flows
 - Tool schemas normalized for strict MCP clients
 
+## OAuth session availability
+
+Hosted OAuth authentication caches successful refresh-token-hash lookups in each replica for up to 60 seconds, never past the session's own expiry. JWT validation still runs for every request. A lookup that finds no live session (missing, revoked or expired) is never cached. Revocation is therefore not immediate for a session that was already cached: each replica holding the entry, including the replica that processed the revocation, can keep accepting the session until that entry expires, at most 60 seconds after it was cached. Upstream credentials refreshed outside a replica's own middleware, such as by another replica or the token endpoint, can likewise remain cached for up to 60 seconds; the middleware always rereads the stored record before it refreshes upstream credentials itself. Once the refresh lock is acquired, a failed refresh outcome, including an authoritative lookup that finds no live session, removes that replica's cached entry. Failures acquiring the lock do not evict the entry.
+
+Each token-store lookup attempt has a two-second limit. A timeout or transient database failure is retried once after 100 milliseconds, so one lookup takes at most 4.1 seconds; permanent database errors are not retried. Exhausted transient failures feed a token-store circuit breaker that is separate from the breaker for upstream OAuth and API-key validation. While it is open, lookups not served from the cache fail immediately, and a valid cached lookup can still succeed.
+
+A failed lookup returns HTTP 503 with `Retry-After: 5`; an authoritative missing-session result returns HTTP 401 instead. OAuth endpoint server errors contain a generic description, with internal error details logged server-side. Refresh-lock acquisition, token persistence and upstream token refresh still depend on their existing services and are outside the bounded lookup budget.
+
 ## Usage Modes
 
 ### Hosted (Remote)

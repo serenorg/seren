@@ -1457,7 +1457,7 @@ impl TokenStore {
         hex::encode(digest)
     }
 
-    fn looks_like_sha256_hex(value: &str) -> bool {
+    pub(crate) fn looks_like_sha256_hex(value: &str) -> bool {
         value.len() == 64
             && value
                 .as_bytes()

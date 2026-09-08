@@ -1094,6 +1094,11 @@ async fn revoke(
 // Error Handling
 // ============================================================================
 
+/// Generic `server_error` description returned to clients. The real cause (which may include
+/// raw `sqlx`/driver text) is logged server-side and never placed in `error_description`.
+const SERVER_ERROR_GENERIC_DESCRIPTION: &str =
+    "The authorization server encountered an internal error. Please try again.";
+
 #[derive(Debug)]
 pub(crate) enum OAuthError {
     InvalidRequest(String),
@@ -1131,7 +1136,17 @@ impl IntoResponse for OAuthError {
                 "Only 'authorization_code' and 'refresh_token' grants are supported".into(),
             ),
             OAuthError::ServerError(desc) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "server_error", desc)
+                // Driver details remain server-side; the protocol response is generic.
+                tracing::error!(
+                    event = "oauth_server_error",
+                    detail = %desc,
+                    "OAuth endpoint returned server_error"
+                );
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "server_error",
+                    SERVER_ERROR_GENERIC_DESCRIPTION.to_string(),
+                )
             }
         };
 
@@ -2330,5 +2345,28 @@ mod tests {
             assert!(is_valid_redirect_uri("myapp://oauth/callback"));
             assert!(is_valid_redirect_uri("myapp://auth"));
         });
+    }
+
+    /// Internal database errors do not become OAuth protocol diagnostics.
+    #[tokio::test]
+    async fn server_error_does_not_leak_driver_text() {
+        // A raw driver string like the one that reached clients during the outage.
+        let raw = "Control plane request failed: Token lookup failed (sqlx PoolTimedOut)";
+        let response = OAuthError::ServerError(raw.to_string()).into_response();
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(json["error"], "server_error");
+        assert_eq!(json["error_description"], SERVER_ERROR_GENERIC_DESCRIPTION);
+        let description = json["error_description"].as_str().unwrap_or_default();
+        assert!(
+            !description.contains("sqlx")
+                && !description.contains("Control plane")
+                && !description.contains(raw),
+            "error_description leaked driver text: {description}"
+        );
     }
 }
