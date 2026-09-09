@@ -737,8 +737,14 @@ pub fn publisher_credential_proposal_apply(
 /// credential apply shape.
 ///
 /// Only the mapping the server returned on the approved delegation is trusted;
-/// a caller-invented reference never reaches the apply route. The mapping must
-/// cover exactly the environment names the proposal requested.
+/// a caller-invented reference never reaches the apply route. The proposal's
+/// reference-environment fields are the apply projection scope; the approval
+/// scope may be broader, because one revision-bound Passwords setup can review a
+/// reference-environment proposal alongside a coexisting model, connector, or
+/// publisher grant. Those other approved entries stay bound to the result but
+/// are never validated or serialized as reference-environment mappings — only
+/// the reference-environment target names are projected, and they must be
+/// covered exactly once.
 pub fn managed_reference_env_credential_effective_mapping(
     requested_environment_names: &[String],
     request: &crate::DelegationPolicyRequestView,
@@ -757,14 +763,21 @@ pub fn managed_reference_env_credential_effective_mapping(
         .iter()
         .map(|field| field.environment_name.as_str())
         .collect();
-    if policy_requested.len() != request.requested_fields.len() || policy_requested != requested {
+    if policy_requested.len() != request.requested_fields.len()
+        || !requested.is_subset(&policy_requested)
+    {
         return Err(ValidationError::new(
-            "The Seren Passwords setup does not request the proposal's exact reference-environment fields.",
+            "The Seren Passwords setup does not request the proposal's reference-environment fields.",
         ));
     }
-    let mut mapping = Vec::with_capacity(request.effective_mapping.len());
+    let mut mapping = Vec::with_capacity(requested.len());
     let mut seen = std::collections::BTreeSet::new();
     for entry in &request.effective_mapping {
+        if !requested.contains(entry.environment_name.as_str()) {
+            // Grants for other approved authorities remain bound to the result
+            // but are not reference-environment mappings.
+            continue;
+        }
         if !valid_environment_name(&entry.environment_name) {
             return Err(ValidationError::new(format!(
                 "The approved mapping contains invalid environment name '{}'.",
@@ -2913,6 +2926,135 @@ mod tests {
         assert_eq!(entry.environment_name, "PASSWORD");
         assert_eq!(entry.ref_uri, secrets_ref("password"));
         assert_eq!(idempotency_key, proposal.id);
+    }
+
+    #[test]
+    fn reference_env_apply_projects_only_its_targets_beside_a_model_grant() {
+        // One revision-bound Passwords setup reviews the two reference-environment
+        // fields alongside a coexisting ChatGPT-subscription model grant. The
+        // proposal scopes its apply projection to the reference-environment names,
+        // so the model grant `seren-llm-codex` (not a valid environment-variable
+        // name) is projected out, not rejected as an invalid environment name.
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let mut request =
+            managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+        request.requested_fields = vec![
+            crate::DelegationRequestedField {
+                environment_name: "KRAKEN_API_KEY".to_string(),
+                field_group: None,
+            },
+            crate::DelegationRequestedField {
+                environment_name: "KRAKEN_API_SECRET".to_string(),
+                field_group: None,
+            },
+            crate::DelegationRequestedField {
+                environment_name: "seren-llm-codex".to_string(),
+                field_group: Some("seren-llm-codex".to_string()),
+            },
+        ];
+        let mut model_grant = mapping("seren-llm-codex", "codex");
+        model_grant.field_group = Some("seren-llm-codex".to_string());
+        request.effective_mapping = vec![
+            mapping("KRAKEN_API_KEY", "api-key"),
+            mapping("KRAKEN_API_SECRET", "api-secret"),
+            model_grant,
+        ];
+        let mut proposal = reference_env_proposal(deployment_id, revision_id, "awaiting_review");
+        proposal.requested_environment_names = vec![
+            "KRAKEN_API_KEY".to_string(),
+            "KRAKEN_API_SECRET".to_string(),
+        ];
+        proposal.approval_request_id = Some(request.request_id);
+
+        let ReferenceEnvCredentialProposalApply::Apply { request: apply, .. } =
+            reference_env_credential_proposal_apply(
+                organization_id,
+                &detail,
+                Some(&request),
+                &proposal,
+                proposal.id,
+            )
+            .expect("mixed-authority proposal must project only its reference-env targets")
+        else {
+            panic!("awaiting-review proposal must produce an apply");
+        };
+
+        let mut names = apply
+            .effective_mapping
+            .iter()
+            .map(|entry| entry.environment_name.clone())
+            .collect::<Vec<_>>();
+        names.sort();
+        assert_eq!(
+            names,
+            vec![
+                "KRAKEN_API_KEY".to_string(),
+                "KRAKEN_API_SECRET".to_string()
+            ]
+        );
+        assert!(
+            apply
+                .effective_mapping
+                .iter()
+                .all(|entry| entry.environment_name != "seren-llm-codex"),
+            "the model grant must never be projected as a reference-environment mapping"
+        );
+        assert_eq!(apply.secret_resolution_result_id, Some(request.result_id));
+    }
+
+    #[test]
+    fn sibling_projectors_never_reinterpret_a_foreign_authority_as_their_own_mapping() {
+        // Publisher and model projectors share the reference-env projector's shape
+        // and carry the same latent cross-authority projection risk (issue #436
+        // follow-up). The invariant that must hold regardless: given a Passwords
+        // setup whose approved mapping carries a foreign authority grant not in the
+        // projector's own target names, the projector must never emit that foreign
+        // grant as its own mapping entry — it either fails closed or filters it.
+        fn setup_with_foreign_grant() -> crate::DelegationPolicyRequestView {
+            let mut request = managed_secrets_policy_request(
+                uuid::Uuid::new_v4(),
+                uuid::Uuid::new_v4(),
+                uuid::Uuid::new_v4(),
+            );
+            request.requested_fields = vec![
+                crate::DelegationRequestedField {
+                    environment_name: "OWN_KEY".to_string(),
+                    field_group: None,
+                },
+                crate::DelegationRequestedField {
+                    environment_name: "seren-llm-codex".to_string(),
+                    field_group: Some("seren-llm-codex".to_string()),
+                },
+            ];
+            let mut foreign = mapping("seren-llm-codex", "codex");
+            foreign.field_group = Some("seren-llm-codex".to_string());
+            request.effective_mapping = vec![mapping("OWN_KEY", "own"), foreign];
+            request
+        }
+        let own_targets = vec!["OWN_KEY".to_string()];
+
+        if let Ok(publisher) = managed_publisher_credential_effective_mapping(
+            &own_targets,
+            &setup_with_foreign_grant(),
+        ) {
+            assert!(
+                publisher
+                    .iter()
+                    .all(|entry| entry.environment_name != "seren-llm-codex")
+            );
+        }
+        if let Ok(model) =
+            managed_model_credential_effective_mapping(&own_targets, &setup_with_foreign_grant())
+        {
+            assert!(
+                model
+                    .iter()
+                    .all(|entry| entry.environment_name != "seren-llm-codex")
+            );
+        }
     }
 
     #[test]
