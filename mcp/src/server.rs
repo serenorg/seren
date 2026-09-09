@@ -2223,6 +2223,7 @@ pub struct GetSerenAgentDeploymentActionParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct StartSerenAgentPasswordsSetupParams {
     /// Managed agent deployment UUID
     pub deployment_id: Uuid,
@@ -17557,8 +17558,18 @@ impl ServerHandler for SerenMcpServer {
         #[cfg(feature = "telemetry")]
         let start = std::time::Instant::now();
 
-        let tcc = ToolCallContext::new(self, request, context);
-        let result = self.tool_router.call(tcc).await;
+        let result = async {
+            // Setup parameter errors must remain protocol errors before tool dispatch.
+            if request.name == "start_seren_agent_passwords_setup" {
+                serde_json::from_value::<StartSerenAgentPasswordsSetupParams>(
+                    serde_json::Value::Object(request.arguments.clone().unwrap_or_default()),
+                )
+                .map_err(|error| McpError::invalid_params(error.to_string(), None))?;
+            }
+            let tcc = ToolCallContext::new(self, request, context);
+            self.tool_router.call(tcc).await
+        }
+        .await;
 
         #[cfg(feature = "telemetry")]
         {
@@ -17622,6 +17633,11 @@ When Seren MCP is connected, follow these priorities:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use anyhow::{Context, ensure};
+    use rmcp::model::Tool;
+    use serde_json::Value;
+    use std::{collections::BTreeSet, time::Duration};
 
     use axum::body::Body;
     use axum::http::Request;
@@ -22847,6 +22863,201 @@ mod tests {
         assert!(apply_error.message.contains("Hosted MCP with OAuth"));
     }
 
+    fn check_managed_secrets_contract(core: &Value, tools: &[Tool]) -> anyhow::Result<()> {
+        let properties = core
+            .pointer("/components/schemas/InitiateManagedAgentSecretsSetupRequest/properties")
+            .and_then(Value::as_object)
+            .context("Core setup request properties are missing")?;
+        ensure!(
+            properties.contains_key("deployment_id")
+                && properties.contains_key("reference_env_credential_proposal_id"),
+            "Core does not advertise reference proposal setups"
+        );
+        let tool = tools
+            .iter()
+            .find(|tool| tool.name == "start_seren_agent_passwords_setup")
+            .context("MCP setup tool is missing")?;
+        let schema = Value::Object((*tool.input_schema).clone());
+        let mcp_properties = schema["properties"]
+            .as_object()
+            .context("MCP setup properties are missing")?;
+        let expected: BTreeSet<_> = properties
+            .keys()
+            .filter(|name| *name != "redirect_origin")
+            .collect();
+        ensure!(
+            expected == mcp_properties.keys().collect(),
+            "MCP and Core setup fields differ"
+        );
+        for name in expected {
+            ensure!(
+                mcp_properties[name]["type"] == properties[name]["type"]
+                    && mcp_properties[name]["format"] == properties[name]["format"],
+                "MCP setup field {name} differs from Core"
+            );
+        }
+        let core_required = core
+            .pointer("/components/schemas/InitiateManagedAgentSecretsSetupRequest/required")
+            .and_then(Value::as_array)
+            .context("Core setup required fields are missing")?;
+        let mcp_required = schema["required"]
+            .as_array()
+            .context("MCP setup required fields are missing")?;
+        let required_names = |fields: &[Value]| -> anyhow::Result<BTreeSet<String>> {
+            fields
+                .iter()
+                .map(|field| {
+                    field
+                        .as_str()
+                        .map(str::to_owned)
+                        .context("required field name must be a string")
+                })
+                .collect()
+        };
+        let mut expected_required = required_names(core_required)?;
+        expected_required.remove("redirect_origin");
+        ensure!(
+            expected_required == required_names(mcp_required)?,
+            "MCP and Core required setup fields differ"
+        );
+        ensure!(
+            schema["additionalProperties"] == false
+                || schema["additionalProperties"] == serde_json::json!({"not": {}}),
+            "MCP setup schema permits unknown fields"
+        );
+        for operation in ["preview", "create", "get", "apply"] {
+            let name = format!("{operation}_seren_agent_reference_env_credential_proposal");
+            ensure!(
+                tools.iter().any(|tool| tool.name == name),
+                "MCP tool {name} is missing"
+            );
+        }
+        Ok(())
+    }
+
+    /// Verify the publisher contract provides the reference proposal operations.
+    fn check_reference_env_proposal_operations(cloud: &Value) -> anyhow::Result<()> {
+        let paths = cloud
+            .pointer("/paths")
+            .and_then(Value::as_object)
+            .context("Seren Cloud contract paths are missing")?;
+        for operation in ["preview", "create", "get", "apply"] {
+            let operation_id = format!("seren_cloud_{operation}_reference_env_credential_proposal");
+            ensure!(
+                paths.values().any(|item| {
+                    item.as_object().is_some_and(|methods| {
+                        methods
+                            .values()
+                            .any(|method| method["operationId"] == operation_id)
+                    })
+                }),
+                "Seren Cloud operation {operation_id} is missing"
+            );
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore = "requires deployed Core and MCP URLs and an MCP API key"]
+    async fn deployed_managed_secrets_contract() -> anyhow::Result<()> {
+        use rmcp::ServiceExt;
+        use rmcp::transport::{
+            StreamableHttpClientTransport,
+            streamable_http_client::StreamableHttpClientTransportConfig,
+        };
+
+        let core_url =
+            std::env::var("SEREN_CORE_OPENAPI_URL").context("set SEREN_CORE_OPENAPI_URL")?;
+        let mcp_url = std::env::var("SEREN_MCP_URL").context("set SEREN_MCP_URL")?;
+        let key_path =
+            std::env::var("SEREN_MCP_API_KEY_FILE").context("set SEREN_MCP_API_KEY_FILE")?;
+        let key = std::fs::read_to_string(key_path).context("read MCP API key file")?;
+        ensure!(!key.trim().is_empty(), "MCP API key is empty");
+        for url in [&core_url, &mcp_url] {
+            let parsed = reqwest::Url::parse(url).context("invalid service URL")?;
+            ensure!(
+                parsed.scheme() == "https"
+                    && parsed.username().is_empty()
+                    && parsed.password().is_none(),
+                "service URLs must use HTTPS without embedded credentials"
+            );
+        }
+        let http = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
+        let core: Value = http
+            .get(core_url)
+            .send()
+            .await
+            .context("fetch deployed Core contract")?
+            .error_for_status()?
+            .json()
+            .await
+            .context("decode deployed Core contract")?;
+        let transport = StreamableHttpClientTransport::with_client(
+            http,
+            StreamableHttpClientTransportConfig::with_uri(mcp_url).auth_header(key.trim()),
+        );
+        tokio::time::timeout(Duration::from_secs(60), async {
+            let client = ().serve(transport).await.context("initialize deployed MCP")?;
+            let catalog = client
+                .list_all_tools()
+                .await
+                .context("list deployed MCP tools");
+            let result = catalog.and_then(|tools| check_managed_secrets_contract(&core, &tools));
+            client.cancel().await.context("close MCP smoke session")?;
+            result
+        })
+        .await
+        .context("MCP contract check timed out")??;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn start_setup_rejects_unknown_fields_without_calling_core() {
+        use rmcp::ServiceExt;
+
+        let proxy = wiremock::MockServer::start().await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let (server_transport, client_transport) = tokio::io::duplex(4096);
+        let server_task = tokio::spawn(async move {
+            server
+                .serve(server_transport)
+                .await
+                .unwrap()
+                .waiting()
+                .await
+                .unwrap();
+        });
+        let client = ().serve(client_transport).await.unwrap();
+
+        for field in [
+            "future_credential_proposal_id",
+            "reference_env_credential_proposal",
+            "unexpected",
+        ] {
+            for value in [serde_json::json!(Uuid::new_v4()), serde_json::Value::Null] {
+                let mut arguments = serde_json::json!({ "deployment_id": Uuid::new_v4() });
+                arguments[field] = value;
+                let error = client
+                    .call_tool(
+                        CallToolRequestParams::new("start_seren_agent_passwords_setup")
+                            .with_arguments(arguments.as_object().unwrap().clone()),
+                    )
+                    .await
+                    .expect_err("unknown setup fields must fail before dispatch");
+                let rmcp::service::ServiceError::McpError(error) = error else {
+                    panic!("expected an MCP invalid_params error");
+                };
+                assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+            }
+        }
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+        client.cancel().await.unwrap();
+        server_task.await.unwrap();
+    }
+
     #[tokio::test]
     async fn start_setup_rejects_multiple_proposal_selectors() {
         let server = SerenMcpServer::new("test-key", "http://127.0.0.1:9").unwrap();
@@ -22916,6 +23127,7 @@ mod tests {
 
     #[tokio::test]
     async fn start_setup_binds_reference_env_credential_proposal_selector() {
+        use rmcp::ServiceExt;
         use wiremock::matchers::{body_json, method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -22931,6 +23143,10 @@ mod tests {
             })))
             .mount(&proxy)
             .await;
+        let requested_fields = serde_json::json!([
+            {"environment_name": "SERVICE_API_KEY", "display_label": "Service API key", "source": "manifest_env"},
+            {"environment_name": "SERVICE_API_SECRET", "display_label": "Service API secret", "source": "manifest_env"}
+        ]);
         Mock::given(method("POST"))
             .and(path(format!(
                 "/organizations/{organization_id}/managed-agent-secrets/setups"
@@ -22940,24 +23156,103 @@ mod tests {
                 "reference_env_credential_proposal_id": proposal_id,
                 "redirect_origin": "https://passwords.serendb.com"
             })))
-            .respond_with(ResponseTemplate::new(500))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "setup_id": Uuid::new_v4(),
+                    "launch_url": "https://passwords.example.test/setup",
+                    "expires_at": "2030-01-01T00:00:00Z",
+                    "requirements": {
+                        "deployment_id": deployment_id,
+                        "active_revision_id": Uuid::new_v4(),
+                        "requirements_fingerprint": "test-requirements",
+                        "requested_fields": requested_fields,
+                        "allowed_access_levels": ["read"],
+                        "participants": [],
+                        "policy": {"allow_cross_organization": false, "allow_same_principal_across_roles": false, "stages": []},
+                        "approval_request_ttl_seconds": 600,
+                        "applied_grant_lifecycle": "deployment_revision"
+                    }
+                }
+            })))
             .expect(1)
             .mount(&proxy)
             .await;
         let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
-        let _ = server
-            .start_seren_agent_passwords_setup(
-                Parameters(StartSerenAgentPasswordsSetupParams {
-                    deployment_id,
-                    connector_binding_proposal_id: None,
-                    model_credential_proposal_id: None,
-                    publisher_credential_proposal_id: None,
-                    reference_env_credential_proposal_id: Some(proposal_id),
-                }),
-                Extensions::default(),
+        let (server_transport, client_transport) = tokio::io::duplex(4096);
+        let server_task = tokio::spawn(async move {
+            server
+                .serve(server_transport)
+                .await
+                .unwrap()
+                .waiting()
+                .await
+                .unwrap();
+        });
+        let client = ().serve(client_transport).await.unwrap();
+        let tools = client.list_all_tools().await.unwrap();
+        let core: serde_json::Value =
+            serde_json::from_str(include_str!("../../sdk/openapi/openapi.json")).unwrap();
+        check_managed_secrets_contract(&core, &tools).unwrap();
+        let cloud: serde_json::Value =
+            serde_json::from_str(include_str!("../../sdk/openapi/openapi-seren-cloud.json"))
+                .unwrap();
+        check_reference_env_proposal_operations(&cloud).unwrap();
+        let mut incomplete_cloud = cloud.clone();
+        incomplete_cloud["paths"]
+            .as_object_mut()
+            .unwrap()
+            .remove("/deployments/{id}/environment/proposals/{proposal_id}/apply");
+        assert!(check_reference_env_proposal_operations(&incomplete_cloud).is_err());
+        let mut incompatible = core.clone();
+        incompatible["components"]["schemas"]["InitiateManagedAgentSecretsSetupRequest"]["properties"]
+            ["future_credential_proposal_id"] =
+            serde_json::json!({"type": ["string", "null"], "format": "uuid"});
+        assert!(check_managed_secrets_contract(&incompatible, &tools).is_err());
+        let mut incompatible = core.clone();
+        incompatible["components"]["schemas"]["InitiateManagedAgentSecretsSetupRequest"]["required"].as_array_mut().unwrap().push(serde_json::json!("reference_env_credential_proposal_id"));
+        assert!(check_managed_secrets_contract(&incompatible, &tools).is_err());
+        for (pointer, value) in [
+            ("/additionalProperties", serde_json::json!(true)),
+            (
+                "/properties/reference_env_credential_proposal_id/type",
+                serde_json::json!("integer"),
+            ),
+        ] {
+            let mut incompatible_tools = tools.clone();
+            let tool = incompatible_tools
+                .iter_mut()
+                .find(|tool| tool.name == "start_seren_agent_passwords_setup")
+                .unwrap();
+            let mut schema = serde_json::Value::Object((*tool.input_schema).clone());
+            *schema.pointer_mut(pointer).unwrap() = value;
+            tool.input_schema = Arc::new(schema.as_object().unwrap().clone());
+            assert!(check_managed_secrets_contract(&core, &incompatible_tools).is_err());
+        }
+        let mut incomplete_tools = tools.clone();
+        incomplete_tools
+            .retain(|tool| tool.name != "apply_seren_agent_reference_env_credential_proposal");
+        assert!(check_managed_secrets_contract(&core, &incomplete_tools).is_err());
+        let result = client
+            .call_tool(
+                CallToolRequestParams::new("start_seren_agent_passwords_setup").with_arguments(
+                    serde_json::json!({
+                        "deployment_id": deployment_id,
+                        "reference_env_credential_proposal_id": proposal_id
+                    })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+                ),
             )
-            .await;
+            .await
+            .expect("proposal-bound setup should succeed");
+        assert!(!result.is_error.unwrap_or(false));
+        let output: serde_json::Value =
+            serde_json::from_str(&result.content[0].as_text().unwrap().text).unwrap();
+        assert_eq!(output["requested_fields"], requested_fields);
         proxy.verify().await;
+        client.cancel().await.unwrap();
+        server_task.await.unwrap();
     }
 
     #[tokio::test]
