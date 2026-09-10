@@ -1596,7 +1596,7 @@ enum AgentAction {
         /// Proposal ID from the model-credential proposal workflow
         #[arg(long)]
         proposal_id: Uuid,
-        /// Setup ID returned by managed-passwords-setup with model_credential_proposal_id; omit for ChatGPT-subscription auth or an idempotent retry
+        /// Setup ID returned by managed-passwords-setup with model_credential_proposal_id; required for configure with either API-key or ChatGPT-subscription auth, or removal with remaining grants; omit on an idempotent retry
         #[arg(long)]
         setup_id: Option<Uuid>,
     },
@@ -8310,7 +8310,7 @@ mod tests {
             _ => panic!("unexpected command"),
         }
 
-        // ChatGPT-subscription auth: setup_id omitted.
+        // Already-applied retries and removal without remaining grants may omit setup_id.
         let apply_no_setup = parse_cli_with_large_stack(vec![
             "seren",
             "agent",

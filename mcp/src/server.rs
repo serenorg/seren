@@ -2349,16 +2349,17 @@ pub struct GetModelCredentialProposalParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ApplyModelCredentialProposalParams {
     /// Managed agent deployment UUID
     pub deployment_id: Uuid,
     /// Proposal UUID returned by the model-credential proposal workflow.
     pub proposal_id: Uuid,
     /// Setup UUID returned by start_seren_agent_passwords_setup with
-    /// model_credential_proposal_id set. Required for an API-key auth method that
-    /// requests a Secrets result; omitted for a ChatGPT-subscription auth method
-    /// that needs no Secrets result, and on an idempotent retry of an
-    /// already-applied proposal.
+    /// model_credential_proposal_id set. Required for configure with either
+    /// API-key or ChatGPT-subscription auth, and for remove with remaining
+    /// grants. May be omitted on an already-applied retry or removal without
+    /// remaining grants.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub setup_id: Option<Uuid>,
 }
@@ -15201,7 +15202,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Apply an approved model-credential proposal to its managed seren-agent deployment through the Core model-credential proposal-bound apply route. Pass the proposal_id from the model-credential workflow; the apply fails if the deployment's current proposal differs. For an API-key auth method that requests secrets, reads the exact reviewed mapping from the approved Seren Passwords setup (setup_id); a ChatGPT-subscription auth method needs no Secrets result, so omit setup_id. Idempotent retries return the already-applied revision without a second mutation. Requires a signed-in OAuth user session.",
+        description = "Apply an approved model-credential proposal to its managed seren-agent deployment through the Core model-credential proposal-bound apply route. Pass the proposal_id from the model-credential workflow; the apply fails if the deployment's current proposal differs. Configure requires setup_id for both API-key and ChatGPT-subscription auth, and reads the exact reviewed mapping and result from that approved Seren Passwords setup. Remove requires setup_id when grants remain. Idempotent retries may omit setup_id and return the already-applied revision without a second mutation. Requires a signed-in OAuth user session.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -24723,7 +24724,73 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn apply_model_credential_proposal_routes_to_model_endpoint() {
+    async fn apply_model_credential_proposal_rejects_caller_selected_references_and_results() {
+        use rmcp::ServiceExt;
+
+        let proxy = wiremock::MockServer::start().await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let (server_transport, client_transport) = tokio::io::duplex(4096);
+        let server_task = tokio::spawn(async move {
+            server
+                .serve(server_transport)
+                .await
+                .unwrap()
+                .waiting()
+                .await
+                .unwrap();
+        });
+        let client = ().serve(client_transport).await.unwrap();
+        for (field, value) in [
+            (
+                "ref_uri",
+                serde_json::json!(
+                    "seren-secrets://11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/invented"
+                ),
+            ),
+            (
+                "effective_mapping",
+                serde_json::json!([{"environment_name": "seren-llm-codex", "ref_uri": "invented"}]),
+            ),
+            (
+                "secret_resolution_result_id",
+                serde_json::json!(Uuid::new_v4()),
+            ),
+        ] {
+            let mut arguments = serde_json::json!({
+                "deployment_id": Uuid::new_v4(),
+                "proposal_id": Uuid::new_v4(),
+                "setup_id": Uuid::new_v4(),
+            });
+            arguments[field] = value;
+            let result = client
+                .call_tool(
+                    CallToolRequestParams::new("apply_seren_agent_model_credential_proposal")
+                        .with_arguments(arguments.as_object().unwrap().clone()),
+                )
+                .await
+                .expect("the MCP router returns parameter errors as tool errors");
+            assert_eq!(result.is_error, Some(true));
+            assert!(result_contains(
+                &result,
+                &format!("unknown field `{field}`")
+            ));
+        }
+        assert!(proxy.received_requests().await.unwrap().is_empty());
+        client.cancel().await.unwrap();
+        server_task.await.unwrap();
+    }
+
+    fn model_delegation_view_value(fixture: DelegationViewFixture) -> serde_json::Value {
+        let mut approved_setup = delegation_view_value(fixture);
+        for field in ["requested_fields", "effective_mapping"] {
+            approved_setup["data"][field][0]["environment_name"] =
+                serde_json::json!("seren-llm-codex");
+            approved_setup["data"][field][0]["field_group"] = serde_json::json!("codex");
+        }
+        approved_setup
+    }
+
+    async fn assert_model_credential_proposal_routes_to_model_endpoint(auth_method: &str) {
         use wiremock::matchers::{body_json, header, method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -24739,24 +24806,21 @@ mod tests {
         let item_id = Uuid::from_u128(0x3a08);
         let applied_revision_id = Uuid::from_u128(0x3a09);
 
+        let approved_setup = model_delegation_view_value(DelegationViewFixture {
+            request_id: setup_id,
+            organization_id,
+            deployment_id,
+            deployment_revision_id: revision_id,
+            agent_identity_id,
+            result_id,
+            vault_id,
+            item_id,
+        });
         Mock::given(method("GET"))
             .and(path(format!(
                 "/publishers/seren-passwords/delegations/{setup_id}"
             )))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_json(delegation_view_value(
-                    DelegationViewFixture {
-                        request_id: setup_id,
-                        organization_id,
-                        deployment_id,
-                        deployment_revision_id: revision_id,
-                        agent_identity_id,
-                        result_id,
-                        vault_id,
-                        item_id,
-                    },
-                )),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_json(approved_setup))
             .mount(&proxy)
             .await;
 
@@ -24785,11 +24849,11 @@ mod tests {
             "deployment_id": deployment_id,
             "model_id": "openai/gpt-5",
             "operation": "configure",
-            "auth_method": "api_key",
+            "auth_method": auth_method,
             "expected_active_revision_id": revision_id,
             "proposal_fingerprint": "fp",
             "requirements_fingerprint": "rfp",
-            "requested_environment_names": ["SLACK_BOT_TOKEN"],
+            "requested_environment_names": ["seren-llm-codex"],
             "requires_secret_resolution_result": true,
             "state": "awaiting_review",
             "approval_request_id": setup_id
@@ -24815,22 +24879,46 @@ mod tests {
             .and(header("Idempotency-Key", proposal_id.to_string()))
             .and(body_json(serde_json::json!({
                 "effective_mapping": [{
-                    "environment_name": "SLACK_BOT_TOKEN",
+                    "environment_name": "seren-llm-codex",
                     "ref_uri": format!("seren-secrets://{vault_id}/{item_id}/token"),
                     "vault_id": vault_id,
                     "item_id": item_id,
-                    "field": "token"
+                    "field": "token",
+                    "field_group": "codex"
                 }],
                 "secret_resolution_result_id": result_id,
             })))
             .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
-                "data": applied
+                "data": applied.clone()
             })))
-            .expect(2)
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        Mock::given(method("PATCH"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
             .mount(&proxy)
             .await;
 
         let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let error = server
+            .apply_seren_agent_model_credential_proposal(
+                Parameters(ApplyModelCredentialProposalParams {
+                    deployment_id,
+                    proposal_id,
+                    setup_id: None,
+                }),
+                Extensions::default(),
+            )
+            .await
+            .expect_err("both configure auth methods require an approved setup");
+        assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_REQUEST);
+        assert!(
+            error
+                .message
+                .contains("requires an approved Seren Passwords setup")
+        );
         let result = server
             .apply_seren_agent_model_credential_proposal(
                 Parameters(ApplyModelCredentialProposalParams {
@@ -24843,6 +24931,19 @@ mod tests {
             .await
             .expect("apply routes through the Core model-credential endpoint");
         assert!(result_contains(&result, &applied_revision_id.to_string()));
+        assert!(result_contains(&result, &result_id.to_string()));
+        // Read-back now returns the applied proposal. Replaying it must not POST again.
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-cloud/deployments/{deployment_id}/model-credential/proposals"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": applied
+            })))
+            .with_priority(1)
+            .expect(1)
+            .mount(&proxy)
+            .await;
         let replay = server
             .apply_seren_agent_model_credential_proposal(
                 Parameters(ApplyModelCredentialProposalParams {
@@ -24853,12 +24954,36 @@ mod tests {
                 Extensions::default(),
             )
             .await
-            .expect("a replay sends the same proposal idempotency key");
+            .expect("an applied proposal replays without a second Core mutation");
         assert!(result_contains(&replay, &applied_revision_id.to_string()));
+        assert!(result_contains(&replay, "already_applied"));
+        let writes = proxy
+            .received_requests()
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|request| request.method != "GET")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            writes.len(),
+            1,
+            "exactly one proposal-bound apply reaches Core"
+        );
+        proxy.verify().await;
     }
 
     #[tokio::test]
-    async fn apply_model_credential_proposal_chatgpt_subscription_needs_no_setup() {
+    async fn apply_model_credential_proposal_api_key_routes_canonical_mapping_once() {
+        assert_model_credential_proposal_routes_to_model_endpoint("api_key").await;
+    }
+
+    #[tokio::test]
+    async fn apply_model_credential_proposal_chatgpt_subscription_routes_canonical_mapping_once() {
+        assert_model_credential_proposal_routes_to_model_endpoint("chatgpt_subscription").await;
+    }
+
+    #[tokio::test]
+    async fn apply_model_credential_proposal_remove_without_remaining_grants_needs_no_setup() {
         use wiremock::matchers::{body_json, header_exists, method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -24891,8 +25016,7 @@ mod tests {
             "id": proposal_id,
             "deployment_id": deployment_id,
             "model_id": "openai/gpt-5",
-            "operation": "configure",
-            "auth_method": "chatgpt_subscription",
+            "operation": "remove",
             "expected_active_revision_id": revision_id,
             "proposal_fingerprint": "fp",
             "requirements_fingerprint": "rfp",
@@ -24937,7 +25061,7 @@ mod tests {
                 Extensions::default(),
             )
             .await
-            .expect("chatgpt-subscription model proposal applies with no Secrets result");
+            .expect("removing the model with no remaining grants needs no Secrets result");
         assert!(result_contains(&result, &applied_revision_id.to_string()));
     }
 
@@ -24963,7 +25087,7 @@ mod tests {
                 "/publishers/seren-passwords/delegations/{setup_id}"
             )))
             .respond_with(
-                ResponseTemplate::new(200).set_body_json(delegation_view_value(
+                ResponseTemplate::new(200).set_body_json(model_delegation_view_value(
                     DelegationViewFixture {
                         request_id: setup_id,
                         organization_id,
@@ -25014,7 +25138,7 @@ mod tests {
                     "expected_active_revision_id": revision_id,
                     "proposal_fingerprint": "fp",
                     "requirements_fingerprint": "rfp",
-                    "requested_environment_names": ["SLACK_BOT_TOKEN"],
+                    "requested_environment_names": ["seren-llm-codex"],
                     "requires_secret_resolution_result": true,
                     "state": "applied",
                     "applied_revision_id": applied_revision_id,

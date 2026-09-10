@@ -1181,12 +1181,16 @@ pub fn connector_binding_proposal_apply(
     })
 }
 
+/// Canonical logical Codex credential slot, not a shell environment variable.
+/// Matches Core's `MANAGED_LLM_CODEX_GRANT_NAME` contract.
+pub const MODEL_LLM_CODEX_SLOT: &str = "seren-llm-codex";
+
 /// Project the server-approved Seren Passwords mapping onto the model-credential
 /// apply shape.
 ///
 /// Only the mapping the server returned on the approved delegation is trusted; a
 /// caller-invented reference never reaches the apply route. The mapping must
-/// cover exactly the environment names the proposal requested. Unlike the
+/// cover exactly the logical names the proposal requested. Unlike the
 /// publisher mapping, the model mapping carries `field_group` through.
 pub fn managed_model_credential_effective_mapping(
     requested_environment_names: &[String],
@@ -1198,7 +1202,15 @@ pub fn managed_model_credential_effective_mapping(
         .collect();
     if requested.len() != requested_environment_names.len() {
         return Err(ValidationError::new(
-            "The model credential proposal contains duplicate requested environment names.",
+            "The model credential proposal contains duplicate requested logical names.",
+        ));
+    }
+    if requested
+        .iter()
+        .any(|name| name.is_empty() || *name != name.trim())
+    {
+        return Err(ValidationError::new(
+            "The model credential proposal requires exact non-empty logical names.",
         ));
     }
     let policy_requested: std::collections::BTreeSet<&str> = request
@@ -1214,14 +1226,22 @@ pub fn managed_model_credential_effective_mapping(
     let mut mapping = Vec::with_capacity(request.effective_mapping.len());
     let mut seen = std::collections::BTreeSet::new();
     for entry in &request.effective_mapping {
-        if !valid_environment_name(&entry.environment_name) {
+        if entry.environment_name.is_empty()
+            || entry.environment_name != entry.environment_name.trim()
+        {
             return Err(ValidationError::new(format!(
-                "The approved mapping contains invalid environment name '{}'.",
+                "The approved model mapping contains an invalid logical name '{}'.",
                 entry.environment_name
             )));
         }
-        let ref_uri = entry.ref_uri.trim();
-        if !valid_seren_secrets_reference(ref_uri) {
+        let ref_uri = &entry.ref_uri;
+        if !valid_seren_secrets_reference(ref_uri)
+            || *ref_uri
+                != format!(
+                    "seren-secrets://{}/{}/{}",
+                    entry.vault_id, entry.item_id, entry.field
+                )
+        {
             return Err(ValidationError::new(format!(
                 "The approved mapping for '{}' is not a valid Seren Passwords reference.",
                 entry.environment_name
@@ -1229,7 +1249,7 @@ pub fn managed_model_credential_effective_mapping(
         }
         if !seen.insert(entry.environment_name.clone()) {
             return Err(ValidationError::new(format!(
-                "The approved mapping contains duplicate environment name '{}'.",
+                "The approved model mapping contains duplicate logical name '{}'.",
                 entry.environment_name
             )));
         }
@@ -1258,10 +1278,9 @@ pub fn managed_model_credential_effective_mapping(
 /// either the proposal is already applied (no mutation), or a single
 /// proposal-bound apply call must be issued against the model-credential route.
 ///
-/// Like a publisher-credential proposal, a model-credential proposal may require
-/// a managed secrets result (API-key auth) or none (ChatGPT-subscription
-/// auth); the apply body carries the reviewed mapping and result only in the
-/// former case.
+/// Configure requires a reviewed mapping and managed secrets result for both
+/// API-key and ChatGPT-subscription auth. Remove requires a result only when
+/// Core requests remaining grants; an empty removal carries neither.
 #[derive(Debug, Clone)]
 pub enum ModelCredentialProposalApply {
     /// The proposal is already applied at this revision; retrying is a no-op.
@@ -1364,6 +1383,31 @@ pub fn model_credential_proposal_apply(
         return Err(ValidationError::new(
             "The model credential proposal has been superseded and can no longer be applied.",
         ));
+    }
+
+    // Removal excludes Codex authority but preserves the remaining requested grants.
+    let has_codex_slot = proposal
+        .requested_environment_names
+        .iter()
+        .any(|name| name == MODEL_LLM_CODEX_SLOT);
+    match proposal.operation {
+        crate::ManagedModelCredentialProposalOperation::Configure
+            if !has_codex_slot || !proposal.requires_secret_resolution_result =>
+        {
+            return Err(ValidationError::new(format!(
+                "Model configure requires the '{MODEL_LLM_CODEX_SLOT}' logical slot and an approved Seren Passwords result."
+            )));
+        }
+        crate::ManagedModelCredentialProposalOperation::Remove
+            if has_codex_slot
+                || proposal.requires_secret_resolution_result
+                    == proposal.requested_environment_names.is_empty() =>
+        {
+            return Err(ValidationError::new(
+                "Model removal must exclude the Codex logical slot and require a result exactly when grants remain.",
+            ));
+        }
+        _ => {}
     }
 
     let apply_request = if proposal.requires_secret_resolution_result {
@@ -3650,25 +3694,62 @@ mod tests {
             "expected_active_revision_id": expected_active_revision_id,
             "proposal_fingerprint": "fp",
             "requirements_fingerprint": "rfp",
-            "requested_environment_names": if requires_secret { vec!["PASSWORD"] } else { Vec::<&str>::new() },
+            "requested_environment_names": if requires_secret { vec!["seren-llm-codex"] } else { Vec::<&str>::new() },
             "requires_secret_resolution_result": requires_secret,
             "state": state,
         }))
         .unwrap()
     }
 
+    fn model_secrets_policy_request(
+        organization_id: uuid::Uuid,
+        deployment_id: uuid::Uuid,
+        revision_id: uuid::Uuid,
+    ) -> crate::DelegationPolicyRequestView {
+        let mut request =
+            managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+        request.requested_fields[0].environment_name = "seren-llm-codex".into();
+        request.requested_fields[0].field_group = Some("codex".into());
+        request.effective_mapping[0].environment_name = "seren-llm-codex".into();
+        request.effective_mapping[0].field_group = Some("codex".into());
+        request
+    }
+
     #[test]
-    fn model_credential_apply_binds_server_mapping_for_api_key_auth() {
+    fn model_credential_mapping_accepts_canonical_codex_slot_and_preserves_field_group() {
+        let request = model_secrets_policy_request(
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+        );
+        let mapping =
+            managed_model_credential_effective_mapping(&["seren-llm-codex".into()], &request)
+                .expect("Core's canonical logical model slot must project");
+        assert_eq!(
+            serde_json::to_value(mapping).unwrap(),
+            serde_json::to_value(&request.effective_mapping).unwrap(),
+        );
+        assert!(!valid_environment_name("seren-llm-codex"));
+        assert!(
+            managed_reference_env_credential_effective_mapping(
+                &["seren-llm-codex".into()],
+                &request,
+            )
+            .is_err()
+        );
+    }
+
+    fn assert_model_credential_apply_binds_server_mapping(auth_method: &str) {
         let organization_id = uuid::Uuid::new_v4();
         let deployment_id = uuid::Uuid::new_v4();
         let revision_id = uuid::Uuid::new_v4();
         let detail = managed_detail(deployment_id, revision_id);
-        let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+        let request = model_secrets_policy_request(organization_id, deployment_id, revision_id);
         let mut proposal = model_proposal(
             deployment_id,
             revision_id,
             "awaiting_review",
-            "api_key",
+            auth_method,
             true,
         );
         proposal.approval_request_id = Some(request.request_id);
@@ -3684,42 +3765,328 @@ mod tests {
             &proposal,
             proposal.id,
         )
-        .expect("api-key model proposal must produce an apply")
+        .expect("configure must produce an apply with the approved model credential")
         else {
-            panic!("api-key model proposal must produce an apply");
+            panic!("configure must produce an apply");
         };
 
         assert_eq!(proposal_id, proposal.id);
         assert_eq!(idempotency_key, proposal.id);
         assert_eq!(apply.secret_resolution_result_id, Some(request.result_id));
         assert_eq!(apply.effective_mapping.len(), 1);
-        assert_eq!(apply.effective_mapping[0].environment_name, "PASSWORD");
+        assert_eq!(
+            apply.effective_mapping[0].environment_name,
+            "seren-llm-codex"
+        );
         assert_eq!(apply.effective_mapping[0].ref_uri, secrets_ref("password"));
+        assert_eq!(
+            apply.effective_mapping[0].field_group.as_deref(),
+            Some("codex")
+        );
+        assert!(model_credential_proposal_apply(
+            organization_id, &detail, None, &proposal, proposal.id,
+        ).is_err());
     }
 
     #[test]
-    fn model_credential_apply_omits_secret_for_chatgpt_subscription_auth() {
+    fn model_credential_apply_binds_server_mapping_for_api_key_auth() {
+        assert_model_credential_apply_binds_server_mapping("api_key");
+    }
+
+    #[test]
+    fn model_credential_apply_binds_server_mapping_for_chatgpt_subscription_auth() {
+        assert_model_credential_apply_binds_server_mapping("chatgpt_subscription");
+    }
+
+    #[test]
+    fn model_credential_mapping_rejects_inexact_names_and_field_sets() {
+        let request = model_secrets_policy_request(
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+        );
+        let names = vec!["seren-llm-codex".to_string()];
+        for invalid in ["", " ", "\t", " seren-llm-codex", "seren-llm-codex\n"] {
+            let mut changed = request.clone();
+            changed.requested_fields[0].environment_name = invalid.into();
+            changed.effective_mapping[0].environment_name = invalid.into();
+            assert!(
+                managed_model_credential_effective_mapping(&[invalid.into()], &changed).is_err()
+            );
+        }
+        for changed_names in [
+            vec![],
+            vec!["renamed".into()],
+            vec!["seren-llm-codex".into(), "extra".into()],
+            vec!["seren-llm-codex".into(), "seren-llm-codex".into()],
+        ] {
+            assert!(managed_model_credential_effective_mapping(&changed_names, &request).is_err());
+        }
+        for target in ["requested_fields", "effective_mapping"] {
+            for change in ["missing", "extra", "renamed", "duplicate"] {
+                let mut changed = serde_json::to_value(&request).unwrap();
+                let fields = changed[target].as_array_mut().unwrap();
+                match change {
+                    "missing" => fields.clear(),
+                    "extra" => {
+                        let mut extra = fields[0].clone();
+                        extra["environment_name"] = serde_json::json!("extra");
+                        fields.push(extra);
+                    }
+                    "renamed" => fields[0]["environment_name"] = serde_json::json!("renamed"),
+                    "duplicate" => fields.push(fields[0].clone()),
+                    _ => unreachable!(),
+                }
+                let changed = serde_json::from_value(changed).unwrap();
+                assert!(
+                    managed_model_credential_effective_mapping(&names, &changed).is_err(),
+                    "{target}: {change}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn model_credential_mapping_rejects_malformed_or_inconsistent_references() {
+        let request = model_secrets_policy_request(
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+        );
+        for reference in [
+            "caller-invented".into(),
+            "https://example.com/password".into(),
+            "seren-secrets://vault/item/password".into(),
+            secrets_ref(""),
+            secrets_ref("password/extra"),
+            secrets_ref("password?query"),
+            secrets_ref("password#fragment"),
+            secrets_ref("pass word"),
+            format!(" {}", secrets_ref("password")),
+            format!("{} ", secrets_ref("password")),
+            secrets_ref("different-field"),
+        ] {
+            let mut changed = request.clone();
+            changed.effective_mapping[0].ref_uri = reference;
+            assert!(
+                managed_model_credential_effective_mapping(&["seren-llm-codex".into()], &changed)
+                    .is_err()
+            );
+        }
+        for component in ["vault_id", "item_id", "field"] {
+            let mut changed = serde_json::to_value(&request).unwrap();
+            changed["effective_mapping"][0][component] = if component == "field" {
+                serde_json::json!("other-field")
+            } else {
+                serde_json::json!(uuid::Uuid::new_v4())
+            };
+            let changed = serde_json::from_value(changed).unwrap();
+            assert!(
+                managed_model_credential_effective_mapping(&["seren-llm-codex".into()], &changed)
+                    .is_err(),
+                "mismatched {component}"
+            );
+        }
+    }
+
+    #[test]
+    fn model_credential_apply_rejects_wrong_setup_result_deployment_revision_or_authority() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let mut detail = managed_detail(deployment_id, revision_id);
+        let request = model_secrets_policy_request(organization_id, deployment_id, revision_id);
+        detail.agent_identity_id = Some(request.agent_identity_id);
+        for auth in ["api_key", "chatgpt_subscription"] {
+            let mut proposal =
+                model_proposal(deployment_id, revision_id, "awaiting_review", auth, true);
+            proposal.approval_request_id = Some(request.request_id);
+            // A valid control ensures these cases cannot pass merely because the slot is rejected.
+            assert!(
+                model_credential_proposal_apply(
+                    organization_id,
+                    &detail,
+                    Some(&request),
+                    &proposal,
+                    proposal.id
+                )
+                .is_ok()
+            );
+            for field in [
+                "request_id",
+                "deployment_id",
+                "deployment_revision_id",
+                "destination_organization_id",
+                "agent_identity_id",
+            ] {
+                let mut changed = serde_json::to_value(&request).unwrap();
+                changed[field] = serde_json::json!(uuid::Uuid::new_v4());
+                let changed = serde_json::from_value(changed).unwrap();
+                assert!(
+                    model_credential_proposal_apply(
+                        organization_id,
+                        &detail,
+                        Some(&changed),
+                        &proposal,
+                        proposal.id
+                    )
+                    .is_err(),
+                    "wrong {field}"
+                );
+            }
+            for field in [
+                "deployment_id",
+                "expected_active_revision_id",
+                "approval_request_id",
+                "result_id",
+            ] {
+                let mut changed = serde_json::to_value(&proposal).unwrap();
+                changed[field] = serde_json::json!(uuid::Uuid::new_v4());
+                let changed = serde_json::from_value(changed).unwrap();
+                assert!(
+                    model_credential_proposal_apply(
+                        organization_id,
+                        &detail,
+                        Some(&request),
+                        &changed,
+                        proposal.id
+                    )
+                    .is_err(),
+                    "wrong proposal {field}"
+                );
+            }
+            let mut expired = request.clone();
+            expired.expires_at = "2000-01-01T00:00:00Z".parse().unwrap();
+            assert!(
+                model_credential_proposal_apply(
+                    organization_id,
+                    &detail,
+                    Some(&expired),
+                    &proposal,
+                    proposal.id
+                )
+                .is_err()
+            );
+            let mut unapproved = request.clone();
+            unapproved.status = crate::DelegationPolicyRequestStatus::try_from("pending").unwrap();
+            assert!(
+                model_credential_proposal_apply(
+                    organization_id,
+                    &detail,
+                    Some(&unapproved),
+                    &proposal,
+                    proposal.id
+                )
+                .is_err()
+            );
+            let mut stale = detail.clone();
+            stale.active_revision_id = Some(uuid::Uuid::new_v4());
+            assert!(
+                model_credential_proposal_apply(
+                    organization_id,
+                    &stale,
+                    Some(&request),
+                    &proposal,
+                    proposal.id
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn model_credential_apply_enforces_configure_and_remove_slot_contracts() {
         let organization_id = uuid::Uuid::new_v4();
         let deployment_id = uuid::Uuid::new_v4();
         let revision_id = uuid::Uuid::new_v4();
         let detail = managed_detail(deployment_id, revision_id);
-        let proposal = model_proposal(
+        let request = model_secrets_policy_request(organization_id, deployment_id, revision_id);
+        for auth in ["api_key", "chatgpt_subscription"] {
+            let no_secret =
+                model_proposal(deployment_id, revision_id, "awaiting_review", auth, false);
+            assert!(
+                model_credential_proposal_apply(
+                    organization_id,
+                    &detail,
+                    None,
+                    &no_secret,
+                    no_secret.id
+                )
+                .is_err()
+            );
+            for name in ["PASSWORD", "seren_llm_codex", "SEREN-LLM-CODEX"] {
+                let mut proposal =
+                    model_proposal(deployment_id, revision_id, "awaiting_review", auth, true);
+                let mut renamed = request.clone();
+                proposal.approval_request_id = Some(request.request_id);
+                proposal.requested_environment_names = vec![name.into()];
+                renamed.requested_fields[0].environment_name = name.into();
+                renamed.effective_mapping[0].environment_name = name.into();
+                assert!(
+                    model_credential_proposal_apply(
+                        organization_id,
+                        &detail,
+                        Some(&renamed),
+                        &proposal,
+                        proposal.id
+                    )
+                    .is_err()
+                );
+            }
+        }
+        let mut remove = model_proposal(
             deployment_id,
             revision_id,
             "awaiting_review",
-            "chatgpt_subscription",
+            "api_key",
             false,
         );
-
+        remove.operation = crate::ManagedModelCredentialProposalOperation::Remove;
+        remove.auth_method = None;
         let ModelCredentialProposalApply::Apply { request: apply, .. } =
-            model_credential_proposal_apply(organization_id, &detail, None, &proposal, proposal.id)
-                .expect("chatgpt-subscription model proposal applies without a Secrets result")
+            model_credential_proposal_apply(organization_id, &detail, None, &remove, remove.id)
+                .unwrap()
         else {
-            panic!("chatgpt-subscription model proposal must produce an apply");
+            panic!("remove must apply");
         };
-
-        assert!(apply.secret_resolution_result_id.is_none());
         assert!(apply.effective_mapping.is_empty());
+        assert!(apply.secret_resolution_result_id.is_none());
+
+        // Removal must retain exactly the remaining non-model grants Core requested.
+        let remaining = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+        remove.requires_secret_resolution_result = true;
+        remove.requested_environment_names = vec!["PASSWORD".into()];
+        remove.approval_request_id = Some(remaining.request_id);
+        let ModelCredentialProposalApply::Apply { request: apply, .. } =
+            model_credential_proposal_apply(
+                organization_id,
+                &detail,
+                Some(&remaining),
+                &remove,
+                remove.id,
+            )
+            .unwrap()
+        else {
+            panic!("remove with remaining grants must apply");
+        };
+        assert_eq!(apply.effective_mapping[0].environment_name, "PASSWORD");
+        assert_eq!(apply.secret_resolution_result_id, Some(remaining.result_id));
+        assert!(
+            model_credential_proposal_apply(organization_id, &detail, None, &remove, remove.id)
+                .is_err()
+        );
+        remove.requested_environment_names = vec!["seren-llm-codex".into()];
+        remove.approval_request_id = Some(request.request_id);
+        assert!(
+            model_credential_proposal_apply(
+                organization_id,
+                &detail,
+                Some(&request),
+                &remove,
+                remove.id
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -3748,7 +4115,7 @@ mod tests {
         let deployment_id = uuid::Uuid::new_v4();
         let revision_id = uuid::Uuid::new_v4();
         let detail = managed_detail(deployment_id, revision_id);
-        let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+        let request = model_secrets_policy_request(organization_id, deployment_id, revision_id);
 
         // Setup not bound to this proposal.
         let unbound = model_proposal(
@@ -3810,7 +4177,7 @@ mod tests {
         let deployment_id = uuid::Uuid::new_v4();
         let revision_id = uuid::Uuid::new_v4();
         let detail = managed_detail(deployment_id, revision_id);
-        let request = managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+        let request = model_secrets_policy_request(organization_id, deployment_id, revision_id);
         let mut proposal = model_proposal(deployment_id, revision_id, "applied", "api_key", true);
         let applied = uuid::Uuid::new_v4();
         proposal.applied_revision_id = Some(applied);
@@ -3839,5 +4206,17 @@ mod tests {
                 }
             }
         }
+        let mut wrong_result = request.clone();
+        wrong_result.result_id = uuid::Uuid::new_v4();
+        assert!(
+            model_credential_proposal_apply(
+                organization_id,
+                &detail,
+                Some(&wrong_result),
+                &proposal,
+                proposal.id,
+            )
+            .is_err()
+        );
     }
 }
