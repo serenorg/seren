@@ -2,6 +2,12 @@
 
 Changes to Seren are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- MCP publisher calls preserve upstream conflict messages, codes, and request IDs. Documented SDK error responses retain their bodies, including reference-environment proposal errors previously displayed as `()`. Deploy the Core reference-environment creation/preview fix before or atomically with this update.
+
 ## [0.9.0] - 2026-07-27
 
 Self-contained Rust SDK packaging, broader Seren Storage and Seren Memory publisher workflows, and expanded managed employee operations.

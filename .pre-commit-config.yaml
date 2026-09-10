@@ -48,8 +48,10 @@ repos:
     rev: v4.3.0
     hooks:
       - id: conventional-pre-commit
+        entry: >-
+          sh -c 'conventional-pre-commit --strict
+          "$(git rev-parse --git-path COMMIT_EDITMSG)"'
         stages: [commit-msg]
-        args: [--strict, .git/COMMIT_EDITMSG]
         pass_filenames: false
 
   # Rust formatting (staged files only)
