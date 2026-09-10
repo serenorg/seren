@@ -63,28 +63,43 @@ fn strip_error_response_content(value: &mut serde_json::Value) {
     }
 }
 
-/// Keep query error responses intact until the bounded diagnostic decoder reads
-/// them. Progenitor's typed decoder loses headers and status on malformed JSON.
-fn preserve_query_error_responses(value: &mut serde_json::Value) -> anyhow::Result<()> {
-    let operation = value
-        .pointer_mut("/paths/~1publishers~1seren-db~1query/post")
-        .context("SerenDB OpenAPI document is missing the query operation")?;
-    anyhow::ensure!(
-        operation
-            .get("operationId")
-            .and_then(serde_json::Value::as_str)
-            == Some("seren_db_query"),
-        "SerenDB query operation ID changed"
-    );
-    let responses = operation
-        .get_mut("responses")
-        .and_then(serde_json::Value::as_object_mut)
-        .context("SerenDB query operation is missing responses")?;
-    // The generated catch-all returns UnexpectedResponse without consuming it.
-    // Published response documentation remains unchanged in the bundled spec.
-    responses.retain(|status, _| {
-        status != "default" && !(status.len() == 3 && status.starts_with(['4', '5']))
-    });
+/// Preserve diagnostic bodies and status instead of decoding errors as unit values.
+fn preserve_diagnostic_error_responses(value: &mut serde_json::Value) -> anyhow::Result<()> {
+    for (path, method, operation_id) in [
+        ("/publishers/seren-db/query", "post", "seren_db_query"),
+        (
+            "/managed-agent-secrets/setups/{setup_id}/status",
+            "get",
+            "managed_agent_secrets_setup_status",
+        ),
+        (
+            "/organizations/{organization_id}/managed-agent-secrets/setups/{setup_id}/cancel",
+            "post",
+            "managed_agent_secrets_setup_cancel",
+        ),
+    ] {
+        let operation = value
+            .get_mut("paths")
+            .and_then(|paths| paths.get_mut(path))
+            .and_then(|path| path.get_mut(method))
+            .with_context(|| format!("OpenAPI document is missing {operation_id}"))?;
+        anyhow::ensure!(
+            operation
+                .get("operationId")
+                .and_then(serde_json::Value::as_str)
+                == Some(operation_id),
+            "OpenAPI operation ID changed for {path}"
+        );
+        let responses = operation
+            .get_mut("responses")
+            .and_then(serde_json::Value::as_object_mut)
+            .with_context(|| format!("OpenAPI operation {operation_id} is missing responses"))?;
+        // The generated catch-all returns UnexpectedResponse without consuming it.
+        // Published response documentation remains unchanged in the bundled spec.
+        responses.retain(|status, _| {
+            status != "default" && !(status.len() == 3 && status.starts_with(['4', '5']))
+        });
+    }
     Ok(())
 }
 
@@ -814,7 +829,7 @@ fn main() -> anyhow::Result<()> {
     // Progenitor requires all typed error responses in one operation to agree.
     // We still document error bodies in the source OpenAPI spec - this only affects codegen.
     strip_error_response_content(&mut raw_json);
-    preserve_query_error_responses(&mut raw_json)?;
+    preserve_diagnostic_error_responses(&mut raw_json)?;
     normalize_binary_content_schemas(&mut raw_json);
     remove_unsupported_multipart_operations(&mut raw_json)?;
 

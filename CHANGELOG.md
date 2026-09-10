@@ -4,8 +4,15 @@ Changes to Seren are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `cancel_seren_agent_passwords_setup` lets the signed-in requester cancel an abandoned Employee credential setup. Approval-bearing or applied requests remain protected. Deploy the Core setup cancel/status routes and the Seren Passwords guarded cancellation contract before these MCP tools.
+
 ### Changed
 
+- `start_seren_agent_passwords_setup` resumes a matching pending setup with a fresh sensitive launch link.
+- **Breaking:** `get_seren_agent_passwords_setup_status` now reads Core's recorded consume outcome, including unconsumed and rejected setups, and returns recovery guidance without resource identifiers or expiry fields. Retain the `setup_id` from initiation and pass it to the apply/cancel tools instead of reconstructing bindings from status.
+- **Breaking:** the generated Passwords cancellation client accepts an additional optional `only_if_uncontributed` argument. Pass `Some(true)` for recovery cancellation or `None` to retain the existing explicit cancellation behavior.
 - Reference-environment credential proposal schemas document `format_hint` as a value pattern containing `...` with a non-empty prefix or suffix, including the recognized Telegram shape. Put free-form guidance in `description` and omit or null `format_hint` when no pattern is needed. SDK snapshots are synchronized from Core revision `3ea71dbc8ef9534868cdaafeca0a0bf3ca56f63c`.
 
 ## [0.9.0] - 2026-07-27
