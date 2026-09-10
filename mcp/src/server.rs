@@ -12168,6 +12168,11 @@ Examples:
                     ));
                 }
                 if status == reqwest::StatusCode::CONFLICT {
+                    let request_id = response
+                        .headers()
+                        .get("x-request-id")
+                        .and_then(|value| value.to_str().ok())
+                        .map(ToOwned::to_owned);
                     let body_text = response.text().await.unwrap_or_default();
                     if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&body_text)
                         && payload.get("error").and_then(serde_json::Value::as_str)
@@ -12186,21 +12191,29 @@ Examples:
                                 "publisher": ctx.publisher,
                                 "provider_slug": payload.get("provider_slug"),
                                 "connections": payload.get("connections"),
+                                "body": truncate_for_client(&body_text, 1200),
+                                "status": status.as_u16(),
+                                "request_id": request_id,
                             })),
                         ));
                     }
+                    let mut message = api_error_message(status, &body_text, request_id.as_deref());
+                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&body_text)
+                        && payload.get("error").and_then(serde_json::Value::as_str)
+                            == Some("Conflict")
+                        && payload.get("message").and_then(serde_json::Value::as_str)
+                            == Some("Conflict: Request ID has already been used")
+                    {
+                        message.push_str(" Duplicate request_id. Provide a new UUID and retry.");
+                    }
                     return Err(McpError::invalid_request(
-                        "Duplicate request_id. Provide a new UUID and retry.".to_string(),
-                        None,
-                    ));
-                }
-                if status == reqwest::StatusCode::NOT_FOUND {
-                    return Err(McpError::internal_error(
-                        format!(
-                            "Publisher '{}' {} endpoint returned 404. Use get_agent_publisher to check the publisher's category.",
-                            ctx.publisher, ctx.publisher_type
-                        ),
-                        None,
+                        message,
+                        Some(serde_json::json!({
+                            "kind": "http_error",
+                            "status": status.as_u16(),
+                            "body": truncate_for_client(&body_text, 1200),
+                            "request_id": request_id,
+                        })),
                     ));
                 }
                 if status == reqwest::StatusCode::BAD_REQUEST {
@@ -12292,16 +12305,10 @@ API endpoint: {endpoint}",
                         None,
                     ));
                 }
-                let body = response.text().await.unwrap_or_default();
-                Err(McpError::internal_error(
-                    format!(
-                        "{} call failed ({}): {}",
-                        ctx.publisher_type,
-                        status,
-                        truncate_for_client(&body, 1200)
-                    ),
-                    None,
-                ))
+                Err(
+                    seren_error_to_mcp_error(seren::Error::<()>::UnexpectedResponse(response))
+                        .await,
+                )
             }
             _ => {
                 if let Some(status) = error.status()
@@ -21009,6 +21016,74 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn call_publisher_api_preserves_upstream_conflict_body() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        for (body, duplicate) in [
+            (
+                serde_json::json!({"error": "Conflict", "message": "Conflict: A reference environment binding collides with another credential authority."}),
+                false,
+            ),
+            (
+                serde_json::json!({"error": "A different result is already bound.", "code": "managed_action_idempotency_conflict"}),
+                false,
+            ),
+            (
+                serde_json::json!({"error": "Conflict", "message": "Conflict: Request ID has already been used"}),
+                true,
+            ),
+        ] {
+            let proxy = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/publishers/seren-cloud/proposals/preview"))
+                .respond_with(
+                    ResponseTemplate::new(409)
+                        .insert_header("x-request-id", "conflict-request")
+                        .set_body_json(&body),
+                )
+                .expect(1)
+                .mount(&proxy)
+                .await;
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            let params: CallPublisherParams = serde_json::from_value(serde_json::json!({
+                "publisher": "seren-cloud", "method": "POST", "path": "/proposals/preview", "body": {}
+            })).unwrap();
+            let error = server
+                .call_publisher_api(
+                    &params,
+                    &extensions_with_headers(&[]),
+                    &AgentMetadata::default(),
+                    false,
+                )
+                .await
+                .unwrap_err();
+            let message = body
+                .get("message")
+                .or_else(|| body.get("error"))
+                .unwrap()
+                .as_str()
+                .unwrap();
+            assert!(error.message.contains(message), "{error:?}");
+            let code = body
+                .get("code")
+                .or_else(|| body.get("error"))
+                .unwrap()
+                .as_str()
+                .unwrap();
+            assert!(error.message.contains(code));
+            assert_eq!(error.message.contains("Duplicate request_id"), duplicate);
+            let data = error.data.unwrap();
+            assert_eq!(data["status"], 409);
+            assert_eq!(data["request_id"], "conflict-request");
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(data["body"].as_str().unwrap()).unwrap(),
+                body
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn call_publisher_api_reports_oauth_connection_selection() {
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -23330,6 +23405,69 @@ mod tests {
             &result,
             "requires_secret_resolution_result"
         ));
+    }
+
+    #[tokio::test]
+    async fn preview_reference_env_credential_proposal_preserves_upstream_conflict_body() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let deployment_id = Uuid::from_u128(0x9002);
+        let mut detail = managed_agent_detail_fixture(deployment_id);
+        detail["data"]["active_revision_id"] = serde_json::json!(Uuid::from_u128(0x7777));
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-agent/deployments/{deployment_id}/managed"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(detail))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let body = serde_json::json!({
+            "message": "Conflict: A reference environment binding collides with another credential authority.",
+            "error": "Conflict"
+        });
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/publishers/seren-cloud/deployments/{deployment_id}/environment/proposals/preview"
+            )))
+            .respond_with(
+                ResponseTemplate::new(409)
+                    .insert_header("x-request-id", "preview-request")
+                    .set_body_json(&body),
+            )
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let error =
+            server
+                .preview_seren_agent_reference_env_credential_proposal(
+                    Parameters(ReferenceEnvCredentialProposalParams {
+                        deployment_id,
+                        changes: vec![serde_json::from_value(serde_json::json!({
+                    "operation": "add", "environment_name": "SERVICE_EMAIL", "kind": "basic"
+                })).unwrap()],
+                        replace_proposal_id: None,
+                        idempotency_key: Uuid::new_v4(),
+                    }),
+                    Extensions::default(),
+                )
+                .await
+                .unwrap_err();
+        assert!(
+            error.message.contains(body["message"].as_str().unwrap()),
+            "{error:?}"
+        );
+        assert!(!error.message.contains(": ()"));
+        let data = error.data.unwrap();
+        assert_eq!(data["status"], 409);
+        assert_eq!(data["request_id"], "preview-request");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(data["body"].as_str().unwrap()).unwrap(),
+            body
+        );
     }
 
     #[tokio::test]
