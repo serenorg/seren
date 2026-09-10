@@ -8345,7 +8345,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Value pattern containing `...` with a non-empty prefix or suffix and a non-empty wildcard.\n`123456:ABC-...` instead matches the Telegram bot-token shape `^\\d+:[A-Za-z0-9_-]+$`.\nTreat unrecognized hints as advisory guidance during approval."
           },
           "selection_constraint": {
             "oneOf": [

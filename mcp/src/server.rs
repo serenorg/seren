@@ -23272,6 +23272,29 @@ mod tests {
             serde_json::from_str(include_str!("../../sdk/openapi/openapi-seren-cloud.json"))
                 .unwrap();
         check_reference_env_proposal_operations(&cloud).unwrap();
+        let hint_description = cloud
+            .pointer("/components/schemas/ManagedReferenceEnvCredentialChange/properties/format_hint/description")
+            .and_then(Value::as_str)
+            .expect("Core must document the value-pattern grammar");
+        assert!(hint_description.contains("non-empty prefix or suffix"));
+        assert!(hint_description.contains("description"));
+        for operation in ["preview", "create"] {
+            let name = format!("{operation}_seren_agent_reference_env_credential_proposal");
+            let tool = tools.iter().find(|tool| tool.name == name).unwrap();
+            let schema = Value::Object((*tool.input_schema).clone());
+            let items = &schema["properties"]["changes"]["items"];
+            let change = match items["$ref"].as_str() {
+                Some(reference) => schema
+                    .pointer(reference.strip_prefix('#').unwrap())
+                    .unwrap(),
+                None => items,
+            };
+            assert_eq!(
+                change["properties"]["format_hint"]["description"].as_str(),
+                Some(hint_description),
+                "{name} must expose Core's value-pattern grammar"
+            );
+        }
         let mut incomplete_cloud = cloud.clone();
         incomplete_cloud["paths"]
             .as_object_mut()
