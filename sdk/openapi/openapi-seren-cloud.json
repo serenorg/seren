@@ -10527,7 +10527,7 @@
               "string",
               "null"
             ],
-            "description": "Short hint about the expected value shape, such as a token prefix."
+            "description": "Value pattern containing `...` with a non-empty prefix or suffix and a non-empty wildcard.\n`123456:ABC-...` instead matches the Telegram bot-token shape `^\\d+:[A-Za-z0-9_-]+$`.\nTreat unrecognized hints as advisory guidance during approval."
           },
           "label": {
             "type": "string",
@@ -17212,7 +17212,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Free-form guidance, at most 1024 bytes, without control characters or secret reference URIs."
           },
           "environment_name": {
             "type": "string"
@@ -17221,7 +17222,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Value pattern containing `...` with a non-empty prefix or suffix, such as `sk-...`.\nThe wildcard must match at least one character. `123456:ABC-...` instead matches\nthe Telegram bot-token shape `^\\d+:[A-Za-z0-9_-]+$`.\nAt most 256 bytes, without control characters or secret reference URIs.\nOmit or null this field for free-form guidance; put that guidance in `description`."
           },
           "kind": {
             "$ref": "#/components/schemas/AgentCredentialKind"

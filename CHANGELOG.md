@@ -2,6 +2,12 @@
 
 Changes to Seren are documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- Reference-environment credential proposal schemas document `format_hint` as a value pattern containing `...` with a non-empty prefix or suffix, including the recognized Telegram shape. Put free-form guidance in `description` and omit or null `format_hint` when no pattern is needed. SDK snapshots are synchronized from Core revision `3ea71dbc8ef9534868cdaafeca0a0bf3ca56f63c`.
+
 ## [0.9.0] - 2026-07-27
 
 Self-contained Rust SDK packaging, broader Seren Storage and Seren Memory publisher workflows, and expanded managed employee operations.
