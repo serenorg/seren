@@ -733,12 +733,7 @@ pub fn publisher_credential_proposal_apply(
     })
 }
 
-/// Project the server-approved Seren Passwords mapping onto the reference_env
-/// credential apply shape.
-///
-/// Only the mapping the server returned on the approved delegation is trusted;
-/// a caller-invented reference never reaches the apply route. The mapping must
-/// cover exactly the environment names the proposal requested.
+/// Project approved environment bindings while retaining the full approval's field-set checks.
 pub fn managed_reference_env_credential_effective_mapping(
     requested_environment_names: &[String],
     request: &crate::DelegationPolicyRequestView,
@@ -752,35 +747,45 @@ pub fn managed_reference_env_credential_effective_mapping(
             "The reference-environment credential proposal contains duplicate requested environment names.",
         ));
     }
+    if requested.iter().any(|name| !valid_environment_name(name)) {
+        return Err(ValidationError::new(
+            "The reference-environment credential proposal contains an invalid environment name.",
+        ));
+    }
     let policy_requested: std::collections::BTreeSet<&str> = request
         .requested_fields
         .iter()
         .map(|field| field.environment_name.as_str())
         .collect();
-    if policy_requested.len() != request.requested_fields.len() || policy_requested != requested {
+    if policy_requested.len() != request.requested_fields.len()
+        || !requested.is_subset(&policy_requested)
+    {
         return Err(ValidationError::new(
-            "The Seren Passwords setup does not request the proposal's exact reference-environment fields.",
+            "The Seren Passwords setup does not cover the proposal's reference-environment fields uniquely.",
         ));
     }
-    let mut mapping = Vec::with_capacity(request.effective_mapping.len());
+    let mut mapping = Vec::with_capacity(requested.len());
     let mut seen = std::collections::BTreeSet::new();
     for entry in &request.effective_mapping {
-        if !valid_environment_name(&entry.environment_name) {
+        if !seen.insert(entry.environment_name.as_str()) {
             return Err(ValidationError::new(format!(
-                "The approved mapping contains invalid environment name '{}'.",
+                "The approved mapping contains duplicate field '{}'.",
                 entry.environment_name
             )));
         }
-        let ref_uri = entry.ref_uri.trim();
-        if !valid_seren_secrets_reference(ref_uri) {
+        if !requested.contains(entry.environment_name.as_str()) {
+            continue;
+        }
+        let ref_uri = &entry.ref_uri;
+        if !valid_seren_secrets_reference(ref_uri)
+            || *ref_uri
+                != format!(
+                    "seren-secrets://{}/{}/{}",
+                    entry.vault_id, entry.item_id, entry.field
+                )
+        {
             return Err(ValidationError::new(format!(
                 "The approved mapping for '{}' is not a valid Seren Passwords reference.",
-                entry.environment_name
-            )));
-        }
-        if !seen.insert(entry.environment_name.clone()) {
-            return Err(ValidationError::new(format!(
-                "The approved mapping contains duplicate environment name '{}'.",
                 entry.environment_name
             )));
         }
@@ -792,15 +797,12 @@ pub fn managed_reference_env_credential_effective_mapping(
             field: entry.field.clone(),
         });
     }
-    let mapped: std::collections::BTreeSet<&str> = mapping
-        .iter()
-        .map(|entry| entry.environment_name.as_str())
-        .collect();
-    if mapped != requested {
+    if seen != policy_requested {
         return Err(ValidationError::new(
-            "The approved Seren Passwords mapping does not cover the exact requested reference-environment fields.",
+            "The approved Seren Passwords mapping does not match the complete requested field set.",
         ));
     }
+    mapping.sort_by(|left, right| left.environment_name.cmp(&right.environment_name));
     Ok(mapping)
 }
 
@@ -2913,6 +2915,115 @@ mod tests {
         assert_eq!(entry.environment_name, "PASSWORD");
         assert_eq!(entry.ref_uri, secrets_ref("password"));
         assert_eq!(idempotency_key, proposal.id);
+    }
+
+    #[test]
+    fn reference_env_credential_apply_projects_mixed_authority_and_empty_targets() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let mut request =
+            managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+        request
+            .requested_fields
+            .push(crate::DelegationRequestedField {
+                environment_name: "seren-llm-codex".into(),
+                field_group: None,
+            });
+        request
+            .effective_mapping
+            .push(mapping("seren-llm-codex", "model"));
+        let mut proposal = reference_env_proposal(deployment_id, revision_id, "awaiting_review");
+        proposal.approval_request_id = Some(request.request_id);
+
+        for keep_environment_binding in [true, false] {
+            if !keep_environment_binding {
+                proposal.requested_environment_names.clear();
+                request.requested_fields.remove(0);
+                request.effective_mapping.remove(0);
+            }
+            let ReferenceEnvCredentialProposalApply::Apply { request: apply, .. } =
+                reference_env_credential_proposal_apply(
+                    organization_id,
+                    &detail,
+                    Some(&request),
+                    &proposal,
+                    proposal.id,
+                )
+                .expect("mixed approval applies only environment bindings")
+            else {
+                panic!("pending proposal must apply")
+            };
+            assert_eq!(apply.secret_resolution_result_id, Some(request.result_id));
+            assert_eq!(
+                apply.effective_mapping.len(),
+                usize::from(keep_environment_binding)
+            );
+            if keep_environment_binding {
+                assert_eq!(apply.effective_mapping[0].environment_name, "PASSWORD");
+                assert_eq!(apply.effective_mapping[0].ref_uri, secrets_ref("password"));
+            }
+            assert!(
+                reference_env_credential_proposal_apply(
+                    organization_id,
+                    &detail,
+                    None,
+                    &proposal,
+                    proposal.id,
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn reference_env_projection_rejects_missing_duplicate_and_unrequested_fields() {
+        let original = managed_secrets_policy_request(
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+        );
+        let targets = vec!["PASSWORD".to_string()];
+        let mut missing_request = original.clone();
+        missing_request.requested_fields.clear();
+        let mut duplicate_request = original.clone();
+        duplicate_request
+            .requested_fields
+            .push(original.requested_fields[0].clone());
+        let mut missing_mapping = original.clone();
+        missing_mapping.effective_mapping.clear();
+        let mut duplicate_mapping = original.clone();
+        duplicate_mapping
+            .effective_mapping
+            .push(original.effective_mapping[0].clone());
+        let mut extra_mapping = original.clone();
+        extra_mapping
+            .effective_mapping
+            .push(mapping("EXTRA", "extra"));
+        let mut wrong_reference = original.clone();
+        wrong_reference.effective_mapping[0].item_id = uuid::Uuid::new_v4();
+        for invalid in [
+            missing_request,
+            duplicate_request,
+            missing_mapping,
+            duplicate_mapping,
+            extra_mapping,
+            wrong_reference,
+        ] {
+            assert!(
+                managed_reference_env_credential_effective_mapping(&targets, &invalid).is_err()
+            );
+        }
+        for invalid_targets in [
+            vec!["seren-llm-codex".into()],
+            vec!["PASSWORD".into(), "PASSWORD".into()],
+        ] {
+            assert!(
+                managed_reference_env_credential_effective_mapping(&invalid_targets, &original)
+                    .is_err()
+            );
+        }
     }
 
     #[test]
