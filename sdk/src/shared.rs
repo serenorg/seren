@@ -2149,6 +2149,11 @@ mod tests {
             requested_fields: vec![crate::DelegationRequestedField {
                 environment_name: "PASSWORD".to_string(),
                 field_group: None,
+                description: None,
+                display_label: None,
+                format_hint: None,
+                selection_constraint: None,
+                source: None,
             }],
             requester_identity_id: uuid::Uuid::new_v4(),
             requester_user_id: uuid::Uuid::new_v4(),
@@ -2244,6 +2249,11 @@ mod tests {
             .push(crate::DelegationRequestedField {
                 environment_name: "USERNAME".to_string(),
                 field_group: None,
+                description: None,
+                display_label: None,
+                format_hint: None,
+                selection_constraint: None,
+                source: None,
             });
 
         let error = managed_agent_secrets_application(&target, organization_id, &detail, &request)
@@ -2974,6 +2984,11 @@ mod tests {
             .push(crate::DelegationRequestedField {
                 environment_name: "seren-llm-codex".into(),
                 field_group: None,
+                description: None,
+                display_label: None,
+                format_hint: None,
+                selection_constraint: None,
+                source: None,
             });
         request
             .effective_mapping

@@ -13,6 +13,12 @@ use progenitor::{GenerationSettings, InterfaceStyle};
 /// Named component the SerenDB query result addresses for a single cell.
 const QUERY_RESULT_CELL_SCHEMA: &str = "QueryResultCell";
 const QUERY_RESULT_CELL_REFERENCE: &str = "#/components/schemas/QueryResultCell";
+const DIAGNOSTIC_ERROR_OPERATION_IDS: &[&str] = &[
+    "seren_db_query",
+    "managed_agent_secrets_setup_initiate",
+    "managed_agent_secrets_setup_status",
+    "managed_agent_secrets_setup_cancel",
+];
 
 fn collect_refs(value: &serde_json::Value, acc: &mut HashSet<String>) {
     match value {
@@ -63,28 +69,64 @@ fn strip_error_response_content(value: &mut serde_json::Value) {
     }
 }
 
-/// Keep query error responses intact until the bounded diagnostic decoder reads
-/// them. Progenitor's typed decoder loses headers and status on malformed JSON.
-fn preserve_query_error_responses(value: &mut serde_json::Value) -> anyhow::Result<()> {
-    let operation = value
-        .pointer_mut("/paths/~1publishers~1seren-db~1query/post")
-        .context("SerenDB OpenAPI document is missing the query operation")?;
-    anyhow::ensure!(
-        operation
-            .get("operationId")
-            .and_then(serde_json::Value::as_str)
-            == Some("seren_db_query"),
-        "SerenDB query operation ID changed"
-    );
-    let responses = operation
-        .get_mut("responses")
+/// Preserve raw error responses for operations that surface bounded diagnostics.
+///
+/// Progenitor's typed decoder loses the status and body needed by the SDK's
+/// bounded error handlers. Removing declared error responses makes its
+/// generated catch-all return the unconsumed response without changing the
+/// bundled OpenAPI contract.
+fn preserve_diagnostic_error_responses(value: &mut serde_json::Value) -> anyhow::Result<()> {
+    let paths = value
+        .get_mut("paths")
         .and_then(serde_json::Value::as_object_mut)
-        .context("SerenDB query operation is missing responses")?;
-    // The generated catch-all returns UnexpectedResponse without consuming it.
-    // Published response documentation remains unchanged in the bundled spec.
-    responses.retain(|status, _| {
-        status != "default" && !(status.len() == 3 && status.starts_with(['4', '5']))
-    });
+        .context("OpenAPI document is missing paths")?;
+    let mut found = HashSet::new();
+
+    for path_item in paths.values_mut() {
+        let Some(path_item) = path_item.as_object_mut() else {
+            continue;
+        };
+        for method in [
+            "get", "put", "post", "delete", "options", "head", "patch", "trace",
+        ] {
+            let Some(operation) = path_item
+                .get_mut(method)
+                .and_then(serde_json::Value::as_object_mut)
+            else {
+                continue;
+            };
+            let Some(operation_id) = operation
+                .get("operationId")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+            else {
+                continue;
+            };
+            if !DIAGNOSTIC_ERROR_OPERATION_IDS
+                .iter()
+                .any(|id| *id == operation_id)
+            {
+                continue;
+            }
+            let responses = operation
+                .get_mut("responses")
+                .and_then(serde_json::Value::as_object_mut)
+                .with_context(|| {
+                    format!("OpenAPI operation {operation_id} is missing responses")
+                })?;
+            responses.retain(|status, _| {
+                status != "default" && !(status.len() == 3 && status.starts_with(['4', '5']))
+            });
+            found.insert(operation_id);
+        }
+    }
+
+    for operation_id in DIAGNOSTIC_ERROR_OPERATION_IDS {
+        anyhow::ensure!(
+            found.contains(*operation_id),
+            "OpenAPI document is missing diagnostic operation {operation_id}"
+        );
+    }
     Ok(())
 }
 
@@ -810,11 +852,8 @@ fn main() -> anyhow::Result<()> {
     downconvert_31_to_30(&mut raw_json);
     raw_json["openapi"] = serde_json::json!("3.0.3");
 
-    // Strip error response content bodies for progenitor code generation.
-    // Progenitor requires all typed error responses in one operation to agree.
-    // We still document error bodies in the source OpenAPI spec - this only affects codegen.
     strip_error_response_content(&mut raw_json);
-    preserve_query_error_responses(&mut raw_json)?;
+    preserve_diagnostic_error_responses(&mut raw_json)?;
     normalize_binary_content_schemas(&mut raw_json);
     remove_unsupported_multipart_operations(&mut raw_json)?;
 

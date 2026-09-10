@@ -385,6 +385,7 @@ seren agent managed-revisions <deployment-id>
 # Attach Seren Passwords fields through the human-authorized setup flow
 seren agent managed-passwords-setup <deployment-id>
 seren agent managed-passwords-status <setup-id>
+seren agent managed-passwords-cancel <organization-id> <setup-id>
 seren agent managed-passwords-apply <setup-id>
 
 # Manage the deployment lifecycle through seren-agent

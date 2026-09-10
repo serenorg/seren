@@ -4608,42 +4608,6 @@ fn managed_secrets_apply_guidance(target: &seren::ManagedSecretsApplyTarget) -> 
     }
 }
 
-fn managed_agent_secrets_status_json(
-    target: &seren::ManagedSecretsApplyTarget,
-    request: &seren::DelegationPolicyRequestView,
-) -> serde_json::Value {
-    let approved_step = managed_secrets_apply_guidance(target);
-    let next_step = match request.status {
-        seren::DelegationPolicyRequestStatus::Pending
-        | seren::DelegationPolicyRequestStatus::PartiallyApproved => {
-            "Complete the approval in Seren Passwords, then check this setup again."
-        }
-        seren::DelegationPolicyRequestStatus::Approved => approved_step.as_str(),
-        seren::DelegationPolicyRequestStatus::Applied => {
-            "The approved Seren Passwords binding has been applied."
-        }
-        seren::DelegationPolicyRequestStatus::Declined
-        | seren::DelegationPolicyRequestStatus::Expired
-        | seren::DelegationPolicyRequestStatus::Cancelled
-        | seren::DelegationPolicyRequestStatus::Superseded
-        | seren::DelegationPolicyRequestStatus::Conflicted => {
-            "Start a new managed agent Seren Passwords setup if access is still required."
-        }
-    };
-    serde_json::json!({
-        "status": request.status,
-        "setup_id": request.request_id,
-        "deployment_id": request.deployment_id,
-        "deployment_revision_id": request.deployment_revision_id,
-        "result_id": request.result_id,
-        "expires_at": request.expires_at,
-        "grant_expires_at": request.grant_expires_at,
-        "requested_field_count": request.requested_fields.len(),
-        "approved_mapping_count": request.effective_mapping.len(),
-        "next_step": next_step,
-    })
-}
-
 pub async fn managed_agent_secrets_setup(
     deployment_id: Uuid,
     connector_binding_proposal_id: Option<Uuid>,
@@ -4689,7 +4653,7 @@ pub async fn managed_agent_secrets_setup(
         }
     };
     let payload = serde_json::json!({
-        "status": "pending",
+        "status": setup.status,
         "setup_id": setup.setup_id,
         "deployment_id": deployment_id,
         "launch_url": setup.launch_url,
@@ -4700,6 +4664,7 @@ pub async fn managed_agent_secrets_setup(
         OutputFormat::Json => output::print_json(&payload)?,
         OutputFormat::Table => {
             println!("Setup ID: {}", setup.setup_id);
+            println!("Status: {}", setup.status);
             println!("Expires: {}", setup.expires_at);
             println!(
                 "Requested fields: {}",
@@ -4722,13 +4687,42 @@ pub async fn managed_agent_secrets_status(setup_id: Uuid, ctx: &CommandContext) 
     ctx.require_user_session("Managed agent Seren Passwords setup status")
         .await?;
     let client = ctx.client().await?;
-    let request = managed_agent_secrets_policy_request(&client, setup_id).await?;
-    let target = if request.status == seren::DelegationPolicyRequestStatus::Approved {
-        seren::managed_secrets_apply_target(&client, setup_id, &request).await?
-    } else {
-        seren::ManagedSecretsApplyTarget::BaseManifest
+    let status = match client.managed_agent_secrets_setup_status(&setup_id).await {
+        Ok(response) => response.into_inner().data,
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to get managed agent Seren Passwords setup status",
+                error,
+            )
+            .await);
+        }
     };
-    output::print_json(&managed_agent_secrets_status_json(&target, &request))?;
+    output::print_json(&status)?;
+    Ok(())
+}
+
+pub async fn managed_agent_secrets_cancel(
+    organization_id: Uuid,
+    setup_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    ctx.require_user_session("Managed agent Seren Passwords setup cancellation")
+        .await?;
+    let client = ctx.client().await?;
+    let status = match client
+        .managed_agent_secrets_setup_cancel(&organization_id, &setup_id)
+        .await
+    {
+        Ok(response) => response.into_inner().data,
+        Err(error) => {
+            return Err(anyhow_from_seren_error(
+                "Failed to cancel managed agent Seren Passwords setup",
+                error,
+            )
+            .await);
+        }
+    };
+    output::print_json(&status)?;
     Ok(())
 }
 

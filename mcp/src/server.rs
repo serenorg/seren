@@ -2252,6 +2252,15 @@ pub struct SerenAgentPasswordsSetupParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CancelSerenAgentPasswordsSetupParams {
+    /// Organization that owns the setup.
+    pub organization_id: Uuid,
+    /// Setup returned by start_seren_agent_passwords_setup.
+    pub setup_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct PublisherCredentialProposalParams {
     /// Managed agent deployment UUID
     pub deployment_id: Uuid,
@@ -2414,42 +2423,6 @@ fn managed_secrets_apply_guidance(target: &seren::ManagedSecretsApplyTarget) -> 
             "Call apply_seren_agent_reference_env_credential_proposal with deployment_id, proposal_id {proposal_id}, and setup_id."
         ),
     }
-}
-
-fn managed_agent_secrets_setup_status(
-    target: &seren::ManagedSecretsApplyTarget,
-    request: &seren::DelegationPolicyRequestView,
-) -> serde_json::Value {
-    let approved_step = managed_secrets_apply_guidance(target);
-    let next_step = match request.status {
-        seren::DelegationPolicyRequestStatus::Pending
-        | seren::DelegationPolicyRequestStatus::PartiallyApproved => {
-            "Complete the approval in Seren Passwords, then check this setup again."
-        }
-        seren::DelegationPolicyRequestStatus::Approved => approved_step.as_str(),
-        seren::DelegationPolicyRequestStatus::Applied => {
-            "The approved Seren Passwords binding has been applied."
-        }
-        seren::DelegationPolicyRequestStatus::Declined
-        | seren::DelegationPolicyRequestStatus::Expired
-        | seren::DelegationPolicyRequestStatus::Cancelled
-        | seren::DelegationPolicyRequestStatus::Superseded
-        | seren::DelegationPolicyRequestStatus::Conflicted => {
-            "Start a new managed agent Seren Passwords setup if access is still required."
-        }
-    };
-    serde_json::json!({
-        "status": request.status,
-        "setup_id": request.request_id,
-        "deployment_id": request.deployment_id,
-        "deployment_revision_id": request.deployment_revision_id,
-        "result_id": request.result_id,
-        "expires_at": request.expires_at,
-        "grant_expires_at": request.grant_expires_at,
-        "requested_field_count": request.requested_fields.len(),
-        "approved_mapping_count": request.effective_mapping.len(),
-        "next_step": next_step,
-    })
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -14219,10 +14192,10 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Start the human-authorized Seren Passwords setup for a managed seren-agent deployment and return the browser launch URL. Requires a signed-in OAuth user session; API keys and agent identities cannot authorize this setup. The launch URL is a live, short-lived bearer credential: show it only to the signed-in user and never send it to another tool or third party.",
+        description = "Start or resume the human-authorized Seren Passwords setup for a managed seren-agent deployment and return a fresh browser launch URL. Matching nonterminal setups retain their setup_id. A changed setup replaces an abandoned setup only if no approval has completed. Requires a signed-in OAuth user session; API keys and agent identities cannot authorize this setup. The launch URL is a live, short-lived bearer credential: show it only to the signed-in user and never send it to another tool or third party.",
         annotations(
             read_only_hint = false,
-            destructive_hint = false,
+            destructive_hint = true,
             open_world_hint = false
         )
     )]
@@ -14276,14 +14249,19 @@ API endpoint: {endpoint}",
             .data;
         Ok(CallToolResult::success(vec![json_content(
             &serde_json::json!({
-                "status": "pending",
+                "status": setup.status,
                 "setup_id": setup.setup_id,
                 "deployment_id": params.deployment_id,
                 "launch_url": setup.launch_url,
                 "expires_at": setup.expires_at,
                 "requested_fields": setup.requirements.requested_fields,
                 "security_notice": "launch_url is a live, short-lived bearer credential. Show it only to the signed-in user and do not send it to another tool or third party.",
-                "next_step": "Open launch_url, unlock Seren Passwords, and approve the exact field mapping. Then call get_seren_agent_passwords_setup_status with setup_id.",
+                "next_step": match setup.status {
+                    seren::ManagedAgentSecretsSetupState::Approved => "This setup is already approved. Call get_seren_agent_passwords_setup_status with setup_id to identify the apply tool instead of opening launch_url.",
+                    seren::ManagedAgentSecretsSetupState::Pending
+                    | seren::ManagedAgentSecretsSetupState::PartiallyApproved => "An approval for this setup is already in progress. Open launch_url to resume it in Seren Passwords, then call get_seren_agent_passwords_setup_status with setup_id.",
+                    _ => "Open launch_url, unlock Seren Passwords, and approve the exact field mapping. Then call get_seren_agent_passwords_setup_status with setup_id.",
+                },
             }),
         )?]))
     }
@@ -14302,22 +14280,39 @@ API endpoint: {endpoint}",
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_account_user_session(&extensions)?;
-        let request = self
-            .get_passwords_policy_request(&extensions, params.setup_id)
-            .await?;
-        let target = if request.status == seren::DelegationPolicyRequestStatus::Approved {
-            let api_client = self.api_client(&extensions)?;
-            match seren::managed_secrets_apply_target(&api_client, params.setup_id, &request).await
-            {
-                Ok(target) => target,
-                Err(error) => return Err(managed_secrets_binding_error_to_mcp_error(error).await),
-            }
-        } else {
-            seren::ManagedSecretsApplyTarget::BaseManifest
-        };
-        Ok(CallToolResult::success(vec![json_content(
-            &managed_agent_secrets_setup_status(&target, &request),
-        )?]))
+        let response = self
+            .api_client(&extensions)?
+            .managed_agent_secrets_setup_status(&params.setup_id)
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Cancel an abandoned Seren Passwords setup for an Employee. Requires the signed-in OAuth user who initiated it. Cancellation is refused after an approval has completed. Returns setup status without credential or mapping details.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn cancel_seren_agent_passwords_setup(
+        &self,
+        Parameters(params): Parameters<CancelSerenAgentPasswordsSetupParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_account_user_session(&extensions)?;
+        ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Update)?;
+        let response = self
+            .api_client(&extensions)?
+            .managed_agent_secrets_setup_cancel(&params.organization_id, &params.setup_id)
+            .into_mcp_result()
+            .await?
+            .into_inner()
+            .data;
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
     }
 
     #[tool(
@@ -17568,11 +17563,18 @@ impl ServerHandler for SerenMcpServer {
 
         let result = async {
             // Setup parameter errors must remain protocol errors before tool dispatch.
-            if request.name == "start_seren_agent_passwords_setup" {
-                serde_json::from_value::<StartSerenAgentPasswordsSetupParams>(
-                    serde_json::Value::Object(request.arguments.clone().unwrap_or_default()),
-                )
-                .map_err(|error| McpError::invalid_params(error.to_string(), None))?;
+            let arguments =
+                serde_json::Value::Object(request.arguments.clone().unwrap_or_default());
+            match request.name.as_ref() {
+                "start_seren_agent_passwords_setup" => {
+                    serde_json::from_value::<StartSerenAgentPasswordsSetupParams>(arguments)
+                        .map_err(|error| McpError::invalid_params(error.to_string(), None))?;
+                }
+                "cancel_seren_agent_passwords_setup" => {
+                    serde_json::from_value::<CancelSerenAgentPasswordsSetupParams>(arguments)
+                        .map_err(|error| McpError::invalid_params(error.to_string(), None))?;
+                }
+                _ => {}
             }
             let tcc = ToolCallContext::new(self, request, context);
             self.tool_router.call(tcc).await
@@ -21922,6 +21924,18 @@ mod tests {
             .await
             .expect_err("API key must not inspect managed agent Seren Passwords setup");
         assert!(status_error.message.contains("Hosted MCP with OAuth"));
+
+        let cancel_error = server
+            .cancel_seren_agent_passwords_setup(
+                Parameters(CancelSerenAgentPasswordsSetupParams {
+                    organization_id: Uuid::new_v4(),
+                    setup_id: Uuid::new_v4(),
+                }),
+                api_key_extensions(),
+            )
+            .await
+            .expect_err("API key must not cancel a managed agent Seren Passwords setup");
+        assert!(cancel_error.message.contains("Hosted MCP with OAuth"));
     }
 
     #[test]
@@ -22939,6 +22953,102 @@ mod tests {
         assert!(apply_error.message.contains("Hosted MCP with OAuth"));
     }
 
+    #[test]
+    fn setup_recovery_advertises_cancel_tool() {
+        let server = SerenMcpServer::new("test-key", "http://localhost").unwrap();
+        assert!(
+            server
+                .tool_router
+                .list_all()
+                .iter()
+                .any(|tool| tool.name == "cancel_seren_agent_passwords_setup")
+        );
+    }
+
+    #[tokio::test]
+    async fn setup_recovery_status_uses_core_outcome_without_a_delegation() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let proxy = MockServer::start().await;
+        let setup_id = Uuid::new_v4();
+        Mock::given(method("GET"))
+            .and(path(format!("/managed-agent-secrets/setups/{setup_id}/status")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": { "status": "rejected", "next_step": "Resume or cancel the pending setup.", "reason": { "kind": "managed_successor_already_pending", "message": "delegation predecessor already has an active successor" }, "requested_field_count": null, "approved_mapping_count": null }
+            }))).expect(1).mount(&proxy).await;
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let response = server
+            .get_seren_agent_passwords_setup_status(
+                Parameters(SerenAgentPasswordsSetupParams { setup_id }),
+                Extensions::default(),
+            )
+            .await
+            .expect("Core explains a rejected consume even without a delegation");
+        assert!(result_contains(
+            &response,
+            "managed_successor_already_pending"
+        ));
+        assert!(!result_contains(&response, &setup_id.to_string()));
+    }
+
+    #[tokio::test]
+    async fn setup_recovery_cancel_uses_core_and_preserves_conflicts() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        for contributed in [false, true] {
+            let proxy = MockServer::start().await;
+            let organization_id = Uuid::new_v4();
+            let setup_id = Uuid::new_v4();
+            let template = if contributed {
+                ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                    "error": "managed_successor_already_pending", "message": "An approval prevents cancellation"
+                }))
+            } else {
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "data": {"status": "cancelled", "next_step": "Start a new setup.", "reason": null, "requested_field_count": null, "approved_mapping_count": null}
+                }))
+            };
+            Mock::given(method("POST"))
+                .and(path(format!("/organizations/{organization_id}/managed-agent-secrets/setups/{setup_id}/cancel")))
+                .respond_with(template).expect(1).mount(&proxy).await;
+            let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+            let response = server
+                .cancel_seren_agent_passwords_setup(
+                    Parameters(CancelSerenAgentPasswordsSetupParams {
+                        organization_id,
+                        setup_id,
+                    }),
+                    Extensions::default(),
+                )
+                .await;
+            if contributed {
+                let error = response
+                    .expect_err("approval conflict must not become a successful cancellation");
+                assert!(error.message.contains("managed_successor_already_pending"));
+                assert_eq!(error.data.as_ref().unwrap()["status"], 409);
+                assert!(!error.message.contains(&setup_id.to_string()));
+                assert!(!error.message.contains(&organization_id.to_string()));
+            } else {
+                let response = response.expect("uncontributed setup can be cancelled");
+                assert!(result_contains(&response, "cancelled"));
+                assert!(!result_contains(&response, &setup_id.to_string()));
+                assert!(!result_contains(&response, &organization_id.to_string()));
+            }
+            assert_eq!(proxy.received_requests().await.unwrap().len(), 1);
+        }
+    }
+
+    #[test]
+    fn setup_recovery_cancel_rejects_unknown_parameters() {
+        assert!(
+            serde_json::from_value::<CancelSerenAgentPasswordsSetupParams>(serde_json::json!({
+                "organization_id": Uuid::new_v4(), "setup_id": Uuid::new_v4(), "force": true
+            }))
+            .is_err()
+        );
+    }
+
     fn check_managed_secrets_contract(core: &Value, tools: &[Tool]) -> anyhow::Result<()> {
         let properties = core
             .pointer("/components/schemas/InitiateManagedAgentSecretsSetupRequest/properties")
@@ -23091,7 +23201,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn start_setup_rejects_unknown_fields_without_calling_core() {
+    async fn recovery_setup_tools_reject_unknown_fields_without_calling_core() {
         use rmcp::ServiceExt;
 
         let proxy = wiremock::MockServer::start().await;
@@ -23108,25 +23218,39 @@ mod tests {
         });
         let client = ().serve(client_transport).await.unwrap();
 
-        for field in [
-            "future_credential_proposal_id",
-            "reference_env_credential_proposal",
-            "unexpected",
+        for (tool, base_arguments) in [
+            (
+                "start_seren_agent_passwords_setup",
+                serde_json::json!({ "deployment_id": Uuid::new_v4() }),
+            ),
+            (
+                "cancel_seren_agent_passwords_setup",
+                serde_json::json!({
+                    "organization_id": Uuid::new_v4(),
+                    "setup_id": Uuid::new_v4(),
+                }),
+            ),
         ] {
-            for value in [serde_json::json!(Uuid::new_v4()), serde_json::Value::Null] {
-                let mut arguments = serde_json::json!({ "deployment_id": Uuid::new_v4() });
-                arguments[field] = value;
-                let error = client
-                    .call_tool(
-                        CallToolRequestParams::new("start_seren_agent_passwords_setup")
-                            .with_arguments(arguments.as_object().unwrap().clone()),
-                    )
-                    .await
-                    .expect_err("unknown setup fields must fail before dispatch");
-                let rmcp::service::ServiceError::McpError(error) = error else {
-                    panic!("expected an MCP invalid_params error");
-                };
-                assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+            for field in [
+                "future_credential_proposal_id",
+                "reference_env_credential_proposal",
+                "unexpected",
+            ] {
+                for value in [serde_json::json!(Uuid::new_v4()), serde_json::Value::Null] {
+                    let mut arguments = base_arguments.clone();
+                    arguments[field] = value;
+                    let error = client
+                        .call_tool(
+                            CallToolRequestParams::new(tool)
+                                .with_arguments(arguments.as_object().unwrap().clone()),
+                        )
+                        .await
+                        .expect_err("unknown setup fields must fail before dispatch");
+                    let rmcp::service::ServiceError::McpError(error) = error else {
+                        panic!("expected an MCP invalid_params error");
+                    };
+                    assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+                }
             }
         }
         assert!(proxy.received_requests().await.unwrap().is_empty());
@@ -23235,6 +23359,7 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "data": {
                     "setup_id": Uuid::new_v4(),
+                    "status": "unconsumed",
                     "launch_url": "https://passwords.example.test/setup",
                     "expires_at": "2030-01-01T00:00:00Z",
                     "requirements": {
@@ -23722,6 +23847,11 @@ mod tests {
             requested_fields: vec![seren::DelegationRequestedField {
                 environment_name: "SLACK_BOT_TOKEN".to_string(),
                 field_group: None,
+                description: None,
+                display_label: None,
+                format_hint: None,
+                selection_constraint: None,
+                source: None,
             }],
             requester_identity_id: Uuid::new_v4(),
             requester_user_id: Uuid::new_v4(),
@@ -24502,6 +24632,15 @@ mod tests {
             "unexpected error message: {}",
             error.message
         );
+        Mock::given(method("GET"))
+            .and(path(format!("/managed-agent-secrets/setups/{setup_id}/status")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "status": "approved",
+                    "next_step": "Call apply_seren_agent_connector_binding_proposal with the setup and proposal you approved.",
+                    "reason": null, "requested_field_count": 1, "approved_mapping_count": 1
+                }
+            }))).expect(1).mount(&proxy).await;
         let status = server
             .get_seren_agent_passwords_setup_status(
                 Parameters(SerenAgentPasswordsSetupParams { setup_id }),

@@ -1480,6 +1480,13 @@ enum AgentAction {
         /// Setup ID returned by managed-passwords-setup
         setup_id: Uuid,
     },
+    /// Cancel a managed agent Seren Passwords setup without a completed approval
+    ManagedPasswordsCancel {
+        /// Organization that owns the setup (UUID)
+        organization_id: Uuid,
+        /// Setup ID returned by managed-passwords-setup
+        setup_id: Uuid,
+    },
     /// Apply an approved Seren Passwords setup to its managed agent
     ManagedPasswordsApply {
         /// Setup ID returned by managed-passwords-setup
@@ -7571,6 +7578,13 @@ async fn main() -> anyhow::Result<()> {
             AgentAction::ManagedPasswordsStatus { setup_id } => {
                 commands::agent::managed_agent_secrets_status(setup_id, &ctx).await?
             }
+            AgentAction::ManagedPasswordsCancel {
+                organization_id,
+                setup_id,
+            } => {
+                commands::agent::managed_agent_secrets_cancel(organization_id, setup_id, &ctx)
+                    .await?
+            }
             AgentAction::ManagedPasswordsApply { setup_id } => {
                 commands::agent::managed_agent_secrets_apply(setup_id, &ctx).await?
             }
@@ -8084,6 +8098,27 @@ mod tests {
                 },
                 _ => panic!("unexpected command"),
             }
+        }
+
+        let cancel = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-passwords-cancel",
+            deployment_id,
+            setup_id,
+        ]);
+        match cancel.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedPasswordsCancel {
+                    organization_id,
+                    setup_id: parsed_setup_id,
+                } => {
+                    assert_eq!(organization_id.to_string(), deployment_id);
+                    assert_eq!(parsed_setup_id.to_string(), setup_id);
+                }
+                _ => panic!("unexpected managed Passwords cancel action"),
+            },
+            _ => panic!("unexpected command"),
         }
     }
 
