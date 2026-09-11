@@ -2425,6 +2425,58 @@ fn managed_secrets_apply_guidance(target: &seren::ManagedSecretsApplyTarget) -> 
     }
 }
 
+/// Recovers the setup identity from a successful response that the generated client cannot decode.
+fn recover_initiated_managed_secrets_setup(
+    bytes: &[u8],
+    decode_error: &str,
+    deployment_id: Uuid,
+) -> Result<CallToolResult, McpError> {
+    let strand_error = |detail: &str| {
+        McpError::internal_error(
+            format!(
+                "The Seren control plane accepted the Seren Passwords setup for deployment {deployment_id} but returned a response the client could not read ({decode_error}); {detail} Do not re-run start because it would create a second setup. Call get_seren_agent_passwords_setup_status after the control plane is updated."
+            ),
+            None,
+        )
+    };
+    let body: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| {
+        strand_error("the response was not JSON, so its setup id could not be recovered.")
+    })?;
+    let data = body.get("data").unwrap_or(&body);
+    let Some(setup_id) = data.get("setup_id").and_then(serde_json::Value::as_str) else {
+        return Err(strand_error("the response omitted a setup id."));
+    };
+    let setup_id = setup_id
+        .parse::<Uuid>()
+        .map_err(|_| strand_error("the response contained an invalid setup id."))?;
+    let status = data
+        .get("status")
+        .map(|value| serde_json::from_value::<seren::ManagedAgentSecretsSetupState>(value.clone()))
+        .transpose()
+        .map_err(|_| strand_error("the response contained an invalid setup status."))?
+        .unwrap_or(seren::ManagedAgentSecretsSetupState::Unconsumed);
+    let mut recovered = serde_json::json!({
+        "status": status,
+        "setup_id": setup_id,
+        "deployment_id": deployment_id,
+        "response_recovered": true,
+        "next_step": "Open launch_url (when present) to approve the setup in Seren Passwords, then call get_seren_agent_passwords_setup_status with setup_id.",
+    });
+    if let Some(launch_url) = data.get("launch_url").and_then(serde_json::Value::as_str) {
+        recovered["launch_url"] = serde_json::Value::String(launch_url.to_string());
+        recovered["security_notice"] = serde_json::Value::String(
+            "launch_url is a live, short-lived bearer credential. Show it only to the signed-in user and do not send it to another tool or third party.".to_string(),
+        );
+    }
+    if let Some(expires_at) = data.get("expires_at") {
+        recovered["expires_at"] = expires_at.clone();
+    }
+    if let Some(requested_fields) = data.pointer("/requirements/requested_fields") {
+        recovered["requested_fields"] = requested_fields.clone();
+    }
+    Ok(CallToolResult::success(vec![json_content(&recovered)?]))
+}
+
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ListSerenAgentDeploymentToolsParams {
     /// Deployment UUID
@@ -14230,7 +14282,7 @@ API endpoint: {endpoint}",
                 None,
             ));
         }
-        let setup = api_client
+        let initiate_result = api_client
             .managed_agent_secrets_setup_initiate(
                 &deployment.organization_id,
                 &seren::InitiateManagedAgentSecretsSetupRequest {
@@ -14243,10 +14295,19 @@ API endpoint: {endpoint}",
                     redirect_origin: seren::MANAGED_AGENT_SECRETS_REDIRECT_ORIGIN.to_string(),
                 },
             )
-            .into_mcp_result()
-            .await?
-            .into_inner()
-            .data;
+            .await;
+        let setup = match initiate_result {
+            Ok(response) => response.into_inner().data,
+            // A successful mutation response remains authoritative even when newer fields are absent.
+            Err(seren::Error::InvalidResponsePayload(bytes, decode_error)) => {
+                return recover_initiated_managed_secrets_setup(
+                    &bytes,
+                    &decode_error.to_string(),
+                    params.deployment_id,
+                );
+            }
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
         Ok(CallToolResult::success(vec![json_content(
             &serde_json::json!({
                 "status": setup.status,
@@ -14280,14 +14341,49 @@ API endpoint: {endpoint}",
         extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_account_user_session(&extensions)?;
-        let response = self
-            .api_client(&extensions)?
+        let api_client = self.api_client(&extensions)?;
+        let status_result = api_client
             .managed_agent_secrets_setup_status(&params.setup_id)
-            .into_mcp_result()
-            .await?
-            .into_inner()
-            .data;
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+            .await;
+        match status_result {
+            Ok(response) => {
+                let data = response.into_inner().data;
+                Ok(CallToolResult::success(vec![json_content(&data)?]))
+            }
+            // The binding route distinguishes an unavailable status route from a missing setup.
+            Err(seren::Error::UnexpectedResponse(response))
+                if response.status() == reqwest::StatusCode::NOT_FOUND =>
+            {
+                let request = self
+                    .get_passwords_policy_request(&extensions, params.setup_id)
+                    .await?;
+                let target = match seren::managed_secrets_apply_target(
+                    &api_client,
+                    params.setup_id,
+                    &request,
+                )
+                .await
+                {
+                    Ok(target) => target,
+                    Err(error) => {
+                        return Err(managed_secrets_binding_error_to_mcp_error(error).await);
+                    }
+                };
+                let guidance = managed_secrets_apply_guidance(&target);
+                Ok(CallToolResult::success(vec![json_content(
+                    &serde_json::json!({
+                        "status": request.status,
+                        "setup_exists": true,
+                        "requested_field_count": request.requested_fields.len(),
+                        "approved_mapping_count": request.effective_mapping.len(),
+                        "next_step": format!(
+                            "The setup exists and is bound to its managed agent deployment. If approval is complete: {guidance}"
+                        ),
+                    }),
+                )?]))
+            }
+            Err(error) => Err(seren_error_to_mcp_error(error).await),
+        }
     }
 
     #[tool(
@@ -14305,14 +14401,26 @@ API endpoint: {endpoint}",
     ) -> Result<CallToolResult, McpError> {
         ensure_account_user_session(&extensions)?;
         ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Update)?;
-        let response = self
+        let cancel_result = self
             .api_client(&extensions)?
             .managed_agent_secrets_setup_cancel(&params.organization_id, &params.setup_id)
-            .into_mcp_result()
-            .await?
-            .into_inner()
-            .data;
-        Ok(CallToolResult::success(vec![json_content(&response)?]))
+            .await;
+        match cancel_result {
+            Ok(response) => {
+                let data = response.into_inner().data;
+                Ok(CallToolResult::success(vec![json_content(&data)?]))
+            }
+            // A 404 cannot distinguish an unavailable route from a missing setup.
+            Err(seren::Error::UnexpectedResponse(response))
+                if response.status() == reqwest::StatusCode::NOT_FOUND =>
+            {
+                Err(McpError::invalid_request(
+                    "Managed Seren Passwords setup cancellation is unavailable. The Seren control plane may not support setup cancellation, or the setup may no longer exist. Update the control plane before retrying an existing setup.",
+                    None,
+                ))
+            }
+            Err(error) => Err(seren_error_to_mcp_error(error).await),
+        }
     }
 
     #[tool(
@@ -23037,6 +23145,180 @@ mod tests {
             }
             assert_eq!(proxy.received_requests().await.unwrap().len(), 1);
         }
+    }
+
+    #[tokio::test]
+    async fn setup_recovery_status_falls_back_to_binding_when_status_route_missing() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let setup_id = Uuid::from_u128(0xf447);
+        let deployment_id = Uuid::from_u128(0xf448);
+        let organization_id = Uuid::from_u128(1);
+        let revision_id = Uuid::from_u128(0xf449);
+        let agent_identity_id = Uuid::from_u128(0xf44a);
+        let result_id = Uuid::from_u128(0xf44b);
+        let vault_id = Uuid::from_u128(0xf44c);
+        let item_id = Uuid::from_u128(0xf44d);
+        let proposal_id = Uuid::from_u128(0xf44e);
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/managed-agent-secrets/setups/{setup_id}/status"
+            )))
+            .respond_with(ResponseTemplate::new(404))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-passwords/delegations/{setup_id}"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(delegation_view_value(
+                    DelegationViewFixture {
+                        request_id: setup_id,
+                        organization_id,
+                        deployment_id,
+                        deployment_revision_id: revision_id,
+                        agent_identity_id,
+                        result_id,
+                        vault_id,
+                        item_id,
+                    },
+                )),
+            )
+            .mount(&proxy)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/organizations/{organization_id}/managed-agent-secrets/setups/{setup_id}"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "setup_id": setup_id,
+                    "deployment_id": deployment_id,
+                    "target": {"kind": "connector", "connector_ref": "slack", "proposal_id": proposal_id},
+                }
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let response = server
+            .get_seren_agent_passwords_setup_status(
+                Parameters(SerenAgentPasswordsSetupParams { setup_id }),
+                Extensions::default(),
+            )
+            .await
+            .expect("status degrades to the binding route when Core lacks the status route");
+        assert!(result_contains(&response, "approved"));
+        assert!(result_contains(
+            &response,
+            "apply_seren_agent_connector_binding_proposal"
+        ));
+        assert!(!result_contains(&response, &setup_id.to_string()));
+    }
+
+    #[tokio::test]
+    async fn setup_recovery_cancel_reports_missing_route_clearly() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let organization_id = Uuid::from_u128(1);
+        let setup_id = Uuid::from_u128(0xc447);
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/managed-agent-secrets/setups/{setup_id}/cancel"
+            )))
+            .respond_with(ResponseTemplate::new(404))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let error = server
+            .cancel_seren_agent_passwords_setup(
+                Parameters(CancelSerenAgentPasswordsSetupParams {
+                    organization_id,
+                    setup_id,
+                }),
+                Extensions::default(),
+            )
+            .await
+            .expect_err("a 404 from the cancel route must surface a clear, actionable error");
+        assert!(
+            error.message.contains("cancellation"),
+            "cancel error is not actionable: {}",
+            error.message
+        );
+        assert!(
+            error.message.contains("control plane"),
+            "cancel error does not identify the unavailable service: {}",
+            error.message
+        );
+        assert!(!error.message.contains(&setup_id.to_string()));
+        assert!(!error.message.contains(&organization_id.to_string()));
+    }
+
+    #[tokio::test]
+    async fn start_setup_recovers_committed_setup_from_partial_body() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let deployment_id = Uuid::from_u128(0x2255);
+        let organization_id = Uuid::from_u128(1);
+        let setup_id = Uuid::from_u128(0x2256);
+
+        let summary = cloud_deployment_body(deployment_id, Some("seren-agent"), false);
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-agent/deployments"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [summary["data"].clone()]
+            })))
+            .mount(&proxy)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/organizations/{organization_id}/managed-agent-secrets/setups"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "setup_id": setup_id,
+                    "launch_url": "https://passwords.serendb.example/launch/opaque",
+                    "expires_at": "2035-01-01T00:00:00Z",
+                    "requirements": { "requested_fields": [] }
+                }
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let response = server
+            .start_seren_agent_passwords_setup(
+                Parameters(StartSerenAgentPasswordsSetupParams {
+                    deployment_id,
+                    connector_binding_proposal_id: None,
+                    model_credential_proposal_id: None,
+                    publisher_credential_proposal_id: None,
+                    reference_env_credential_proposal_id: None,
+                }),
+                Extensions::default(),
+            )
+            .await
+            .expect("a committed setup is recovered from a partial response body");
+        assert!(result_contains(&response, &setup_id.to_string()));
+        assert!(result_contains(&response, "response_recovered"));
+        assert_eq!(proxy.received_requests().await.unwrap().len(), 2);
     }
 
     #[test]
