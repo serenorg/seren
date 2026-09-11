@@ -124,6 +124,10 @@ fn valid_environment_name(value: &str) -> bool {
         && !reserved_environment_name(value)
 }
 
+fn valid_logical_credential_name(value: &str) -> bool {
+    !value.is_empty() && value == value.trim()
+}
+
 fn reserved_environment_name(value: &str) -> bool {
     const NAMES: &[&str] = &[
         "BASH_ENV",
@@ -500,6 +504,14 @@ pub fn managed_publisher_credential_effective_mapping(
             "The publisher credential proposal contains duplicate requested environment names.",
         ));
     }
+    if requested
+        .iter()
+        .any(|name| !valid_logical_credential_name(name))
+    {
+        return Err(ValidationError::new(
+            "The publisher credential proposal requires exact non-empty logical names.",
+        ));
+    }
     let policy_requested: std::collections::BTreeSet<&str> = request
         .requested_fields
         .iter()
@@ -513,14 +525,20 @@ pub fn managed_publisher_credential_effective_mapping(
     let mut mapping = Vec::with_capacity(request.effective_mapping.len());
     let mut seen = std::collections::BTreeSet::new();
     for entry in &request.effective_mapping {
-        if !valid_environment_name(&entry.environment_name) {
+        if !valid_logical_credential_name(&entry.environment_name) {
             return Err(ValidationError::new(format!(
-                "The approved mapping contains invalid environment name '{}'.",
+                "The approved publisher mapping contains invalid logical name '{}'.",
                 entry.environment_name
             )));
         }
-        let ref_uri = entry.ref_uri.trim();
-        if !valid_seren_secrets_reference(ref_uri) {
+        let ref_uri = &entry.ref_uri;
+        if !valid_seren_secrets_reference(ref_uri)
+            || *ref_uri
+                != format!(
+                    "seren-secrets://{}/{}/{}",
+                    entry.vault_id, entry.item_id, entry.field
+                )
+        {
             return Err(ValidationError::new(format!(
                 "The approved mapping for '{}' is not a valid Seren Passwords reference.",
                 entry.environment_name
@@ -597,20 +615,11 @@ pub fn publisher_credential_proposal_applied_revision(
     })
 }
 
-/// Reject a Seren Passwords setup that Core did not bind to this proposal.
-///
-/// Core records the setup handoff minted for the proposal and reanchors the
-/// proposal to the revision that setup bound, so both must agree before the
-/// setup's approved mapping can stand in for the proposal's reviewed fields.
-fn ensure_setup_bound_to_publisher_credential_proposal(
+/// Checks the proposal relationship that the SDK can verify before Core validates ownership.
+fn ensure_setup_targets_publisher_credential_proposal(
     request: &crate::DelegationPolicyRequestView,
     proposal: &crate::ManagedPublisherCredentialProposal,
 ) -> Result<(), ValidationError> {
-    if proposal.approval_request_id != Some(request.request_id) {
-        return Err(ValidationError::new(
-            "The Seren Passwords setup is not bound to this publisher credential proposal.",
-        ));
-    }
     if request.deployment_revision_id != Some(proposal.expected_active_revision_id) {
         return Err(ValidationError::new(
             "The Seren Passwords setup does not target the proposal's reviewed revision.",
@@ -669,7 +678,7 @@ pub fn publisher_credential_proposal_apply(
     let apply_request = if proposal.requires_secret_resolution_result {
         if proposal.state == crate::ManagedPublisherCredentialProposalState::Applied {
             if let Some(request) = request {
-                ensure_setup_bound_to_publisher_credential_proposal(request, proposal)?;
+                ensure_setup_targets_publisher_credential_proposal(request, proposal)?;
                 if proposal.result_id != Some(request.result_id) {
                     return Err(ValidationError::new(
                         "The publisher credential proposal is bound to a different Seren Passwords result.",
@@ -684,7 +693,7 @@ pub fn publisher_credential_proposal_apply(
             )
         })?;
         ensure_delegation_setup_applies(organization_id, detail, request)?;
-        ensure_setup_bound_to_publisher_credential_proposal(request, proposal)?;
+        ensure_setup_targets_publisher_credential_proposal(request, proposal)?;
         if proposal
             .result_id
             .is_some_and(|result_id| result_id != request.result_id)
@@ -851,19 +860,11 @@ pub fn reference_env_credential_proposal_applied_revision(
     })
 }
 
-/// Reject a Seren Passwords setup that Core did not bind to this proposal.
-///
-/// The proposal and setup must name the same reviewed revision and request
-/// before the approved mapping can be applied.
-fn ensure_setup_bound_to_reference_env_credential_proposal(
+/// Checks the proposal relationship that the SDK can verify before Core validates ownership.
+fn ensure_setup_targets_reference_env_credential_proposal(
     request: &crate::DelegationPolicyRequestView,
     proposal: &crate::ManagedReferenceEnvCredentialProposal,
 ) -> Result<(), ValidationError> {
-    if proposal.approval_request_id != Some(request.request_id) {
-        return Err(ValidationError::new(
-            "The Seren Passwords setup is not bound to this reference-environment credential proposal.",
-        ));
-    }
     if request.deployment_revision_id != Some(proposal.expected_active_revision_id) {
         return Err(ValidationError::new(
             "The Seren Passwords setup does not target the proposal's reviewed revision.",
@@ -922,7 +923,7 @@ pub fn reference_env_credential_proposal_apply(
     let apply_request = if proposal.requires_secret_resolution_result {
         if proposal.state == crate::ManagedReferenceEnvCredentialProposalState::Applied {
             if let Some(request) = request {
-                ensure_setup_bound_to_reference_env_credential_proposal(request, proposal)?;
+                ensure_setup_targets_reference_env_credential_proposal(request, proposal)?;
                 if proposal.result_id != Some(request.result_id) {
                     return Err(ValidationError::new(
                         "The reference-environment credential proposal is bound to a different Seren Passwords result.",
@@ -937,7 +938,7 @@ pub fn reference_env_credential_proposal_apply(
             )
         })?;
         ensure_delegation_setup_context(organization_id, detail, request)?;
-        ensure_setup_bound_to_reference_env_credential_proposal(request, proposal)?;
+        ensure_setup_targets_reference_env_credential_proposal(request, proposal)?;
         if proposal
             .result_id
             .is_some_and(|result_id| result_id != request.result_id)
@@ -1207,7 +1208,7 @@ pub fn managed_model_credential_effective_mapping(
     }
     if requested
         .iter()
-        .any(|name| name.is_empty() || *name != name.trim())
+        .any(|name| !valid_logical_credential_name(name))
     {
         return Err(ValidationError::new(
             "The model credential proposal requires exact non-empty logical names.",
@@ -1226,9 +1227,7 @@ pub fn managed_model_credential_effective_mapping(
     let mut mapping = Vec::with_capacity(request.effective_mapping.len());
     let mut seen = std::collections::BTreeSet::new();
     for entry in &request.effective_mapping {
-        if entry.environment_name.is_empty()
-            || entry.environment_name != entry.environment_name.trim()
-        {
+        if !valid_logical_credential_name(&entry.environment_name) {
             return Err(ValidationError::new(format!(
                 "The approved model mapping contains an invalid logical name '{}'.",
                 entry.environment_name
@@ -1326,16 +1325,11 @@ pub fn model_credential_proposal_applied_revision(
     })
 }
 
-/// Reject a Seren Passwords setup that Core did not bind to this model proposal.
-fn ensure_setup_bound_to_model_credential_proposal(
+/// Checks the proposal relationship that the SDK can verify before Core validates ownership.
+fn ensure_setup_targets_model_credential_proposal(
     request: &crate::DelegationPolicyRequestView,
     proposal: &crate::ManagedModelCredentialProposal,
 ) -> Result<(), ValidationError> {
-    if proposal.approval_request_id != Some(request.request_id) {
-        return Err(ValidationError::new(
-            "The Seren Passwords setup is not bound to this model credential proposal.",
-        ));
-    }
     if request.deployment_revision_id != Some(proposal.expected_active_revision_id) {
         return Err(ValidationError::new(
             "The Seren Passwords setup does not target the model proposal's reviewed revision.",
@@ -1413,7 +1407,7 @@ pub fn model_credential_proposal_apply(
     let apply_request = if proposal.requires_secret_resolution_result {
         if proposal.state == crate::ManagedModelCredentialProposalState::Applied {
             if let Some(request) = request {
-                ensure_setup_bound_to_model_credential_proposal(request, proposal)?;
+                ensure_setup_targets_model_credential_proposal(request, proposal)?;
                 if proposal.result_id != Some(request.result_id) {
                     return Err(ValidationError::new(
                         "The model credential proposal is bound to a different Seren Passwords result.",
@@ -1428,7 +1422,7 @@ pub fn model_credential_proposal_apply(
             )
         })?;
         ensure_delegation_setup_applies(organization_id, detail, request)?;
-        ensure_setup_bound_to_model_credential_proposal(request, proposal)?;
+        ensure_setup_targets_model_credential_proposal(request, proposal)?;
         if proposal
             .result_id
             .is_some_and(|result_id| result_id != request.result_id)
@@ -2638,6 +2632,19 @@ mod tests {
         assert_eq!(entry.environment_name, "PASSWORD");
         assert_eq!(entry.ref_uri, secrets_ref("password"));
         assert_eq!(idempotency_key, proposal.id);
+
+        // Core validates setup ownership when the mutation reaches the apply route.
+        proposal.approval_request_id = Some(uuid::Uuid::new_v4());
+        assert!(
+            publisher_credential_proposal_apply(
+                organization_id,
+                &detail,
+                Some(&request),
+                &proposal,
+                proposal.id,
+            )
+            .is_ok()
+        );
     }
 
     #[test]
@@ -2660,6 +2667,86 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn publisher_mapping_accepts_retained_logical_model_slot_that_env_projectors_reject() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let mut request =
+            managed_secrets_policy_request(organization_id, deployment_id, revision_id);
+        let field = |name: &str| crate::DelegationRequestedField {
+            environment_name: name.to_string(),
+            field_group: None,
+            description: None,
+            display_label: None,
+            format_hint: None,
+            selection_constraint: None,
+            source: None,
+        };
+        request.requested_fields = vec![
+            field("PRIME_SLACK_BYOK_AUTHORIZATION"),
+            field("seren-llm-codex"),
+        ];
+        request.effective_mapping = vec![
+            mapping("PRIME_SLACK_BYOK_AUTHORIZATION", "authorization"),
+            mapping("seren-llm-codex", "codex"),
+        ];
+        let requested = vec![
+            "PRIME_SLACK_BYOK_AUTHORIZATION".to_string(),
+            "seren-llm-codex".to_string(),
+        ];
+
+        let projected = managed_publisher_credential_effective_mapping(&requested, &request)
+            .expect("a retained logical model slot must project, not read as an env var");
+        assert_eq!(projected.len(), 2);
+        assert!(
+            projected
+                .iter()
+                .any(|entry| entry.environment_name == "seren-llm-codex")
+        );
+        assert!(
+            projected
+                .iter()
+                .any(|entry| entry.environment_name == "PRIME_SLACK_BYOK_AUTHORIZATION")
+        );
+
+        // Reference-environment names remain constrained to the shell grammar.
+        assert!(managed_reference_env_credential_effective_mapping(&requested, &request).is_err());
+    }
+
+    #[test]
+    fn publisher_mapping_rejects_invalid_names_and_inconsistent_references() {
+        let request = managed_secrets_policy_request(
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+        );
+        for invalid in ["", " ", " PASSWORD", "PASSWORD\n"] {
+            let mut changed = request.clone();
+            changed.requested_fields[0].environment_name = invalid.into();
+            changed.effective_mapping[0].environment_name = invalid.into();
+            assert!(
+                managed_publisher_credential_effective_mapping(&[invalid.into()], &changed)
+                    .is_err()
+            );
+        }
+
+        for component in ["vault_id", "item_id", "field"] {
+            let mut changed = serde_json::to_value(&request).unwrap();
+            changed["effective_mapping"][0][component] = if component == "field" {
+                serde_json::json!("other-field")
+            } else {
+                serde_json::json!(uuid::Uuid::new_v4())
+            };
+            let changed = serde_json::from_value(changed).unwrap();
+            assert!(
+                managed_publisher_credential_effective_mapping(&["PASSWORD".into()], &changed)
+                    .is_err(),
+                "mismatched {component}"
+            );
+        }
     }
 
     #[test]
@@ -2706,20 +2793,6 @@ mod tests {
                 organization_id,
                 &detail,
                 Some(&other_result),
-                &proposal,
-                proposal.id,
-            )
-            .is_err()
-        );
-
-        let mut other_setup =
-            managed_secrets_policy_request(organization_id, deployment_id, revision_id);
-        other_setup.result_id = request.result_id;
-        assert!(
-            publisher_credential_proposal_apply(
-                organization_id,
-                &detail,
-                Some(&other_setup),
                 &proposal,
                 proposal.id,
             )
@@ -2900,18 +2973,6 @@ mod tests {
                 None,
                 &unbound,
                 unbound.id,
-            )
-            .is_err()
-        );
-
-        let proposal = publisher_proposal(deployment_id, revision_id, "awaiting_review");
-        assert!(
-            publisher_credential_proposal_apply(
-                organization_id,
-                &detail,
-                Some(&request),
-                &proposal,
-                proposal.id,
             )
             .is_err()
         );
@@ -3107,6 +3168,7 @@ mod tests {
             )
             .is_ok()
         );
+        // Core validates setup ownership when the mutation reaches the apply route.
         proposal.approval_request_id = Some(uuid::Uuid::new_v4());
         assert!(
             reference_env_credential_proposal_apply(
@@ -3116,7 +3178,7 @@ mod tests {
                 &proposal,
                 proposal.id,
             )
-            .is_err()
+            .is_ok()
         );
     }
 
@@ -3186,20 +3248,6 @@ mod tests {
                 organization_id,
                 &detail,
                 Some(&other_result),
-                &proposal,
-                proposal.id,
-            )
-            .is_err()
-        );
-
-        let mut other_setup =
-            managed_secrets_policy_request(organization_id, deployment_id, revision_id);
-        other_setup.result_id = request.result_id;
-        assert!(
-            reference_env_credential_proposal_apply(
-                organization_id,
-                &detail,
-                Some(&other_setup),
                 &proposal,
                 proposal.id,
             )
@@ -3381,18 +3429,6 @@ mod tests {
                 None,
                 &unbound,
                 unbound.id,
-            )
-            .is_err()
-        );
-
-        let proposal = reference_env_proposal(deployment_id, revision_id, "awaiting_review");
-        assert!(
-            reference_env_credential_proposal_apply(
-                organization_id,
-                &detail,
-                Some(&request),
-                &proposal,
-                proposal.id,
             )
             .is_err()
         );
@@ -3814,6 +3850,35 @@ mod tests {
     }
 
     #[test]
+    fn model_credential_apply_defers_setup_ownership_to_core() {
+        let organization_id = uuid::Uuid::new_v4();
+        let deployment_id = uuid::Uuid::new_v4();
+        let revision_id = uuid::Uuid::new_v4();
+        let detail = managed_detail(deployment_id, revision_id);
+        let request = model_secrets_policy_request(organization_id, deployment_id, revision_id);
+        let mut proposal = model_proposal(
+            deployment_id,
+            revision_id,
+            "awaiting_review",
+            "chatgpt_subscription",
+            true,
+        );
+        proposal.approval_request_id = Some(uuid::Uuid::new_v4());
+        assert_ne!(proposal.approval_request_id, Some(request.request_id));
+
+        assert!(matches!(
+            model_credential_proposal_apply(
+                organization_id,
+                &detail,
+                Some(&request),
+                &proposal,
+                proposal.id,
+            ),
+            Ok(ModelCredentialProposalApply::Apply { .. })
+        ));
+    }
+
+    #[test]
     fn model_credential_mapping_rejects_inexact_names_and_field_sets() {
         let request = model_secrets_policy_request(
             uuid::Uuid::new_v4(),
@@ -3928,7 +3993,6 @@ mod tests {
                 .is_ok()
             );
             for field in [
-                "request_id",
                 "deployment_id",
                 "deployment_revision_id",
                 "destination_organization_id",
@@ -3949,12 +4013,7 @@ mod tests {
                     "wrong {field}"
                 );
             }
-            for field in [
-                "deployment_id",
-                "expected_active_revision_id",
-                "approval_request_id",
-                "result_id",
-            ] {
+            for field in ["deployment_id", "expected_active_revision_id", "result_id"] {
                 let mut changed = serde_json::to_value(&proposal).unwrap();
                 changed[field] = serde_json::json!(uuid::Uuid::new_v4());
                 let changed = serde_json::from_value(changed).unwrap();
@@ -4125,31 +4184,12 @@ mod tests {
     }
 
     #[test]
-    fn model_credential_apply_rejects_unbound_selected_or_superseded_proposals() {
+    fn model_credential_apply_rejects_selected_or_superseded_proposals() {
         let organization_id = uuid::Uuid::new_v4();
         let deployment_id = uuid::Uuid::new_v4();
         let revision_id = uuid::Uuid::new_v4();
         let detail = managed_detail(deployment_id, revision_id);
         let request = model_secrets_policy_request(organization_id, deployment_id, revision_id);
-
-        // Setup not bound to this proposal.
-        let unbound = model_proposal(
-            deployment_id,
-            revision_id,
-            "awaiting_review",
-            "api_key",
-            true,
-        );
-        assert!(
-            model_credential_proposal_apply(
-                organization_id,
-                &detail,
-                Some(&request),
-                &unbound,
-                unbound.id,
-            )
-            .is_err()
-        );
 
         // Superseded proposal.
         let mut superseded =

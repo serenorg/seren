@@ -24161,25 +24161,45 @@ mod tests {
         let vault_id = Uuid::from_u128(0xa007);
         let item_id = Uuid::from_u128(0xa008);
         let applied_revision_id = Uuid::from_u128(0xa009);
+        let model_item_id = Uuid::from_u128(0xa00a);
+        let latest_setup_id = Uuid::from_u128(0xa00b);
+
+        let mut delegation = delegation_view_value(DelegationViewFixture {
+            request_id: setup_id,
+            organization_id,
+            deployment_id,
+            deployment_revision_id: revision_id,
+            agent_identity_id,
+            result_id,
+            vault_id,
+            item_id,
+        });
+        delegation["data"]["requested_fields"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "environment_name": seren::MODEL_LLM_CODEX_SLOT,
+                "field_group": "codex",
+            }));
+        delegation["data"]["effective_mapping"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "environment_name": seren::MODEL_LLM_CODEX_SLOT,
+                "field": "credential",
+                "field_group": "codex",
+                "item_id": model_item_id,
+                "ref_uri": format!("seren-secrets://{vault_id}/{model_item_id}/credential"),
+                "vault_id": vault_id,
+            }));
+        delegation["data"]["progress"]["mapped_fields"] = serde_json::json!(2);
+        delegation["data"]["progress"]["requested_fields"] = serde_json::json!(2);
 
         Mock::given(method("GET"))
             .and(path(format!(
                 "/publishers/seren-passwords/delegations/{setup_id}"
             )))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_json(delegation_view_value(
-                    DelegationViewFixture {
-                        request_id: setup_id,
-                        organization_id,
-                        deployment_id,
-                        deployment_revision_id: revision_id,
-                        agent_identity_id,
-                        result_id,
-                        vault_id,
-                        item_id,
-                    },
-                )),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_json(delegation))
             .mount(&proxy)
             .await;
 
@@ -24210,12 +24230,12 @@ mod tests {
                 "expected_active_revision_id": revision_id,
                 "proposal_fingerprint": "fp",
                 "requirements_fingerprint": "rfp",
-                "requested_environment_names": ["SLACK_BOT_TOKEN"],
+                "requested_environment_names": ["SLACK_BOT_TOKEN", seren::MODEL_LLM_CODEX_SLOT],
                 "requires_secret_resolution_result": true,
                 "changes": [],
                 "state": "awaiting_review",
                 "result_id": null,
-                "approval_request_id": setup_id
+                "approval_request_id": latest_setup_id
             }
         });
         Mock::given(method("GET"))
@@ -24238,6 +24258,12 @@ mod tests {
                     "vault_id": vault_id,
                     "item_id": item_id,
                     "field": "token"
+                }, {
+                    "environment_name": seren::MODEL_LLM_CODEX_SLOT,
+                    "ref_uri": format!("seren-secrets://{vault_id}/{model_item_id}/credential"),
+                    "vault_id": vault_id,
+                    "item_id": model_item_id,
+                    "field": "credential"
                 }],
                 "secret_resolution_result_id": result_id,
             })))
@@ -24248,13 +24274,13 @@ mod tests {
                     "expected_active_revision_id": revision_id,
                     "proposal_fingerprint": "fp",
                     "requirements_fingerprint": "rfp",
-                    "requested_environment_names": ["SLACK_BOT_TOKEN"],
+                    "requested_environment_names": ["SLACK_BOT_TOKEN", seren::MODEL_LLM_CODEX_SLOT],
                     "requires_secret_resolution_result": true,
                     "changes": [],
                     "state": "applied",
                     "applied_revision_id": applied_revision_id,
                     "result_id": result_id,
-                    "approval_request_id": setup_id
+                    "approval_request_id": latest_setup_id
                 }
             })))
             .expect(1)
