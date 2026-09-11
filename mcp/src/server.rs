@@ -2223,6 +2223,30 @@ pub struct GetSerenAgentDeploymentActionParams {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ListSerenAgentIncidentsParams {
+    /// Optional managed deployment UUID filter
+    #[serde(default)]
+    pub deployment_id: Option<Uuid>,
+    /// Include incidents that have been resolved
+    #[serde(default)]
+    pub include_resolved: bool,
+    /// Maximum incidents to return
+    #[serde(default)]
+    pub limit: Option<i64>,
+    /// Incidents to skip
+    #[serde(default)]
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct PatchSerenAgentDeploymentFilesParams {
+    /// Managed deployment UUID
+    pub deployment_id: Uuid,
+    /// Targeted instruction and asset changes
+    pub patch: seren::AgentBundlePatch,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct StartSerenAgentPasswordsSetupParams {
     /// Managed agent deployment UUID
@@ -15471,6 +15495,61 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
+        description = "List infrastructure-health incidents for managed seren-agent deployments, optionally filtered to one deployment.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn list_seren_agent_incidents(
+        &self,
+        Parameters(params): Parameters<ListSerenAgentIncidentsParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = api_client
+            .seren_agent_incidents(
+                params.deployment_id.as_ref(),
+                Some(params.include_resolved),
+                params.limit,
+                params.offset,
+            )
+            .into_mcp_result()
+            .await?
+            .into_inner();
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Apply a targeted instruction or asset file patch to a managed seren-agent deployment.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn patch_seren_agent_deployment_files(
+        &self,
+        Parameters(params): Parameters<PatchSerenAgentDeploymentFilesParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_managed_deployment_mutation_allowed(&extensions, ManagedDeploymentMutation::Update)?;
+        let api_client = self.api_client(&extensions)?;
+        let request_id = Uuid::new_v4();
+        let response = self
+            .submit_managed_mutation(&api_client, params.deployment_id, request_id, || {
+                api_client.seren_agent_patch_managed_deployment_files(
+                    &params.deployment_id,
+                    &request_id,
+                    &params.patch,
+                )
+            })
+            .await?;
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
         description = "Get a managed-agent resource summary for a seren-agent deployment, including runtime, storage, connector, schedule, tool, memory, and capability summaries. Use seren-cloud deployment APIs for full runtime operations.",
         annotations(
             read_only_hint = true,
@@ -23071,6 +23150,35 @@ mod tests {
                 .iter()
                 .any(|tool| tool.name == "cancel_seren_agent_passwords_setup")
         );
+    }
+
+    #[test]
+    fn managed_agent_incident_and_file_tools_are_exposed() {
+        let server = SerenMcpServer::new("test-key", "http://localhost").unwrap();
+        let tools = server.tool_router.list_all();
+
+        let incidents = tools
+            .iter()
+            .find(|tool| tool.name == "list_seren_agent_incidents")
+            .expect("missing managed incident tool");
+        assert_eq!(
+            incidents
+                .annotations
+                .as_ref()
+                .and_then(|annotations| annotations.read_only_hint),
+            Some(true)
+        );
+
+        let files = tools
+            .iter()
+            .find(|tool| tool.name == "patch_seren_agent_deployment_files")
+            .expect("missing managed file patch tool");
+        let annotations = files
+            .annotations
+            .as_ref()
+            .expect("managed file patch annotations");
+        assert_eq!(annotations.read_only_hint, Some(false));
+        assert_eq!(annotations.destructive_hint, Some(true));
     }
 
     #[tokio::test]

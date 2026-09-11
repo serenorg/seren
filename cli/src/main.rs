@@ -1447,6 +1447,21 @@ enum AgentAction {
     ManagedList,
     /// Get health for managed seren-agent deployments
     ManagedHealth,
+    /// List infrastructure-health incidents for managed seren-agent deployments
+    ManagedIncidents {
+        /// Filter incidents by managed deployment
+        #[arg(long)]
+        deployment_id: Option<Uuid>,
+        /// Include resolved incidents
+        #[arg(long)]
+        include_resolved: bool,
+        /// Maximum incidents to return
+        #[arg(long)]
+        limit: Option<i64>,
+        /// Incidents to skip
+        #[arg(long)]
+        offset: Option<i64>,
+    },
     /// Run an unsaved seren-agent managed draft once
     ManagedTestRun {
         /// JSON body matching AgentSpec
@@ -1457,6 +1472,21 @@ enum AgentAction {
     ManagedGet {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
+    },
+    /// Get the durable status of a managed deployment mutation
+    ManagedAction {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// Mutation request ID (UUID)
+        request_id: Uuid,
+    },
+    /// Apply a targeted file patch to a managed deployment
+    ManagedFiles {
+        /// Deployment ID (UUID)
+        deployment_id: Uuid,
+        /// JSON body matching AgentBundlePatch
+        #[arg(long)]
+        body: String,
     },
     /// Start human-authorized Seren Passwords setup for a managed agent
     ManagedPasswordsSetup {
@@ -7552,12 +7582,35 @@ async fn main() -> anyhow::Result<()> {
             }
             AgentAction::ManagedList => commands::agent::managed_agent_list(&ctx).await?,
             AgentAction::ManagedHealth => commands::agent::managed_agent_health(&ctx).await?,
+            AgentAction::ManagedIncidents {
+                deployment_id,
+                include_resolved,
+                limit,
+                offset,
+            } => {
+                commands::agent::managed_agent_incidents(
+                    deployment_id,
+                    include_resolved,
+                    limit,
+                    offset,
+                    &ctx,
+                )
+                .await?
+            }
             AgentAction::ManagedTestRun { body } => {
                 commands::agent::managed_agent_test_run(&body, &ctx).await?
             }
             AgentAction::ManagedGet { deployment_id } => {
                 commands::agent::managed_agent_get(deployment_id, &ctx).await?
             }
+            AgentAction::ManagedAction {
+                deployment_id,
+                request_id,
+            } => commands::agent::managed_agent_action(deployment_id, request_id, &ctx).await?,
+            AgentAction::ManagedFiles {
+                deployment_id,
+                body,
+            } => commands::agent::managed_agent_files(deployment_id, &body, &ctx).await?,
             AgentAction::ManagedPasswordsSetup {
                 deployment_id,
                 connector_binding_proposal_id,
@@ -8165,6 +8218,88 @@ mod tests {
             Err(error) => error,
         };
         assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn managed_observability_and_file_commands_parse_api_inputs() {
+        let deployment_id = "550e8400-e29b-41d4-a716-446655440000";
+        let request_id = "c2f579ec-3e8a-4a52-a969-203d2a80c98d";
+
+        let incidents = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-incidents",
+            "--deployment-id",
+            deployment_id,
+            "--include-resolved",
+            "--limit",
+            "25",
+            "--offset",
+            "5",
+        ]);
+        match incidents.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedIncidents {
+                    deployment_id: parsed_deployment_id,
+                    include_resolved,
+                    limit,
+                    offset,
+                } => {
+                    assert_eq!(
+                        parsed_deployment_id.map(|id| id.to_string()),
+                        Some(deployment_id.to_string())
+                    );
+                    assert!(include_resolved);
+                    assert_eq!(limit, Some(25));
+                    assert_eq!(offset, Some(5));
+                }
+                _ => panic!("unexpected managed incidents action"),
+            },
+            _ => panic!("unexpected command"),
+        }
+
+        let action = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-action",
+            deployment_id,
+            request_id,
+        ]);
+        match action.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedAction {
+                    deployment_id: parsed_deployment_id,
+                    request_id: parsed_request_id,
+                } => {
+                    assert_eq!(parsed_deployment_id.to_string(), deployment_id);
+                    assert_eq!(parsed_request_id.to_string(), request_id);
+                }
+                _ => panic!("unexpected managed action status command"),
+            },
+            _ => panic!("unexpected command"),
+        }
+
+        let files = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-files",
+            deployment_id,
+            "--body",
+            "{}",
+        ]);
+        match files.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedFiles {
+                    deployment_id: parsed_deployment_id,
+                    body,
+                } => {
+                    assert_eq!(parsed_deployment_id.to_string(), deployment_id);
+                    assert_eq!(body, "{}");
+                }
+                _ => panic!("unexpected managed file patch command"),
+            },
+            _ => panic!("unexpected command"),
+        }
     }
 
     #[test]

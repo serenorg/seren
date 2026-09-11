@@ -4319,6 +4319,79 @@ pub async fn managed_agent_health(ctx: &CommandContext) -> Result<()> {
     Ok(())
 }
 
+/// List infrastructure-health incidents for managed seren-agent deployments.
+pub async fn managed_agent_incidents(
+    deployment_id: Option<Uuid>,
+    include_resolved: bool,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_agent_incidents(
+            deployment_id.as_ref(),
+            Some(include_resolved),
+            limit,
+            offset,
+        )
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            return Err(
+                anyhow_from_seren_error("Failed to list managed agent incidents", error).await,
+            );
+        }
+    };
+    output::print_json(&response.into_inner())?;
+    Ok(())
+}
+
+/// Get the durable status of a managed deployment mutation.
+pub async fn managed_agent_action(
+    deployment_id: Uuid,
+    request_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let client = ctx.client().await?;
+    let response = match client
+        .seren_agent_get_managed_deployment_action(&deployment_id, &request_id)
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            return Err(
+                anyhow_from_seren_error("Failed to get managed deployment action", error).await,
+            );
+        }
+    };
+    output::print_json(&response.into_inner())?;
+    Ok(())
+}
+
+/// Apply a targeted file patch to a managed deployment.
+pub async fn managed_agent_files(
+    deployment_id: Uuid,
+    body: &str,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let patch: seren::AgentBundlePatch = serde_json::from_str(body)
+        .map_err(|error| anyhow::anyhow!("Invalid managed file patch JSON: {error}"))?;
+    let client = ctx.client().await?;
+    let request_id = Uuid::new_v4();
+    let response = submit_managed_mutation(
+        &client,
+        deployment_id,
+        request_id,
+        || client.seren_agent_patch_managed_deployment_files(&deployment_id, &request_id, &patch),
+        "Managed deployment file patch",
+    )
+    .await?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
 /// Run an unsaved managed seren-agent draft once.
 pub async fn managed_agent_test_run(body: &str, ctx: &CommandContext) -> Result<()> {
     let request: seren::TestSerenAgentDraftRunRequest =
