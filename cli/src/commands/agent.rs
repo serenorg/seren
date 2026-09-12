@@ -905,6 +905,7 @@ pub async fn create_publisher(
         markup_multiplier: None,
         minimum_balance: None,
         ownership_tracking_enabled: None,
+        passthrough_header_value_format: None,
         passthrough_header_rewrite,
         price_per_call: None,
         price_per_delete: None,

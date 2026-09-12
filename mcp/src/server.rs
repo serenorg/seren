@@ -12782,6 +12782,7 @@ API endpoint: {endpoint}",
             markup_multiplier: None,
             minimum_balance: None,
             ownership_tracking_enabled: None,
+            passthrough_header_value_format: None,
             passthrough_header_rewrite: passthrough_header_rewrite
                 .map(serde_json::to_value)
                 .transpose()
@@ -13050,6 +13051,7 @@ API endpoint: {endpoint}",
                 .map_err(|e| McpError::invalid_params(e.to_string(), None))?,
             gateway_fee_percent: None,
             ownership_tracking_enabled: None,
+            passthrough_header_value_format: None,
             passthrough_header_rewrite: passthrough_header_rewrite
                 .map(serde_json::to_value)
                 .transpose()
@@ -14411,7 +14413,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Cancel an abandoned Seren Passwords setup for an Employee. Requires the signed-in OAuth user who initiated it. Cancellation is refused after an approval has completed. Returns setup status without credential or mapping details.",
+        description = "Cancel an abandoned Seren Passwords setup for an Employee, including an approved setup that has not been applied. Requires the signed-in OAuth user who initiated it. Applied setups cannot be cancelled. Returns setup status without credential or mapping details.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
