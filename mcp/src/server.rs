@@ -447,6 +447,28 @@ pub struct SerenMemoryConnectionParams {
     pub valid_to: Option<String>,
 }
 
+/// Seren Memory organizational-knowledge domain selector.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SerenMemoryKnowledgeDomainParams {
+    /// Optional governed knowledge domain; omitting it selects the organization's default domain
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain_id: Option<Uuid>,
+}
+
+/// Seren Memory published organizational-knowledge operation invocation.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SerenMemoryInvokeKnowledgeOperationParams {
+    /// Published operation name returned by seren_memory_list_knowledge_operations
+    pub operation_name: String,
+    /// Optional governed knowledge domain; omitting it selects the organization's default domain
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain_id: Option<Uuid>,
+    /// Parameters declared by the published operation
+    pub parameters: serde_json::Value,
+}
+
 impl SerenMemoryConnectionParams {
     fn into_request(self) -> Result<seren::SerenMemoryMemoryConnectionRequest, McpError> {
         let SerenMemoryConnectionParams {
@@ -9881,6 +9903,50 @@ impl SerenMcpServer {
     }
 
     #[tool(
+        description = "List the published read-only operations available in a governed organizational knowledge domain through Seren Memory.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_memory_list_knowledge_operations(
+        &self,
+        Parameters(params): Parameters<SerenMemoryKnowledgeDomainParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_memory_list_knowledge_operations(params.domain_id.as_ref())
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Invoke one published read-only operation in a governed organizational knowledge domain through Seren Memory. Use seren_memory_list_knowledge_operations to discover names and parameters.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_memory_invoke_knowledge_operation(
+        &self,
+        Parameters(params): Parameters<SerenMemoryInvokeKnowledgeOperationParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let request = seren::SerenMemoryInvokeKnowledgeOperationRequest {
+            domain_id: params.domain_id,
+            parameters: params.parameters,
+        };
+        let response = match api_client
+            .seren_memory_invoke_knowledge_operation(&params.operation_name, &request)
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
         description = "Extract durable memories from a completed conversation turn and store them in Seren Memory.",
         annotations(
             read_only_hint = false,
@@ -18908,6 +18974,8 @@ mod tests {
             "seren_memory_list_knowledge_domains",
             "seren_memory_search_knowledge",
             "seren_memory_open_knowledge_entity",
+            "seren_memory_list_knowledge_operations",
+            "seren_memory_invoke_knowledge_operation",
             "seren_memory_process_conversation",
             "seren_memory_export_memories",
             "seren_memory_memory_timeline",
@@ -18971,6 +19039,72 @@ mod tests {
             .expect("source deletion should call the publisher endpoint");
 
         assert!(!result.is_error.unwrap_or(false));
+    }
+
+    #[tokio::test]
+    async fn seren_memory_knowledge_operations_call_publisher_endpoints() {
+        use wiremock::matchers::{body_json, method, path, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let domain_id = Uuid::from_u128(0x2026_0914);
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-memory/knowledge/operations"))
+            .and(query_param("domain_id", domain_id.to_string()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {"operations": []}
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(
+                "/publishers/seren-memory/knowledge/operations/related_policies",
+            ))
+            .and(body_json(serde_json::json!({
+                "domain_id": domain_id,
+                "parameters": {"id": "policy:retention"}
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "operation": "related_policies",
+                    "knowledge_revision": 1,
+                    "count": 1,
+                    "items": [{"id": "policy:retention", "name": "Retention policy"}]
+                }
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let listed = server
+            .seren_memory_list_knowledge_operations(
+                Parameters(SerenMemoryKnowledgeDomainParams {
+                    domain_id: Some(domain_id),
+                }),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect("operation discovery should call the publisher endpoint");
+        let invoked = server
+            .seren_memory_invoke_knowledge_operation(
+                Parameters(SerenMemoryInvokeKnowledgeOperationParams {
+                    operation_name: "related_policies".to_string(),
+                    domain_id: Some(domain_id),
+                    parameters: serde_json::json!({"id": "policy:retention"}),
+                }),
+                extensions_with_headers(&[]),
+            )
+            .await
+            .expect("operation invocation should call the publisher endpoint");
+
+        assert!(!listed.is_error.unwrap_or(false));
+        assert!(!invoked.is_error.unwrap_or(false));
+        let output: serde_json::Value =
+            serde_json::from_str(&invoked.content[0].as_text().unwrap().text).unwrap();
+        assert_eq!(output["data"]["count"], 1);
+        assert_eq!(output["data"]["items"][0]["id"], "policy:retention");
     }
 
     #[test]

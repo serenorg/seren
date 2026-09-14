@@ -1673,43 +1673,6 @@
                 }
             }
         },
-        "/mcp": {
-            "post": {
-                "tags": [
-                    "MCP"
-                ],
-                "summary": "Call the Seren Memory MCP transport",
-                "operationId": "mcp_handler",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {}
-                        }
-                    },
-                    "required": true
-                },
-                "responses": {
-                    "200": {
-                        "description": "MCP protocol response"
-                    },
-                    "401": {
-                        "description": "Authentication required",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        }
-                    }
-                },
-                "security": [
-                    {
-                        "bearer_auth": []
-                    }
-                ]
-            }
-        },
         "/memories": {
             "get": {
                 "tags": [
@@ -4510,7 +4473,10 @@
                                 "type": "integer",
                                 "minimum": 0
                             },
-                            "items": {},
+                            "items": {
+                                "type": "array",
+                                "items": {}
+                            },
                             "knowledge_revision": {
                                 "type": "integer",
                                 "format": "int64"
@@ -6621,7 +6587,10 @@
                         "type": "integer",
                         "minimum": 0
                     },
-                    "items": {},
+                    "items": {
+                        "type": "array",
+                        "items": {}
+                    },
                     "knowledge_revision": {
                         "type": "integer",
                         "format": "int64"
@@ -8149,10 +8118,6 @@
         {
             "name": "Knowledge Administration",
             "description": "Human-managed organizational knowledge source data"
-        },
-        {
-            "name": "MCP",
-            "description": "Model Context Protocol transport"
         },
         {
             "name": "Meta",

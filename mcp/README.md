@@ -242,7 +242,7 @@ Local MCP mode also exposes vault administration and migration tools, including 
 
 ### Seren Memory Tools
 
-Seren Memory tools let assistants recall and store private context, retain conversation sources, export stored context, inspect timelines, and manage memory relationships. `seren_memory_delete_memories_by_source` permanently removes retained sources and every memory derived from them. It requires `source_external_id`, `source_uri`, or both; `project_id` can narrow the deletion. The tool is marked destructive and is blocked by MCP read-only mode.
+Seren Memory tools let assistants recall and store private context, retain conversation sources, export stored context, inspect timelines, manage memory relationships, and read governed organizational knowledge. Organizational knowledge is available through `seren_memory_list_knowledge_domains`, `seren_memory_search_knowledge`, `seren_memory_open_knowledge_entity`, `seren_memory_list_knowledge_operations`, and `seren_memory_invoke_knowledge_operation`; the authenticated organization, user, and agent identity determine which domains can be read. `seren_memory_delete_memories_by_source` permanently removes retained sources and every memory derived from them. It requires `source_external_id`, `source_uri`, or both; `project_id` can narrow the deletion. The tool is marked destructive and is blocked by MCP read-only mode.
 
 ### Managed Agent Tools
 
