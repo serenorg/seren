@@ -476,7 +476,13 @@ pub async fn set_status(id: Uuid, lifecycle_status: String, ctx: &CommandContext
     Ok(())
 }
 
-pub async fn set_review(id: Uuid, review_status: String, ctx: &CommandContext) -> Result<()> {
+pub async fn set_review(
+    id: Uuid,
+    review_status: String,
+    expected_memory_revision: i64,
+    domain_id: Option<Uuid>,
+    ctx: &CommandContext,
+) -> Result<()> {
     let review_status = serde_json::from_value(serde_json::Value::String(review_status.clone()))
         .with_context(|| {
             format!("Invalid review status '{review_status}'. Use unreviewed or reviewed.")
@@ -486,7 +492,11 @@ pub async fn set_review(id: Uuid, review_status: String, ctx: &CommandContext) -
         .await?
         .seren_memory_set_memory_review(
             &id,
-            &seren::SerenMemorySetMemoryReviewRequest { review_status },
+            &seren::SerenMemorySetMemoryReviewRequest {
+                domain_id,
+                expected_memory_revision,
+                review_status,
+            },
         )
         .await;
     let response = memory_gateway_data(result, "Failed to set Seren Memory review status")?;
@@ -647,6 +657,83 @@ pub async fn list_knowledge_domains(ctx: &CommandContext) -> Result<()> {
         .seren_memory_list_knowledge_domains()
         .await;
     let response = memory_gateway_data(result, "Failed to list Seren Memory knowledge domains")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn list_knowledge_promotions(
+    domain_id: Uuid,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_list_knowledge_promotions(&domain_id, limit, offset)
+        .await;
+    let response = memory_gateway_data(result, "Failed to list Seren Memory promotions")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn get_knowledge_promotion(
+    domain_id: Uuid,
+    promotion_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_get_knowledge_promotion(&domain_id, &promotion_id)
+        .await;
+    let response = memory_gateway_data(result, "Failed to get Seren Memory promotion")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub struct PromoteKnowledgeOptions {
+    pub domain_id: Uuid,
+    pub promotion_id: Uuid,
+    pub memory_id: Uuid,
+    pub expected_memory_revision: i64,
+    pub record_key: String,
+    pub payload: String,
+}
+
+pub async fn promote_knowledge(
+    options: PromoteKnowledgeOptions,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let payload: seren::SerenMemoryKnowledgeRecord = serde_json::from_str(&options.payload)
+        .context("Knowledge promotion payload must be a valid Seren Memory knowledge record")?;
+    let request = seren::SerenMemoryPutKnowledgePromotionRequest {
+        expected_memory_revision: options.expected_memory_revision,
+        memory_id: options.memory_id,
+        payload,
+        record_key: options.record_key,
+    };
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_put_knowledge_promotion(&options.domain_id, &options.promotion_id, &request)
+        .await;
+    let response = memory_gateway_data(result, "Failed to promote Seren Memory entry")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn revoke_knowledge_promotion(
+    domain_id: Uuid,
+    promotion_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_delete_knowledge_promotion(&domain_id, &promotion_id)
+        .await;
+    let response = memory_gateway_data(result, "Failed to revoke Seren Memory promotion")?;
     output::print_json(&response)?;
     Ok(())
 }

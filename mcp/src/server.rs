@@ -19434,6 +19434,20 @@ mod tests {
         ] {
             assert!(tool_names.contains(expected), "missing MCP tool {expected}");
         }
+
+        for prohibited in [
+            "seren_memory_capture_agent_turn",
+            "seren_memory_set_memory_review",
+            "seren_memory_list_knowledge_promotions",
+            "seren_memory_get_knowledge_promotion",
+            "seren_memory_put_knowledge_promotion",
+            "seren_memory_delete_knowledge_promotion",
+        ] {
+            assert!(
+                !tool_names.contains(prohibited),
+                "prohibited Seren Memory operation exposed as MCP tool: {prohibited}"
+            );
+        }
     }
 
     #[test]

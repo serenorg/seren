@@ -3481,6 +3481,12 @@ enum MemoryAction {
         id: Uuid,
         /// unreviewed or reviewed
         review_status: String,
+        /// Current memory revision that the review applies to
+        #[arg(long)]
+        expected_memory_revision: i64,
+        /// Organization knowledge domain selected when this candidate was captured
+        #[arg(long)]
+        domain_id: Option<Uuid>,
     },
     /// Inspect synchronization status
     SyncStatus,
@@ -3599,6 +3605,34 @@ enum MemoryConnectionAction {
 enum MemoryKnowledgeAction {
     /// List accessible knowledge domains
     Domains,
+    /// List private-memory promotions for one knowledge domain
+    Promotions {
+        domain_id: Uuid,
+        #[arg(long)]
+        limit: Option<i64>,
+        #[arg(long)]
+        offset: Option<i64>,
+    },
+    /// Get one private-memory promotion
+    Promotion { domain_id: Uuid, promotion_id: Uuid },
+    /// Promote a reviewed private memory into organizational knowledge as a human editor
+    Promote {
+        domain_id: Uuid,
+        /// Caller-assigned idempotency identity
+        promotion_id: Uuid,
+        memory_id: Uuid,
+        /// Current memory revision that was reviewed
+        #[arg(long)]
+        expected_memory_revision: i64,
+        /// Stable key for the destination knowledge record
+        #[arg(long)]
+        record_key: String,
+        /// JSON object matching KnowledgeRecord
+        #[arg(long)]
+        payload: String,
+    },
+    /// Revoke a private-memory promotion as a human editor
+    RevokePromotion { domain_id: Uuid, promotion_id: Uuid },
     /// Create an organizational knowledge domain as an organization owner or administrator
     CreateDomain {
         /// JSON body matching CreateKnowledgeDomainRequest
@@ -6183,8 +6217,20 @@ async fn main() -> anyhow::Result<()> {
                 id,
                 lifecycle_status,
             } => commands::memory::set_status(id, lifecycle_status, &ctx).await?,
-            MemoryAction::Review { id, review_status } => {
-                commands::memory::set_review(id, review_status, &ctx).await?
+            MemoryAction::Review {
+                id,
+                review_status,
+                expected_memory_revision,
+                domain_id,
+            } => {
+                commands::memory::set_review(
+                    id,
+                    review_status,
+                    expected_memory_revision,
+                    domain_id,
+                    &ctx,
+                )
+                .await?
             }
             MemoryAction::SyncStatus => commands::memory::sync_status(&ctx).await?,
             MemoryAction::Consolidate { project_id } => {
@@ -6218,6 +6264,48 @@ async fn main() -> anyhow::Result<()> {
             MemoryAction::Knowledge { action } => match action {
                 MemoryKnowledgeAction::Domains => {
                     commands::memory::list_knowledge_domains(&ctx).await?
+                }
+                MemoryKnowledgeAction::Promotions {
+                    domain_id,
+                    limit,
+                    offset,
+                } => {
+                    commands::memory::list_knowledge_promotions(domain_id, limit, offset, &ctx)
+                        .await?
+                }
+                MemoryKnowledgeAction::Promotion {
+                    domain_id,
+                    promotion_id,
+                } => {
+                    commands::memory::get_knowledge_promotion(domain_id, promotion_id, &ctx).await?
+                }
+                MemoryKnowledgeAction::Promote {
+                    domain_id,
+                    promotion_id,
+                    memory_id,
+                    expected_memory_revision,
+                    record_key,
+                    payload,
+                } => {
+                    commands::memory::promote_knowledge(
+                        commands::memory::PromoteKnowledgeOptions {
+                            domain_id,
+                            promotion_id,
+                            memory_id,
+                            expected_memory_revision,
+                            record_key,
+                            payload,
+                        },
+                        &ctx,
+                    )
+                    .await?
+                }
+                MemoryKnowledgeAction::RevokePromotion {
+                    domain_id,
+                    promotion_id,
+                } => {
+                    commands::memory::revoke_knowledge_promotion(domain_id, promotion_id, &ctx)
+                        .await?
                 }
                 MemoryKnowledgeAction::CreateDomain { body } => {
                     commands::memory::create_knowledge_domain(body, &ctx).await?
@@ -8339,6 +8427,111 @@ mod tests {
             .expect("failed to spawn parser thread")
             .join()
             .expect("parser thread panicked")
+    }
+
+    #[test]
+    fn memory_review_and_promotion_commands_require_revision_bound_inputs() {
+        let memory_id = "550e8400-e29b-41d4-a716-446655440000";
+        let domain_id = "c2f579ec-3e8a-4a52-a969-203d2a80c98d";
+        let promotion_id = "6f9619ff-8b86-d011-b42d-00cf4fc964ff";
+
+        let review = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "review",
+            memory_id,
+            "reviewed",
+            "--expected-memory-revision",
+            "7",
+            "--domain-id",
+            domain_id,
+        ]);
+        let Commands::Memory { action } = review.command else {
+            panic!("memory command");
+        };
+        let MemoryAction::Review {
+            id,
+            review_status,
+            expected_memory_revision,
+            domain_id: parsed_domain_id,
+        } = action
+        else {
+            panic!("review command");
+        };
+        assert_eq!(id.to_string(), memory_id);
+        assert_eq!(review_status, "reviewed");
+        assert_eq!(expected_memory_revision, 7);
+        assert_eq!(
+            parsed_domain_id.map(|id| id.to_string()),
+            Some(domain_id.to_string())
+        );
+
+        let promotion = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "knowledge",
+            "promote",
+            domain_id,
+            promotion_id,
+            memory_id,
+            "--expected-memory-revision",
+            "7",
+            "--record-key",
+            "policy:retention",
+            "--payload",
+            r#"{"kind":"entity","entity_type":"policy","id":"policy:retention"}"#,
+        ]);
+        let Commands::Memory { action } = promotion.command else {
+            panic!("memory command");
+        };
+        let MemoryAction::Knowledge { action } = action else {
+            panic!("knowledge command");
+        };
+        let MemoryKnowledgeAction::Promote {
+            domain_id: parsed_domain_id,
+            promotion_id: parsed_promotion_id,
+            memory_id: parsed_memory_id,
+            expected_memory_revision,
+            record_key,
+            payload,
+        } = action
+        else {
+            panic!("promote command");
+        };
+        assert_eq!(parsed_domain_id.to_string(), domain_id);
+        assert_eq!(parsed_promotion_id.to_string(), promotion_id);
+        assert_eq!(parsed_memory_id.to_string(), memory_id);
+        assert_eq!(expected_memory_revision, 7);
+        assert_eq!(record_key, "policy:retention");
+        assert!(payload.contains("policy:retention"));
+
+        let missing_revision = match try_parse_cli_with_large_stack(vec![
+            "seren", "memory", "review", memory_id, "reviewed",
+        ]) {
+            Ok(_) => panic!("review must require the current memory revision"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            missing_revision.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
+
+        let personal_review = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "review",
+            memory_id,
+            "reviewed",
+            "--expected-memory-revision",
+            "8",
+        ]);
+        let Commands::Memory { action } = personal_review.command else {
+            panic!("memory command");
+        };
+        let MemoryAction::Review { domain_id, .. } = action else {
+            panic!("review command");
+        };
+        assert!(domain_id.is_none());
     }
 
     #[test]

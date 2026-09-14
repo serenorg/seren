@@ -102,7 +102,7 @@
                     "Memory"
                 ],
                 "summary": "Capture a completed agent turn from a lifecycle hook",
-                "description": "Dedicated ingestion operation for automatic agent capture. Accepts prompt and assistant-response content as separate fields so the current organization policy can independently permit each content class before the service assembles an extraction transcript. Requires a stable source_external_id in the reserved hook: namespace and the current server-issued organization policy_version. Stale callers must refresh the policy and re-sanitize queued content. Acceptance atomically stores the encrypted provenance envelope and an encrypted short-lived extraction job, then returns processing_status=queued without waiting for a model or embedding call. The background worker extracts session-sized batches, commits the complete source-owned derived-memory set under a content compare-and-swap, and removes the transient job payload. retain_source controls whether the raw prompt and response remain in the long-lived source payload after processing; it does not control the temporary encrypted job required for durable asynchronous extraction. Source metadata is provenance validated against a separate 16,000-byte serialized bound and does not count against max_transcript_bytes.",
+                "description": "Dedicated ingestion operation for automatic agent capture. Accepts prompt and assistant-response content as separate fields so the current organization policy can independently permit each content class before the service assembles an extraction transcript. A signed managed-agent work context with capture target none acknowledges without storage. Personal capture stores a private candidate owned by the authenticated initiating human. Organization-selection capture stores an unpublished private candidate for that human and binds review and promotion to the exact selected Memory domain. Trusted work-context provenance is stored separately from caller metadata. Requires a stable source_external_id in the reserved hook: namespace and the current server-issued organization policy_version. Redelivery from a fresh revalidated work context is idempotent when every durable authority field still matches; the first and latest context IDs are retained for audit. Changed content or authority for the same source identity conflicts. Acceptance atomically stores the encrypted provenance envelope and an encrypted short-lived extraction job, then returns processing_status=queued without waiting for a model or embedding call. The background worker extracts session-sized batches, commits the complete source-owned derived-memory set under a content compare-and-swap, and removes the transient job payload. retain_source controls whether the raw prompt and response remain in the long-lived source payload after processing; it does not control the temporary encrypted job required for durable asynchronous extraction. Source metadata is provenance validated against a separate 16,000-byte serialized bound and does not count against max_transcript_bytes.",
                 "operationId": "capture_agent_turn",
                 "requestBody": {
                     "content": {
@@ -146,7 +146,7 @@
                         }
                     },
                     "403": {
-                        "description": "Automatic capture or the requested capture mode is disabled by organization policy",
+                        "description": "Automatic capture is disabled or the signed organization selection is no longer readable",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -156,7 +156,7 @@
                         }
                     },
                     "409": {
-                        "description": "The submitted organization policy revision is stale",
+                        "description": "The memory capture policy revision is stale or the source identity is bound to different content or trusted provenance",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -870,6 +870,358 @@
                     },
                     "409": {
                         "description": "Domain must retain an owner",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/knowledge/domains/{domain_id}/promotions": {
+            "get": {
+                "tags": [
+                    "Knowledge Administration"
+                ],
+                "summary": "List private-memory promotions for a knowledge domain",
+                "operationId": "list_knowledge_promotions",
+                "parameters": [
+                    {
+                        "name": "domain_id",
+                        "in": "path",
+                        "description": "Knowledge domain ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "integer",
+                                "null"
+                            ],
+                            "format": "int64"
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "integer",
+                                "null"
+                            ],
+                            "format": "int64"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Knowledge promotions",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_ListKnowledgePromotionsResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Human domain editor permission required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/knowledge/domains/{domain_id}/promotions/{promotion_id}": {
+            "get": {
+                "tags": [
+                    "Knowledge Administration"
+                ],
+                "summary": "Get a private-memory promotion",
+                "operationId": "get_knowledge_promotion",
+                "parameters": [
+                    {
+                        "name": "domain_id",
+                        "in": "path",
+                        "description": "Knowledge domain ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "promotion_id",
+                        "in": "path",
+                        "description": "Promotion ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Knowledge promotion",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_KnowledgePromotionResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Human domain editor permission required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Promotion not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            },
+            "put": {
+                "tags": [
+                    "Knowledge Administration"
+                ],
+                "summary": "Promote a reviewed private memory into organizational knowledge",
+                "operationId": "put_knowledge_promotion",
+                "parameters": [
+                    {
+                        "name": "domain_id",
+                        "in": "path",
+                        "description": "Knowledge domain ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "promotion_id",
+                        "in": "path",
+                        "description": "Caller-assigned idempotency identity",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PutKnowledgePromotionRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Immutable knowledge promotion",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_KnowledgePromotionResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid promotion",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Human domain editor permission required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Source memory or knowledge model not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Memory revision, review, record key, or promotion identity conflict",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Knowledge Administration"
+                ],
+                "summary": "Revoke a private-memory promotion",
+                "operationId": "delete_knowledge_promotion",
+                "parameters": [
+                    {
+                        "name": "domain_id",
+                        "in": "path",
+                        "description": "Knowledge domain ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "promotion_id",
+                        "in": "path",
+                        "description": "Promotion ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Revoked knowledge promotion",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_KnowledgePromotionResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Human domain editor permission required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Promotion or knowledge model not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Promoted canonical record is unavailable",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2324,7 +2676,7 @@
                     "Memory"
                 ],
                 "summary": "Set a private memory review status",
-                "description": "Explicit review transition. No ingestion channel grants reviewed trust automatically, and this operation is intentionally not exposed as an MCP tool.",
+                "description": "Explicit review transition. No ingestion channel grants reviewed trust automatically. domain_id is required to review an organization-selected managed-agent candidate and must match its signed capture domain; the caller must remain a current editor of that domain. This operation is intentionally not exposed as an MCP tool.",
                 "operationId": "set_memory_review",
                 "parameters": [
                     {
@@ -2369,8 +2721,28 @@
                             }
                         }
                     },
+                    "403": {
+                        "description": "Human identity and current domain editor permission required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
                     "404": {
-                        "description": "Memory not found",
+                        "description": "Memory or capture domain not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Memory revision or signed capture domain conflict",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -3591,11 +3963,11 @@
                 },
                 "additionalProperties": false,
                 "example": {
-                    "user_prompt": "Keep releases reversible.",
-                    "assistant_response": "I will add rollback steps.",
                     "agent_platform": "claude",
+                    "assistant_response": "I will add rollback steps.",
+                    "policy_version": "baseline",
                     "source_external_id": "hook:agent-turn:claude:conv-1:turn-4",
-                    "policy_version": "baseline"
+                    "user_prompt": "Keep releases reversible."
                 }
             },
             "CompactMemoryOutput": {
@@ -4511,6 +4883,101 @@
                     }
                 }
             },
+            "DataResponse_KnowledgePromotionResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "id",
+                            "domain_id",
+                            "source_memory_id",
+                            "source_user_id",
+                            "source_memory_revision",
+                            "source_content_revision",
+                            "source_review_event_id",
+                            "record_id",
+                            "promoted_revision",
+                            "promoted_by",
+                            "promoted_at",
+                            "state"
+                        ],
+                        "properties": {
+                            "domain_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "promoted_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "promoted_by": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "promoted_revision": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "record_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "revoked_at": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "date-time"
+                            },
+                            "revoked_by": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "uuid"
+                            },
+                            "revoked_revision": {
+                                "type": [
+                                    "integer",
+                                    "null"
+                                ],
+                                "format": "int64"
+                            },
+                            "source_content_revision": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "source_memory_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "source_memory_revision": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "source_review_event_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "source_user_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "state": {
+                                "$ref": "#/components/schemas/KnowledgePromotionStateResponse"
+                            }
+                        }
+                    }
+                }
+            },
             "DataResponse_KnowledgeRecordResponse": {
                 "type": "object",
                 "required": [
@@ -4539,6 +5006,38 @@
                             "updated_at": {
                                 "type": "string",
                                 "format": "date-time"
+                            }
+                        }
+                    }
+                }
+            },
+            "DataResponse_ListKnowledgePromotionsResponse": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "promotions",
+                            "limit",
+                            "offset"
+                        ],
+                        "properties": {
+                            "limit": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "offset": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "promotions": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/KnowledgePromotionResponse"
+                                }
                             }
                         }
                     }
@@ -5319,11 +5818,47 @@
                     "data": {
                         "type": "object",
                         "required": [
-                            "updated"
+                            "memory_id",
+                            "memory_revision",
+                            "content_revision",
+                            "review_status"
                         ],
                         "properties": {
-                            "updated": {
-                                "type": "boolean"
+                            "content_revision": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "memory_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "memory_revision": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "review_event_id": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "uuid"
+                            },
+                            "review_status": {
+                                "$ref": "#/components/schemas/MemoryReview"
+                            },
+                            "reviewed_at": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "date-time"
+                            },
+                            "reviewer_user_id": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "uuid"
                             }
                         }
                     }
@@ -6623,6 +7158,100 @@
                     "agent"
                 ]
             },
+            "KnowledgePromotionResponse": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "domain_id",
+                    "source_memory_id",
+                    "source_user_id",
+                    "source_memory_revision",
+                    "source_content_revision",
+                    "source_review_event_id",
+                    "record_id",
+                    "promoted_revision",
+                    "promoted_by",
+                    "promoted_at",
+                    "state"
+                ],
+                "properties": {
+                    "domain_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "promoted_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "promoted_by": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "promoted_revision": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "record_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "revoked_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "revoked_by": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "revoked_revision": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int64"
+                    },
+                    "source_content_revision": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "source_memory_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "source_memory_revision": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "source_review_event_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "source_user_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "state": {
+                        "$ref": "#/components/schemas/KnowledgePromotionStateResponse"
+                    }
+                }
+            },
+            "KnowledgePromotionStateResponse": {
+                "type": "string",
+                "enum": [
+                    "active",
+                    "revoked"
+                ]
+            },
             "KnowledgeRecord": {
                 "oneOf": [
                     {
@@ -6795,6 +7424,30 @@
                     "error_content": "Migration failed because the extension was missing",
                     "fix_content": "Install the extension before applying the migration",
                     "project_id": "123e4567-e89b-12d3-a456-426614174000"
+                }
+            },
+            "ListKnowledgePromotionsResponse": {
+                "type": "object",
+                "required": [
+                    "promotions",
+                    "limit",
+                    "offset"
+                ],
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "promotions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/KnowledgePromotionResponse"
+                        }
+                    }
                 }
             },
             "ListKnowledgeRecordsResponse": {
@@ -7453,9 +8106,35 @@
                     }
                 },
                 "example": {
-                    "transcript": "User confirmed that production migrations require explicit rollback notes.",
-                    "project_id": "123e4567-e89b-12d3-a456-426614174000"
+                    "project_id": "123e4567-e89b-12d3-a456-426614174000",
+                    "transcript": "User confirmed that production migrations require explicit rollback notes."
                 }
+            },
+            "PutKnowledgePromotionRequest": {
+                "type": "object",
+                "required": [
+                    "memory_id",
+                    "expected_memory_revision",
+                    "record_key",
+                    "payload"
+                ],
+                "properties": {
+                    "expected_memory_revision": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "memory_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "payload": {
+                        "$ref": "#/components/schemas/KnowledgeRecord"
+                    },
+                    "record_key": {
+                        "type": "string"
+                    }
+                },
+                "additionalProperties": false
             },
             "ReadinessResponse": {
                 "type": "object",
@@ -7542,9 +8221,9 @@
                     }
                 },
                 "example": {
-                    "query": "database migration conventions",
+                    "limit": 10,
                     "project_id": "123e4567-e89b-12d3-a456-426614174000",
-                    "limit": 10
+                    "query": "database migration conventions"
                 }
             },
             "RecallResponse": {
@@ -7898,9 +8577,22 @@
             "SetMemoryReviewRequest": {
                 "type": "object",
                 "required": [
+                    "expected_memory_revision",
                     "review_status"
                 ],
                 "properties": {
+                    "domain_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid",
+                        "description": "Required when reviewing a candidate captured for an organization domain."
+                    },
+                    "expected_memory_revision": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
                     "review_status": {
                         "$ref": "#/components/schemas/MemoryReview"
                     }
@@ -7909,11 +8601,47 @@
             "SetMemoryReviewResponse": {
                 "type": "object",
                 "required": [
-                    "updated"
+                    "memory_id",
+                    "memory_revision",
+                    "content_revision",
+                    "review_status"
                 ],
                 "properties": {
-                    "updated": {
-                        "type": "boolean"
+                    "content_revision": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "memory_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "memory_revision": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "review_event_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "review_status": {
+                        "$ref": "#/components/schemas/MemoryReview"
+                    },
+                    "reviewed_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "reviewer_user_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
                     }
                 }
             },

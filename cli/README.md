@@ -283,7 +283,8 @@ seren memory get-many <memory-id> <memory-id>
 seren memory append <memory-id> "Add the rollback verification step."
 seren memory revisions <memory-id>
 seren memory status <memory-id> canonical
-seren memory review <memory-id> reviewed
+seren memory review <memory-id> reviewed --expected-memory-revision <revision>
+seren memory review <memory-id> reviewed --expected-memory-revision <revision> --domain-id <domain-id>
 seren memory reconcile --max-pairs 20
 seren memory process "User: retain this source." --retain-source --source-external-id conversation:release-review
 seren memory export --project-id <project-id>
@@ -293,9 +294,13 @@ seren memory delete-by-source --source-uri conversation://release-review --proje
 seren memory knowledge domains
 seren memory knowledge operations --domain-id <domain-id>
 seren memory knowledge invoke related_policies --domain-id <domain-id> --parameters '{"id":"policy:retention"}'
+seren memory knowledge promotions <domain-id>
+seren memory knowledge promote <domain-id> <promotion-id> <memory-id> --expected-memory-revision <revision> --record-key policy:retention --payload '{"kind":"entity","entity_type":"policy","id":"policy:retention","properties":{"summary":"Retain release evidence."}}'
+seren memory knowledge promotion <domain-id> <promotion-id>
+seren memory knowledge revoke-promotion <domain-id> <promotion-id>
 ```
 
-Knowledge search, entity lookup, operation discovery, and operation invocation are available to authorized users and agents. Organization owners and administrators create domains. Domain owners update domains and manage grants. Human domain editors set the model and manage canonical records through the `seren memory knowledge` subcommands. Run `seren memory knowledge --help` for the administration request shapes; agent identities cannot use those administration operations.
+Knowledge search, entity lookup, operation discovery, and operation invocation are available to authorized users and agents. Organization owners and administrators create domains. Domain owners update domains and manage grants. Human domain editors set the model, manage canonical records, and promote reviewed private memories through the `seren memory knowledge` subcommands. Review and promotion commands bind decisions to the current memory revision, so fetch the memory again before retrying a conflict. Pass `--domain-id` when reviewing an organization-selected managed candidate; omit it for ordinary personal memory. Run `seren memory knowledge --help` for the administration request shapes; agent identities cannot use those administration operations.
 
 ### Environment Files
 
