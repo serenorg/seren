@@ -3299,6 +3299,36 @@ enum MemoryAction {
     Recall {
         /// Natural-language recall query
         query: String,
+        /// Include memories created at or after this RFC 3339 timestamp
+        #[arg(long)]
+        created_after: Option<jiff::Timestamp>,
+        /// Include memories created at or before this RFC 3339 timestamp
+        #[arg(long)]
+        created_before: Option<jiff::Timestamp>,
+        #[arg(long)]
+        limit: Option<i64>,
+        /// Filter by memory type; may be repeated
+        #[arg(long = "memory-type")]
+        memory_types: Vec<String>,
+        #[arg(long)]
+        min_relevance: Option<f64>,
+        #[arg(long)]
+        search_mode: Option<String>,
+        #[arg(long)]
+        project_id: Option<Uuid>,
+        #[arg(long)]
+        org_id: Option<Uuid>,
+    },
+    /// Search private memories and return compact previews
+    Search {
+        /// Natural-language search query
+        query: String,
+        /// Include memories created at or after this RFC 3339 timestamp
+        #[arg(long)]
+        created_after: Option<jiff::Timestamp>,
+        /// Include memories created at or before this RFC 3339 timestamp
+        #[arg(long)]
+        created_before: Option<jiff::Timestamp>,
         #[arg(long)]
         limit: Option<i64>,
         /// Filter by memory type; may be repeated
@@ -3413,6 +3443,57 @@ enum MemoryAction {
     },
     /// Get one private memory
     Get { id: Uuid },
+    /// Fetch up to 25 private memories by ID
+    GetMany {
+        #[arg(required = true, num_args = 1..=25)]
+        ids: Vec<Uuid>,
+    },
+    /// Store a verified private error-and-fix pattern
+    LearnError {
+        error_content: String,
+        fix_content: String,
+        /// Optional JSON metadata
+        #[arg(long)]
+        metadata: Option<String>,
+        #[arg(long)]
+        project_id: Option<Uuid>,
+        #[arg(long)]
+        org_id: Option<Uuid>,
+    },
+    /// Ingest or update a source-managed rich document
+    IngestDocument {
+        /// JSON body matching IngestDocumentRequest
+        #[arg(long)]
+        body: String,
+    },
+    /// Append content to one private memory and preserve a revision
+    Append { id: Uuid, content: String },
+    /// List revisions for one private memory
+    Revisions { id: Uuid },
+    /// Set one private memory's lifecycle status
+    Status {
+        id: Uuid,
+        /// active, draft, canonical, or deprecated
+        lifecycle_status: String,
+    },
+    /// Set one private memory's human review status
+    Review {
+        id: Uuid,
+        /// unreviewed or reviewed
+        review_status: String,
+    },
+    /// Inspect synchronization status
+    SyncStatus,
+    /// Consolidate old private memories
+    Consolidate {
+        #[arg(long)]
+        project_id: Option<Uuid>,
+    },
+    /// Reconcile similar memories; each examined pair may incur one model call
+    Reconcile {
+        #[arg(long, value_parser = clap::value_parser!(i64).range(1..=20))]
+        max_pairs: i64,
+    },
     /// Inspect dated relationships for one private memory
     Timeline {
         id: Uuid,
@@ -3441,7 +3522,7 @@ enum MemoryAction {
         #[arg(long)]
         org_id: Option<Uuid>,
     },
-    /// Read governed organizational knowledge
+    /// Work with governed organizational knowledge
     Knowledge {
         #[command(subcommand)]
         action: MemoryKnowledgeAction,
@@ -3518,6 +3599,34 @@ enum MemoryConnectionAction {
 enum MemoryKnowledgeAction {
     /// List accessible knowledge domains
     Domains,
+    /// Create an organizational knowledge domain as an organization owner or administrator
+    CreateDomain {
+        /// JSON body matching CreateKnowledgeDomainRequest
+        #[arg(long)]
+        body: String,
+    },
+    /// Update an organizational knowledge domain as its owner
+    UpdateDomain {
+        domain_id: Uuid,
+        /// JSON body matching UpdateKnowledgeDomainRequest
+        #[arg(long)]
+        body: String,
+    },
+    /// List grants for one organizational knowledge domain as its owner
+    Grants { domain_id: Uuid },
+    /// Set a user or agent grant on one organizational knowledge domain
+    SetGrant {
+        domain_id: Uuid,
+        /// JSON body matching KnowledgeDomainGrantRequest
+        #[arg(long)]
+        body: String,
+    },
+    /// Remove a user or agent grant from one organizational knowledge domain
+    DeleteGrant {
+        domain_id: Uuid,
+        principal_type: commands::memory::KnowledgePrincipalType,
+        principal_id: Uuid,
+    },
     /// Search governed organizational knowledge
     Search {
         query: String,
@@ -3527,6 +3636,57 @@ enum MemoryKnowledgeAction {
     /// Open one governed knowledge entity
     Open {
         entity_id: String,
+        #[arg(long)]
+        domain_id: Option<Uuid>,
+    },
+    /// List the published read-only operations in a knowledge domain
+    Operations {
+        #[arg(long)]
+        domain_id: Option<Uuid>,
+    },
+    /// Invoke one published read-only knowledge operation
+    Invoke {
+        operation_name: String,
+        /// JSON object matching the operation's declared parameters
+        #[arg(long, default_value = "{}")]
+        parameters: String,
+        #[arg(long)]
+        domain_id: Option<Uuid>,
+    },
+    /// Get the desired knowledge model
+    Model {
+        #[arg(long)]
+        domain_id: Option<Uuid>,
+    },
+    /// Set the desired knowledge model as a domain editor
+    SetModel {
+        /// JSON body matching KnowledgeModel
+        #[arg(long)]
+        body: String,
+        #[arg(long)]
+        domain_id: Option<Uuid>,
+    },
+    /// List canonical organizational knowledge records as a domain editor
+    Records {
+        #[arg(long)]
+        domain_id: Option<Uuid>,
+        #[arg(long)]
+        limit: Option<i64>,
+        #[arg(long)]
+        offset: Option<i64>,
+    },
+    /// Create or replace one canonical organizational knowledge record
+    PutRecord {
+        record_key: String,
+        /// JSON body matching UpsertKnowledgeRecordRequest
+        #[arg(long)]
+        body: String,
+        #[arg(long)]
+        domain_id: Option<Uuid>,
+    },
+    /// Delete one canonical organizational knowledge record
+    DeleteRecord {
+        record_key: String,
         #[arg(long)]
         domain_id: Option<Uuid>,
     },
@@ -5717,6 +5877,8 @@ async fn main() -> anyhow::Result<()> {
             }
             MemoryAction::Recall {
                 query,
+                created_after,
+                created_before,
                 limit,
                 memory_types,
                 min_relevance,
@@ -5727,6 +5889,35 @@ async fn main() -> anyhow::Result<()> {
                 commands::memory::recall(
                     commands::memory::RecallOptions {
                         query,
+                        created_after,
+                        created_before,
+                        limit,
+                        memory_types,
+                        min_relevance,
+                        search_mode,
+                        project_id,
+                        org_id,
+                    },
+                    &ctx,
+                )
+                .await?
+            }
+            MemoryAction::Search {
+                query,
+                created_after,
+                created_before,
+                limit,
+                memory_types,
+                min_relevance,
+                search_mode,
+                project_id,
+                org_id,
+            } => {
+                commands::memory::search(
+                    commands::memory::RecallOptions {
+                        query,
+                        created_after,
+                        created_before,
                         limit,
                         memory_types,
                         min_relevance,
@@ -5961,6 +6152,47 @@ async fn main() -> anyhow::Result<()> {
                 offset,
             } => commands::memory::export(project_id, limit, offset, &ctx).await?,
             MemoryAction::Get { id } => commands::memory::get(id, &ctx).await?,
+            MemoryAction::GetMany { ids } => commands::memory::get_many(ids, &ctx).await?,
+            MemoryAction::LearnError {
+                error_content,
+                fix_content,
+                metadata,
+                project_id,
+                org_id,
+            } => {
+                commands::memory::learn_from_error(
+                    commands::memory::LearnFromErrorOptions {
+                        error_content,
+                        fix_content,
+                        metadata,
+                        project_id,
+                        org_id,
+                    },
+                    &ctx,
+                )
+                .await?
+            }
+            MemoryAction::IngestDocument { body } => {
+                commands::memory::ingest_document(body, &ctx).await?
+            }
+            MemoryAction::Append { id, content } => {
+                commands::memory::append(id, content, &ctx).await?
+            }
+            MemoryAction::Revisions { id } => commands::memory::revisions(id, &ctx).await?,
+            MemoryAction::Status {
+                id,
+                lifecycle_status,
+            } => commands::memory::set_status(id, lifecycle_status, &ctx).await?,
+            MemoryAction::Review { id, review_status } => {
+                commands::memory::set_review(id, review_status, &ctx).await?
+            }
+            MemoryAction::SyncStatus => commands::memory::sync_status(&ctx).await?,
+            MemoryAction::Consolidate { project_id } => {
+                commands::memory::consolidate(project_id, &ctx).await?
+            }
+            MemoryAction::Reconcile { max_pairs } => {
+                commands::memory::reconcile(max_pairs, &ctx).await?
+            }
             MemoryAction::Timeline { id, as_of } => {
                 commands::memory::timeline(id, as_of, &ctx).await?
             }
@@ -5987,6 +6219,31 @@ async fn main() -> anyhow::Result<()> {
                 MemoryKnowledgeAction::Domains => {
                     commands::memory::list_knowledge_domains(&ctx).await?
                 }
+                MemoryKnowledgeAction::CreateDomain { body } => {
+                    commands::memory::create_knowledge_domain(body, &ctx).await?
+                }
+                MemoryKnowledgeAction::UpdateDomain { domain_id, body } => {
+                    commands::memory::update_knowledge_domain(domain_id, body, &ctx).await?
+                }
+                MemoryKnowledgeAction::Grants { domain_id } => {
+                    commands::memory::list_knowledge_grants(domain_id, &ctx).await?
+                }
+                MemoryKnowledgeAction::SetGrant { domain_id, body } => {
+                    commands::memory::put_knowledge_grant(domain_id, body, &ctx).await?
+                }
+                MemoryKnowledgeAction::DeleteGrant {
+                    domain_id,
+                    principal_type,
+                    principal_id,
+                } => {
+                    commands::memory::delete_knowledge_grant(
+                        domain_id,
+                        principal_type,
+                        principal_id,
+                        &ctx,
+                    )
+                    .await?
+                }
                 MemoryKnowledgeAction::Search { query, domain_id } => {
                     commands::memory::search_knowledge(query, domain_id, &ctx).await?
                 }
@@ -5994,6 +6251,47 @@ async fn main() -> anyhow::Result<()> {
                     entity_id,
                     domain_id,
                 } => commands::memory::open_knowledge_entity(entity_id, domain_id, &ctx).await?,
+                MemoryKnowledgeAction::Operations { domain_id } => {
+                    commands::memory::list_knowledge_operations(domain_id, &ctx).await?
+                }
+                MemoryKnowledgeAction::Invoke {
+                    operation_name,
+                    parameters,
+                    domain_id,
+                } => {
+                    commands::memory::invoke_knowledge_operation(
+                        operation_name,
+                        domain_id,
+                        parameters,
+                        &ctx,
+                    )
+                    .await?
+                }
+                MemoryKnowledgeAction::Model { domain_id } => {
+                    commands::memory::get_knowledge_model(domain_id, &ctx).await?
+                }
+                MemoryKnowledgeAction::SetModel { body, domain_id } => {
+                    commands::memory::put_knowledge_model(domain_id, body, &ctx).await?
+                }
+                MemoryKnowledgeAction::Records {
+                    domain_id,
+                    limit,
+                    offset,
+                } => {
+                    commands::memory::list_knowledge_records(domain_id, limit, offset, &ctx).await?
+                }
+                MemoryKnowledgeAction::PutRecord {
+                    record_key,
+                    body,
+                    domain_id,
+                } => {
+                    commands::memory::put_knowledge_record(record_key, domain_id, body, &ctx)
+                        .await?
+                }
+                MemoryKnowledgeAction::DeleteRecord {
+                    record_key,
+                    domain_id,
+                } => commands::memory::delete_knowledge_record(record_key, domain_id, &ctx).await?,
             },
             MemoryAction::Connections { action } => match action {
                 MemoryConnectionAction::Link {
@@ -10372,6 +10670,75 @@ mod tests {
             _ => panic!("unexpected Seren Memory command parsed"),
         }
 
+        let search = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "search",
+            "release approval process",
+            "--created-after",
+            "2026-09-01T00:00:00Z",
+        ]);
+        assert!(matches!(
+            search.command,
+            Commands::Memory {
+                action: MemoryAction::Search {
+                    created_after: Some(_),
+                    ..
+                }
+            }
+        ));
+
+        let get_many = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "get-many",
+            "123e4567-e89b-12d3-a456-426614174000",
+            "123e4567-e89b-12d3-a456-426614174001",
+        ]);
+        assert!(matches!(
+            get_many.command,
+            Commands::Memory {
+                action: MemoryAction::GetMany { ids }
+            } if ids.len() == 2
+        ));
+
+        let status = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "status",
+            "123e4567-e89b-12d3-a456-426614174000",
+            "canonical",
+        ]);
+        assert!(matches!(
+            status.command,
+            Commands::Memory {
+                action: MemoryAction::Status { lifecycle_status, .. }
+            } if lifecycle_status == "canonical"
+        ));
+
+        let reconcile =
+            parse_cli_with_large_stack(vec!["seren", "memory", "reconcile", "--max-pairs", "20"]);
+        assert!(matches!(
+            reconcile.command,
+            Commands::Memory {
+                action: MemoryAction::Reconcile { max_pairs: 20 }
+            }
+        ));
+        for invalid in ["0", "21"] {
+            let result = try_parse_cli_with_large_stack(vec![
+                "seren",
+                "memory",
+                "reconcile",
+                "--max-pairs",
+                invalid,
+            ]);
+            let error = match result {
+                Ok(_) => panic!("reconciliation bounds must be enforced by the CLI"),
+                Err(error) => error,
+            };
+            assert_eq!(error.kind(), clap::error::ErrorKind::ValueValidation);
+        }
+
         let process = parse_cli_with_large_stack(vec![
             "seren",
             "memory",
@@ -10498,6 +10865,79 @@ mod tests {
                 }
             }
         ));
+
+        let knowledge_operations = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "knowledge",
+            "operations",
+            "--domain-id",
+            "123e4567-e89b-12d3-a456-426614174000",
+        ]);
+        assert!(matches!(
+            knowledge_operations.command,
+            Commands::Memory {
+                action: MemoryAction::Knowledge {
+                    action: MemoryKnowledgeAction::Operations { domain_id: Some(_) }
+                }
+            }
+        ));
+
+        let create_domain = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "knowledge",
+            "create-domain",
+            "--body",
+            r#"{"slug":"general","name":"General","classification":"internal","visibility":"organization"}"#,
+        ]);
+        assert!(matches!(
+            create_domain.command,
+            Commands::Memory {
+                action: MemoryAction::Knowledge {
+                    action: MemoryKnowledgeAction::CreateDomain { .. }
+                }
+            }
+        ));
+
+        let delete_grant = parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "knowledge",
+            "delete-grant",
+            "123e4567-e89b-12d3-a456-426614174000",
+            "agent",
+            "123e4567-e89b-12d3-a456-426614174001",
+        ]);
+        assert!(matches!(
+            delete_grant.command,
+            Commands::Memory {
+                action: MemoryAction::Knowledge {
+                    action: MemoryKnowledgeAction::DeleteGrant {
+                        principal_type: commands::memory::KnowledgePrincipalType::Agent,
+                        ..
+                    }
+                }
+            }
+        ));
+
+        let invalid_principal_type = try_parse_cli_with_large_stack(vec![
+            "seren",
+            "memory",
+            "knowledge",
+            "delete-grant",
+            "123e4567-e89b-12d3-a456-426614174000",
+            "service",
+            "123e4567-e89b-12d3-a456-426614174001",
+        ]);
+        let invalid_principal_type_error = match invalid_principal_type {
+            Ok(_) => panic!("knowledge grant principal type must be checked"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            invalid_principal_type_error.kind(),
+            clap::error::ErrorKind::InvalidValue
+        );
 
         let hook = parse_cli_with_large_stack(vec![
             "seren",

@@ -186,7 +186,7 @@ mod tests {
     }
 
     /// A capture reply carrying every grouped field the schema requires.
-    const SUCCESSFUL_CAPTURE_ENVELOPE: &[u8] = br#"{"data":{"status":200,"body":{"episodic":[],"semantic":[],"procedural":[],"error_fixes":[],"preferences":[],"stored_memory_ids":[]},"cost":"0"}}"#;
+    const SUCCESSFUL_CAPTURE_ENVELOPE: &[u8] = br#"{"data":{"status":200,"body":{"processing_status":"completed","episodic":[],"semantic":[],"procedural":[],"error_fixes":[],"preferences":[],"stored_memory_ids":[]},"cost":"0"}}"#;
 
     #[test]
     fn capture_responses_still_decode_from_a_successful_envelope() {

@@ -274,15 +274,28 @@ Use `--password-stdin`, `--key-stdin`, and `--body-stdin` for secret material so
 
 ### Seren Memory
 
-Seren Memory stores private context and retained conversation sources. Source deletion is permanent and removes both matching retained sources and their derived memories. Provide at least one source identity, and use `--project-id` when the identity should be narrowed to one project.
+Seren Memory stores private context, retained conversation sources, and governed organizational knowledge. Use compact search to select relevant IDs before fetching full content. Source deletion is permanent and removes both matching retained sources and their derived memories. Provide at least one source identity, and use `--project-id` when the identity should be narrowed to one project.
 
 ```bash
 seren memory recall "release approval process"
+seren memory search "release approval process" --created-after 2026-09-01T00:00:00Z
+seren memory get-many <memory-id> <memory-id>
+seren memory append <memory-id> "Add the rollback verification step."
+seren memory revisions <memory-id>
+seren memory status <memory-id> canonical
+seren memory review <memory-id> reviewed
+seren memory reconcile --max-pairs 20
 seren memory process "User: retain this source." --retain-source --source-external-id conversation:release-review
 seren memory export --project-id <project-id>
 seren memory delete-by-source --source-external-id conversation:release-review
 seren memory delete-by-source --source-uri conversation://release-review --project-id <project-id>
+
+seren memory knowledge domains
+seren memory knowledge operations --domain-id <domain-id>
+seren memory knowledge invoke related_policies --domain-id <domain-id> --parameters '{"id":"policy:retention"}'
 ```
+
+Knowledge search, entity lookup, operation discovery, and operation invocation are available to authorized users and agents. Organization owners and administrators create domains. Domain owners update domains and manage grants. Human domain editors set the model and manage canonical records through the `seren memory knowledge` subcommands. Run `seren memory knowledge --help` for the administration request shapes; agent identities cannot use those administration operations.
 
 ### Environment Files
 

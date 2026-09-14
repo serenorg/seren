@@ -103,7 +103,10 @@ fn codex_settings_path() -> Result<PathBuf> {
 
 fn hook_matches_definition(hook: &serde_json::Value, definition: &HookDefinition) -> bool {
     hook.get("type").and_then(|value| value.as_str()) == Some("command")
-        && hook.get("command").and_then(|value| value.as_str()) == Some(definition.command)
+        && hook
+            .get("command")
+            .and_then(|value| value.as_str())
+            .is_some_and(|command| owned_command_matches(command, definition.command))
         && if definition.asynchronous {
             hook.get("async").and_then(|value| value.as_bool()) == Some(true)
                 && hook.get("timeout").and_then(|value| value.as_u64()) == Some(10)
@@ -135,6 +138,83 @@ fn configure_hook(hook: &mut serde_json::Value, definition: &HookDefinition) -> 
         changed = true;
     }
     changed
+}
+
+fn owned_command_matches(command: &str, canonical: &str) -> bool {
+    if command == canonical {
+        return true;
+    }
+    let Some(expected_args) = canonical.strip_prefix("seren ") else {
+        return false;
+    };
+    let Some((executable, actual_args)) = literal_executable_and_args(command) else {
+        return false;
+    };
+    let executable = Path::new(executable);
+    executable.is_absolute()
+        && executable.file_name().and_then(|name| name.to_str()) == Some("seren")
+        && actual_args == expected_args
+}
+
+fn literal_executable_and_args(command: &str) -> Option<(&str, &str)> {
+    let first = command.as_bytes().first().copied()?;
+    if first == b'\'' || first == b'"' {
+        let closing = command[1..].find(char::from(first))? + 1;
+        let executable = &command[1..closing];
+        if first == b'"'
+            && executable
+                .bytes()
+                .any(|byte| matches!(byte, b'\\' | b'$' | b'`'))
+        {
+            return None;
+        }
+        let separator = command.get(closing + 1..)?;
+        if !separator
+            .as_bytes()
+            .first()
+            .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
+        {
+            return None;
+        }
+        return Some((executable, separator.trim_start_matches([' ', '\t'])));
+    }
+
+    let separator = command
+        .bytes()
+        .position(|byte| matches!(byte, b' ' | b'\t'))?;
+    let executable = &command[..separator];
+    if executable.bytes().any(|byte| {
+        matches!(
+            byte,
+            b'\\'
+                | b'\''
+                | b'"'
+                | b'$'
+                | b'`'
+                | b';'
+                | b'|'
+                | b'&'
+                | b'<'
+                | b'>'
+                | b'('
+                | b')'
+                | b'*'
+                | b'?'
+                | b'['
+                | b']'
+                | b'{'
+                | b'}'
+                | b'~'
+                | b'\n'
+                | b'\r'
+        )
+    }) {
+        return None;
+    }
+    Some((
+        executable,
+        command[separator..].trim_start_matches([' ', '\t']),
+    ))
 }
 
 fn validate_settings(settings: &serde_json::Value) -> Result<()> {
@@ -283,7 +363,9 @@ fn install_into(settings: &mut serde_json::Value) -> Result<bool> {
             .iter_mut()
             .flat_map(|entry| entry["hooks"].as_array_mut().expect("validated hook entry"))
             .filter(|hook| {
-                hook.get("command").and_then(|command| command.as_str()) == Some(definition.command)
+                hook.get("command")
+                    .and_then(|command| command.as_str())
+                    .is_some_and(|command| owned_command_matches(command, definition.command))
             })
         {
             found = true;
@@ -329,7 +411,10 @@ fn uninstall_from(settings: &mut serde_json::Value) -> Result<bool> {
                 .expect("validated hook entry");
             let before = commands.len();
             commands.retain(|hook| {
-                hook.get("command").and_then(|command| command.as_str()) != Some(definition.command)
+                !hook
+                    .get("command")
+                    .and_then(|command| command.as_str())
+                    .is_some_and(|command| owned_command_matches(command, definition.command))
             });
             let removed_owned_command = commands.len() != before;
             changed |= removed_owned_command;
@@ -815,6 +900,131 @@ mod tests {
     }
 
     #[test]
+    fn install_preserves_absolute_owned_commands_without_duplicates() {
+        let mut settings = serde_json::json!({
+            "hooks": {
+                "SessionStart": [
+                    {"hooks": [{
+                        "type": "command",
+                        "command": "/Users/example/.local/bin/seren memory hook session-start --platform claude"
+                    }]},
+                    {"hooks": [{
+                        "type": "command",
+                        "command": "/Users/example/.local/bin/seren memory hook drain --platform claude",
+                        "async": true,
+                        "timeout": 10
+                    }]}
+                ],
+                "Stop": [{"hooks": [{
+                    "type": "command",
+                    "command": "/Users/example/.local/bin/seren memory hook stop --platform claude"
+                }]}]
+            }
+        });
+
+        assert!(all_hooks_installed(&settings));
+        assert!(!install_into(&mut settings).unwrap());
+        let commands = CLAUDE_HOOK_EVENTS
+            .iter()
+            .flat_map(|event| settings["hooks"][event].as_array().unwrap())
+            .flat_map(|entry| entry["hooks"].as_array().unwrap())
+            .map(|hook| hook["command"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(commands.len(), CLAUDE_HOOK_DEFINITIONS.len());
+        assert!(
+            commands
+                .iter()
+                .all(|command| command.starts_with("/Users/example/.local/bin/seren "))
+        );
+    }
+
+    #[test]
+    fn install_does_not_duplicate_or_remove_existing_owned_command_forms() {
+        let mut settings = serde_json::json!({
+            "hooks": {
+                "SessionStart": [
+                    {"hooks": [{
+                        "type": "command",
+                        "command": "seren memory hook session-start --platform claude"
+                    }], "matcher": "startup"},
+                    {"hooks": [{
+                        "type": "command",
+                        "command": "/Users/example/.local/bin/seren memory hook session-start --platform claude"
+                    }], "matcher": "resume"},
+                    {"hooks": [{
+                        "type": "command",
+                        "command": "seren memory hook drain --platform claude",
+                        "async": true,
+                        "timeout": 10
+                    }]},
+                    {"hooks": []}
+                ],
+                "Stop": [{"hooks": [{
+                    "type": "command",
+                    "command": "seren memory hook stop --platform claude"
+                }]}]
+            }
+        });
+
+        let original = settings.clone();
+        assert!(!install_into(&mut settings).unwrap());
+        assert_eq!(settings, original);
+
+        settings["hooks"]["SessionStart"][2]["hooks"][0]["async"] = false.into();
+        assert!(install_into(&mut settings).unwrap());
+        assert_eq!(settings, original);
+    }
+
+    #[test]
+    fn non_shell_separators_are_not_owned() {
+        for executable in ["/tmp/seren", "\"/tmp/seren\"", "'/tmp/seren'"] {
+            for separator in [
+                "\n", "\r\n", "\r", "\u{000b}", "\u{000c}", "\u{0085}", "\u{00a0}",
+            ] {
+                let command = format!("{executable}{separator}memory hook stop --platform claude");
+                let hook = serde_json::json!({"type": "command", "command": command});
+                let mut settings = serde_json::json!({
+                    "hooks": {"Stop": [{"hooks": [hook.clone()]}]}
+                });
+                let original = settings.clone();
+
+                assert!(
+                    installed_events(&settings).unwrap().is_empty(),
+                    "{command:?}"
+                );
+                assert!(!uninstall_from(&mut settings).unwrap(), "{command:?}");
+                assert_eq!(settings, original);
+                assert!(install_into(&mut settings).unwrap());
+                assert_eq!(settings["hooks"]["Stop"][0]["hooks"][0], hook);
+                assert!(uninstall_from(&mut settings).unwrap());
+                assert_eq!(settings["hooks"]["Stop"], original["hooks"]["Stop"]);
+            }
+        }
+    }
+
+    #[test]
+    fn quoted_absolute_owned_commands_are_recognized() {
+        for executable in [
+            "\"/Users/Example User/.local/bin/seren\"",
+            "'/Users/Example User/.local/bin/seren'",
+        ] {
+            for separator in [" ", "\t", " \t "] {
+                let command = format!("{executable}{separator}memory hook stop --platform claude");
+                let mut settings = serde_json::json!({
+                    "hooks": {"Stop": [{"hooks": [{"type": "command", "command": command}]}]}
+                });
+
+                assert_eq!(installed_events(&settings).unwrap(), vec!["Stop"]);
+                assert!(install_into(&mut settings).unwrap());
+                assert_eq!(settings["hooks"]["Stop"].as_array().unwrap().len(), 1);
+                assert_eq!(settings["hooks"]["Stop"][0]["hooks"][0]["command"], command);
+                assert!(uninstall_from(&mut settings).unwrap());
+                assert!(installed_events(&settings).unwrap().is_empty());
+            }
+        }
+    }
+
+    #[test]
     fn uninstall_removes_only_owned_entries() {
         let mut settings = serde_json::json!({});
         install_into(&mut settings).unwrap();
@@ -838,6 +1048,38 @@ mod tests {
             !uninstall_from(&mut settings).unwrap(),
             "second run is a no-op"
         );
+    }
+
+    #[test]
+    fn uninstall_removes_absolute_owned_commands_and_preserves_lookalikes() {
+        let mut settings = serde_json::json!({
+            "hooks": {
+                "Stop": [{"hooks": [
+                    {
+                        "type": "command",
+                        "command": "/Users/example/.local/bin/seren memory hook stop --platform claude"
+                    },
+                    {
+                        "type": "command",
+                        "command": "/Users/example/.local/bin/not-seren memory hook stop --platform claude"
+                    },
+                    {
+                        "type": "command",
+                        "command": "echo /Users/example/.local/bin/seren memory hook stop --platform claude"
+                    },
+                    {
+                        "type": "command",
+                        "command": "/bin/true;/tmp/seren memory hook stop --platform claude"
+                    }
+                ]}]
+            }
+        });
+
+        assert!(uninstall_from(&mut settings).unwrap());
+        let commands = settings["hooks"]["Stop"][0]["hooks"].as_array().unwrap();
+        assert_eq!(commands.len(), 3);
+        assert!(commands.iter().all(|hook| hook["command"]
+            != "/Users/example/.local/bin/seren memory hook stop --platform claude"));
     }
 
     #[test]

@@ -405,11 +405,166 @@ impl From<SerenMemorySearchParams> for seren::SerenMemoryRecallParams {
     }
 }
 
+/// Seren Memory verified error-and-fix capture.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenMemoryLearnFromErrorParams {
+    /// Error message, failure description, or diagnostic content
+    pub error_content: String,
+    /// Verified correction or recovery steps
+    pub fix_content: String,
+    /// Optional metadata attached to the stored memory
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObjectSchema>,
+    /// Must match the authenticated organization when present
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub org_id: Option<Uuid>,
+    /// Optional project scope
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<Uuid>,
+}
+
+impl From<SerenMemoryLearnFromErrorParams> for seren::SerenMemoryLearnFromErrorParams {
+    fn from(params: SerenMemoryLearnFromErrorParams) -> Self {
+        Self {
+            error_content: params.error_content,
+            fix_content: params.fix_content,
+            metadata: params
+                .metadata
+                .map(|metadata| serde_json::Value::Object(metadata.into_iter().collect())),
+            org_id: params.org_id,
+            project_id: params.project_id,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SerenMemoryType {
+    Episodic,
+    Semantic,
+    Procedural,
+    Code,
+    ErrorFix,
+    Preference,
+    Skill,
+}
+
+impl From<SerenMemoryType> for seren::SerenMemoryMemoryType {
+    fn from(value: SerenMemoryType) -> Self {
+        match value {
+            SerenMemoryType::Episodic => Self::Episodic,
+            SerenMemoryType::Semantic => Self::Semantic,
+            SerenMemoryType::Procedural => Self::Procedural,
+            SerenMemoryType::Code => Self::Code,
+            SerenMemoryType::ErrorFix => Self::ErrorFix,
+            SerenMemoryType::Preference => Self::Preference,
+            SerenMemoryType::Skill => Self::Skill,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SerenMemoryLifecycle {
+    Active,
+    Draft,
+    Canonical,
+    Deprecated,
+}
+
+impl From<SerenMemoryLifecycle> for seren::SerenMemoryMemoryLifecycle {
+    fn from(value: SerenMemoryLifecycle) -> Self {
+        match value {
+            SerenMemoryLifecycle::Active => Self::Active,
+            SerenMemoryLifecycle::Draft => Self::Draft,
+            SerenMemoryLifecycle::Canonical => Self::Canonical,
+            SerenMemoryLifecycle::Deprecated => Self::Deprecated,
+        }
+    }
+}
+
+/// Seren Memory source-managed rich document ingestion.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenMemoryIngestDocumentParams {
+    /// ProseMirror document JSON with a top-level doc node
+    pub document: JsonObjectSchema,
+    /// Optional importance score from 1 through 5
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1, max = 5))]
+    pub importance: Option<i32>,
+    /// Optional lifecycle status for the source-managed memory
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle_status: Option<SerenMemoryLifecycle>,
+    /// Memory type assigned to the ingested document
+    pub memory_type: SerenMemoryType,
+    /// Optional metadata attached to the source-managed memory
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObjectSchema>,
+    /// Must match the authenticated organization when present
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub org_id: Option<Uuid>,
+    /// Optional project scope
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<Uuid>,
+    /// Optional session scope
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<Uuid>,
+    /// Stable caller-owned identity used to update the same source idempotently
+    pub source_external_id: String,
+    /// Stable source category, such as notes or notion
+    pub source_kind: String,
+    /// Optional caller-owned source revision
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_revision: Option<String>,
+    /// Optional canonical URI for the source document
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_uri: Option<String>,
+}
+
+impl From<SerenMemoryIngestDocumentParams> for seren::SerenMemoryIngestDocumentRequest {
+    fn from(params: SerenMemoryIngestDocumentParams) -> Self {
+        Self {
+            document: serde_json::Value::Object(params.document.into_iter().collect()),
+            importance: params.importance,
+            lifecycle_status: params.lifecycle_status.map(Into::into),
+            memory_type: seren::SerenMemoryMemoryType::from(params.memory_type).to_string(),
+            metadata: params
+                .metadata
+                .map(|metadata| serde_json::Value::Object(metadata.into_iter().collect())),
+            org_id: params.org_id,
+            project_id: params.project_id,
+            session_id: params.session_id,
+            source_external_id: params.source_external_id,
+            source_kind: params.source_kind,
+            source_revision: params.source_revision,
+            source_uri: params.source_uri,
+        }
+    }
+}
+
 /// Seren Memory batch-retrieval selector.
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct SerenMemoryGetMemoriesParams {
     /// Memory IDs to hydrate, at most 25, in the order you want them returned
     pub memory_ids: Vec<Uuid>,
+}
+
+/// Seren Memory append request with its path identifier.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenMemoryAppendParams {
+    /// Memory ID
+    pub memory_id: Uuid,
+    /// Content to append as a new revision
+    pub content: String,
+}
+
+/// Seren Memory lifecycle transition with its path identifier.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SerenMemoryStatusParams {
+    /// Memory ID
+    pub memory_id: Uuid,
+    /// New lifecycle status
+    pub lifecycle_status: SerenMemoryLifecycle,
 }
 
 /// Seren Memory export selector.
@@ -1079,10 +1234,6 @@ pub struct CallPublisherParams {
     /// Used for payment proxy mode where the client signs payments locally.
     #[serde(default, rename = "_x402_payment")]
     pub x402_payment: Option<String>,
-    /// Core-signed organization collaboration context supplied by the managed runtime.
-    #[serde(default, rename = "_seren_work_context")]
-    #[schemars(skip)]
-    pub(crate) seren_work_context: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -6219,6 +6370,40 @@ struct AgentMetadata {
 #[derive(Clone)]
 struct RuntimeWorkContextToken(String);
 
+const MAX_RUNTIME_WORK_CONTEXT_TOKEN_BYTES: usize = 16 * 1024;
+
+fn extract_runtime_work_context(
+    request: &mut CallToolRequestParams,
+    extensions: &mut Extensions,
+) -> Result<(), McpError> {
+    let Some(arguments) = request.arguments.as_mut() else {
+        return Ok(());
+    };
+    let Some(value) = arguments.remove("_seren_work_context") else {
+        return Ok(());
+    };
+    let serde_json::Value::String(token) = value else {
+        return Err(McpError::invalid_params(
+            "invalid managed organization work context".to_string(),
+            None,
+        ));
+    };
+    let token = token.trim();
+    if token.is_empty() {
+        return Ok(());
+    }
+    if token.len() > MAX_RUNTIME_WORK_CONTEXT_TOKEN_BYTES
+        || reqwest::header::HeaderValue::from_str(token).is_err()
+    {
+        return Err(McpError::invalid_params(
+            "invalid managed organization work context".to_string(),
+            None,
+        ));
+    }
+    extensions.insert(RuntimeWorkContextToken(token.to_string()));
+    Ok(())
+}
+
 struct CallPublisherErrorContext<'a, T: Serialize> {
     publisher: &'a str,
     publisher_type: &'a str,
@@ -9692,10 +9877,10 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Store durable private context in Seren Memory.",
+        description = "Store durable private context in Seren Memory. Conflict resolution may create a memory, update an existing memory, deprecate a superseded memory, or make no change; inspect action_taken in the response.",
         annotations(
             read_only_hint = false,
-            destructive_hint = false,
+            destructive_hint = true,
             open_world_hint = false
         )
     )]
@@ -9707,6 +9892,61 @@ impl SerenMcpServer {
         ensure_writes_allowed(&extensions)?;
         let api_client = self.api_client(&extensions)?;
         let response = match api_client.seren_memory_remember(&params).await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Store a verified private error-and-fix pattern in Seren Memory for future retrieval. Conflict resolution may update or supersede an existing memory.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn seren_memory_learn_from_error(
+        &self,
+        Parameters(params): Parameters<SerenMemoryLearnFromErrorParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let request = seren::SerenMemoryLearnFromErrorParams::from(params);
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client.seren_memory_learn_from_error(&request).await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Ingest or update a private rich document through a stable external source identity. Re-ingesting the same source preserves prior revisions and replaces the current source-managed memory.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn seren_memory_ingest_document(
+        &self,
+        Parameters(params): Parameters<SerenMemoryIngestDocumentParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        if params
+            .importance
+            .is_some_and(|importance| !(1..=5).contains(&importance))
+        {
+            return Err(McpError::invalid_params(
+                "importance must be between 1 and 5".to_string(),
+                None,
+            ));
+        }
+        let request = seren::SerenMemoryIngestDocumentRequest::from(params);
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client.seren_memory_ingest_document(&request).await {
             Ok(response) => response.into_inner(),
             Err(error) => return Err(seren_error_to_mcp_error(error).await),
         };
@@ -9754,6 +9994,86 @@ impl SerenMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let api_client = self.api_client(&extensions)?;
         let response = match api_client.seren_memory_get_memory(&params.memory_id).await {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Append content to one private Seren Memory entry and preserve the previous content in its revision history. Source-managed memories reject direct append operations.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn seren_memory_append_memory(
+        &self,
+        Parameters(params): Parameters<SerenMemoryAppendParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_memory_append_memory(
+                &params.memory_id,
+                &seren::SerenMemoryAppendMemoryRequest {
+                    content: params.content,
+                },
+            )
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "List the preserved revision history for one private Seren Memory entry.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn seren_memory_list_memory_revisions(
+        &self,
+        Parameters(params): Parameters<SerenMemoryIdPath>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_memory_list_memory_revisions(&params.memory_id)
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(error) => return Err(seren_error_to_mcp_error(error).await),
+        };
+        Ok(CallToolResult::success(vec![json_content(&response)?]))
+    }
+
+    #[tool(
+        description = "Set one private Seren Memory entry's lifecycle status independently from its pin state.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn seren_memory_set_memory_status(
+        &self,
+        Parameters(params): Parameters<SerenMemoryStatusParams>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, McpError> {
+        ensure_writes_allowed(&extensions)?;
+        let api_client = self.api_client(&extensions)?;
+        let response = match api_client
+            .seren_memory_set_memory_status(
+                &params.memory_id,
+                &seren::SerenMemorySetMemoryStatusRequest {
+                    lifecycle_status: params.lifecycle_status.into(),
+                },
+            )
+            .await
+        {
             Ok(response) => response.into_inner(),
             Err(error) => return Err(seren_error_to_mcp_error(error).await),
         };
@@ -9947,10 +10267,10 @@ impl SerenMcpServer {
     }
 
     #[tool(
-        description = "Extract durable memories from a completed conversation turn and store them in Seren Memory.",
+        description = "Extract durable memories from a completed conversation turn and store them in Seren Memory. Reusing a stable source identity replaces that source's previous derived-memory set.",
         annotations(
             read_only_hint = false,
-            destructive_hint = false,
+            destructive_hint = true,
             open_world_hint = false
         )
     )]
@@ -11459,24 +11779,9 @@ Examples:
     async fn call_publisher(
         &self,
         Parameters(params): Parameters<CallPublisherParams>,
-        mut extensions: Extensions,
+        extensions: Extensions,
     ) -> Result<CallToolResult, McpError> {
         ensure_writes_allowed(&extensions)?;
-
-        if let Some(token) = params
-            .seren_work_context
-            .as_deref()
-            .map(str::trim)
-            .filter(|token| !token.is_empty())
-        {
-            if token.len() > 16 * 1024 {
-                return Err(McpError::invalid_params(
-                    "invalid managed organization work context".to_string(),
-                    None,
-                ));
-            }
-            extensions.insert(RuntimeWorkContextToken(token.to_string()));
-        }
 
         let agent_metadata = extract_agent_metadata_from_extensions(&extensions);
         let return_text = params.response_format.as_deref() == Some("text");
@@ -17808,8 +18113,8 @@ fn tools_list_result(items: Vec<rmcp::model::Tool>) -> ListToolsResult {
 impl ServerHandler for SerenMcpServer {
     async fn call_tool(
         &self,
-        request: CallToolRequestParams,
-        context: RequestContext<RoleServer>,
+        mut request: CallToolRequestParams,
+        mut context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, McpError> {
         #[cfg(feature = "telemetry")]
         let tool_name = request.name.clone().into_owned();
@@ -17817,6 +18122,7 @@ impl ServerHandler for SerenMcpServer {
         let start = std::time::Instant::now();
 
         let result = async {
+            extract_runtime_work_context(&mut request, &mut context.extensions)?;
             // Setup parameter errors must remain protocol errors before tool dispatch.
             let arguments =
                 serde_json::Value::Object(request.arguments.clone().unwrap_or_default());
@@ -17965,6 +18271,146 @@ mod tests {
                 .and_then(|value| value.to_str().ok()),
             Some("signed-work-context")
         );
+    }
+
+    #[tokio::test]
+    async fn managed_work_context_is_extracted_for_first_class_tools() {
+        use rmcp::ServiceExt;
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/publishers/seren-memory/knowledge/domains"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {"domains": []}
+            })))
+            .expect(2)
+            .mount(&proxy)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/publishers/seren-memory/remember"))
+            .and(wiremock::matchers::header(
+                "authorization",
+                "Bearer test-key",
+            ))
+            .and(wiremock::matchers::header(
+                "x-seren-organization-work-context",
+                "signed-work-context",
+            ))
+            .and(wiremock::matchers::body_json(serde_json::json!({
+                "content": "retain rollback steps",
+                "memory_type": "semantic"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {"stored": true}
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let (server_transport, client_transport) = tokio::io::duplex(4096);
+        let server_task = tokio::spawn(async move {
+            server
+                .serve(server_transport)
+                .await
+                .unwrap()
+                .waiting()
+                .await
+                .unwrap();
+        });
+        let client = ().serve(client_transport).await.unwrap();
+
+        let mut managed_arguments = serde_json::Map::new();
+        managed_arguments.insert(
+            "_seren_work_context".to_string(),
+            serde_json::Value::String(" signed-work-context ".to_string()),
+        );
+        client
+            .call_tool(
+                CallToolRequestParams::new("seren_memory_list_knowledge_domains")
+                    .with_arguments(managed_arguments),
+            )
+            .await
+            .expect("managed first-class tool call");
+
+        client
+            .call_tool(CallToolRequestParams::new(
+                "seren_memory_list_knowledge_domains",
+            ))
+            .await
+            .expect("ordinary first-class tool call");
+
+        let publisher_arguments = serde_json::json!({
+            "publisher": "seren-memory",
+            "method": "POST",
+            "path": "/remember",
+            "body": {
+                "content": "retain rollback steps",
+                "memory_type": "semantic"
+            },
+            "_seren_work_context": "signed-work-context"
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        client
+            .call_tool(
+                CallToolRequestParams::new("call_publisher").with_arguments(publisher_arguments),
+            )
+            .await
+            .expect("managed generic publisher call");
+
+        for invalid in [
+            serde_json::json!(7),
+            serde_json::Value::String("invalid\nheader".to_string()),
+            serde_json::Value::String("x".repeat(MAX_RUNTIME_WORK_CONTEXT_TOKEN_BYTES + 1)),
+        ] {
+            let mut arguments = serde_json::Map::new();
+            arguments.insert("_seren_work_context".to_string(), invalid);
+            let error = client
+                .call_tool(
+                    CallToolRequestParams::new("seren_memory_list_knowledge_domains")
+                        .with_arguments(arguments),
+                )
+                .await
+                .expect_err("invalid work context must fail before dispatch");
+            let rmcp::service::ServiceError::McpError(error) = error else {
+                panic!("expected an MCP invalid_params error");
+            };
+            assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+        }
+
+        let requests = proxy.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(
+            requests[0]
+                .headers
+                .get("x-seren-organization-work-context")
+                .and_then(|value| value.to_str().ok()),
+            Some("signed-work-context")
+        );
+        assert!(
+            requests[1]
+                .headers
+                .get("x-seren-organization-work-context")
+                .is_none()
+        );
+        let publisher_request = requests
+            .iter()
+            .find(|request| request.url.path() == "/publishers/seren-memory/remember")
+            .expect("generic publisher request");
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&publisher_request.body).unwrap(),
+            serde_json::json!({
+                "content": "retain rollback steps",
+                "memory_type": "semantic"
+            })
+        );
+
+        client.cancel().await.unwrap();
+        server_task.await.unwrap();
     }
 
     #[test]
@@ -18902,7 +19348,6 @@ mod tests {
             request_id: None,
             confirm: false,
             x402_payment: None,
-            seren_work_context: None,
         };
 
         let result = server
@@ -18966,8 +19411,13 @@ mod tests {
             "seren_memory_get_memories",
             "seren_memory_recall",
             "seren_memory_remember",
+            "seren_memory_learn_from_error",
+            "seren_memory_ingest_document",
             "seren_memory_list_memories",
             "seren_memory_get_memory",
+            "seren_memory_append_memory",
+            "seren_memory_list_memory_revisions",
+            "seren_memory_set_memory_status",
             "seren_memory_forget_memory",
             "seren_memory_delete_memory",
             "seren_memory_delete_memories_by_source",
@@ -18984,6 +19434,178 @@ mod tests {
         ] {
             assert!(tool_names.contains(expected), "missing MCP tool {expected}");
         }
+    }
+
+    #[test]
+    fn seren_memory_editing_tool_schemas_describe_source_fields() {
+        let server = server_with_http_client(reqwest::Client::new());
+        let tools = server.tool_router.list_all();
+
+        for (tool_name, fields) in [
+            (
+                "seren_memory_learn_from_error",
+                &["error_content", "fix_content"][..],
+            ),
+            (
+                "seren_memory_ingest_document",
+                &[
+                    "document",
+                    "memory_type",
+                    "source_external_id",
+                    "source_kind",
+                ][..],
+            ),
+        ] {
+            let tool = tools
+                .iter()
+                .find(|tool| tool.name.as_ref() == tool_name)
+                .unwrap_or_else(|| panic!("missing MCP tool {tool_name}"));
+            let schema = serde_json::Value::Object((*tool.input_schema).clone());
+            for field in fields {
+                let description = schema
+                    .pointer(&format!("/properties/{field}/description"))
+                    .and_then(serde_json::Value::as_str);
+                assert!(
+                    description.is_some_and(|description| !description.trim().is_empty()),
+                    "{tool_name}.{field} must have a field description"
+                );
+            }
+        }
+
+        let ingest = tools
+            .iter()
+            .find(|tool| tool.name.as_ref() == "seren_memory_ingest_document")
+            .expect("ingest document tool");
+        let schema = serde_json::Value::Object((*ingest.input_schema).clone());
+        assert_eq!(schema["properties"]["importance"]["minimum"], 1);
+        assert_eq!(schema["properties"]["importance"]["maximum"], 5);
+        assert_eq!(schema["properties"]["document"]["type"], "object");
+        assert!(!schema.to_string().contains("JSON schema"));
+
+        let status = tools
+            .iter()
+            .find(|tool| tool.name.as_ref() == "seren_memory_set_memory_status")
+            .expect("set memory status tool");
+        let status_schema = serde_json::Value::Object((*status.input_schema).clone());
+        assert!(!status_schema.to_string().contains("JSON schema"));
+    }
+
+    #[tokio::test]
+    async fn seren_memory_editing_tools_call_publisher_endpoints() {
+        use wiremock::matchers::{body_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let memory_id = Uuid::from_u128(0x2026_0915);
+        for (method_name, route, body) in [
+            (
+                "POST",
+                "/publishers/seren-memory/learn_from_error".to_string(),
+                Some(serde_json::json!({
+                    "error_content": "deploy failed",
+                    "fix_content": "restore the previous release"
+                })),
+            ),
+            (
+                "POST",
+                "/publishers/seren-memory/ingest/document".to_string(),
+                Some(serde_json::json!({
+                    "document": {"type": "doc", "content": []},
+                    "memory_type": "semantic",
+                    "source_external_id": "note:release",
+                    "source_kind": "notes"
+                })),
+            ),
+            (
+                "POST",
+                format!("/publishers/seren-memory/memories/{memory_id}/append"),
+                Some(serde_json::json!({"content": "rollback steps"})),
+            ),
+            (
+                "PUT",
+                format!("/publishers/seren-memory/memories/{memory_id}/status"),
+                Some(serde_json::json!({"lifecycle_status": "canonical"})),
+            ),
+        ] {
+            let mut mock = Mock::given(method(method_name)).and(path(route));
+            if let Some(body) = body {
+                mock = mock.and(body_json(body));
+            }
+            mock.respond_with(ResponseTemplate::new(500))
+                .expect(1)
+                .mount(&proxy)
+                .await;
+        }
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/publishers/seren-memory/memories/{memory_id}/revisions"
+            )))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let server = SerenMcpServer::new("test-key", &proxy.uri()).unwrap();
+        let extensions = || extensions_with_headers(&[]);
+        let _ = server
+            .seren_memory_learn_from_error(
+                Parameters(SerenMemoryLearnFromErrorParams {
+                    error_content: "deploy failed".to_string(),
+                    fix_content: "restore the previous release".to_string(),
+                    metadata: None,
+                    org_id: None,
+                    project_id: None,
+                }),
+                extensions(),
+            )
+            .await;
+        let _ = server
+            .seren_memory_ingest_document(
+                Parameters(SerenMemoryIngestDocumentParams {
+                    document: serde_json::from_value(serde_json::json!({
+                        "type": "doc",
+                        "content": []
+                    }))
+                    .unwrap(),
+                    importance: None,
+                    lifecycle_status: None,
+                    memory_type: SerenMemoryType::Semantic,
+                    metadata: None,
+                    org_id: None,
+                    project_id: None,
+                    session_id: None,
+                    source_external_id: "note:release".to_string(),
+                    source_kind: "notes".to_string(),
+                    source_revision: None,
+                    source_uri: None,
+                }),
+                extensions(),
+            )
+            .await;
+        let _ = server
+            .seren_memory_append_memory(
+                Parameters(SerenMemoryAppendParams {
+                    memory_id,
+                    content: "rollback steps".to_string(),
+                }),
+                extensions(),
+            )
+            .await;
+        let _ = server
+            .seren_memory_list_memory_revisions(
+                Parameters(SerenMemoryIdPath { memory_id }),
+                extensions(),
+            )
+            .await;
+        let _ = server
+            .seren_memory_set_memory_status(
+                Parameters(SerenMemoryStatusParams {
+                    memory_id,
+                    lifecycle_status: SerenMemoryLifecycle::Canonical,
+                }),
+                extensions(),
+            )
+            .await;
     }
 
     #[tokio::test]
@@ -20432,7 +21054,6 @@ mod tests {
             request_id: None,
             confirm: false,
             x402_payment: None,
-            seren_work_context: None,
         };
 
         let err = server
@@ -20480,7 +21101,6 @@ mod tests {
             request_id: None,
             confirm: false,
             x402_payment: None,
-            seren_work_context: None,
         };
 
         let err = server
@@ -20523,7 +21143,6 @@ mod tests {
             request_id: None,
             confirm: false,
             x402_payment: None,
-            seren_work_context: None,
         };
 
         let err = server
@@ -20562,7 +21181,6 @@ mod tests {
             request_id: None,
             confirm: false,
             x402_payment: None,
-            seren_work_context: None,
         };
 
         let err = server
@@ -21325,7 +21943,6 @@ mod tests {
             request_id: None,
             confirm: false,
             x402_payment: None,
-            seren_work_context: None,
         };
 
         let result = server
@@ -21447,7 +22064,6 @@ mod tests {
             request_id: None,
             confirm: false,
             x402_payment: None,
-            seren_work_context: None,
         };
 
         let error = server
@@ -21700,7 +22316,6 @@ mod tests {
             request_id: None,
             confirm: false,
             x402_payment: None,
-            seren_work_context: None,
         };
 
         let result = server

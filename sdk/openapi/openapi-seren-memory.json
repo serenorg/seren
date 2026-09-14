@@ -4123,6 +4123,7 @@
                         "type": "object",
                         "description": "Structured extraction output grouped by memory type.\n\nThe `serde` defaults keep extraction-model output parseable when a\ncategory is omitted. The grouped fields are always serialized, so the\npublished schema declares them required: a client that receives an\nunrelated object, such as a gateway error envelope, must fail to decode\nit rather than silently produce an empty result.",
                         "required": [
+                            "processing_status",
                             "episodic",
                             "semantic",
                             "procedural",
@@ -5792,6 +5793,7 @@
                 "type": "object",
                 "description": "Structured extraction output grouped by memory type.\n\nThe `serde` defaults keep extraction-model output parseable when a\ncategory is omitted. The grouped fields are always serialized, so the\npublished schema declares them required: a client that receives an\nunrelated object, such as a gateway error envelope, must fail to decode\nit rather than silently produce an empty result.",
                 "required": [
+                    "processing_status",
                     "episodic",
                     "semantic",
                     "procedural",

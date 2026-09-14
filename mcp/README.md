@@ -242,7 +242,11 @@ Local MCP mode also exposes vault administration and migration tools, including 
 
 ### Seren Memory Tools
 
-Seren Memory tools let assistants recall and store private context, retain conversation sources, export stored context, inspect timelines, manage memory relationships, and read governed organizational knowledge. Organizational knowledge is available through `seren_memory_list_knowledge_domains`, `seren_memory_search_knowledge`, `seren_memory_open_knowledge_entity`, `seren_memory_list_knowledge_operations`, and `seren_memory_invoke_knowledge_operation`; the authenticated organization, user, and agent identity determine which domains can be read. `seren_memory_delete_memories_by_source` permanently removes retained sources and every memory derived from them. It requires `source_external_id`, `source_uri`, or both; `project_id` can narrow the deletion. The tool is marked destructive and is blocked by MCP read-only mode.
+Seren Memory tools let assistants search and hydrate private context, recall and store memories, learn verified error fixes, ingest source-managed rich documents, append and inspect revisions, change lifecycle status, retain and export conversation sources, inspect timelines, manage memory relationships, and read governed organizational knowledge. `seren_memory_remember`, `seren_memory_learn_from_error`, `seren_memory_ingest_document`, and `seren_memory_process_conversation` may replace or supersede existing content and are marked destructive; MCP read-only mode blocks them.
+
+Organizational knowledge is available through `seren_memory_list_knowledge_domains`, `seren_memory_search_knowledge`, `seren_memory_open_knowledge_entity`, `seren_memory_list_knowledge_operations`, and `seren_memory_invoke_knowledge_operation`. Omitting `domain_id` selects the organization's default domain. Restricted domains require access for both the authenticated user and agent identity. Managed organization work context is removed from tool arguments before dispatch and forwarded to Core as a signed context header so its selected-domain and visibility limits apply to first-class tools.
+
+`seren_memory_delete_memories_by_source` permanently removes retained sources and every memory derived from them. It requires `source_external_id`, `source_uri`, or both; `project_id` can narrow the deletion. The tool is marked destructive and is blocked by MCP read-only mode. Human review transitions and knowledge administration remain CLI or SDK operations because agent identities cannot perform them.
 
 ### Managed Agent Tools
 

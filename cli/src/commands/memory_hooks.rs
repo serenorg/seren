@@ -1936,10 +1936,8 @@ fn accepted_delivery_outcome(
     response: &seren::SerenMemoryDataResponseExtractionResult,
 ) -> DeliveryOutcome {
     match response.data.processing_status {
-        Some(seren::SerenMemoryExtractionProcessingStatus::Queued) => DeliveryOutcome::Queued,
-        Some(seren::SerenMemoryExtractionProcessingStatus::Completed) | None => {
-            DeliveryOutcome::Completed
-        }
+        seren::SerenMemoryExtractionProcessingStatus::Queued => DeliveryOutcome::Queued,
+        seren::SerenMemoryExtractionProcessingStatus::Completed => DeliveryOutcome::Completed,
     }
 }
 
@@ -2789,18 +2787,16 @@ mod tests {
 
     #[test]
     fn accepted_capture_status_distinguishes_queued_from_completed() {
-        let response = |processing_status: Option<&str>| {
-            let mut value = serde_json::json!({
+        let response = |processing_status: &str| {
+            let value = serde_json::json!({
                 "episodic": [],
                 "semantic": [],
                 "procedural": [],
                 "error_fixes": [],
                 "preferences": [],
-                "stored_memory_ids": []
+                "stored_memory_ids": [],
+                "processing_status": processing_status
             });
-            if let Some(status) = processing_status {
-                value["processing_status"] = serde_json::Value::String(status.to_string());
-            }
             serde_json::from_value::<seren::SerenMemoryDataResponseExtractionResult>(
                 serde_json::json!({"data": value}),
             )
@@ -2808,17 +2804,12 @@ mod tests {
         };
 
         assert_eq!(
-            accepted_delivery_outcome(&response(Some("queued"))),
+            accepted_delivery_outcome(&response("queued")),
             DeliveryOutcome::Queued
         );
         assert_eq!(
-            accepted_delivery_outcome(&response(Some("completed"))),
+            accepted_delivery_outcome(&response("completed")),
             DeliveryOutcome::Completed
-        );
-        assert_eq!(
-            accepted_delivery_outcome(&response(None)),
-            DeliveryOutcome::Completed,
-            "an older service response remains an accepted synchronous delivery"
         );
     }
 

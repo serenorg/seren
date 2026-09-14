@@ -5,8 +5,25 @@ use uuid::Uuid;
 use crate::commands::memory_gateway::memory_gateway_data;
 use crate::{CommandContext, OutputFormat, output};
 
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+pub enum KnowledgePrincipalType {
+    User,
+    Agent,
+}
+
+impl KnowledgePrincipalType {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Agent => "agent",
+        }
+    }
+}
+
 pub struct RecallOptions {
     pub query: String,
+    pub created_after: Option<jiff::Timestamp>,
+    pub created_before: Option<jiff::Timestamp>,
     pub limit: Option<i64>,
     pub memory_types: Vec<String>,
     pub min_relevance: Option<f64>,
@@ -53,6 +70,14 @@ pub struct ProcessOptions {
 pub struct DeleteBySourceOptions {
     pub source_external_id: Option<String>,
     pub source_uri: Option<String>,
+    pub project_id: Option<Uuid>,
+    pub org_id: Option<Uuid>,
+}
+
+pub struct LearnFromErrorOptions {
+    pub error_content: String,
+    pub fix_content: String,
+    pub metadata: Option<String>,
     pub project_id: Option<Uuid>,
     pub org_id: Option<Uuid>,
 }
@@ -130,8 +155,8 @@ pub async fn recall(options: RecallOptions, ctx: &CommandContext) -> Result<()> 
         .client()
         .await?
         .seren_memory_recall(&seren::SerenMemoryRecallParams {
-            created_after: None,
-            created_before: None,
+            created_after: options.created_after,
+            created_before: options.created_before,
             limit: options.limit,
             memory_types: (!options.memory_types.is_empty()).then_some(options.memory_types),
             min_relevance: options.min_relevance,
@@ -158,6 +183,27 @@ pub async fn recall(options: RecallOptions, ctx: &CommandContext) -> Result<()> 
             println!("{table}");
         }
     }
+    Ok(())
+}
+
+pub async fn search(options: RecallOptions, ctx: &CommandContext) -> Result<()> {
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_search_memories(&seren::SerenMemoryRecallParams {
+            created_after: options.created_after,
+            created_before: options.created_before,
+            limit: options.limit,
+            memory_types: (!options.memory_types.is_empty()).then_some(options.memory_types),
+            min_relevance: options.min_relevance,
+            org_id: options.org_id,
+            project_id: options.project_id,
+            query: options.query,
+            search_mode: options.search_mode,
+        })
+        .await;
+    let response = memory_gateway_data(result, "Failed to search Seren Memory")?;
+    output::print_json(&response)?;
     Ok(())
 }
 
@@ -324,6 +370,164 @@ pub async fn get(id: Uuid, ctx: &CommandContext) -> Result<()> {
     Ok(())
 }
 
+pub async fn get_many(ids: Vec<Uuid>, ctx: &CommandContext) -> Result<()> {
+    if ids.is_empty() {
+        anyhow::bail!("At least one memory ID is required");
+    }
+    if ids.len() > 25 {
+        anyhow::bail!("At most 25 memory IDs may be requested");
+    }
+    let ids = ids
+        .into_iter()
+        .map(|id| id.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_list_memories(
+            Some(ids.as_str()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await;
+    let response = memory_gateway_data(result, "Failed to get Seren Memory entries")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn learn_from_error(options: LearnFromErrorOptions, ctx: &CommandContext) -> Result<()> {
+    let metadata = options
+        .metadata
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .context("Memory metadata must be valid JSON")?;
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_learn_from_error(&seren::SerenMemoryLearnFromErrorParams {
+            error_content: options.error_content,
+            fix_content: options.fix_content,
+            metadata,
+            org_id: options.org_id,
+            project_id: options.project_id,
+        })
+        .await;
+    let response = memory_gateway_data(result, "Failed to store Seren Memory error and fix")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn ingest_document(body: String, ctx: &CommandContext) -> Result<()> {
+    let request: seren::SerenMemoryIngestDocumentRequest =
+        serde_json::from_str(&body).context("Document body must be valid Seren Memory JSON")?;
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_ingest_document(&request)
+        .await;
+    let response = memory_gateway_data(result, "Failed to ingest Seren Memory document")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn append(id: Uuid, content: String, ctx: &CommandContext) -> Result<()> {
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_append_memory(&id, &seren::SerenMemoryAppendMemoryRequest { content })
+        .await;
+    let response = memory_gateway_data(result, "Failed to append Seren Memory entry")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn revisions(id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_list_memory_revisions(&id)
+        .await;
+    let response = memory_gateway_data(result, "Failed to list Seren Memory revisions")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn set_status(id: Uuid, lifecycle_status: String, ctx: &CommandContext) -> Result<()> {
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_set_memory_status(
+            &id,
+            &seren::SerenMemorySetMemoryStatusRequest {
+                lifecycle_status: parse_lifecycle(&lifecycle_status)?,
+            },
+        )
+        .await;
+    let response = memory_gateway_data(result, "Failed to set Seren Memory lifecycle status")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn set_review(id: Uuid, review_status: String, ctx: &CommandContext) -> Result<()> {
+    let review_status = serde_json::from_value(serde_json::Value::String(review_status.clone()))
+        .with_context(|| {
+            format!("Invalid review status '{review_status}'. Use unreviewed or reviewed.")
+        })?;
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_set_memory_review(
+            &id,
+            &seren::SerenMemorySetMemoryReviewRequest { review_status },
+        )
+        .await;
+    let response = memory_gateway_data(result, "Failed to set Seren Memory review status")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn sync_status(ctx: &CommandContext) -> Result<()> {
+    let result = ctx.client().await?.seren_memory_sync_status().await;
+    let response = memory_gateway_data(result, "Failed to get Seren Memory sync status")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn consolidate(project_id: Option<Uuid>, ctx: &CommandContext) -> Result<()> {
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_consolidate_job(&seren::SerenMemoryConsolidateJobRequest { project_id })
+        .await;
+    let response = memory_gateway_data(result, "Failed to consolidate Seren Memory")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn reconcile(max_pairs: i64, ctx: &CommandContext) -> Result<()> {
+    if !(1..=20).contains(&max_pairs) {
+        anyhow::bail!("--max-pairs must be between 1 and 20");
+    }
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_reconcile_job(&seren::SerenMemoryReconcileJobRequest {
+            max_pairs: Some(max_pairs),
+        })
+        .await;
+    let response = memory_gateway_data(result, "Failed to reconcile Seren Memory")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
 pub async fn timeline(
     id: Uuid,
     as_of: Option<jiff::Timestamp>,
@@ -479,6 +683,200 @@ pub async fn open_knowledge_entity(
         })
         .await;
     let response = memory_gateway_data(result, "Failed to open Seren Memory knowledge entity")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn list_knowledge_operations(
+    domain_id: Option<Uuid>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_list_knowledge_operations(domain_id.as_ref())
+        .await;
+    let response = memory_gateway_data(result, "Failed to list Seren Memory knowledge operations")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn invoke_knowledge_operation(
+    operation_name: String,
+    domain_id: Option<Uuid>,
+    parameters: String,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let parameters: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&parameters)
+        .context("Knowledge operation parameters must be a valid JSON object")?;
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_invoke_knowledge_operation(
+            &operation_name,
+            &seren::SerenMemoryInvokeKnowledgeOperationRequest {
+                domain_id,
+                parameters: serde_json::Value::Object(parameters),
+            },
+        )
+        .await;
+    let response =
+        memory_gateway_data(result, "Failed to invoke Seren Memory knowledge operation")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn create_knowledge_domain(body: String, ctx: &CommandContext) -> Result<()> {
+    let request: seren::SerenMemoryCreateKnowledgeDomainRequest = serde_json::from_str(&body)
+        .context("Knowledge domain body must be valid Seren Memory JSON")?;
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_create_knowledge_domain(&request)
+        .await;
+    let response = memory_gateway_data(result, "Failed to create Seren Memory knowledge domain")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn update_knowledge_domain(
+    domain_id: Uuid,
+    body: String,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let request: seren::SerenMemoryUpdateKnowledgeDomainRequest = serde_json::from_str(&body)
+        .context("Knowledge domain body must be valid Seren Memory JSON")?;
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_put_knowledge_domain(&domain_id, &request)
+        .await;
+    let response = memory_gateway_data(result, "Failed to update Seren Memory knowledge domain")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn list_knowledge_grants(domain_id: Uuid, ctx: &CommandContext) -> Result<()> {
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_list_knowledge_domain_grants(&domain_id)
+        .await;
+    let response = memory_gateway_data(result, "Failed to list Seren Memory knowledge grants")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn put_knowledge_grant(
+    domain_id: Uuid,
+    body: String,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let request: seren::SerenMemoryKnowledgeDomainGrantRequest = serde_json::from_str(&body)
+        .context("Knowledge grant body must be valid Seren Memory JSON")?;
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_put_knowledge_domain_grant(&domain_id, &request)
+        .await;
+    let response = memory_gateway_data(result, "Failed to set Seren Memory knowledge grant")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn delete_knowledge_grant(
+    domain_id: Uuid,
+    principal_type: KnowledgePrincipalType,
+    principal_id: Uuid,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_delete_knowledge_domain_grant(
+            &domain_id,
+            principal_type.as_str(),
+            &principal_id,
+        )
+        .await;
+    let response = memory_gateway_data(result, "Failed to delete Seren Memory knowledge grant")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn get_knowledge_model(domain_id: Option<Uuid>, ctx: &CommandContext) -> Result<()> {
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_get_knowledge_model(domain_id.as_ref())
+        .await;
+    let response = memory_gateway_data(result, "Failed to get Seren Memory knowledge model")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn put_knowledge_model(
+    domain_id: Option<Uuid>,
+    body: String,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let request: seren::SerenMemoryKnowledgeModel = serde_json::from_str(&body)
+        .context("Knowledge model body must be valid Seren Memory JSON")?;
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_put_knowledge_model(domain_id.as_ref(), &request)
+        .await;
+    let response = memory_gateway_data(result, "Failed to set Seren Memory knowledge model")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn list_knowledge_records(
+    domain_id: Option<Uuid>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_list_knowledge_records(domain_id.as_ref(), limit, offset)
+        .await;
+    let response = memory_gateway_data(result, "Failed to list Seren Memory knowledge records")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn put_knowledge_record(
+    record_key: String,
+    domain_id: Option<Uuid>,
+    body: String,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let request: seren::SerenMemoryUpsertKnowledgeRecordRequest = serde_json::from_str(&body)
+        .context("Knowledge record body must be valid Seren Memory JSON")?;
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_put_knowledge_record(&record_key, domain_id.as_ref(), &request)
+        .await;
+    let response = memory_gateway_data(result, "Failed to set Seren Memory knowledge record")?;
+    output::print_json(&response)?;
+    Ok(())
+}
+
+pub async fn delete_knowledge_record(
+    record_key: String,
+    domain_id: Option<Uuid>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let result = ctx
+        .client()
+        .await?
+        .seren_memory_delete_knowledge_record(&record_key, domain_id.as_ref())
+        .await;
+    let response = memory_gateway_data(result, "Failed to delete Seren Memory knowledge record")?;
     output::print_json(&response)?;
     Ok(())
 }
