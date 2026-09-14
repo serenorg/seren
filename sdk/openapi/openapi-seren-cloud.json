@@ -7311,7 +7311,8 @@
         "type": "string",
         "description": "Deployment bundle artifact format.\n\nThis is intentionally a closed server-supported set. Add formats by\nmigration when Seren Cloud can validate and execute them.",
         "enum": [
-          "tar_gz"
+          "tar_gz",
+          "agent_bundle"
         ]
       },
       "CloudDeploymentComputeBackend": {

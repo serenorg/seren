@@ -2707,6 +2707,9 @@ pub struct GetSerenAgentDeploymentActivityParams {
 pub struct UpdateSerenAgentDeploymentParams {
     /// Deployment UUID
     pub deployment_id: Uuid,
+    /// Uploaded content-addressed managed bundle that replaces every instruction and asset.
+    #[serde(default)]
+    pub deployment_bundle_id: Option<Uuid>,
     /// Updated stable agent slug identifier
     #[serde(default)]
     pub agent_slug: Option<String>,
@@ -3042,7 +3045,8 @@ fn build_update_seren_agent_deployment_request(
 }
 
 fn update_requires_workload_patch(params: &UpdateSerenAgentDeploymentParams) -> bool {
-    params.prompt.is_some()
+    params.deployment_bundle_id.is_some()
+        || params.prompt.is_some()
         || params.model_id.is_some()
         || params.config.is_some()
         || params.secrets.is_some()
@@ -3071,6 +3075,7 @@ fn build_managed_workload_patch(
         })?;
 
     Ok(seren::ManagedAgentWorkloadPatch {
+        deployment_bundle_id: params.deployment_bundle_id,
         bundle: None,
         clear_fallback_models: params.clear_fallback_models.then_some(true),
         clear_llm_connection: None,
@@ -23099,6 +23104,7 @@ mod tests {
         .unwrap();
         let params = UpdateSerenAgentDeploymentParams {
             deployment_id: Uuid::new_v4(),
+            deployment_bundle_id: None,
             agent_slug: None,
             name: None,
             cron_schedule: None,
@@ -23153,6 +23159,7 @@ mod tests {
     fn base_update_agent_params() -> UpdateSerenAgentDeploymentParams {
         UpdateSerenAgentDeploymentParams {
             deployment_id: Uuid::new_v4(),
+            deployment_bundle_id: None,
             agent_slug: None,
             name: None,
             cron_schedule: None,
@@ -23194,6 +23201,24 @@ mod tests {
             clear_secret_resolution_result_id: false,
             expected_active_revision_id: None,
         }
+    }
+
+    #[test]
+    fn managed_agent_update_projects_the_uploaded_bundle_id() {
+        let bundle_id = Uuid::new_v4();
+        let mut params = base_update_agent_params();
+        params.deployment_bundle_id = Some(bundle_id);
+
+        let request =
+            build_update_seren_agent_deployment_request(&params).expect("managed update request");
+
+        assert_eq!(
+            request
+                .workload_patch
+                .expect("workload patch")
+                .deployment_bundle_id,
+            Some(bundle_id)
+        );
     }
 
     #[tokio::test]

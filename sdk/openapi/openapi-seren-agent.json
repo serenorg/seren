@@ -1602,6 +1602,14 @@
         "type": "object",
         "description": "Partial agent-bundle update for an existing managed deployment.",
         "properties": {
+          "deployment_bundle_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Uploaded content-addressed `agent_bundle` artifact that replaces the complete bundle."
+          },
           "expected_active_revision_id": {
             "type": [
               "string",
@@ -3494,7 +3502,7 @@
             "properties": {
               "execution_surface": {
                 "$ref": "#/components/schemas/AgentPublisherToolSurface",
-                "description": "Execution surface that may use this grant. A grant belongs to\nexactly one surface; grant the same operation to both surfaces\nwith two refs."
+                "description": "Authored execution surface. A managed script that declares the\npublisher connector may also use an approval-free prompt grant when\nthe request resolves to a GET. Every other operation needs a ref\nauthored for the surface that runs it."
               },
               "kind": {
                 "type": "string",
@@ -4663,6 +4671,13 @@
               "deployment_id": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "effective_model_candidates": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Effective model candidate order the runtime attempts, in fallback order,\nafter resolving and de-duplicating the authored primary and fallback\nmodels. Read-only. May be shorter than the authored primary plus\n`fallback_models` when authored entries resolve to the same model;\ncompare the two to see the effective fallback policy."
               },
               "eval_gate": {
                 "oneOf": [
@@ -5976,6 +5991,13 @@
                     "type": "string"
                   }
                 },
+                "code_bundle_hash": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "SHA-256 of the content-addressed artifact used to create this revision."
+                },
                 "created_at": {
                   "type": "string",
                   "format": "date-time"
@@ -5983,6 +6005,14 @@
                 "created_by_user_id": {
                   "type": "string",
                   "format": "uuid"
+                },
+                "deployment_bundle_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid",
+                  "description": "Content-addressed artifact used to create this revision, when applicable."
                 },
                 "deployment_id": {
                   "type": "string",
@@ -6745,6 +6775,13 @@
             "type": "string",
             "format": "uuid"
           },
+          "effective_model_candidates": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Effective model candidate order the runtime attempts, in fallback order,\nafter resolving and de-duplicating the authored primary and fallback\nmodels. Read-only. May be shorter than the authored primary plus\n`fallback_models` when authored entries resolve to the same model;\ncompare the two to see the effective fallback policy."
+          },
           "eval_gate": {
             "oneOf": [
               {
@@ -7282,6 +7319,13 @@
               "type": "string"
             }
           },
+          "code_bundle_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "SHA-256 of the content-addressed artifact used to create this revision."
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
@@ -7289,6 +7333,14 @@
           "created_by_user_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "deployment_bundle_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Content-addressed artifact used to create this revision, when applicable."
           },
           "deployment_id": {
             "type": "string",
@@ -8348,6 +8400,17 @@
             ],
             "description": "Value pattern containing `...` with a non-empty prefix or suffix and a non-empty wildcard.\n`123456:ABC-...` instead matches the Telegram bot-token shape `^\\d+:[A-Za-z0-9_-]+$`.\nTreat unrecognized hints as advisory guidance during approval."
           },
+          "reference_hint": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedAgentSecretReferenceHint",
+                "description": "Locates a locked item without replacing the fingerprint integrity check."
+              }
+            ]
+          },
           "selection_constraint": {
             "oneOf": [
               {
@@ -8360,6 +8423,24 @@
           },
           "source": {
             "$ref": "#/components/schemas/ManagedAgentSecretRequirementSource"
+          }
+        }
+      },
+      "ManagedAgentSecretReferenceHint": {
+        "type": "object",
+        "description": "Non-secret locators that let an approval client read a bound item directly.",
+        "required": [
+          "vault_id",
+          "item_id"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "vault_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -9090,6 +9171,14 @@
           },
           "config": {
             "description": "Updated non-secret operator configuration. Replaces the current object."
+          },
+          "deployment_bundle_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Uploaded content-addressed `agent_bundle` artifact that replaces the authored bundle."
           },
           "external_databases": {
             "type": [
