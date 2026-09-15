@@ -156,7 +156,7 @@
                         }
                     },
                     "409": {
-                        "description": "The memory capture policy revision is stale or the source identity is bound to different content or trusted provenance",
+                        "description": "Capture conflict. The error field is capture_policy_stale, source_content_conflict, or source_authority_conflict",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -177,6 +177,84 @@
                     },
                     "503": {
                         "description": "The organization policy could not be verified",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/captures/{source_external_id}": {
+            "get": {
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "Get durable agent capture processing status",
+                "description": "Returns queued, completed, or retry_required for one stable hook source identity. Queued means a live extraction job exists, completed means extraction committed, and retry_required means the accepted source has a dead-lettered or purged job and must be redelivered. The lookup is scoped to the authenticated organization and user. A managed-agent request must present a current signed work context whose agent, deployment and revision, assignment generation, organization policy revision, capture target, and selected domain match the stored capture authority. A refreshed context ID is accepted when those durable fields still match. Missing and inaccessible captures both return 404.",
+                "operationId": "get_capture_status",
+                "parameters": [
+                    {
+                        "name": "source_external_id",
+                        "in": "path",
+                        "description": "Stable hook source identity",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Capture processing status and durable source ID",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DataResponse_CaptureStatus"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid source identity",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication required",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Signed organization work context is inconsistent with the authenticated identity",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Capture not found or unavailable to this authority",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -3970,6 +4048,30 @@
                     "user_prompt": "Keep releases reversible."
                 }
             },
+            "CaptureProcessingStatus": {
+                "type": "string",
+                "enum": [
+                    "queued",
+                    "completed",
+                    "retry_required"
+                ]
+            },
+            "CaptureStatus": {
+                "type": "object",
+                "required": [
+                    "processing_status",
+                    "conversation_source_id"
+                ],
+                "properties": {
+                    "conversation_source_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "processing_status": {
+                        "$ref": "#/components/schemas/CaptureProcessingStatus"
+                    }
+                }
+            },
             "CompactMemoryOutput": {
                 "type": "object",
                 "description": "One compact search hit: enough to rank and filter without full content.",
@@ -4311,6 +4413,30 @@
                     },
                     "source_type": {
                         "type": "string"
+                    }
+                }
+            },
+            "DataResponse_CaptureStatus": {
+                "type": "object",
+                "required": [
+                    "data"
+                ],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "processing_status",
+                            "conversation_source_id"
+                        ],
+                        "properties": {
+                            "conversation_source_id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "processing_status": {
+                                "$ref": "#/components/schemas/CaptureProcessingStatus"
+                            }
+                        }
                     }
                 }
             },

@@ -19442,6 +19442,7 @@ mod tests {
 
         for prohibited in [
             "seren_memory_capture_agent_turn",
+            "seren_memory_get_capture_status",
             "seren_memory_set_memory_review",
             "seren_memory_list_knowledge_promotions",
             "seren_memory_get_knowledge_promotion",
