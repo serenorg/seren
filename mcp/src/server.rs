@@ -2461,7 +2461,7 @@ pub struct CancelSerenAgentPasswordsSetupParams {
 pub struct PublisherCredentialProposalParams {
     /// Managed agent deployment UUID
     pub deployment_id: Uuid,
-    /// Non-secret credential change intent (add/rotate/rebind/remove). Secret
+    /// Non-secret credential change intent (add/rotate/rebind/reaffirm/remove). Secret
     /// values are never included here; they are resolved later through the
     /// human-approved Seren Passwords setup bound to this proposal.
     pub changes: Vec<seren::ManagedPublisherCredentialChange>,
@@ -14970,7 +14970,7 @@ API endpoint: {endpoint}",
     }
 
     #[tool(
-        description = "Preview a publisher-credential proposal for a managed seren-agent deployment. Sends only non-secret change intent (add/rotate/rebind/remove) and returns the typed proposal preview, including the exact environment names Seren Passwords will request. Does not create a proposal or mutate the deployment. Requires a signed-in OAuth user session.",
+        description = "Preview a publisher-credential proposal for a managed seren-agent deployment. Sends only non-secret change intent (add/rotate/rebind/reaffirm/remove) and returns the typed proposal preview, including the exact environment names Seren Passwords will request. Does not create a proposal or mutate the deployment. Requires a signed-in OAuth user session.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,

@@ -17190,6 +17190,7 @@
           "add",
           "rotate",
           "rebind",
+          "reaffirm",
           "remove"
         ]
       },
