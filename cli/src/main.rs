@@ -1971,6 +1971,9 @@ enum PrivateModelsAction {
         /// Top-k sampling value
         #[arg(long)]
         top_k: Option<i32>,
+        /// Amount of provider reasoning to request
+        #[arg(long, value_enum)]
+        reasoning_effort: Option<commands::agent::PrivateModelsReasoningEffort>,
         /// JSON object schema for structured responses
         #[arg(long)]
         response_schema_json: Option<String>,
@@ -7943,6 +7946,7 @@ async fn main() -> anyhow::Result<()> {
                     max_tokens,
                     top_p,
                     top_k,
+                    reasoning_effort,
                     response_schema_json,
                     tools_json,
                 } => {
@@ -7955,6 +7959,7 @@ async fn main() -> anyhow::Result<()> {
                             max_tokens,
                             top_p,
                             top_k,
+                            reasoning_effort,
                             response_schema_json: response_schema_json.as_deref(),
                             tools_json: tools_json.as_deref(),
                         },
@@ -9504,14 +9509,25 @@ mod tests {
             "anthropic.claude-3-5-sonnet",
             "--message",
             "hello",
+            "--reasoning-effort",
+            "high",
         ]);
 
         match cli.command {
             Commands::Agent { action, .. } => match *action {
                 AgentAction::PrivateModels { action } => match action {
-                    PrivateModelsAction::Chat { model, message, .. } => {
+                    PrivateModelsAction::Chat {
+                        model,
+                        message,
+                        reasoning_effort,
+                        ..
+                    } => {
                         assert_eq!(model.as_deref(), Some("anthropic.claude-3-5-sonnet"));
                         assert_eq!(message.as_deref(), Some("hello"));
+                        assert_eq!(
+                            reasoning_effort,
+                            Some(commands::agent::PrivateModelsReasoningEffort::High)
+                        );
                     }
                     _ => panic!("unexpected private models action parsed"),
                 },

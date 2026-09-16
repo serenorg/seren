@@ -387,6 +387,16 @@
               "null"
             ]
           },
+          "reasoning": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PrivateModelsReasoning"
+              }
+            ]
+          },
           "response_schema": {
             "type": [
               "object",
@@ -402,6 +412,16 @@
               "null"
             ],
             "format": "float"
+          },
+          "tool_choice": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PrivateModelsToolChoice"
+              }
+            ]
           },
           "tools": {
             "type": [
@@ -426,7 +446,8 @@
             ],
             "format": "float"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "PrivateModelsListResponse": {
         "type": "object",
@@ -481,6 +502,34 @@
             ]
           }
         }
+      },
+      "PrivateModelsReasoning": {
+        "type": "object",
+        "required": [
+          "effort"
+        ],
+        "properties": {
+          "effort": {
+            "$ref": "#/components/schemas/PrivateModelsReasoningEffort"
+          }
+        }
+      },
+      "PrivateModelsReasoningEffort": {
+        "type": "string",
+        "enum": [
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "PrivateModelsToolChoice": {
+        "type": "string",
+        "enum": [
+          "auto"
+        ]
       }
     },
     "securitySchemes": {

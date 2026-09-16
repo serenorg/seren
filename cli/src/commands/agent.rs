@@ -1715,8 +1715,32 @@ pub struct PrivateModelsChatOptions<'a> {
     pub max_tokens: Option<i32>,
     pub top_p: Option<f32>,
     pub top_k: Option<i32>,
+    pub reasoning_effort: Option<PrivateModelsReasoningEffort>,
     pub response_schema_json: Option<&'a str>,
     pub tools_json: Option<&'a str>,
+}
+
+#[derive(Clone, Copy, Debug, clap::ValueEnum, PartialEq, Eq)]
+pub enum PrivateModelsReasoningEffort {
+    Minimal,
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+}
+
+impl PrivateModelsReasoningEffort {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Minimal => "minimal",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Xhigh => "xhigh",
+            Self::Max => "max",
+        }
+    }
 }
 
 pub async fn private_models_chat(
@@ -1761,6 +1785,12 @@ pub async fn private_models_chat(
     }
     if let Some(top_k) = options.top_k {
         request.insert("top_k".to_string(), serde_json::json!(top_k));
+    }
+    if let Some(effort) = options.reasoning_effort {
+        request.insert(
+            "reasoning".to_string(),
+            serde_json::json!({"effort": effort.as_str()}),
+        );
     }
     if let Some(response_schema) = response_schema {
         request.insert(

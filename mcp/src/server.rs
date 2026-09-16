@@ -2119,12 +2119,32 @@ pub struct PrivateModelsChatParams {
     /// Top-k sampling value.
     #[serde(default)]
     pub top_k: Option<i32>,
+    /// Optional reasoning configuration. Omit it to leave provider reasoning disabled.
+    #[serde(default)]
+    pub reasoning: Option<PrivateModelsReasoningParams>,
     /// JSON schema object for structured responses.
     #[serde(default)]
     pub response_schema: Option<serde_json::Map<String, serde_json::Value>>,
     /// Tool definition objects.
     #[serde(default)]
     pub tools: Option<Vec<serde_json::Map<String, serde_json::Value>>>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum PrivateModelsReasoningEffort {
+    Minimal,
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
+pub struct PrivateModelsReasoningParams {
+    /// Amount of provider reasoning to request.
+    pub effort: PrivateModelsReasoningEffort,
 }
 
 pub type GetPrivateModelsPolicyParams = OrganizationPath;
@@ -11048,6 +11068,9 @@ impl SerenMcpServer {
         }
         if let Some(top_k) = params.top_k {
             request.insert("top_k".to_string(), serde_json::json!(top_k));
+        }
+        if let Some(reasoning) = params.reasoning {
+            request.insert("reasoning".to_string(), serde_json::json!(reasoning));
         }
         if let Some(response_schema) = params.response_schema {
             request.insert(
