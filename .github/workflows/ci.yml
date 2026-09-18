@@ -65,3 +65,35 @@ jobs:
 
       - name: Run tests
         run: cargo test --locked --workspace
+
+  openapi-bundle-drift:
+    name: OpenAPI bundle-contract drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The MCP register_agent_bundle / complete_agent_bundle_upload producer tools
+      # ride on the committed seren-cloud bundle ops. Fetch the deployed Core spec
+      # and fail if the committed snapshot has drifted for that contract. The fetch
+      # is neutral on failure (Core unreachable => skip with a warning); only a
+      # reachable-and-diverged Core is a red build. Override the URL via the
+      # SEREN_CLOUD_OPENAPI_URL repo variable if Core serves the spec elsewhere.
+      - name: Fetch deployed Core seren-cloud OpenAPI
+        id: fetch
+        env:
+          SEREN_CLOUD_OPENAPI_URL: ${{ vars.SEREN_CLOUD_OPENAPI_URL }}
+        run: |
+          URL="${SEREN_CLOUD_OPENAPI_URL:-https://api.serendb.com/openapi.json}"
+          if curl -fsSL --max-time 30 "$URL" -o /tmp/core-openapi.json; then
+            echo "fetched=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Could not fetch deployed Core OpenAPI from $URL; skipping bundle-contract drift check."
+            echo "fetched=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compare bundle-op contract against committed snapshot
+        if: steps.fetch.outputs.fetched == '1'
+        run: |
+          python3 sdk/openapi/scripts/check_bundle_contract_drift.py \
+            --committed sdk/openapi/openapi-seren-cloud.json \
+            --reference /tmp/core-openapi.json
