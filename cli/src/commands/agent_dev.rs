@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use base64::Engine as _;
@@ -25,6 +25,7 @@ pub const DEV_NAMESPACE_PREFIX: &str = "dev-";
 /// The values mirror the server contract: total payload <= 16 MiB,
 /// each instruction file <= 1 MiB, each asset <= 8 MiB.
 pub const MAX_BUNDLE_TOTAL_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_BUNDLE_FILES: usize = 256;
 pub const MAX_INSTRUCTION_BYTES: usize = 1024 * 1024;
 pub const MAX_ASSET_BYTES: usize = 8 * 1024 * 1024;
 const MAX_REQUIREMENTS_TXT_BYTES: usize = 64 * 1024;
@@ -78,37 +79,26 @@ pub struct AgentSpecDraft {
     pub asset_count: usize,
 }
 
+/// Repository files packaged for an `AgentBundle` consumer.
+#[derive(Debug, Clone)]
+pub struct AgentBundleDraft {
+    pub bundle: seren::AgentBundle,
+    pub directory: PathBuf,
+    pub instruction_count: usize,
+    pub asset_count: usize,
+    pub requirements_txt: Option<String>,
+}
+
 /// Build an `AgentSpec` draft from the contents of a directory.
-///
-/// Recognized instruction files at the top level of the directory become
-/// typed `AgentInstructionFile` entries (see [`INSTRUCTION_FILES`]). Every
-/// other regular file -- including files nested inside subdirectories --
-/// becomes a base64-encoded `AgentAssetFile` resource with its directory-
-/// relative path preserved (using forward slashes regardless of platform).
-///
-/// Hidden entries (names starting with `.`) are skipped at every depth so a
-/// `.git` checkout or `.env` is never accidentally packaged.
-///
-/// Symlinks are rejected if their canonical target resolves outside the
-/// input directory. This prevents a `notes -> /etc/passwd` link from
-/// silently shipping its contents to the bundle.
-///
-/// The function also enforces the server-side AgentBundle size limits
-/// ([`MAX_INSTRUCTION_BYTES`], [`MAX_ASSET_BYTES`], [`MAX_BUNDLE_TOTAL_BYTES`])
-/// up-front so an oversized directory fails locally with a clear error
-/// naming the offending file instead of being rejected after a long upload.
 pub fn package_agent_directory(options: &DevAgentOptions) -> Result<AgentSpecDraft> {
     let dir = options.directory.as_path();
-    if !dir.is_dir() {
-        anyhow::bail!("'{}' is not a directory", dir.display());
-    }
-
-    // Canonicalize the root once; every nested file's canonical parent must
-    // start with this prefix, otherwise it is a symlink escape.
-    let root_canonical = dir
-        .canonicalize()
-        .with_context(|| format!("Could not canonicalize '{}'", dir.display()))?;
-
+    let AgentBundleDraft {
+        bundle,
+        directory,
+        instruction_count,
+        asset_count,
+        requirements_txt,
+    } = package_agent_bundle(dir)?;
     let dir_label = dir
         .file_name()
         .and_then(OsStr::to_str)
@@ -131,6 +121,94 @@ pub fn package_agent_directory(options: &DevAgentOptions) -> Result<AgentSpecDra
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| dir_label.clone());
     let agent_slug = build_dev_agent_slug(&slug_base, options.user_discriminator.as_deref())?;
+
+    let workload = seren::WorkloadSpec {
+        compute_backend: None,
+        config: None,
+        execution: seren::WorkloadExecution::Llm {
+            adapter: None,
+            bundle,
+            fallback_models: None,
+            llm_connection: None,
+            model_config: None,
+            model_id: None,
+            requirements_txt,
+            tool_definitions: None,
+        },
+        external_databases: Vec::new(),
+        limits: None,
+        network_policy: None,
+        publisher_only: None,
+        requirements: None,
+        secrets: None,
+        side_effect_policy: None,
+    };
+
+    let spec = seren::AgentSpec {
+        agent_identity_id: None,
+        agent_slug: Some(agent_slug),
+        alert_policy: None,
+        allowed_remote_agent_origins: None,
+        approval_policy: None,
+        credentials: None,
+        cron_schedule: None,
+        cron_timezone: None,
+        dashboard_config: None,
+        eval_gate: None,
+        guardrails: None,
+        memory_policy: None,
+        capability_policy: None,
+        mode: seren::CloudDeploymentMode::AlwaysOn,
+        model_policy: None,
+        name: Some(display_name),
+        private_output_policy: None,
+        runtime_policy: None,
+        secret_resolution_result_id: None,
+        session_database: None,
+        template: None,
+        tool_presets: None,
+        tool_refs: None,
+        visibility: None,
+        workload,
+    };
+
+    Ok(AgentSpecDraft {
+        spec,
+        directory,
+        instruction_count,
+        asset_count,
+    })
+}
+
+/// Package repository files into the managed-agent bundle wire format.
+///
+/// Recognized instruction files at the top level of the directory become
+/// typed `AgentInstructionFile` entries (see [`INSTRUCTION_FILES`]). Every
+/// other regular file -- including files nested inside subdirectories --
+/// becomes a base64-encoded `AgentAssetFile` resource with its directory-
+/// relative path preserved (using forward slashes regardless of platform).
+///
+/// Hidden entries (names starting with `.`) are skipped at every depth so a
+/// `.git` checkout or `.env` is never accidentally packaged.
+///
+/// Symlinks are rejected if their canonical target resolves outside the
+/// input directory. This prevents a `notes -> /etc/passwd` link from
+/// silently shipping its contents to the bundle.
+///
+/// The function also enforces the server-side AgentBundle size limits
+/// ([`MAX_BUNDLE_FILES`], [`MAX_INSTRUCTION_BYTES`], [`MAX_ASSET_BYTES`],
+/// [`MAX_BUNDLE_TOTAL_BYTES`]) up-front so an oversized directory fails locally
+/// with a clear error instead of being rejected after a long upload.
+pub fn package_agent_bundle(dir: &Path) -> Result<AgentBundleDraft> {
+    if !dir.is_dir() {
+        anyhow::bail!("'{}' is not a directory", dir.display());
+    }
+
+    // Canonicalize the root once; every nested file's canonical parent must
+    // start with this prefix, otherwise it is a symlink escape.
+    let root_canonical = dir
+        .canonicalize()
+        .with_context(|| format!("Could not canonicalize '{}'", dir.display()))?;
 
     // Walk the directory in sorted order so the resulting bundle is stable
     // across runs and platforms. The map is keyed by the bundle-relative
@@ -222,67 +300,24 @@ pub fn package_agent_directory(options: &DevAgentOptions) -> Result<AgentSpecDra
             dir.display()
         );
     }
+    let file_count = instructions.len() + assets.len();
+    if file_count > MAX_BUNDLE_FILES {
+        anyhow::bail!(
+            "Agent bundle contains {file_count} files, exceeding the limit of {MAX_BUNDLE_FILES}."
+        );
+    }
 
-    let bundle = seren::AgentBundle {
-        assets: assets.clone(),
-        instructions: instructions.clone(),
-    };
-
-    let workload = seren::WorkloadSpec {
-        compute_backend: None,
-        config: None,
-        execution: seren::WorkloadExecution::Llm {
-            adapter: None,
-            bundle,
-            fallback_models: None,
-            llm_connection: None,
-            model_config: None,
-            model_id: None,
-            requirements_txt,
-            tool_definitions: None,
+    let instruction_count = instructions.len();
+    let asset_count = assets.len();
+    Ok(AgentBundleDraft {
+        bundle: seren::AgentBundle {
+            assets,
+            instructions,
         },
-        external_databases: Vec::new(),
-        limits: None,
-        network_policy: None,
-        publisher_only: None,
-        requirements: None,
-        secrets: None,
-        side_effect_policy: None,
-    };
-
-    let spec = seren::AgentSpec {
-        agent_identity_id: None,
-        agent_slug: Some(agent_slug),
-        alert_policy: None,
-        allowed_remote_agent_origins: None,
-        approval_policy: None,
-        credentials: None,
-        cron_schedule: None,
-        cron_timezone: None,
-        dashboard_config: None,
-        eval_gate: None,
-        guardrails: None,
-        memory_policy: None,
-        capability_policy: None,
-        mode: seren::CloudDeploymentMode::AlwaysOn,
-        model_policy: None,
-        name: Some(display_name),
-        private_output_policy: None,
-        runtime_policy: None,
-        secret_resolution_result_id: None,
-        session_database: None,
-        template: None,
-        tool_presets: None,
-        tool_refs: None,
-        visibility: None,
-        workload,
-    };
-
-    Ok(AgentSpecDraft {
-        spec,
         directory: dir.to_path_buf(),
-        instruction_count: instructions.len(),
-        asset_count: assets.len(),
+        instruction_count,
+        asset_count,
+        requirements_txt,
     })
 }
 
@@ -1011,6 +1046,18 @@ mod tests {
             msg.contains("per-asset limit"),
             "error missing limit description: {msg}"
         );
+    }
+
+    #[test]
+    fn package_agent_bundle_rejects_too_many_files() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("SKILL.md"), "ok").unwrap();
+        for index in 0..MAX_BUNDLE_FILES {
+            std::fs::write(dir.path().join(format!("asset-{index}.txt")), "ok").unwrap();
+        }
+
+        let error = package_agent_bundle(dir.path()).unwrap_err();
+        assert!(error.to_string().contains("exceeding the limit of 256"));
     }
 
     #[test]

@@ -1480,13 +1480,22 @@ enum AgentAction {
         /// Mutation request ID (UUID)
         request_id: Uuid,
     },
-    /// Apply a targeted file patch to a managed deployment
+    /// Apply a targeted file patch or repository-built bundle to a managed deployment
     ManagedFiles {
         /// Deployment ID (UUID)
         deployment_id: Uuid,
         /// JSON body matching AgentBundlePatch
-        #[arg(long)]
-        body: String,
+        #[arg(long, required_unless_present = "path", conflicts_with = "path")]
+        body: Option<String>,
+        /// Agent repository directory to package, upload, and apply
+        #[arg(long, required_unless_present = "body", conflicts_with = "body")]
+        path: Option<String>,
+        /// Current active revision the repository bundle was approved against
+        #[arg(long, requires = "path")]
+        expected_active_revision_id: Option<Uuid>,
+        /// Fresh Seren Passwords result required by the deployment
+        #[arg(long, requires = "path")]
+        secret_resolution_result_id: Option<Uuid>,
     },
     /// Start human-authorized Seren Passwords setup for a managed agent
     ManagedPasswordsSetup {
@@ -8001,7 +8010,21 @@ async fn main() -> anyhow::Result<()> {
             AgentAction::ManagedFiles {
                 deployment_id,
                 body,
-            } => commands::agent::managed_agent_files(deployment_id, &body, &ctx).await?,
+                path,
+                expected_active_revision_id,
+                secret_resolution_result_id,
+            } => {
+                let input = match (body.as_deref(), path.as_deref()) {
+                    (Some(body), None) => commands::agent::ManagedAgentFilesInput::PatchJson(body),
+                    (None, Some(path)) => commands::agent::ManagedAgentFilesInput::Directory {
+                        path: std::path::Path::new(path),
+                        expected_active_revision_id,
+                        secret_resolution_result_id,
+                    },
+                    _ => anyhow::bail!("Provide exactly one of --body or --path."),
+                };
+                commands::agent::managed_agent_files(deployment_id, input, &ctx).await?
+            }
             AgentAction::ManagedPasswordsSetup {
                 deployment_id,
                 connector_binding_proposal_id,
@@ -8788,11 +8811,55 @@ mod tests {
                 AgentAction::ManagedFiles {
                     deployment_id: parsed_deployment_id,
                     body,
+                    path,
+                    expected_active_revision_id,
+                    secret_resolution_result_id,
                 } => {
                     assert_eq!(parsed_deployment_id.to_string(), deployment_id);
-                    assert_eq!(body, "{}");
+                    assert_eq!(body.as_deref(), Some("{}"));
+                    assert!(path.is_none());
+                    assert!(expected_active_revision_id.is_none());
+                    assert!(secret_resolution_result_id.is_none());
                 }
                 _ => panic!("unexpected managed file patch command"),
+            },
+            _ => panic!("unexpected command"),
+        }
+
+        let files = parse_cli_with_large_stack(vec![
+            "seren",
+            "agent",
+            "managed-files",
+            deployment_id,
+            "--path",
+            "./employee",
+            "--expected-active-revision-id",
+            request_id,
+            "--secret-resolution-result-id",
+            deployment_id,
+        ]);
+        match files.command {
+            Commands::Agent { action } => match *action {
+                AgentAction::ManagedFiles {
+                    deployment_id: parsed_deployment_id,
+                    body,
+                    path,
+                    expected_active_revision_id,
+                    secret_resolution_result_id,
+                } => {
+                    assert_eq!(parsed_deployment_id.to_string(), deployment_id);
+                    assert!(body.is_none());
+                    assert_eq!(path.as_deref(), Some("./employee"));
+                    assert_eq!(
+                        expected_active_revision_id.map(|id| id.to_string()),
+                        Some(request_id.to_string())
+                    );
+                    assert_eq!(
+                        secret_resolution_result_id.map(|id| id.to_string()),
+                        Some(deployment_id.to_string())
+                    );
+                }
+                _ => panic!("unexpected managed repository bundle command"),
             },
             _ => panic!("unexpected command"),
         }

@@ -2936,14 +2936,21 @@ async fn put_presigned_deployment_bundle(
     Ok(())
 }
 
-async fn ensure_cloud_deployment_bundle(client: &seren::Client, bundle: Vec<u8>) -> Result<Uuid> {
+async fn ensure_cloud_deployment_bundle(
+    client: &seren::Client,
+    bundle: Vec<u8>,
+    source_kind: seren::CloudDeploymentBundleSourceKind,
+) -> Result<Uuid> {
+    if bundle.is_empty() {
+        return Err(anyhow::anyhow!("Deployment bundle cannot be empty."));
+    }
     let sha256 = sha256_hex(&bundle);
     let size_bytes = i64::try_from(bundle.len())
         .map_err(|_| anyhow::anyhow!("Deployment bundle is too large."))?;
     let request = seren::CreateCloudDeploymentBundleRequest {
-        sha256,
+        sha256: sha256.clone(),
         size_bytes,
-        source_kind: seren::CloudDeploymentBundleSourceKind::TarGz,
+        source_kind,
     };
 
     let registration = match client.seren_cloud_create_deployment_bundle(&request).await {
@@ -2952,19 +2959,44 @@ async fn ensure_cloud_deployment_bundle(client: &seren::Client, bundle: Vec<u8>)
             return Err(anyhow_from_seren_error("Failed to register deployment bundle", e).await);
         }
     };
+    if registration.sha256 != sha256
+        || registration.size_bytes != size_bytes
+        || registration.source_kind != source_kind
+    {
+        return Err(anyhow::anyhow!(
+            "Deployment bundle registration did not match the requested bundle."
+        ));
+    }
 
     if registration.upload_required {
-        let upload_url = registration.upload_url.as_deref().ok_or_else(|| {
-            anyhow::anyhow!("Deployment bundle registration did not return an upload_url.")
-        })?;
+        let upload_url = registration
+            .upload_url
+            .as_deref()
+            .filter(|url| !url.trim().is_empty())
+            .ok_or_else(|| {
+                anyhow::anyhow!("Deployment bundle registration did not return an upload_url.")
+            })?;
         put_presigned_deployment_bundle(upload_url, &registration.upload_headers, bundle).await?;
-        if let Err(e) = client
+        let completed = match client
             .seren_cloud_complete_deployment_bundle_upload(&registration.deployment_bundle_id)
             .await
         {
-            return Err(
-                anyhow_from_seren_error("Failed to complete deployment bundle upload", e).await,
-            );
+            Ok(response) => response.into_inner().data,
+            Err(e) => {
+                return Err(anyhow_from_seren_error(
+                    "Failed to complete deployment bundle upload",
+                    e,
+                )
+                .await);
+            }
+        };
+        if completed.id != registration.deployment_bundle_id
+            || completed.source_kind != source_kind
+            || completed.uploaded_at.is_none()
+        {
+            return Err(anyhow::anyhow!(
+                "Completed deployment bundle did not match the uploaded bundle."
+            ));
         }
     }
 
@@ -4013,7 +4045,12 @@ pub async fn cloud_deploy(
     );
 
     let client = ctx.client().await?;
-    let deployment_bundle_id = ensure_cloud_deployment_bundle(&client, deployment_bundle).await?;
+    let deployment_bundle_id = ensure_cloud_deployment_bundle(
+        &client,
+        deployment_bundle,
+        seren::CloudDeploymentBundleSourceKind::TarGz,
+    )
+    .await?;
 
     let mut body = serde_json::Map::new();
     body.insert("name".to_string(), serde_json::json!(deploy_name));
@@ -4401,15 +4438,65 @@ pub async fn managed_agent_action(
     Ok(())
 }
 
-/// Apply a targeted file patch to a managed deployment.
+/// Source for a managed deployment file update.
+pub enum ManagedAgentFilesInput<'a> {
+    PatchJson(&'a str),
+    Directory {
+        path: &'a Path,
+        expected_active_revision_id: Option<Uuid>,
+        secret_resolution_result_id: Option<Uuid>,
+    },
+}
+
+/// Apply a targeted file patch or a repository-built bundle to a managed deployment.
 pub async fn managed_agent_files(
     deployment_id: Uuid,
-    body: &str,
+    input: ManagedAgentFilesInput<'_>,
     ctx: &CommandContext,
 ) -> Result<()> {
-    let patch: seren::AgentBundlePatch = serde_json::from_str(body)
-        .map_err(|error| anyhow::anyhow!("Invalid managed file patch JSON: {error}"))?;
+    let (mut patch, serialized_bundle) = match input {
+        ManagedAgentFilesInput::PatchJson(body) => (
+            serde_json::from_str(body)
+                .map_err(|error| anyhow::anyhow!("Invalid managed file patch JSON: {error}"))?,
+            None,
+        ),
+        ManagedAgentFilesInput::Directory {
+            path,
+            expected_active_revision_id,
+            secret_resolution_result_id,
+        } => {
+            let draft = crate::commands::agent_dev::package_agent_bundle(path)?;
+            if draft.requirements_txt.is_some() {
+                eprintln!(
+                    "{} requirements.txt is outside the AgentBundle contract and was not changed.",
+                    "Warning:".yellow()
+                );
+            }
+            let serialized = serde_json::to_vec(&draft.bundle)
+                .map_err(|error| anyhow::anyhow!("Failed to serialize agent bundle: {error}"))?;
+            (
+                seren::AgentBundlePatch {
+                    expected_active_revision_id,
+                    secret_resolution_result_id,
+                    ..Default::default()
+                },
+                Some((serialized, draft.instruction_count, draft.asset_count)),
+            )
+        }
+    };
     let client = ctx.client().await?;
+    if let Some((serialized_bundle, instruction_count, asset_count)) = serialized_bundle {
+        let deployment_bundle_id = ensure_cloud_deployment_bundle(
+            &client,
+            serialized_bundle,
+            seren::CloudDeploymentBundleSourceKind::AgentBundle,
+        )
+        .await?;
+        eprintln!(
+            "Agent bundle {deployment_bundle_id} is ready ({instruction_count} instruction files, {asset_count} assets)."
+        );
+        patch.deployment_bundle_id = Some(deployment_bundle_id);
+    }
     let request_id = Uuid::new_v4();
     let response = submit_managed_mutation(
         &client,
@@ -10961,6 +11048,202 @@ mod tests {
         }
 
         serde_json::json!({ "data": data })
+    }
+
+    #[tokio::test]
+    async fn agent_bundle_upload_uses_the_content_addressed_cloud_contract() {
+        use wiremock::matchers::{body_json, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let bundle_id = Uuid::from_u128(0xab20);
+        let bundle = serde_json::to_vec(&serde_json::json!({
+            "assets": [],
+            "instructions": [{
+                "content": "follow the skill",
+                "kind": "skill",
+                "path": "SKILL.md",
+            }],
+        }))
+        .expect("agent bundle fixture");
+        let sha256 = sha256_hex(&bundle);
+        let size_bytes = bundle.len() as i64;
+        let upload_url = format!("{}/upload/agent-bundle", proxy.uri());
+
+        Mock::given(method("POST"))
+            .and(path("/publishers/seren-cloud/deployment-bundles"))
+            .and(body_json(serde_json::json!({
+                "sha256": sha256,
+                "size_bytes": size_bytes,
+                "source_kind": "agent_bundle",
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "deployment_bundle_id": bundle_id,
+                    "sha256": sha256,
+                    "size_bytes": size_bytes,
+                    "source_kind": "agent_bundle",
+                    "upload_required": true,
+                    "upload_url": upload_url,
+                    "upload_headers": { "content-type": "application/json" },
+                }
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        Mock::given(method("PUT"))
+            .and(path("/upload/agent-bundle"))
+            .and(header("content-type", "application/json"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/publishers/seren-cloud/deployment-bundles/{bundle_id}/complete"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "id": bundle_id,
+                    "organization_id": Uuid::from_u128(0xab21),
+                    "user_id": Uuid::from_u128(0xab22),
+                    "sha256": sha256,
+                    "size_bytes": size_bytes,
+                    "source_kind": "agent_bundle",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z",
+                    "uploaded_at": "2026-01-01T00:00:00Z",
+                }
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let context = CommandContext::new(
+            Some(proxy.uri()),
+            Some("test-key".to_string()),
+            OutputFormat::Json,
+        );
+        let client = context.client().await.expect("test client");
+        let returned_id = ensure_cloud_deployment_bundle(
+            &client,
+            bundle.clone(),
+            seren::CloudDeploymentBundleSourceKind::AgentBundle,
+        )
+        .await
+        .expect("agent bundle should upload and complete");
+
+        assert_eq!(returned_id, bundle_id);
+        let requests = proxy.received_requests().await.expect("recorded requests");
+        assert_eq!(requests.len(), 3, "register, direct PUT, and complete");
+        let upload = requests
+            .iter()
+            .find(|request| request.method.as_str() == "PUT")
+            .expect("presigned upload request");
+        assert_eq!(upload.body, bundle);
+    }
+
+    #[tokio::test]
+    async fn agent_bundle_upload_skips_the_put_when_content_is_already_stored() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let bundle_id = Uuid::from_u128(0xab23);
+        let bundle = br#"{"assets":[],"instructions":[]}"#.to_vec();
+        let sha256 = sha256_hex(&bundle);
+
+        Mock::given(method("POST"))
+            .and(path("/publishers/seren-cloud/deployment-bundles"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "deployment_bundle_id": bundle_id,
+                    "sha256": sha256,
+                    "size_bytes": bundle.len(),
+                    "source_kind": "agent_bundle",
+                    "upload_required": false,
+                    "upload_headers": {},
+                }
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let context = CommandContext::new(
+            Some(proxy.uri()),
+            Some("test-key".to_string()),
+            OutputFormat::Json,
+        );
+        let client = context.client().await.expect("test client");
+        let returned_id = ensure_cloud_deployment_bundle(
+            &client,
+            bundle,
+            seren::CloudDeploymentBundleSourceKind::AgentBundle,
+        )
+        .await
+        .expect("stored content resolves to its existing bundle id");
+
+        assert_eq!(returned_id, bundle_id);
+        assert_eq!(
+            proxy
+                .received_requests()
+                .await
+                .expect("recorded requests")
+                .len(),
+            1,
+            "no upload or completion may follow a stored registration"
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_bundle_upload_rejects_a_registration_for_other_content() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let proxy = MockServer::start().await;
+        let bundle = br#"{"assets":[],"instructions":[]}"#.to_vec();
+
+        Mock::given(method("POST"))
+            .and(path("/publishers/seren-cloud/deployment-bundles"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "deployment_bundle_id": Uuid::from_u128(0xab24),
+                    "sha256": sha256_hex(b"other content"),
+                    "size_bytes": bundle.len(),
+                    "source_kind": "agent_bundle",
+                    "upload_required": true,
+                    "upload_url": format!("{}/upload/other", proxy.uri()),
+                    "upload_headers": {},
+                }
+            })))
+            .expect(1)
+            .mount(&proxy)
+            .await;
+
+        let context = CommandContext::new(
+            Some(proxy.uri()),
+            Some("test-key".to_string()),
+            OutputFormat::Json,
+        );
+        let client = context.client().await.expect("test client");
+        let error = ensure_cloud_deployment_bundle(
+            &client,
+            bundle,
+            seren::CloudDeploymentBundleSourceKind::AgentBundle,
+        )
+        .await
+        .expect_err("a registration for different content must not be uploaded to");
+
+        assert!(error.to_string().contains("did not match"));
+        assert_eq!(
+            proxy
+                .received_requests()
+                .await
+                .expect("recorded requests")
+                .len(),
+            1,
+            "no bytes may be sent to a presigned URL for other content"
+        );
     }
 
     #[tokio::test]

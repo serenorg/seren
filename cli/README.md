@@ -400,6 +400,9 @@ seren agent deploy-prompt \
 seren agent managed-get <deployment-id>
 seren agent managed-revisions <deployment-id>
 
+# Package a repository and replace the deployment's instruction and asset bundle
+seren agent managed-files <deployment-id> --path ./employee
+
 # Attach Seren Passwords fields through the human-authorized setup flow
 seren agent managed-passwords-setup <deployment-id>
 seren agent managed-passwords-status <setup-id>
